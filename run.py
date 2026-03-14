@@ -1,7 +1,8 @@
 """CLI entry point for the vlog pipeline (Dagster-orchestrated).
 
 Each command materializes Dagster assets. The WorkspaceIOManager auto-skips
-stages whose output files already exist. Use `dg dev` for the web UI.
+stages whose output files already exist. Use `dagster-webserver -m pipeline.definitions`
+for the web UI.
 """
 
 from __future__ import annotations
@@ -17,16 +18,15 @@ def _workspace(ctx: click.Context) -> str:
 
 
 def _materialize(workspace: str, selection=None, run_config=None):
-    """Materialize assets with the workspace IOManager."""
-    from pipeline.definitions import defs
+    """Materialize assets with the given workspace path."""
+    from pipeline.definitions import (
+        manifest, preprocessed, analysis, edl, vlog_video,
+        WorkspaceIOManager,
+    )
 
-    # Override workspace path in IOManager
-    resources = {"io_manager": defs.resources["io_manager"]._replace(workspace=workspace)}
-
-    assets = list(defs.assets)
     result = dg.materialize(
-        assets,
-        resources=resources,
+        [manifest, preprocessed, analysis, edl, vlog_video],
+        resources={"io_manager": WorkspaceIOManager(workspace=workspace)},
         selection=selection,
         run_config=run_config,
     )
@@ -135,10 +135,12 @@ def iterate(ctx, feedback, rounds, style):
     """Improve the vlog via self-critique or human feedback."""
     from pipeline.definitions import IterateConfig, iterate_job
 
+    ws = _workspace(ctx)
     iterate_job.execute_in_process(
         run_config=dg.RunConfig(
             ops={
                 "iterate_op": IterateConfig(
+                    workspace=ws,
                     style=style,
                     max_rounds=rounds,
                     feedback=feedback,

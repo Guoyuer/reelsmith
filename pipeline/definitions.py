@@ -3,6 +3,10 @@
 Each pipeline stage is a Dagster asset. The WorkspaceIOManager checks if output
 files exist and auto-skips completed stages. Re-materialize any asset from the
 Dagster UI to force re-run it + all downstream dependencies.
+
+Workspace path is configurable:
+- CLI: python run.py -w ./workspace/singapore auto ...
+- UI:  Set resources > io_manager > workspace in the Launchpad
 """
 
 from pathlib import Path
@@ -19,9 +23,11 @@ from .config import Config
 class WorkspaceIOManager(dg.ConfigurableIOManager):
     """IOManager that checks if pipeline output files exist.
 
-    - has_output(): returns True if the stage's file exists → Dagster skips it
+    - has_output(): returns True if the stage's file exists -> Dagster skips it
     - handle_output(): no-op (stages write their own files to workspace)
     - load_input(): returns the file path as a string for downstream assets
+
+    Set 'workspace' in the Launchpad to target a different directory per run.
     """
 
     workspace: str = "./workspace"
@@ -49,8 +55,7 @@ class WorkspaceIOManager(dg.ConfigurableIOManager):
         return path.exists() if path else False
 
     def handle_output(self, context: dg.OutputContext, obj: object) -> None:
-        # Stages write their own files — nothing to do here
-        pass
+        pass  # stages write their own files
 
     def load_input(self, context: dg.InputContext) -> str:
         key = context.upstream_output.asset_key.path[-1]
@@ -67,8 +72,8 @@ class WorkspaceIOManager(dg.ConfigurableIOManager):
 # ---------------------------------------------------------------------------
 
 class FetchConfig(dg.Config):
-    from_date: str
-    to_date: str
+    from_date: str = ""
+    to_date: str = ""
     country: str | None = None
     first_level: str | None = None
     district: str | None = None
@@ -91,9 +96,18 @@ class AssembleConfig(dg.Config):
 
 
 class IterateConfig(dg.Config):
+    workspace: str = "./workspace"
     style: str = "upbeat"
     max_rounds: int = 2
     feedback: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Helper: get workspace path from asset context
+# ---------------------------------------------------------------------------
+
+def _ws(context: dg.AssetExecutionContext) -> str:
+    return context.resources.io_manager.workspace
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +125,13 @@ def manifest(
     """Stage 1: Download media from Synology Photos."""
     from .fetch import fetch as do_fetch
 
-    cfg = Config.load(context.resources.io_manager.workspace)
+    if not config.from_date or not config.to_date:
+        raise dg.Failure(
+            description="fetch requires from_date and to_date. "
+            "Use the 'auto' CLI command or provide dates in the Launchpad config."
+        )
+
+    cfg = Config.load(_ws(context))
     items = do_fetch(
         cfg,
         from_date=config.from_date,
@@ -138,7 +158,7 @@ def preprocessed(
     """Stage 2: Tier items, cluster duplicates, build timeline."""
     from .preprocess import preprocess as do_preprocess
 
-    cfg = Config.load(context.resources.io_manager.workspace)
+    cfg = Config.load(_ws(context))
     result = do_preprocess(cfg, family_names=config.family_names)
     context.log.info(
         f"Preprocessed: {result['selected_items']}/{result['total_items']} items, "
@@ -159,7 +179,7 @@ def analysis(
     """Stage 3: Analyze media with vision model (llava:7b)."""
     from .analyze import analyze as do_analyze
 
-    cfg = Config.load(context.resources.io_manager.workspace)
+    cfg = Config.load(_ws(context))
 
     def on_progress(current: int, total: int, filename: str) -> None:
         if current % max(total // 20, 1) == 0 or current == total:
@@ -185,7 +205,7 @@ def edl(
     """Stage 4: Generate edit decision list using local LLM."""
     from .plan import plan as do_plan
 
-    cfg = Config.load(context.resources.io_manager.workspace)
+    cfg = Config.load(_ws(context))
     result = do_plan(
         cfg,
         style=config.style,
@@ -212,7 +232,7 @@ def vlog_video(
     """Stage 5: Render vlog from EDL via FFmpeg."""
     from .assemble import assemble as do_assemble
 
-    cfg = Config.load(context.resources.io_manager.workspace)
+    cfg = Config.load(_ws(context))
 
     def on_progress(current: int, total: int, clip_name: str) -> None:
         if current % max(total // 10, 1) == 0 or current == total:
@@ -243,7 +263,7 @@ def iterate_op(config: IterateConfig) -> None:
     """Self-critique or apply feedback, then re-render."""
     from .iterate import apply_feedback, self_critique
 
-    cfg = Config.load()
+    cfg = Config.load(config.workspace)
     if config.feedback:
         apply_feedback(cfg, config.feedback)
     else:
