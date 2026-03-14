@@ -1,8 +1,8 @@
 """Dagster asset definitions for the vlog pipeline.
 
-Each pipeline stage is a Dagster asset. The WorkspaceIOManager checks if output
-files exist and auto-skips completed stages. Re-materialize any asset from the
-Dagster UI to force re-run it + all downstream dependencies.
+Each pipeline stage is a Dagster asset. Assets auto-skip when their output
+file already exists (unless force=True in config). Re-materialize any asset
+from the Dagster UI to force re-run it + all downstream dependencies.
 
 Workspace path is configurable:
 - CLI: python run.py -w ./workspace/singapore auto ...
@@ -17,14 +17,22 @@ from .config import Config
 
 
 # ---------------------------------------------------------------------------
-# IOManager — file-existence-based skip/resume
+# IOManager — workspace-aware file path passing
 # ---------------------------------------------------------------------------
 
-class WorkspaceIOManager(dg.ConfigurableIOManager):
-    """IOManager that checks if pipeline output files exist.
+OUTPUT_FILES: dict[str, str | None] = {
+    "manifest": "manifest.json",
+    "preprocessed": "preprocessed.json",
+    "analysis": "analysis.json",
+    "edl": "edl.json",
+    "vlog_video": None,
+}
 
-    - has_output(): returns True if the stage's file exists -> Dagster skips it
-    - handle_output(): no-op (stages write their own files to workspace)
+
+class WorkspaceIOManager(dg.ConfigurableIOManager):
+    """IOManager for the vlog pipeline.
+
+    - handle_output(): no-op (stages write their own files)
     - load_input(): returns the file path as a string for downstream assets
 
     Set 'workspace' in the Launchpad to target a different directory per run.
@@ -32,39 +40,31 @@ class WorkspaceIOManager(dg.ConfigurableIOManager):
 
     workspace: str = "./workspace"
 
-    _OUTPUT_FILES: dict[str, str | None] = {
-        "manifest": "manifest.json",
-        "preprocessed": "preprocessed.json",
-        "analysis": "analysis.json",
-        "edl": "edl.json",
-        "vlog_video": None,  # special: glob for vlog_v*.mp4
-    }
-
-    def _path_for(self, key: str) -> Path | None:
-        filename = self._OUTPUT_FILES.get(key)
-        if filename:
-            return Path(self.workspace) / filename
-        return None
-
-    def has_output(self, context: dg.OutputContext) -> bool:
-        key = context.asset_key.path[-1]
-        if key == "vlog_video":
-            output_dir = Path(self.workspace) / "output"
-            return output_dir.exists() and any(output_dir.glob("vlog_v*.mp4"))
-        path = self._path_for(key)
-        return path.exists() if path else False
-
     def handle_output(self, context: dg.OutputContext, obj: object) -> None:
         pass  # stages write their own files
 
     def load_input(self, context: dg.InputContext) -> str:
         key = context.upstream_output.asset_key.path[-1]
-        path = self._path_for(key)
-        if path and path.exists():
-            return str(path)
+        filename = OUTPUT_FILES.get(key)
+        if filename:
+            path = Path(self.workspace) / filename
+            if path.exists():
+                return str(path)
         raise FileNotFoundError(
-            f"Expected output for '{key}' at {path} but file does not exist"
+            f"Expected output for '{key}' at {self.workspace}/{filename}"
         )
+
+
+def _output_exists(workspace: str, asset_name: str) -> bool:
+    """Check if an asset's output file exists."""
+    ws = Path(workspace)
+    if asset_name == "vlog_video":
+        output_dir = ws / "output"
+        return output_dir.exists() and any(output_dir.glob("vlog_v*.mp4"))
+    filename = OUTPUT_FILES.get(asset_name)
+    if filename:
+        return (ws / filename).exists()
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -79,20 +79,28 @@ class FetchConfig(dg.Config):
     district: str | None = None
     person_ids: list[int] | None = None
     item_types: list[int] | None = None
+    force: bool = False
 
 
 class PreprocessConfig(dg.Config):
     family_names: list[str] | None = None
+    force: bool = False
+
+
+class AnalyzeConfig(dg.Config):
+    force: bool = False
 
 
 class PlanConfig(dg.Config):
     style: str = "upbeat"
     target_duration: int = 180
     focus: str = "happiness with family"
+    force: bool = False
 
 
 class AssembleConfig(dg.Config):
     version: int = 1
+    force: bool = False
 
 
 class IterateConfig(dg.Config):
@@ -103,7 +111,7 @@ class IterateConfig(dg.Config):
 
 
 # ---------------------------------------------------------------------------
-# Helper: get workspace path from asset context
+# Helper
 # ---------------------------------------------------------------------------
 
 def _ws(context: dg.AssetExecutionContext) -> str:
@@ -123,15 +131,21 @@ def manifest(
     config: FetchConfig,
 ) -> str:
     """Stage 1: Download media from Synology Photos."""
-    from .fetch import fetch as do_fetch
+    ws = _ws(context)
+    out = str(Path(ws) / "manifest.json")
+
+    if not config.force and _output_exists(ws, "manifest"):
+        context.log.info("Skipping fetch — manifest.json exists")
+        return out
 
     if not config.from_date or not config.to_date:
         raise dg.Failure(
             description="fetch requires from_date and to_date. "
-            "Use the 'auto' CLI command or provide dates in the Launchpad config."
+            "Use the 'auto' CLI command or set them in the Launchpad."
         )
 
-    cfg = Config.load(_ws(context))
+    from .fetch import fetch as do_fetch
+    cfg = Config.load(ws)
     items = do_fetch(
         cfg,
         from_date=config.from_date,
@@ -143,7 +157,7 @@ def manifest(
         item_types=config.item_types,
     )
     context.log.info(f"Fetched {len(items)} items")
-    return str(cfg.workspace / "manifest.json")
+    return out
 
 
 @dg.asset(
@@ -156,15 +170,21 @@ def preprocessed(
     config: PreprocessConfig,
 ) -> str:
     """Stage 2: Tier items, cluster duplicates, build timeline."""
-    from .preprocess import preprocess as do_preprocess
+    ws = _ws(context)
+    out = str(Path(ws) / "preprocessed.json")
 
-    cfg = Config.load(_ws(context))
+    if not config.force and _output_exists(ws, "preprocessed"):
+        context.log.info("Skipping preprocess — preprocessed.json exists")
+        return out
+
+    from .preprocess import preprocess as do_preprocess
+    cfg = Config.load(ws)
     result = do_preprocess(cfg, family_names=config.family_names)
     context.log.info(
         f"Preprocessed: {result['selected_items']}/{result['total_items']} items, "
         f"tiers: {result['tier_counts']}"
     )
-    return str(cfg.workspace / "preprocessed.json")
+    return out
 
 
 @dg.asset(
@@ -175,11 +195,18 @@ def preprocessed(
 def analysis(
     context: dg.AssetExecutionContext,
     preprocessed: str,
+    config: AnalyzeConfig,
 ) -> str:
     """Stage 3: Analyze media with vision model (llava:7b)."""
-    from .analyze import analyze as do_analyze
+    ws = _ws(context)
+    out = str(Path(ws) / "analysis.json")
 
-    cfg = Config.load(_ws(context))
+    if not config.force and _output_exists(ws, "analysis"):
+        context.log.info("Skipping analyze — analysis.json exists")
+        return out
+
+    from .analyze import analyze as do_analyze
+    cfg = Config.load(ws)
 
     def on_progress(current: int, total: int, filename: str) -> None:
         if current % max(total // 20, 1) == 0 or current == total:
@@ -188,7 +215,7 @@ def analysis(
     results = do_analyze(cfg, progress_callback=on_progress)
     ok = sum(1 for r in results if r.get("vision"))
     context.log.info(f"Analysis complete: {ok}/{len(results)} with vision results")
-    return str(cfg.workspace / "analysis.json")
+    return out
 
 
 @dg.asset(
@@ -203,9 +230,15 @@ def edl(
     config: PlanConfig,
 ) -> str:
     """Stage 4: Generate edit decision list using local LLM."""
-    from .plan import plan as do_plan
+    ws = _ws(context)
+    out = str(Path(ws) / "edl.json")
 
-    cfg = Config.load(_ws(context))
+    if not config.force and _output_exists(ws, "edl"):
+        context.log.info("Skipping plan — edl.json exists")
+        return out
+
+    from .plan import plan as do_plan
+    cfg = Config.load(ws)
     result = do_plan(
         cfg,
         style=config.style,
@@ -217,7 +250,7 @@ def edl(
         f"{len(result.all_items())} items, "
         f"~{result.estimated_duration():.0f}s"
     )
-    return str(cfg.workspace / "edl.json")
+    return out
 
 
 @dg.asset(
@@ -230,9 +263,16 @@ def vlog_video(
     config: AssembleConfig,
 ) -> dg.MaterializeResult:
     """Stage 5: Render vlog from EDL via FFmpeg."""
-    from .assemble import assemble as do_assemble
+    ws = _ws(context)
 
-    cfg = Config.load(_ws(context))
+    if not config.force and _output_exists(ws, "vlog_video"):
+        context.log.info("Skipping assemble — vlog already exists")
+        return dg.MaterializeResult(
+            metadata={"path": dg.MetadataValue.text("(skipped)"), "version": dg.MetadataValue.int(0)}
+        )
+
+    from .assemble import assemble as do_assemble
+    cfg = Config.load(ws)
 
     def on_progress(current: int, total: int, clip_name: str) -> None:
         if current % max(total // 10, 1) == 0 or current == total:
@@ -284,6 +324,11 @@ full_pipeline = dg.define_asset_job(
     selection=dg.AssetSelection.groups("vlog"),
 )
 
+from_plan = dg.define_asset_job(
+    name="from_plan",
+    selection=dg.AssetSelection.assets("edl", "vlog_video"),
+)
+
 
 # ---------------------------------------------------------------------------
 # Definitions — entry point for Dagster
@@ -291,7 +336,7 @@ full_pipeline = dg.define_asset_job(
 
 defs = dg.Definitions(
     assets=[manifest, preprocessed, analysis, edl, vlog_video],
-    jobs=[full_pipeline, iterate_job],
+    jobs=[full_pipeline, from_plan, iterate_job],
     resources={
         "io_manager": WorkspaceIOManager(workspace="./workspace"),
     },

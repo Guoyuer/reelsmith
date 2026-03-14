@@ -22,38 +22,27 @@ def _make_workspace(tmp_path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 class TestWorkspaceIOManager:
-    def test_has_output_true_when_file_exists(self, tmp_path):
-        from pipeline.definitions import WorkspaceIOManager
+    def test_output_exists_true_when_file_exists(self, tmp_path):
+        from pipeline.definitions import _output_exists
 
         ws = _make_workspace(tmp_path)
         (tmp_path / "manifest.json").write_text("[]")
+        assert _output_exists(ws, "manifest") is True
 
-        mgr = WorkspaceIOManager(workspace=ws)
-        ctx = MagicMock()
-        ctx.asset_key.path = ["manifest"]
-        assert mgr.has_output(ctx) is True
-
-    def test_has_output_false_when_file_missing(self, tmp_path):
-        from pipeline.definitions import WorkspaceIOManager
+    def test_output_exists_false_when_file_missing(self, tmp_path):
+        from pipeline.definitions import _output_exists
 
         ws = _make_workspace(tmp_path)
-        mgr = WorkspaceIOManager(workspace=ws)
-        ctx = MagicMock()
-        ctx.asset_key.path = ["manifest"]
-        assert mgr.has_output(ctx) is False
+        assert _output_exists(ws, "manifest") is False
 
-    def test_has_output_vlog_video_glob(self, tmp_path):
-        from pipeline.definitions import WorkspaceIOManager
+    def test_output_exists_vlog_video_glob(self, tmp_path):
+        from pipeline.definitions import _output_exists
 
         ws = _make_workspace(tmp_path)
-        mgr = WorkspaceIOManager(workspace=ws)
-        ctx = MagicMock()
-        ctx.asset_key.path = ["vlog_video"]
-
-        assert mgr.has_output(ctx) is False
+        assert _output_exists(ws, "vlog_video") is False
 
         (tmp_path / "output" / "vlog_v1.mp4").write_text("fake")
-        assert mgr.has_output(ctx) is True
+        assert _output_exists(ws, "vlog_video") is True
 
     def test_load_input_returns_path(self, tmp_path):
         from pipeline.definitions import WorkspaceIOManager

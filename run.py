@@ -1,7 +1,7 @@
 """CLI entry point for the vlog pipeline (Dagster-orchestrated).
 
-Each command materializes Dagster assets. The WorkspaceIOManager auto-skips
-stages whose output files already exist. Use `dagster-webserver -m pipeline.definitions`
+Each command materializes Dagster assets. Assets auto-skip when their output
+file exists (unless force=True). Use `dagster-webserver -m pipeline.definitions`
 for the web UI.
 """
 
@@ -78,6 +78,7 @@ def auto(ctx, from_date, to_date, country, first_level, district, person_ids,
                     from_date=from_date, to_date=to_date,
                     country=country, first_level=first_level, district=district,
                     person_ids=person_id_list, item_types=type_list,
+                    force=True,
                 ),
                 "edl": PlanConfig(style=style, target_duration=duration, focus=focus),
             },
@@ -92,13 +93,16 @@ def auto(ctx, from_date, to_date, country, first_level, district, person_ids,
 @click.pass_context
 def plan(ctx, style, duration, focus):
     """Force re-plan + re-assemble (downstream)."""
-    from pipeline.definitions import PlanConfig
+    from pipeline.definitions import PlanConfig, AssembleConfig
 
     _materialize(
         _workspace(ctx),
         selection=["edl", "vlog_video"],
         run_config=dg.RunConfig(
-            ops={"edl": PlanConfig(style=style, target_duration=duration, focus=focus)},
+            ops={
+                "edl": PlanConfig(style=style, target_duration=duration, focus=focus, force=True),
+                "vlog_video": AssembleConfig(force=True),
+            },
         ),
     )
 
@@ -121,7 +125,7 @@ def assemble(ctx, version):
         ws,
         selection=["vlog_video"],
         run_config=dg.RunConfig(
-            ops={"vlog_video": AssembleConfig(version=version)},
+            ops={"vlog_video": AssembleConfig(version=version, force=True)},
         ),
     )
 
