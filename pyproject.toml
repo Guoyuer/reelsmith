@@ -9,10 +9,17 @@ dependencies = [
     "click>=8.0",
     "Pillow>=10.0",
     "python-dotenv>=1.0",
+    "tqdm>=4.60",
 ]
 
 [project.optional-dependencies]
 whisper = ["mlx-whisper>=0.4"]
+test = ["pytest>=8.0"]
 
 [project.scripts]
 vlog = "run:cli"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests requiring FFmpeg and real media rendering",
+]
