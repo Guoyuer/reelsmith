@@ -8,6 +8,7 @@ from pathlib import Path
 from .config import Config
 from .edl import EDL
 from .llm import ollama_chat
+from .media_utils import strip_markdown_fences
 
 SYSTEM_PROMPT = """\
 You are a travel vlog editor creating a highlight reel of a family trip.
@@ -96,9 +97,7 @@ Select ~{target_duration // 4} items total. Pick the warmest, happiest moments."
 
     content = ollama_chat(cfg, system=SYSTEM_PROMPT, prompt=user_message)
 
-    content = content.strip()
-    if content.startswith("```"):
-        content = content.split("\n", 1)[1].rsplit("```", 1)[0]
+    content = strip_markdown_fences(content)
 
     edl = EDL.model_validate_json(content)
     edl_path.write_text(edl.model_dump_json(indent=2))

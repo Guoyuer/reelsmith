@@ -42,7 +42,7 @@ flowchart LR
 flowchart TD
     subgraph "Stage 1: Fetch"
         F1[Synology Photos API<br/>localhost:8000] -->|POST /api/collect| F2[Query by date range<br/>+ optional filters]
-        F2 -->|GET /api/media/id| F3[Download photos/videos<br/>to workspace/raw/]
+        F2 -->|GET /api/media/id| F3[Download photos/videos<br/>to workspace/media/]
         F3 --> F4[manifest.json<br/>539 items with metadata]
     end
 

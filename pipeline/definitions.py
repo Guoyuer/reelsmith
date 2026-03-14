@@ -47,7 +47,7 @@ class WorkspaceIOManager(dg.ConfigurableIOManager):
 
     @property
     def workspace_path(self) -> str:
-        return str(Path(self.base_dir) / "runs" / self.run_name)
+        return Config.run_workspace(self.base_dir, self.run_name)
 
     def handle_output(self, context: dg.OutputContext, obj: object) -> None:
         pass  # stages write their own files
@@ -110,17 +110,18 @@ class PlanConfig(dg.Config):
 class AssembleConfig(dg.Config):
     version: int = 1
     force: bool = False
+    skip_broken: bool = False
 
 
 class IterateConfig(dg.Config):
-    workspace: str = "./workspace/runs/default"
+    workspace: str = Config.run_workspace()
     style: str = "upbeat"
     max_rounds: int = 2
     feedback: str | None = None
 
 
 class VariationsConfig(dg.Config):
-    workspace: str = "./workspace/runs/default"
+    workspace: str = Config.run_workspace()
     styles: str = "energetic,reflective,cinematic"
 
 
@@ -294,6 +295,7 @@ def vlog_video(
 
     output_path = do_assemble(
         cfg, version=config.version, progress_callback=on_progress,
+        skip_broken=config.skip_broken,
     )
     context.log.info(f"Assembled: {output_path}")
 

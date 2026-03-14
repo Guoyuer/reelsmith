@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx
 
 from .config import Config
+from .media_utils import strip_markdown_fences
 
 
 def ollama_chat(
@@ -62,7 +63,5 @@ def ollama_json(
         images=images, temperature=0.1,
     )
     # Strip markdown code fences if present
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+    text = strip_markdown_fences(text)
     return json.loads(text)

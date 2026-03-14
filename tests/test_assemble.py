@@ -130,7 +130,8 @@ class TestHeicConversion:
             display_duration=3.0,
         )
 
-        with patch("pipeline.assemble.subprocess.run", side_effect=mock_run):
+        with patch("pipeline.assemble.subprocess.run", side_effect=mock_run), \
+             patch("pipeline.media_utils.subprocess.run", side_effect=mock_run):
             _render_photo(item, out_file, 3840, 2160, 60)
 
         sips_calls = [c for c in calls if c[0] == "sips"]

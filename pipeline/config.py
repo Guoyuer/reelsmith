@@ -19,6 +19,11 @@ class Config:
     cache_dir: Path = Path("./workspace/analysis_cache")
     keyframes_dir: Path = Path("./workspace/keyframes")
 
+    @staticmethod
+    def run_workspace(base_dir: str = "./workspace", run_name: str = "default") -> str:
+        """Canonical path for a run's workspace directory."""
+        return str(Path(base_dir) / "runs" / run_name)
+
     @classmethod
     def load(cls, workspace: str | None = None) -> Config:
         load_dotenv()

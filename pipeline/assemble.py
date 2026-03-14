@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 from .config import Config
 from .edl import EDL, EditItem, Segment
+from .media_utils import convert_heic, _zoompan_filter, _portrait_bg_filter
 
 
 # ---------------------------------------------------------------------------
@@ -59,20 +60,14 @@ def _build_portrait_photo_filter(
 
 def _build_portrait_video_filter(out_w: int, out_h: int) -> str:
     """Build FFmpeg filter_complex for portrait videos: blurred BG + sharp FG (no black bars)."""
-    return (
-        f"[0:v]split[bg][fg];"
-        f"[bg]scale={out_w}:-1:force_original_aspect_ratio=increase,"
-        f"crop={out_w}:{out_h},gblur=sigma=30[blurred];"
-        f"[fg]scale=-1:{out_h}[sharp];"
-        f"[blurred][sharp]overlay=(W-w)/2:(H-h)/2"
-    )
+    return _portrait_bg_filter(out_w, out_h)
 
 
 # ---------------------------------------------------------------------------
 # Main assemble entry point
 # ---------------------------------------------------------------------------
 
-def assemble(cfg: Config, *, version: int = 1, progress_callback=None) -> Path:
+def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_broken: bool = False) -> Path:
     """Read edl.json and render the final vlog video."""
     cfg.ensure_dirs()
     edl_path = cfg.workspace / "edl.json"
@@ -87,6 +82,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None) -> Path:
 
     # Phase 1: Render each item as a normalized clip
     all_clips: list[dict] = []  # {"path": Path, "duration": float, "transition": str, "transition_duration": float}
+    failed_clips: list[str] = []
     total_items = sum(len(seg.items) for seg in edl.segments)
     pbar = tqdm(total=total_items, desc="Rendering clips", unit="clip",
                 bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
@@ -100,6 +96,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None) -> Path:
                 source = Path(item.source_file)
                 if not source.exists():
                     pbar.write(f"  SKIP (missing): {item.source_file}")
+                    failed_clips.append(clip_name)
                     pbar.update(1)
                     continue
 
@@ -110,6 +107,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None) -> Path:
                     _render_video(item, clip_path, w, h, fps)
 
             if not clip_path.exists():
+                failed_clips.append(clip_name)
                 pbar.update(1)
                 continue
 
@@ -122,6 +120,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None) -> Path:
                         item.text_overlay.text,
                         item.text_overlay.position,
                         item.text_overlay.font_size,
+                        clip_duration=item.display_duration,
                     )
                 if overlaid.exists():
                     clip_path = overlaid
@@ -145,6 +144,9 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None) -> Path:
                 progress_callback(pbar.n, total_items, clip_name)
 
     pbar.close()
+
+    if failed_clips and not skip_broken:
+        raise RuntimeError(f"Failed to render {len(failed_clips)} clips: {', '.join(failed_clips)}")
 
     if not all_clips:
         raise RuntimeError("No clips rendered — check source files in EDL")
@@ -172,18 +174,10 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
     source = Path(item.source_file)
 
     # Convert HEIC to JPEG first — FFmpeg can't use HEIC with -loop 1
-    # Use sips (macOS) — FFmpeg decodes HEIC grid tiles as 512x512
     if source.suffix.lower() in {".heic", ".heif"}:
-        jpeg_source = source.parent / f"_render_{source.stem}.jpg"
-        if not jpeg_source.exists():
-            subprocess.run(
-                ["sips", "-s", "format", "jpeg",
-                 str(source), "--out", str(jpeg_source)],
-                capture_output=True,
-            )
-        if jpeg_source.exists():
-            source = jpeg_source
-        else:
+        try:
+            source = convert_heic(source)
+        except RuntimeError:
             print(f"    HEIC convert failed: {item.source_file}")
             return
 
@@ -208,22 +202,15 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
         ]
     else:
         # Landscape: existing Ken Burns zoompan (works well)
-        effects = {
-            "ken_burns_in": f"zoompan=z='min(zoom+{zoom_rate:.6f},1.3)':d={frames}"
-                            f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-                            f":s={w}x{h}:fps={fps}",
-            "ken_burns_out": f"zoompan=z='if(eq(on,1),1.3,max(zoom-{zoom_rate:.6f},1.0))':d={frames}"
-                             f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-                             f":s={w}x{h}:fps={fps}",
-            "ken_burns_left": f"zoompan=z='1.15':d={frames}"
-                              f":x='(iw-iw/zoom)*on/{frames}':y='ih/2-(ih/zoom/2)'"
-                              f":s={w}x{h}:fps={fps}",
-            "ken_burns_right": f"zoompan=z='1.15':d={frames}"
-                               f":x='(iw-iw/zoom)*(1-on/{frames})':y='ih/2-(ih/zoom/2)'"
-                               f":s={w}x{h}:fps={fps}",
-            "static": f"zoompan=z='1':d={frames}:s={w}x{h}:fps={fps}",
+        direction_map = {
+            "ken_burns_in": "in",
+            "ken_burns_out": "out",
+            "ken_burns_left": "left",
+            "ken_burns_right": "right",
+            "static": "static",
         }
-        zp = effects.get(item.effect, effects["ken_burns_in"])
+        direction = direction_map.get(item.effect, "in")
+        zp = _zoompan_filter(zoom_rate, frames, w, h, fps, direction=direction)
 
         cmd = [
             "ffmpeg", "-y", "-loop", "1", "-i", str(source),
@@ -257,7 +244,7 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
 
     if portrait:
         # Portrait: blurred background + sharp foreground (no black bars)
-        fc = _build_portrait_video_filter(w, h)
+        fc = _portrait_bg_filter(w, h)
         cmd += [
             "-filter_complex", fc,
             "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
@@ -284,6 +271,7 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
 def _add_text_overlay(
     input_path: Path, output_path: Path,
     text: str, position: str, font_size: int,
+    clip_duration: float = 4.0,
 ) -> None:
     """Burn a text overlay onto a clip."""
     y_positions = {"top": "50", "center": "(h-text_h)/2", "bottom": "h-text_h-60"}
@@ -292,11 +280,12 @@ def _add_text_overlay(
     # Escape special characters for drawtext
     safe_text = text.replace("'", "\u2019").replace(":", "\\:")
 
+    end_time = min(clip_duration - 0.5, 3.0)
     vf = (
         f"drawtext=text='{safe_text}':fontsize={font_size}:fontcolor=white"
         f":borderw=2:bordercolor=black"
         f":x=(w-text_w)/2:y={y_expr}"
-        f":enable='between(t,0.5,{3.0})'"
+        f":enable='between(t,0.5,{end_time:.1f})'"
     )
     cmd = [
         "ffmpeg", "-y", "-i", str(input_path),

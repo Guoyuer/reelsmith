@@ -10,6 +10,7 @@ from .assemble import assemble, _probe_duration
 from .config import Config
 from .edl import EDL
 from .llm import ollama_chat
+from .media_utils import extract_frames, strip_markdown_fences
 
 CRITIQUE_PROMPT = """\
 You are reviewing a vlog you edited. Here are evenly-spaced frames from the
@@ -85,9 +86,7 @@ def self_critique(cfg: Config, *, style: str = "upbeat", max_rounds: int = 2) ->
             images=frames,
         )
 
-        content = content.strip()
-        if content.startswith("```"):
-            content = content.split("\n", 1)[1].rsplit("```", 1)[0]
+        content = strip_markdown_fences(content)
 
         try:
             edl = EDL.model_validate_json(content)
@@ -119,9 +118,7 @@ def apply_feedback(cfg: Config, feedback: str) -> EDL:
         ),
     )
 
-    content = content.strip()
-    if content.startswith("```"):
-        content = content.split("\n", 1)[1].rsplit("```", 1)[0]
+    content = strip_markdown_fences(content)
 
     edl = EDL.model_validate_json(content)
 
@@ -177,9 +174,7 @@ def generate_variations(
             ),
         )
 
-        content = content.strip()
-        if content.startswith("```"):
-            content = content.split("\n", 1)[1].rsplit("```", 1)[0]
+        content = strip_markdown_fences(content)
 
         try:
             var_edl = EDL.model_validate_json(content)
@@ -212,22 +207,7 @@ def _extract_review_frames(video: Path, out_dir: Path, count: int = 8) -> list[P
     for f in out_dir.glob("frame_*.jpg"):
         f.unlink()
 
-    duration = _probe_duration(video)
-    interval = duration / (count + 1)
-
-    for i in range(1, count + 1):
-        t = interval * i
-        out_path = out_dir / f"frame_{i:02d}.jpg"
-        subprocess.run(
-            [
-                "ffmpeg", "-y", "-ss", str(t), "-i", str(video),
-                "-frames:v", "1", "-q:v", "3",
-                str(out_path),
-            ],
-            capture_output=True,
-        )
-
-    return sorted(out_dir.glob("frame_*.jpg"))
+    return extract_frames(video, out_dir, prefix="frame", count=count)
 
 
 def _find_latest_version(cfg: Config) -> int:

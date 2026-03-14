@@ -14,6 +14,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from .config import Config
+from .media_utils import convert_heic, extract_frames, strip_markdown_fences
 
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
@@ -57,14 +58,9 @@ This is a travel photo. Analyze it briefly. Respond in JSON only:
 }"""
 
 
-def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
-    """Analyze items from preprocessed.json — tier A+B with full prompt, tier C quick scan."""
-    cfg.ensure_dirs()
-    preprocessed_path = cfg.workspace / "preprocessed.json"
-    analysis_path = cfg.workspace / "analysis.json"
-    pid_path = cfg.workspace / "analyze.pid"
-
-    # Kill any previous analyze process
+def _manage_pid(workspace: Path) -> None:
+    """Write PID file and kill any previous analyze process."""
+    pid_path = workspace / "analyze.pid"
     if pid_path.exists():
         try:
             old_pid = int(pid_path.read_text().strip())
@@ -74,6 +70,24 @@ def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
         except (ProcessLookupError, ValueError, PermissionError):
             pass
     pid_path.write_text(str(os.getpid()))
+
+
+def _load_existing_analysis(path: Path) -> dict[int, dict]:
+    """Load existing analysis.json for resume support."""
+    existing: dict[int, dict] = {}
+    if path.exists():
+        for entry in json.loads(path.read_text()):
+            existing[entry["id"]] = entry
+    return existing
+
+
+def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
+    """Analyze items from preprocessed.json — tier A+B with full prompt, tier C quick scan."""
+    cfg.ensure_dirs()
+    preprocessed_path = cfg.workspace / "preprocessed.json"
+    analysis_path = cfg.workspace / "analysis.json"
+
+    _manage_pid(cfg.workspace)
 
     preprocessed = json.loads(preprocessed_path.read_text())
     items = preprocessed["items"]
@@ -88,10 +102,7 @@ def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
           f"= {len(to_analyze)} items (skipping {len(tier_d)} tier-D)")
 
     # Load existing analysis to support resuming (run-level)
-    existing: dict[int, dict] = {}
-    if analysis_path.exists():
-        for entry in json.loads(analysis_path.read_text()):
-            existing[entry["id"]] = entry
+    existing = _load_existing_analysis(analysis_path)
 
     # Per-file analysis cache (shared across runs)
     cache_dir = cfg.cache_dir
@@ -184,7 +195,7 @@ def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
         analysis_path.write_text(json.dumps(results, indent=2))
 
     pbar.close()
-    pid_path.unlink(missing_ok=True)
+    (cfg.workspace / "analyze.pid").unlink(missing_ok=True)
 
     ok = sum(1 for r in results if r.get("vision"))
     print(f"Analysis complete: {ok}/{len(results)} with vision results")
@@ -193,31 +204,7 @@ def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
 
 def _extract_keyframes(video_path: Path, keyframe_dir: Path, item_id: int, max_frames: int = 5) -> list[Path]:
     """Extract evenly-spaced frames from a video."""
-    keyframe_dir.mkdir(parents=True, exist_ok=True)
-    pattern = keyframe_dir / f"{item_id}_%02d.jpg"
-
-    probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "csv=p=0", str(video_path)],
-        capture_output=True, text=True,
-    )
-    try:
-        duration = float(probe.stdout.strip())
-    except (ValueError, AttributeError):
-        duration = 10.0
-
-    interval = max(duration / (max_frames + 1), 0.5)
-    select_expr = "+".join(
-        f"eq(n\\,{int(i * interval * 30)})" for i in range(1, max_frames + 1)
-    )
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", str(video_path),
-         "-vf", f"select='{select_expr}',scale=1024:-1",
-         "-vsync", "vfr", "-frames:v", str(max_frames), "-q:v", "3",
-         str(pattern)],
-        capture_output=True,
-    )
-    return sorted(keyframe_dir.glob(f"{item_id}_*.jpg"))
+    return extract_frames(video_path, keyframe_dir, prefix=str(item_id), count=max_frames)
 
 
 def _analyze_image(image_path: Path, cfg: Config, prompt: str) -> dict | None:
@@ -225,17 +212,9 @@ def _analyze_image(image_path: Path, cfg: Config, prompt: str) -> dict | None:
     try:
         suffix = image_path.suffix.lower()
         if suffix in {".heic", ".heif"}:
-            jpeg_path = image_path.parent / f"_converted_{image_path.stem}.jpg"
-            if not jpeg_path.exists():
-                # Use sips (macOS) — FFmpeg decodes HEIC grid tiles as 512x512
-                subprocess.run(
-                    ["sips", "-s", "format", "jpeg",
-                     str(image_path), "--out", str(jpeg_path)],
-                    capture_output=True,
-                )
-            if jpeg_path.exists():
-                image_path = jpeg_path
-            else:
+            try:
+                image_path = convert_heic(image_path)
+            except RuntimeError:
                 return None
 
         img = Image.open(image_path)
@@ -259,10 +238,7 @@ def _analyze_image(image_path: Path, cfg: Config, prompt: str) -> dict | None:
         )
         resp.raise_for_status()
         content = resp.json()["message"]["content"]
-
-        content = content.strip()
-        if content.startswith("```"):
-            content = content.split("\n", 1)[1].rsplit("```", 1)[0]
+        content = strip_markdown_fences(content)
         return json.loads(content)
     except Exception as e:
         print(f"    Vision failed: {e}")
