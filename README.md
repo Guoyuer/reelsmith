@@ -1,8 +1,42 @@
 # vlog
 
-Automated vlog generation from Synology Photos. Downloads trip photos, analyzes them with local AI, plans a narrative, and renders a highlight reel — all locally.
+Automated vlog generation from Synology Photos. Downloads trip photos, analyzes them with local AI, plans a narrative, and renders a highlight reel — all locally. Orchestrated by [Dagster](https://dagster.io) with a web UI for monitoring, resume, and re-materialization.
 
-## Pipeline
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Orchestration
+        direction TB
+        DG[Dagster UI<br/>localhost:3000]
+        CLI[CLI<br/>python run.py]
+        DG & CLI --> MAT{Materialize}
+    end
+
+    subgraph "Dagster Assets (auto-skip if output exists)"
+        direction LR
+        M[manifest<br/>fetch.py] --> P[preprocessed<br/>preprocess.py]
+        P --> AN[analysis<br/>analyze.py]
+        P --> E[edl<br/>plan.py]
+        AN --> E
+        E --> V[vlog_video<br/>assemble.py]
+    end
+
+    subgraph "Jobs"
+        IT[iterate<br/>self-critique /<br/>feedback /<br/>variations]
+    end
+
+    MAT --> M
+    V -.-> IT -.->|mutates| E
+
+    style M fill:#42A5F5,color:#fff
+    style P fill:#66BB6A,color:#fff
+    style AN fill:#FFA726,color:#fff
+    style E fill:#AB47BC,color:#fff
+    style V fill:#EF5350,color:#fff
+```
+
+## Pipeline Detail
 
 ```mermaid
 flowchart TD
@@ -72,20 +106,44 @@ flowchart TD
 
 ## Usage
 
+### Web UI (Dagster)
+
+```bash
+source venv/bin/activate
+dagster-webserver -m pipeline.definitions -p 3000
+# Open http://localhost:3000
+# Assets tab → Materialize All (auto-skips completed stages)
+# Click any asset → Materialize (re-run it + downstream)
+```
+
+### CLI
+
 ```bash
 source venv/bin/activate
 
-# Full auto pipeline
+# Resume from where you stopped (auto-skips completed stages)
+python run.py resume
+
+# Full pipeline from scratch
 python run.py auto -f 2025-06-13 -t 2025-06-17 --style upbeat --duration 180
 
-# Or step by step
-python run.py fetch -f 2025-06-13 -t 2025-06-17 --item-types 0
-python run.py preprocess                          # instant — metadata only
-python run.py analyze                             # ~1.5h for 355 items
-python run.py plan --style upbeat --duration 180
+# Force re-plan with different style (cascades to re-assemble)
+python run.py plan --style cinematic --duration 120
+
+# Re-assemble only
 python run.py assemble
+
+# Self-critique loop
+python run.py iterate --rounds 2
+
+# Human feedback
 python run.py iterate --feedback "more family shots at the beach"
+
+# Style variations
 python run.py variations
+
+# Different workspace (for concurrent trips)
+python run.py -w workspace/tokyo auto -f 2025-07-01 -t 2025-07-05
 ```
 
 ## Requirements
@@ -96,6 +154,7 @@ python run.py variations
   - `ollama pull llava:7b` — vision analysis
   - `ollama pull qwen2.5-coder:7b` — narrative planning
 - **Synology Photos API** — the [synology-photos-project](../synology-photos-project) backend running on `:8000`
+- **Dagster** — workflow orchestration (installed automatically via `pip install -e .`)
 
 ### 24GB MacBook constraints
 
@@ -105,10 +164,11 @@ python run.py variations
 | Planning | qwen2.5-coder:7b | ~5GB |
 | Whisper | mlx-whisper medium | ~1.5GB |
 
-Only one Ollama model loaded at a time. Fits comfortably in 24GB.
+Only one Ollama model loaded at a time. Fits comfortably in 24GB. Dagster uses `concurrency_key` to prevent Ollama contention between concurrent runs.
 
 ## Key design decisions
 
+- **Dagster asset model** — each stage is a Dagster asset that produces a file. The IOManager checks if the file exists and auto-skips. Re-materialize from the UI to force re-run + downstream cascade.
 - **EDL is the central artifact** — a JSON file that flows between plan/assemble/iterate. Changing the edit never re-analyzes media.
 - **Synology metadata > AI scoring** — person face tags and GPS locations from Synology are more reliable than a 7B vision model's judgment. AI fills in what metadata can't (emotion, composition, scene type).
 - **Tiered analysis** — family-together photos (tier A) get a detailed prompt; scene shots (tier C) get a minimal one. Cuts GPU time ~40%.
