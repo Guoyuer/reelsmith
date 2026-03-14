@@ -26,7 +26,7 @@ flowchart TD
 
     subgraph "Stage 3: Analyze"
         P5 --> A1{Route by tier}
-        A1 -->|Tier A+B| A2[Ollama llava:7b<br/>family-tuned prompt<br/>togetherness · emotion<br/>story_beat · composition]
+        A1 -->|Tier A+B| A2[Ollama llava:7b<br/>family-tuned prompt<br/>togetherness · emotion<br/>story_beat · visual_quality]
         A1 -->|Tier C| A3[Ollama llava:7b<br/>scene-only prompt<br/>scene_type · composition]
         A1 -->|Tier D| A4[Skip]
         A2 & A3 --> A5[analysis.json<br/>~355 items scored]

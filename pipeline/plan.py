@@ -36,8 +36,8 @@ Output ONLY valid JSON matching this EDL schema, no other text:
 {
   "title": "string",
   "target_duration": <seconds>,
-  "resolution": [1920, 1080],
-  "fps": 30,
+  "resolution": [3840, 2160],
+  "fps": 60,
   "segments": [
     {
       "name": "Chapter Name",
@@ -107,56 +107,61 @@ Select ~{target_duration // 4} items total. Pick the warmest, happiest moments."
 
 
 def _build_chapters_prompt(preprocessed: dict, analysis_by_id: dict) -> str:
-    """Build a structured text representation of the timeline with scores."""
+    """Build a structured text representation of the timeline with scores.
+
+    Only includes tier A+B items fully, and the best 2 tier-C items per chapter
+    to keep prompt size manageable for small LLMs.
+    """
     lines = []
 
     for day in preprocessed["timeline"]:
-        lines.append(f"\n=== {day['day_name']} {day['date']} ({day['total_items']} items) ===")
+        lines.append(f"\n=== {day['day_name']} {day['date']} ===")
 
         for chapter in day["chapters"]:
             loc = chapter["location"]
             block = chapter["time_block"]
-            family_ct = chapter["family_together"]
-            lines.append(f"\n  [{block.upper()}] {loc} — {chapter['count']} items, "
-                         f"{family_ct} with family together")
 
-            # List candidates with scores
+            # Collect items for this chapter
+            ab_items = []
+            c_items = []
             for item_id in chapter["item_ids"]:
                 a = analysis_by_id.get(item_id)
-                if not a:
+                if not a or not a.get("vision"):
                     continue
-
-                path = a["local_path"]
                 tier = a.get("tier", "?")
-                fam = a.get("family_count", 0)
-                v = a.get("vision", {})
+                if tier in ("A", "B", "?"):
+                    ab_items.append(a)
+                elif tier == "C":
+                    c_items.append(a)
 
-                if tier in ("A", "B") and v:
-                    tog = v.get("togetherness", v.get("happiness_score", "?"))
-                    emo = v.get("genuine_emotion", "?")
-                    beat = v.get("story_beat", v.get("scene_type", "?"))
-                    comp = v.get("composition", v.get("quality_score", "?"))
-                    desc = v.get("description", "")[:80]
-                    worthy = v.get("vlog_worthy", False)
-                    lines.append(
-                        f"    {'***' if worthy else '   '} [{tier}] family={fam} "
-                        f"tog={tog} emo={emo} comp={comp} beat={beat}"
-                        f"\n          {desc}"
-                        f"\n          path: {path}"
-                    )
-                elif tier == "C" and v:
-                    comp = v.get("composition", "?")
-                    scene = v.get("scene_type", "?")
-                    desc = v.get("description", "")[:80]
-                    lines.append(
-                        f"    [C] scene={scene} comp={comp} {desc}"
-                        f"\n          path: {path}"
-                    )
-                else:
-                    # No vision data yet — include with minimal info
-                    lines.append(
-                        f"    [{tier}] family={fam} (no AI analysis)"
-                        f"\n          path: {path}"
-                    )
+            # Skip chapters with nothing good
+            if not ab_items and not c_items:
+                continue
+
+            lines.append(f"\n  [{block.upper()}] {loc}")
+
+            # All tier A+B items (these are the priority)
+            for a in ab_items:
+                v = a["vision"]
+                tog = v.get("togetherness", v.get("happiness_score", "?"))
+                emo = v.get("genuine_emotion", "?")
+                beat = v.get("story_beat", v.get("scene_type", "?"))
+                desc = v.get("description", "")[:60]
+                lines.append(
+                    f"    [{a.get('tier','?')}] fam={a.get('family_count',0)} "
+                    f"tog={tog} emo={emo} beat={beat} | {desc}"
+                    f"\n      path: {a['local_path']}"
+                )
+
+            # Best 2 tier-C items per chapter (by visual_quality)
+            c_items.sort(key=lambda x: x["vision"].get("visual_quality", 0), reverse=True)
+            for a in c_items[:2]:
+                v = a["vision"]
+                scene = v.get("scene_type", "?")
+                desc = v.get("description", "")[:60]
+                lines.append(
+                    f"    [C] scene={scene} | {desc}"
+                    f"\n      path: {a['local_path']}"
+                )
 
     return "\n".join(lines)

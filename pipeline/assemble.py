@@ -98,6 +98,22 @@ def assemble(cfg: Config, *, version: int = 1) -> Path:
 
 def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
     """Render a photo with Ken Burns effect as a video clip."""
+    source = Path(item.source_file)
+
+    # Convert HEIC to JPEG first — FFmpeg can't use HEIC with -loop 1
+    if source.suffix.lower() in {".heic", ".heif"}:
+        jpeg_source = source.parent / f"_render_{source.stem}.jpg"
+        if not jpeg_source.exists():
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", str(source), "-q:v", "2", str(jpeg_source)],
+                capture_output=True,
+            )
+        if jpeg_source.exists():
+            source = jpeg_source
+        else:
+            print(f"    HEIC convert failed: {item.source_file}")
+            return
+
     frames = int(item.display_duration * fps)
     zoom_rate = 0.001 + (0.3 / frames)  # reach ~1.3x zoom over the duration
 
@@ -119,7 +135,7 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
     zp = effects.get(item.effect, effects["ken_burns_in"])
 
     cmd = [
-        "ffmpeg", "-y", "-loop", "1", "-i", str(item.source_file),
+        "ffmpeg", "-y", "-loop", "1", "-i", str(source),
         "-t", str(item.display_duration),
         "-vf", f"scale=8000:-1,{zp}",
         "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",

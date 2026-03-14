@@ -25,7 +25,7 @@ This is a family vacation photo. Analyze it and respond in JSON only, no other t
   "togetherness": <1-10 integer>,
   "genuine_emotion": <1-10 integer>,
   "story_beat": "<one of: arrival, discovery, meal, activity, landmark, candid, posed, scenery, selfie, other>",
-  "composition": <1-10 integer>,
+  "visual_quality": <1-10 integer>,
   "vlog_worthy": <true or false>
 }
 
@@ -51,7 +51,7 @@ This is a travel photo. Analyze it briefly. Respond in JSON only:
 {
   "description": "one sentence",
   "scene_type": "<landmark, nature, food, street, building, transport, other>",
-  "composition": <1-10>,
+  "visual_quality": <1-10>,
   "vlog_worthy": <true or false>
 }"""
 

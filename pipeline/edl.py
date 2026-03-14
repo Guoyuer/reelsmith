@@ -47,8 +47,8 @@ class MusicTrack(BaseModel):
 class EDL(BaseModel):
     title: str
     target_duration: float  # desired total length in seconds
-    resolution: tuple[int, int] = (1920, 1080)
-    fps: int = 30
+    resolution: tuple[int, int] = (3840, 2160)
+    fps: int = 60
     segments: list[Segment]
     music: MusicTrack | None = None
 
