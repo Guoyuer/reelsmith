@@ -48,11 +48,11 @@ class TestWorkspaceIOManager:
         from pipeline.definitions import WorkspaceIOManager
 
         ws = _make_workspace(tmp_path)
-        run_dir = tmp_path / "myrun"
-        run_dir.mkdir()
+        run_dir = tmp_path / "runs" / "myrun"
+        run_dir.mkdir(parents=True)
         (run_dir / "analysis.json").write_text("[]")
 
-        mgr = WorkspaceIOManager(base_dir=ws, run_name="myrun")
+        mgr = WorkspaceIOManager(base_dir=str(tmp_path), run_name="myrun")
         ctx = MagicMock()
         ctx.upstream_output.asset_key.path = ["analysis"]
         result = mgr.load_input(ctx)
@@ -61,8 +61,8 @@ class TestWorkspaceIOManager:
     def test_load_input_raises_when_missing(self, tmp_path):
         from pipeline.definitions import WorkspaceIOManager
 
-        ws = _make_workspace(tmp_path)
-        mgr = WorkspaceIOManager(base_dir=ws, run_name="myrun")
+        _make_workspace(tmp_path)
+        mgr = WorkspaceIOManager(base_dir=str(tmp_path), run_name="myrun")
         ctx = MagicMock()
         ctx.upstream_output.asset_key.path = ["analysis"]
 

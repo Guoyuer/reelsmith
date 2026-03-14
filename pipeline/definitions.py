@@ -47,7 +47,7 @@ class WorkspaceIOManager(dg.ConfigurableIOManager):
 
     @property
     def workspace_path(self) -> str:
-        return str(Path(self.base_dir) / self.run_name)
+        return str(Path(self.base_dir) / "runs" / self.run_name)
 
     def handle_output(self, context: dg.OutputContext, obj: object) -> None:
         pass  # stages write their own files
@@ -113,14 +113,14 @@ class AssembleConfig(dg.Config):
 
 
 class IterateConfig(dg.Config):
-    workspace: str = "./workspace/default"
+    workspace: str = "./workspace/runs/default"
     style: str = "upbeat"
     max_rounds: int = 2
     feedback: str | None = None
 
 
 class VariationsConfig(dg.Config):
-    workspace: str = "./workspace/default"
+    workspace: str = "./workspace/runs/default"
     styles: str = "energetic,reflective,cinematic"
 
 

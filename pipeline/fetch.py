@@ -23,7 +23,7 @@ def fetch(
 ) -> list[dict]:
     """Query the Synology Photos API, download all matching items, and build a manifest."""
     cfg.ensure_dirs()
-    raw_dir = cfg.workspace / "raw"
+    raw_dir = cfg.media_dir
 
     # Build collect request
     body: dict = {}

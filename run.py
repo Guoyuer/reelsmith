@@ -117,7 +117,7 @@ def assemble(ctx, version):
     from pipeline.iterate import _find_latest_version
 
     rn = _run_name(ctx)
-    ws = f"./workspace/{rn}"
+    ws = f"./workspace/runs/{rn}"
     if version is None:
         cfg = PipelineConfig.load(ws)
         version = _find_latest_version(cfg) + 1
@@ -140,7 +140,7 @@ def iterate(ctx, feedback, rounds, style):
     """Improve the vlog via self-critique or human feedback."""
     from pipeline.definitions import IterateConfig, iterate_job
 
-    ws = f"./workspace/{_run_name(ctx)}"
+    ws = f"./workspace/runs/{_run_name(ctx)}"
     iterate_job.execute_in_process(
         run_config=dg.RunConfig(
             ops={
@@ -162,7 +162,7 @@ def variations(ctx, styles):
     """Generate multiple vlog variations with different styles."""
     from pipeline.definitions import VariationsConfig, variations_job
 
-    ws = f"./workspace/{_run_name(ctx)}"
+    ws = f"./workspace/runs/{_run_name(ctx)}"
     variations_job.execute_in_process(
         run_config=dg.RunConfig(
             ops={"variations_op": VariationsConfig(workspace=ws, styles=styles)},

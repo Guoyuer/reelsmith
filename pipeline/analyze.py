@@ -87,11 +87,14 @@ def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
     print(f"Analyzing: {len(tier_a)} tier-A + {len(tier_b)} tier-B + {len(tier_c)} tier-C "
           f"= {len(to_analyze)} items (skipping {len(tier_d)} tier-D)")
 
-    # Load existing analysis to support resuming
+    # Load existing analysis to support resuming (run-level)
     existing: dict[int, dict] = {}
     if analysis_path.exists():
         for entry in json.loads(analysis_path.read_text()):
             existing[entry["id"]] = entry
+
+    # Per-file analysis cache (shared across runs)
+    cache_dir = cfg.cache_dir
 
     results = []
     # Count how many need actual work (not cached)
@@ -103,7 +106,7 @@ def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
     for i, item in enumerate(to_analyze, 1):
         item_id = item["id"]
 
-        # Resume: skip if already analyzed WITH vision results
+        # Resume: skip if already analyzed WITH vision results (run-level cache)
         if item_id in existing and existing[item_id].get("vision"):
             results.append(existing[item_id])
             continue
@@ -133,9 +136,24 @@ def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
             "cluster_size": item.get("cluster_size", 1),
         }
 
+        # Check shared per-file analysis cache
+        cache_file = cache_dir / f"{item_id}.json"
+        if cache_file.exists():
+            try:
+                cached = json.loads(cache_file.read_text())
+                entry.update(cached)
+                results.append(entry)
+                pbar.update(1)
+                if progress_callback:
+                    progress_callback(pbar.n, to_do, item.get("filename", ""))
+                analysis_path.write_text(json.dumps(results, indent=2))
+                continue
+            except (json.JSONDecodeError, KeyError):
+                pass  # corrupted cache entry, re-analyze
+
         # For video, extract keyframes
         if is_video:
-            kf_paths = _extract_keyframes(local_path, cfg.workspace / "keyframes", item_id)
+            kf_paths = _extract_keyframes(local_path, cfg.keyframes_dir, item_id)
             entry["keyframe_paths"] = [str(p) for p in kf_paths]
             vision_target = kf_paths[0] if kf_paths else None
 
@@ -151,6 +169,12 @@ def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
             vision = _analyze_image(vision_target, cfg, prompt)
             if vision:
                 entry["vision"] = vision
+
+        # Save to shared per-file cache
+        cache_entry = {k: v for k, v in entry.items()
+                       if k in ("vision", "keyframe_paths", "transcript")}
+        if cache_entry:
+            cache_file.write_text(json.dumps(cache_entry, indent=2))
 
         results.append(entry)
         pbar.update(1)
