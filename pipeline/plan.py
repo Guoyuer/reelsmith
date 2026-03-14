@@ -1,29 +1,38 @@
-"""Stage 3: Generate an Edit Decision List using Claude as the narrative director."""
+"""Stage 3: Generate EDL using pre-built timeline structure + AI analysis scores."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-import anthropic
-
 from .config import Config
 from .edl import EDL
+from .llm import ollama_chat
 
 SYSTEM_PROMPT = """\
-You are a professional travel vlog editor. Given analyzed media from a trip,
-create an Edit Decision List (EDL) for a short, engaging vlog.
+You are a travel vlog editor creating a highlight reel of a family trip.
 
-Your goals:
-- Tell a story: opening → highlights → closing
-- Prioritize joyful, happy moments (high happiness_score)
-- Include variety: mix food, landmarks, family, activities
-- Follow roughly chronological order but group by theme within segments
-- Keep pacing dynamic: alternate between photos (3-5s) and video clips (3-8s)
-- Skip low-quality items (quality_score < 5) unless they capture a unique moment
-- Target the specified duration
+You will receive a pre-organized timeline with chapters (day → time_block → location).
+Each chapter lists candidate photos with scores. Your job is to SELECT the best
+items and arrange them into a vlog EDL.
 
-Output ONLY valid JSON matching this schema, no other text:
+Selection priorities (most to least important):
+1. Family together (tier A, family_count >= 2) — these are the emotional core
+2. High togetherness + genuine_emotion scores — real joy over posed shots
+3. Story beats: arrivals, discoveries, meals, candid moments > posed photos
+4. Visual variety: don't pick 3 similar shots from same cluster
+5. Scene-setting shots (tier C) to establish locations — use 1-2 per chapter max
+
+Pacing rules:
+- Photos: 3-5 seconds each, use varied Ken Burns effects
+- Total duration must match the target
+- Open strong (best landmark or family group), close warm (tender family moment)
+- Each segment = one chapter from the timeline
+- 3-8 items per segment, skip chapters with nothing good
+- Use crossfade within segments, fade_black between segments
+- Text overlays: location name on first item of each new location, date on first item of each day
+
+Output ONLY valid JSON matching this EDL schema, no other text:
 {
   "title": "string",
   "target_duration": <seconds>,
@@ -31,34 +40,24 @@ Output ONLY valid JSON matching this schema, no other text:
   "fps": 30,
   "segments": [
     {
-      "name": "Segment Name",
+      "name": "Chapter Name",
       "items": [
         {
-          "source_file": "path/to/file",
-          "media_type": "photo" or "video",
-          "start_time": null or <seconds for video trim start>,
-          "end_time": null or <seconds for video trim end>,
-          "display_duration": <seconds on screen>,
-          "effect": "ken_burns_in" | "ken_burns_out" | "ken_burns_left" | "ken_burns_right" | "static" | "none",
+          "source_file": "<exact local_path from the data>",
+          "media_type": "photo",
+          "start_time": null,
+          "end_time": null,
+          "display_duration": <3-5 seconds>,
+          "effect": "ken_burns_in" | "ken_burns_out" | "ken_burns_left" | "ken_burns_right" | "static",
           "text_overlay": null or {"text": "string", "position": "bottom", "font_size": 48}
         }
       ],
-      "transition": "crossfade" | "cut" | "fade_black",
+      "transition": "crossfade" | "fade_black",
       "transition_duration": 0.8
     }
   ],
   "music": null
-}
-
-Rules:
-- source_file must be the exact local_path from the analysis
-- For videos, set start_time/end_time to select the best portion
-- For photos, use varied Ken Burns effects for visual interest
-- First segment should be a strong opening (best landmark or group shot)
-- Last segment should feel like a warm closing
-- Add text overlays sparingly: location names, dates for section headers only
-- Each segment should have 3-8 items
-- Use crossfade transitions between items, fade_black between major segments"""
+}"""
 
 
 def plan(
@@ -68,55 +67,36 @@ def plan(
     target_duration: int = 180,
     focus: str = "happiness with family",
 ) -> EDL:
-    """Read analysis.json, ask Claude to create an EDL, save to edl.json."""
+    """Build structured prompt from timeline + analysis, ask LLM to select and arrange."""
+    preprocessed_path = cfg.workspace / "preprocessed.json"
     analysis_path = cfg.workspace / "analysis.json"
     edl_path = cfg.workspace / "edl.json"
 
-    analysis = json.loads(analysis_path.read_text())
+    preprocessed = json.loads(preprocessed_path.read_text())
+    analysis_items = json.loads(analysis_path.read_text())
 
-    # Build summary for the LLM (full analysis can be very large)
-    media_summary = []
-    for item in analysis:
-        summary = {
-            "local_path": item["local_path"],
-            "filename": item["filename"],
-            "media_type": item["media_type"],
-            "taken_iso": item.get("taken_iso"),
-            "duration_sec": round(item["duration_ms"] / 1000, 1) if item.get("duration_ms") else None,
-            "persons": item.get("persons", []),
-            "location": item.get("district") or item.get("first_level") or item.get("country"),
-        }
-        if item.get("vision"):
-            v = item["vision"]
-            summary["description"] = v.get("description")
-            summary["happiness"] = v.get("happiness_score")
-            summary["quality"] = v.get("quality_score")
-            summary["scene"] = v.get("scene_type")
-            summary["vlog_worthy"] = v.get("vlog_worthy")
-        if item.get("transcript"):
-            summary["transcript"] = item["transcript"][:200]
-        media_summary.append(summary)
+    # Index analysis by item ID for quick lookup
+    analysis_by_id: dict[int, dict] = {a["id"]: a for a in analysis_items}
+
+    # Build structured chapter-based prompt
+    chapters_text = _build_chapters_prompt(preprocessed, analysis_by_id)
 
     user_message = f"""\
-Create a {style} travel vlog EDL from these {len(media_summary)} media items.
-Target duration: {target_duration} seconds (~{target_duration // 60} min {target_duration % 60}s).
+Create a {style} family trip vlog EDL.
+Target duration: {target_duration} seconds (~{target_duration // 60}m{target_duration % 60:02d}s).
 Focus: {focus}.
+Family members: {', '.join(preprocessed['family_names'])}
 
-Media items (chronological):
-{json.dumps(media_summary, indent=2)}"""
+Timeline with scored candidates:
+{chapters_text}
 
-    client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
-    print(f"Planning vlog ({len(media_summary)} items, target {target_duration}s)...")
+Select ~{target_duration // 4} items total. Pick the warmest, happiest moments."""
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=8192,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
-    )
+    print(f"Planning vlog (target {target_duration}s, model={cfg.planning_model})...")
 
-    content = response.content[0].text.strip()
-    # Handle markdown code blocks
+    content = ollama_chat(cfg, system=SYSTEM_PROMPT, prompt=user_message)
+
+    content = content.strip()
     if content.startswith("```"):
         content = content.split("\n", 1)[1].rsplit("```", 1)[0]
 
@@ -124,3 +104,59 @@ Media items (chronological):
     edl_path.write_text(edl.model_dump_json(indent=2))
     print(f"EDL saved: {len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s estimated")
     return edl
+
+
+def _build_chapters_prompt(preprocessed: dict, analysis_by_id: dict) -> str:
+    """Build a structured text representation of the timeline with scores."""
+    lines = []
+
+    for day in preprocessed["timeline"]:
+        lines.append(f"\n=== {day['day_name']} {day['date']} ({day['total_items']} items) ===")
+
+        for chapter in day["chapters"]:
+            loc = chapter["location"]
+            block = chapter["time_block"]
+            family_ct = chapter["family_together"]
+            lines.append(f"\n  [{block.upper()}] {loc} — {chapter['count']} items, "
+                         f"{family_ct} with family together")
+
+            # List candidates with scores
+            for item_id in chapter["item_ids"]:
+                a = analysis_by_id.get(item_id)
+                if not a:
+                    continue
+
+                path = a["local_path"]
+                tier = a.get("tier", "?")
+                fam = a.get("family_count", 0)
+                v = a.get("vision", {})
+
+                if tier in ("A", "B") and v:
+                    tog = v.get("togetherness", v.get("happiness_score", "?"))
+                    emo = v.get("genuine_emotion", "?")
+                    beat = v.get("story_beat", v.get("scene_type", "?"))
+                    comp = v.get("composition", v.get("quality_score", "?"))
+                    desc = v.get("description", "")[:80]
+                    worthy = v.get("vlog_worthy", False)
+                    lines.append(
+                        f"    {'***' if worthy else '   '} [{tier}] family={fam} "
+                        f"tog={tog} emo={emo} comp={comp} beat={beat}"
+                        f"\n          {desc}"
+                        f"\n          path: {path}"
+                    )
+                elif tier == "C" and v:
+                    comp = v.get("composition", "?")
+                    scene = v.get("scene_type", "?")
+                    desc = v.get("description", "")[:80]
+                    lines.append(
+                        f"    [C] scene={scene} comp={comp} {desc}"
+                        f"\n          path: {path}"
+                    )
+                else:
+                    # No vision data yet — include with minimal info
+                    lines.append(
+                        f"    [{tier}] family={fam} (no AI analysis)"
+                        f"\n          path: {path}"
+                    )
+
+    return "\n".join(lines)

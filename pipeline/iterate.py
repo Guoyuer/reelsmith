@@ -1,4 +1,4 @@
-"""Stage 5: Self-critique, variations, and human-feedback iteration."""
+"""Stage 5: Self-critique, variations, and human-feedback iteration (all via Ollama)."""
 
 from __future__ import annotations
 
@@ -6,16 +6,14 @@ import json
 import subprocess
 from pathlib import Path
 
-import anthropic
-
 from .assemble import assemble, _probe_duration
 from .config import Config
 from .edl import EDL
+from .llm import ollama_chat
 
 CRITIQUE_PROMPT = """\
-You are reviewing a vlog you edited. I'll show you the current EDL and
-evenly-spaced frames from the rendered video. Critique the vlog and suggest
-improvements. Consider:
+You are reviewing a vlog you edited. Here are evenly-spaced frames from the
+rendered video. Critique the vlog and suggest improvements. Consider:
 
 1. Pacing — are any clips too long or too short?
 2. Story flow — does the sequence make narrative sense?
@@ -57,11 +55,10 @@ Only output the JSON EDL, no other text."""
 
 
 def self_critique(cfg: Config, *, style: str = "upbeat", max_rounds: int = 2) -> EDL:
-    """Extract frames from the rendered vlog, critique, and regenerate EDL."""
+    """Extract frames from the rendered vlog, send to vision model for critique, regenerate EDL."""
     edl_path = cfg.workspace / "edl.json"
     edl = EDL.model_validate_json(edl_path.read_text())
 
-    client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
     current_version = _find_latest_version(cfg)
 
     for round_num in range(1, max_rounds + 1):
@@ -75,33 +72,25 @@ def self_critique(cfg: Config, *, style: str = "upbeat", max_rounds: int = 2) ->
         # Extract review frames
         frames = _extract_review_frames(current_video, cfg.workspace / "review_frames", count=8)
 
-        # Build multimodal critique message
-        content: list[dict] = [
-            {"type": "text", "text": CRITIQUE_PROMPT.format(
-                style=style,
-                edl_json=edl.model_dump_json(indent=2),
-            )}
-        ]
-        for frame in frames:
-            import base64
-            img_b64 = base64.b64encode(frame.read_bytes()).decode()
-            content.append({
-                "type": "image",
-                "source": {"type": "base64", "media_type": "image/jpeg", "data": img_b64},
-            })
-
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=8192,
-            messages=[{"role": "user", "content": content}],
+        prompt = CRITIQUE_PROMPT.format(
+            style=style,
+            edl_json=edl.model_dump_json(indent=2),
         )
 
-        text = response.content[0].text.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+        # Use vision model (llava) for multimodal critique
+        content = ollama_chat(
+            cfg,
+            model=cfg.vision_model,
+            prompt=prompt,
+            images=frames,
+        )
+
+        content = content.strip()
+        if content.startswith("```"):
+            content = content.split("\n", 1)[1].rsplit("```", 1)[0]
 
         try:
-            edl = EDL.model_validate_json(text)
+            edl = EDL.model_validate_json(content)
         except Exception as e:
             print(f"  Failed to parse critique EDL: {e}")
             break
@@ -121,26 +110,20 @@ def apply_feedback(cfg: Config, feedback: str) -> EDL:
     edl_path = cfg.workspace / "edl.json"
     edl = EDL.model_validate_json(edl_path.read_text())
 
-    client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
-
     print(f"Applying feedback: {feedback[:80]}...")
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=8192,
-        messages=[{
-            "role": "user",
-            "content": FEEDBACK_PROMPT.format(
-                edl_json=edl.model_dump_json(indent=2),
-                feedback=feedback,
-            ),
-        }],
+    content = ollama_chat(
+        cfg,
+        prompt=FEEDBACK_PROMPT.format(
+            edl_json=edl.model_dump_json(indent=2),
+            feedback=feedback,
+        ),
     )
 
-    text = response.content[0].text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+    content = content.strip()
+    if content.startswith("```"):
+        content = content.split("\n", 1)[1].rsplit("```", 1)[0]
 
-    edl = EDL.model_validate_json(text)
+    edl = EDL.model_validate_json(content)
 
     version = _find_latest_version(cfg) + 1
     edl_path.write_text(edl.model_dump_json(indent=2))
@@ -179,32 +162,27 @@ def generate_variations(
         indent=2,
     )
 
-    client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
     base_version = _find_latest_version(cfg)
     outputs = []
 
     for i, variation_style in enumerate(styles, 1):
         print(f"Generating {variation_style} variation...")
 
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=8192,
-            messages=[{
-                "role": "user",
-                "content": VARIATION_PROMPT.format(
-                    edl_json=edl.model_dump_json(indent=2),
-                    media_summary=media_summary,
-                    variation_style=variation_style,
-                ),
-            }],
+        content = ollama_chat(
+            cfg,
+            prompt=VARIATION_PROMPT.format(
+                edl_json=edl.model_dump_json(indent=2),
+                media_summary=media_summary,
+                variation_style=variation_style,
+            ),
         )
 
-        text = response.content[0].text.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+        content = content.strip()
+        if content.startswith("```"):
+            content = content.split("\n", 1)[1].rsplit("```", 1)[0]
 
         try:
-            var_edl = EDL.model_validate_json(text)
+            var_edl = EDL.model_validate_json(content)
             version = base_version + i
             _save_edl_version(cfg, var_edl, version)
 
@@ -231,7 +209,6 @@ def generate_variations(
 def _extract_review_frames(video: Path, out_dir: Path, count: int = 8) -> list[Path]:
     """Extract evenly-spaced frames from the rendered vlog for review."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    # Clear old frames
     for f in out_dir.glob("frame_*.jpg"):
         f.unlink()
 

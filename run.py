@@ -11,7 +11,7 @@ from pipeline.config import Config
 @click.option("--workspace", "-w", default=None, help="Workspace directory (default: ./workspace)")
 @click.pass_context
 def cli(ctx: click.Context, workspace: str | None) -> None:
-    """Automated vlog pipeline: fetch → analyze → plan → assemble → iterate."""
+    """Automated vlog pipeline: fetch → preprocess → analyze → plan → assemble → iterate."""
     ctx.ensure_object(dict)
     ctx.obj["workspace"] = workspace
 
@@ -46,9 +46,21 @@ def fetch(ctx, from_date, to_date, country, first_level, district, person_ids, i
 
 
 @cli.command()
+@click.option("--family", default=None, help="Comma-separated family member names (auto-detected if omitted)")
+@click.pass_context
+def preprocess(ctx, family):
+    """Tier items by family presence, cluster duplicates, build timeline."""
+    from pipeline.preprocess import preprocess as do_preprocess
+
+    cfg = Config.load(ctx.obj["workspace"])
+    family_names = [n.strip() for n in family.split(",")] if family else None
+    do_preprocess(cfg, family_names=family_names)
+
+
+@cli.command()
 @click.pass_context
 def analyze(ctx):
-    """Analyze media with vision model and whisper."""
+    """Analyze media with vision model (tiered: family photos first)."""
     from pipeline.analyze import analyze as do_analyze
 
     cfg = Config.load(ctx.obj["workspace"])
@@ -61,7 +73,7 @@ def analyze(ctx):
 @click.option("--focus", default="happiness with family", help="What to emphasize")
 @click.pass_context
 def plan(ctx, style, duration, focus):
-    """Generate edit decision list using Claude."""
+    """Generate edit decision list using local LLM."""
     from pipeline.plan import plan as do_plan
 
     cfg = Config.load(ctx.obj["workspace"])
@@ -132,6 +144,7 @@ def auto(ctx, from_date, to_date, country, first_level, district, person_ids,
     from pipeline.fetch import fetch as do_fetch
     from pipeline.iterate import self_critique
     from pipeline.plan import plan as do_plan
+    from pipeline.preprocess import preprocess as do_preprocess
 
     cfg = Config.load(ctx.obj["workspace"])
     person_id_list = [int(x) for x in person_ids.split(",")] if person_ids else None
@@ -150,23 +163,28 @@ def auto(ctx, from_date, to_date, country, first_level, district, person_ids,
     )
 
     print("\n" + "=" * 60)
-    print("STAGE 2: Analyze")
+    print("STAGE 2: Preprocess")
+    print("=" * 60)
+    do_preprocess(cfg)
+
+    print("\n" + "=" * 60)
+    print("STAGE 3: Analyze")
     print("=" * 60)
     do_analyze(cfg)
 
     print("\n" + "=" * 60)
-    print("STAGE 3: Plan")
+    print("STAGE 4: Plan")
     print("=" * 60)
     do_plan(cfg, style=style, target_duration=duration, focus=focus)
 
     print("\n" + "=" * 60)
-    print("STAGE 4: Assemble")
+    print("STAGE 5: Assemble")
     print("=" * 60)
     do_assemble(cfg, version=1)
 
     if critique_rounds > 0:
         print("\n" + "=" * 60)
-        print("STAGE 5: Self-Critique")
+        print("STAGE 6: Self-Critique")
         print("=" * 60)
         self_critique(cfg, style=style, max_rounds=critique_rounds)
 
