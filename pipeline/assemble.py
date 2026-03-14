@@ -7,9 +7,70 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from tqdm import tqdm
+
 from .config import Config
 from .edl import EDL, EditItem, Segment
 
+
+# ---------------------------------------------------------------------------
+# Portrait detection & filter helpers (pure functions, easily testable)
+# ---------------------------------------------------------------------------
+
+def _probe_dimensions(path: Path) -> tuple[int, int]:
+    """Use ffprobe to get (width, height) of a media file."""
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=p=0:s=x",
+            str(path),
+        ],
+        capture_output=True, text=True,
+    )
+    try:
+        parts = result.stdout.strip().split("x")
+        return int(parts[0]), int(parts[1])
+    except (ValueError, IndexError):
+        return 0, 0
+
+
+def _is_portrait(src_w: int, src_h: int) -> bool:
+    """Return True if the source is clearly portrait (height > width * 1.2)."""
+    return src_w > 0 and src_h > src_w * 1.2
+
+
+def _build_portrait_photo_filter(
+    out_w: int, out_h: int, frames: int, fps: int, zoom_rate: float,
+) -> str:
+    """Build FFmpeg filter_complex for portrait photos: blurred BG + sharp FG + gentle Ken Burns."""
+    return (
+        f"[0:v]split[bg][fg];"
+        f"[bg]scale=960:-1:force_original_aspect_ratio=increase,crop=960:540,"
+        f"gblur=sigma=20,scale={out_w}:{out_h}[blurred];"
+        f"[fg]scale=-1:{out_h}[sharp];"
+        f"[blurred][sharp]overlay=(W-w)/2:(H-h)/2[comp];"
+        f"[comp]zoompan=z='min(zoom+{zoom_rate:.6f},1.08)':d={frames}"
+        f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+        f":s={out_w}x{out_h}:fps={fps}"
+    )
+
+
+def _build_portrait_video_filter(out_w: int, out_h: int) -> str:
+    """Build FFmpeg filter_complex for portrait videos: blurred BG + sharp FG (no black bars)."""
+    return (
+        f"[0:v]split[bg][fg];"
+        f"[bg]scale={out_w}:-1:force_original_aspect_ratio=increase,"
+        f"crop={out_w}:{out_h},gblur=sigma=30[blurred];"
+        f"[fg]scale=-1:{out_h}[sharp];"
+        f"[blurred][sharp]overlay=(W-w)/2:(H-h)/2"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main assemble entry point
+# ---------------------------------------------------------------------------
 
 def assemble(cfg: Config, *, version: int = 1) -> Path:
     """Read edl.json and render the final vlog video."""
@@ -25,8 +86,10 @@ def assemble(cfg: Config, *, version: int = 1) -> Path:
     fps = edl.fps
 
     # Phase 1: Render each item as a normalized clip
-    print("Rendering clips...")
     all_clips: list[dict] = []  # {"path": Path, "duration": float, "transition": str, "transition_duration": float}
+    total_items = sum(len(seg.items) for seg in edl.segments)
+    pbar = tqdm(total=total_items, desc="Rendering clips", unit="clip",
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
 
     for seg_idx, segment in enumerate(edl.segments):
         for item_idx, item in enumerate(segment.items):
@@ -36,15 +99,18 @@ def assemble(cfg: Config, *, version: int = 1) -> Path:
             if not clip_path.exists():
                 source = Path(item.source_file)
                 if not source.exists():
-                    print(f"  SKIP (missing): {item.source_file}")
+                    pbar.write(f"  SKIP (missing): {item.source_file}")
+                    pbar.update(1)
                     continue
 
+                pbar.set_postfix_str(clip_name, refresh=True)
                 if item.media_type == "photo":
                     _render_photo(item, clip_path, w, h, fps)
                 else:
                     _render_video(item, clip_path, w, h, fps)
 
             if not clip_path.exists():
+                pbar.update(1)
                 continue
 
             # Apply text overlay if specified
@@ -74,6 +140,9 @@ def assemble(cfg: Config, *, version: int = 1) -> Path:
                 "transition": transition,
                 "transition_duration": td,
             })
+            pbar.update(1)
+
+    pbar.close()
 
     if not all_clips:
         raise RuntimeError("No clips rendered — check source files in EDL")
@@ -101,11 +170,13 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
     source = Path(item.source_file)
 
     # Convert HEIC to JPEG first — FFmpeg can't use HEIC with -loop 1
+    # Use sips (macOS) — FFmpeg decodes HEIC grid tiles as 512x512
     if source.suffix.lower() in {".heic", ".heif"}:
         jpeg_source = source.parent / f"_render_{source.stem}.jpg"
         if not jpeg_source.exists():
             subprocess.run(
-                ["ffmpeg", "-y", "-i", str(source), "-q:v", "2", str(jpeg_source)],
+                ["sips", "-s", "format", "jpeg",
+                 str(source), "--out", str(jpeg_source)],
                 capture_output=True,
             )
         if jpeg_source.exists():
@@ -117,31 +188,50 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
     frames = int(item.display_duration * fps)
     zoom_rate = 0.001 + (0.3 / frames)  # reach ~1.3x zoom over the duration
 
-    effects = {
-        "ken_burns_in": f"zoompan=z='min(zoom+{zoom_rate:.6f},1.3)':d={frames}"
-                        f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-                        f":s={w}x{h}:fps={fps}",
-        "ken_burns_out": f"zoompan=z='if(eq(on,1),1.3,max(zoom-{zoom_rate:.6f},1.0))':d={frames}"
-                         f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-                         f":s={w}x{h}:fps={fps}",
-        "ken_burns_left": f"zoompan=z='1.15':d={frames}"
-                          f":x='(iw-iw/zoom)*on/{frames}':y='ih/2-(ih/zoom/2)'"
-                          f":s={w}x{h}:fps={fps}",
-        "ken_burns_right": f"zoompan=z='1.15':d={frames}"
-                           f":x='(iw-iw/zoom)*(1-on/{frames})':y='ih/2-(ih/zoom/2)'"
-                           f":s={w}x{h}:fps={fps}",
-        "static": f"zoompan=z='1':d={frames}:s={w}x{h}:fps={fps}",
-    }
-    zp = effects.get(item.effect, effects["ken_burns_in"])
+    # Probe dimensions (after HEIC conversion) to decide portrait vs landscape
+    src_w, src_h = _probe_dimensions(source)
+    portrait = _is_portrait(src_w, src_h)
 
-    cmd = [
-        "ffmpeg", "-y", "-loop", "1", "-i", str(source),
-        "-t", str(item.display_duration),
-        "-vf", f"scale=8000:-1,{zp}",
-        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
-        "-an",
-        str(out),
-    ]
+    if portrait:
+        # Portrait: blurred background + sharp foreground + gentle Ken Burns
+        portrait_zoom_rate = 0.001 + (0.08 / frames)  # gentler zoom for portrait
+        fc = _build_portrait_photo_filter(w, h, frames, fps, portrait_zoom_rate)
+        cmd = [
+            "ffmpeg", "-y", "-loop", "1", "-i", str(source),
+            "-t", str(item.display_duration),
+            "-filter_complex", fc,
+            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            "-an",
+            str(out),
+        ]
+    else:
+        # Landscape: existing Ken Burns zoompan (works well)
+        effects = {
+            "ken_burns_in": f"zoompan=z='min(zoom+{zoom_rate:.6f},1.3)':d={frames}"
+                            f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+                            f":s={w}x{h}:fps={fps}",
+            "ken_burns_out": f"zoompan=z='if(eq(on,1),1.3,max(zoom-{zoom_rate:.6f},1.0))':d={frames}"
+                             f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+                             f":s={w}x{h}:fps={fps}",
+            "ken_burns_left": f"zoompan=z='1.15':d={frames}"
+                              f":x='(iw-iw/zoom)*on/{frames}':y='ih/2-(ih/zoom/2)'"
+                              f":s={w}x{h}:fps={fps}",
+            "ken_burns_right": f"zoompan=z='1.15':d={frames}"
+                               f":x='(iw-iw/zoom)*(1-on/{frames})':y='ih/2-(ih/zoom/2)'"
+                               f":s={w}x{h}:fps={fps}",
+            "static": f"zoompan=z='1':d={frames}:s={w}x{h}:fps={fps}",
+        }
+        zp = effects.get(item.effect, effects["ken_burns_in"])
+
+        cmd = [
+            "ffmpeg", "-y", "-loop", "1", "-i", str(source),
+            "-t", str(item.display_duration),
+            "-vf", f"scale=8000:-1,{zp}",
+            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            "-an",
+            str(out),
+        ]
+
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"    Photo render failed: {result.stderr[-200:]}")
@@ -159,14 +249,31 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
         duration = item.end_time - item.start_time
     cmd += ["-t", str(duration)]
 
-    cmd += [
-        "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-               f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
-        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
-        "-r", str(fps),
-        "-an",
-        str(out),
-    ]
+    # Probe dimensions to decide portrait vs landscape
+    src_w, src_h = _probe_dimensions(Path(item.source_file))
+    portrait = _is_portrait(src_w, src_h)
+
+    if portrait:
+        # Portrait: blurred background + sharp foreground (no black bars)
+        fc = _build_portrait_video_filter(w, h)
+        cmd += [
+            "-filter_complex", fc,
+            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            "-r", str(fps),
+            "-an",
+            str(out),
+        ]
+    else:
+        # Landscape: existing scale+pad (fine for landscape)
+        cmd += [
+            "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+                   f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
+            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            "-r", str(fps),
+            "-an",
+            str(out),
+        ]
+
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"    Video render failed: {result.stderr[-200:]}")

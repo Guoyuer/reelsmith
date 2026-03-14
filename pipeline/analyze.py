@@ -11,6 +11,7 @@ from pathlib import Path
 
 import httpx
 from PIL import Image
+from tqdm import tqdm
 
 from .config import Config
 
@@ -93,6 +94,12 @@ def analyze(cfg: Config) -> list[dict]:
             existing[entry["id"]] = entry
 
     results = []
+    # Count how many need actual work (not cached)
+    to_do = sum(1 for item in to_analyze
+                if item["id"] not in existing or not existing[item["id"]].get("vision"))
+    pbar = tqdm(total=to_do, desc="Analyzing", unit="item",
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
+
     for i, item in enumerate(to_analyze, 1):
         item_id = item["id"]
 
@@ -105,8 +112,7 @@ def analyze(cfg: Config) -> list[dict]:
         suffix = local_path.suffix.lower()
         is_video = suffix in VIDEO_EXTENSIONS
 
-        print(f"  [{i}/{len(to_analyze)}] {item['tier']} {item['filename']} "
-              f"(family={item['family_count']})...")
+        pbar.set_postfix_str(f"{item['tier']} {item['filename']}", refresh=True)
 
         entry = {
             "id": item_id,
@@ -147,9 +153,11 @@ def analyze(cfg: Config) -> list[dict]:
                 entry["vision"] = vision
 
         results.append(entry)
+        pbar.update(1)
         # Save incrementally
         analysis_path.write_text(json.dumps(results, indent=2))
 
+    pbar.close()
     pid_path.unlink(missing_ok=True)
 
     ok = sum(1 for r in results if r.get("vision"))
@@ -193,10 +201,10 @@ def _analyze_image(image_path: Path, cfg: Config, prompt: str) -> dict | None:
         if suffix in {".heic", ".heif"}:
             jpeg_path = image_path.parent / f"_converted_{image_path.stem}.jpg"
             if not jpeg_path.exists():
+                # Use sips (macOS) — FFmpeg decodes HEIC grid tiles as 512x512
                 subprocess.run(
-                    ["ffmpeg", "-y", "-i", str(image_path),
-                     "-vf", "scale='min(1536,iw)':-1", "-q:v", "3",
-                     str(jpeg_path)],
+                    ["sips", "-s", "format", "jpeg",
+                     str(image_path), "--out", str(jpeg_path)],
                     capture_output=True,
                 )
             if jpeg_path.exists():
