@@ -72,7 +72,7 @@ def _build_portrait_video_filter(out_w: int, out_h: int) -> str:
 # Main assemble entry point
 # ---------------------------------------------------------------------------
 
-def assemble(cfg: Config, *, version: int = 1) -> Path:
+def assemble(cfg: Config, *, version: int = 1, progress_callback=None) -> Path:
     """Read edl.json and render the final vlog video."""
     cfg.ensure_dirs()
     edl_path = cfg.workspace / "edl.json"
@@ -141,6 +141,8 @@ def assemble(cfg: Config, *, version: int = 1) -> Path:
                 "transition_duration": td,
             })
             pbar.update(1)
+            if progress_callback:
+                progress_callback(pbar.n, total_items, clip_name)
 
     pbar.close()
 

@@ -57,7 +57,7 @@ This is a travel photo. Analyze it briefly. Respond in JSON only:
 }"""
 
 
-def analyze(cfg: Config) -> list[dict]:
+def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
     """Analyze items from preprocessed.json — tier A+B with full prompt, tier C quick scan."""
     cfg.ensure_dirs()
     preprocessed_path = cfg.workspace / "preprocessed.json"
@@ -154,6 +154,8 @@ def analyze(cfg: Config) -> list[dict]:
 
         results.append(entry)
         pbar.update(1)
+        if progress_callback:
+            progress_callback(pbar.n, to_do, item.get("filename", ""))
         # Save incrementally
         analysis_path.write_text(json.dumps(results, indent=2))
 
