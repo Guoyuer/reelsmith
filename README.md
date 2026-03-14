@@ -27,7 +27,7 @@ flowchart TD
     subgraph "Stage 3: Analyze"
         P5 --> A1{Route by tier}
         A1 -->|Tier A+B| A2[Ollama llava:7b<br/>family-tuned prompt<br/>togetherness · emotion<br/>story_beat · visual_quality]
-        A1 -->|Tier C| A3[Ollama llava:7b<br/>scene-only prompt<br/>scene_type · composition]
+        A1 -->|Tier C| A3[Ollama llava:7b<br/>scene-only prompt<br/>scene_type · visual_quality]
         A1 -->|Tier D| A4[Skip]
         A2 & A3 --> A5[analysis.json<br/>~355 items scored]
     end
@@ -39,7 +39,10 @@ flowchart TD
     end
 
     subgraph "Stage 5: Assemble"
-        PL3 --> AS1[Render each item as clip<br/>photos: Ken Burns zoompan<br/>videos: trim + normalize]
+        PL3 --> AS0{Portrait?}
+        AS0 -->|yes| AS0a[Blurred BG + sharp overlay<br/>+ gentle Ken Burns]
+        AS0 -->|no| AS0b[Ken Burns zoompan<br/>or scale + pad]
+        AS0a & AS0b --> AS1[Render each item as clip]
         AS1 --> AS2[Concatenate with xfade<br/>transitions between clips]
         AS2 --> AS3{Music?}
         AS3 -->|yes| AS4[Mix background track<br/>volume + fade in/out]
@@ -100,7 +103,7 @@ python run.py variations
 |-----------|-------|-----|
 | Vision | llava:7b | ~5GB |
 | Planning | qwen2.5-coder:7b | ~5GB |
-| Whisper | mlx-whisper small | ~0.5GB |
+| Whisper | mlx-whisper medium | ~1.5GB |
 
 Only one Ollama model loaded at a time. Fits comfortably in 24GB.
 
@@ -109,4 +112,15 @@ Only one Ollama model loaded at a time. Fits comfortably in 24GB.
 - **EDL is the central artifact** — a JSON file that flows between plan/assemble/iterate. Changing the edit never re-analyzes media.
 - **Synology metadata > AI scoring** — person face tags and GPS locations from Synology are more reliable than a 7B vision model's judgment. AI fills in what metadata can't (emotion, composition, scene type).
 - **Tiered analysis** — family-together photos (tier A) get a detailed prompt; scene shots (tier C) get a minimal one. Cuts GPU time ~40%.
+- **Portrait-aware rendering** — portrait photos/videos get blurred background + sharp foreground overlay instead of black bars or awkward center crops.
+- **HEIC via sips** — Apple HEIC photos are converted using macOS `sips` (not FFmpeg, which decodes HEIC grid tiles as 512x512 thumbnails).
 - **Resumable** — every stage saves incrementally. Kill and restart without losing progress.
+
+## Testing
+
+```bash
+source venv/bin/activate
+python -m pytest tests/ -v                    # all tests (~2s)
+python -m pytest tests/ -m integration -v     # integration tests only (requires FFmpeg)
+python -m pytest tests/ -m "not integration"  # unit/mocked tests only
+```
