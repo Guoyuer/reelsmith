@@ -10,6 +10,7 @@ Each run lives in its own subdirectory under the base workspace:
 Set run_name in the IOManager config (Launchpad or CLI -w) to isolate runs.
 """
 
+import time
 from pathlib import Path
 
 import dagster as dg
@@ -223,9 +224,26 @@ def analysis(
     from .analyze import analyze as do_analyze
     cfg = Config.load(ws)
 
+    t0 = time.monotonic()
+
     def on_progress(current: int, total: int, filename: str) -> None:
         if current % max(total // 20, 1) == 0 or current == total:
-            context.log.info(f"Analyze progress: {current}/{total} — {filename}")
+            elapsed = time.monotonic() - t0
+            eta_min = (elapsed / current * (total - current) / 60) if current > 0 else 0
+            pct = current / total * 100 if total else 0
+            context.log.info(f"Analyze: {current}/{total} ({pct:.0f}%) ETA {eta_min:.1f}min — {filename}")
+            context.log_event(
+                dg.AssetObservation(
+                    asset_key=context.asset_key,
+                    metadata={
+                        "progress_pct": dg.MetadataValue.float(pct),
+                        "current": dg.MetadataValue.int(current),
+                        "total": dg.MetadataValue.int(total),
+                        "eta_minutes": dg.MetadataValue.float(round(eta_min, 1)),
+                        "current_item": dg.MetadataValue.text(filename),
+                    },
+                )
+            )
 
     results = do_analyze(cfg, progress_callback=on_progress)
     ok = sum(1 for r in results if r.get("vision"))
@@ -289,9 +307,26 @@ def vlog_video(
     from .assemble import assemble as do_assemble
     cfg = Config.load(ws)
 
+    t0 = time.monotonic()
+
     def on_progress(current: int, total: int, clip_name: str) -> None:
         if current % max(total // 10, 1) == 0 or current == total:
-            context.log.info(f"Render progress: {current}/{total} — {clip_name}")
+            elapsed = time.monotonic() - t0
+            eta_min = (elapsed / current * (total - current) / 60) if current > 0 else 0
+            pct = current / total * 100 if total else 0
+            context.log.info(f"Assemble: {current}/{total} ({pct:.0f}%) ETA {eta_min:.1f}min — {clip_name}")
+            context.log_event(
+                dg.AssetObservation(
+                    asset_key=context.asset_key,
+                    metadata={
+                        "progress_pct": dg.MetadataValue.float(pct),
+                        "current": dg.MetadataValue.int(current),
+                        "total": dg.MetadataValue.int(total),
+                        "eta_minutes": dg.MetadataValue.float(round(eta_min, 1)),
+                        "current_clip": dg.MetadataValue.text(clip_name),
+                    },
+                )
+            )
 
     output_path = do_assemble(
         cfg, version=config.version, progress_callback=on_progress,
