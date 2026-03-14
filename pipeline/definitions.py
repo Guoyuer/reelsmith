@@ -4,9 +4,10 @@ Each pipeline stage is a Dagster asset. Assets auto-skip when their output
 file already exists (unless force=True in config). Re-materialize any asset
 from the Dagster UI to force re-run it + all downstream dependencies.
 
-Workspace path is configurable:
-- CLI: python run.py -w ./workspace/singapore auto ...
-- UI:  Set resources > io_manager > workspace in the Launchpad
+Each run lives in its own subdirectory under the base workspace:
+  workspace/{run_name}/manifest.json, analysis.json, output/vlog_v1.mp4, ...
+
+Set run_name in the IOManager config (Launchpad or CLI -w) to isolate runs.
 """
 
 from pathlib import Path
@@ -32,13 +33,21 @@ OUTPUT_FILES: dict[str, str | None] = {
 class WorkspaceIOManager(dg.ConfigurableIOManager):
     """IOManager for the vlog pipeline.
 
-    - handle_output(): no-op (stages write their own files)
-    - load_input(): returns the file path as a string for downstream assets
+    - base_dir: root directory containing all runs (default: ./workspace)
+    - run_name: subdirectory for this run (default: "default")
 
-    Set 'workspace' in the Launchpad to target a different directory per run.
+    Actual workspace path = {base_dir}/{run_name}
+
+    Set these in the Launchpad to target different runs:
+      resources > io_manager > base_dir / run_name
     """
 
-    workspace: str = "./workspace"
+    base_dir: str = "./workspace"
+    run_name: str = "default"
+
+    @property
+    def workspace_path(self) -> str:
+        return str(Path(self.base_dir) / self.run_name)
 
     def handle_output(self, context: dg.OutputContext, obj: object) -> None:
         pass  # stages write their own files
@@ -47,11 +56,11 @@ class WorkspaceIOManager(dg.ConfigurableIOManager):
         key = context.upstream_output.asset_key.path[-1]
         filename = OUTPUT_FILES.get(key)
         if filename:
-            path = Path(self.workspace) / filename
+            path = Path(self.workspace_path) / filename
             if path.exists():
                 return str(path)
         raise FileNotFoundError(
-            f"Expected output for '{key}' at {self.workspace}/{filename}"
+            f"Expected output for '{key}' at {self.workspace_path}/{filename}"
         )
 
 
@@ -104,14 +113,14 @@ class AssembleConfig(dg.Config):
 
 
 class IterateConfig(dg.Config):
-    workspace: str = "./workspace"
+    workspace: str = "./workspace/default"
     style: str = "upbeat"
     max_rounds: int = 2
     feedback: str | None = None
 
 
 class VariationsConfig(dg.Config):
-    workspace: str = "./workspace"
+    workspace: str = "./workspace/default"
     styles: str = "energetic,reflective,cinematic"
 
 
@@ -120,7 +129,7 @@ class VariationsConfig(dg.Config):
 # ---------------------------------------------------------------------------
 
 def _ws(context: dg.AssetExecutionContext) -> str:
-    return context.resources.io_manager.workspace
+    return context.resources.io_manager.workspace_path
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +372,6 @@ defs = dg.Definitions(
     assets=[manifest, preprocessed, analysis, edl, vlog_video],
     jobs=[full_pipeline, from_plan, iterate_job, variations_job],
     resources={
-        "io_manager": WorkspaceIOManager(workspace="./workspace"),
+        "io_manager": WorkspaceIOManager(base_dir="./workspace", run_name="default"),
     },
 )

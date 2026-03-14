@@ -13,12 +13,12 @@ import click
 import dagster as dg
 
 
-def _workspace(ctx: click.Context) -> str:
-    return ctx.obj["workspace"] or os.getenv("WORKSPACE", "./workspace")
+def _run_name(ctx: click.Context) -> str:
+    return ctx.obj["run_name"] or "default"
 
 
-def _materialize(workspace: str, selection=None, run_config=None):
-    """Materialize assets with the given workspace path."""
+def _materialize(run_name: str, selection=None, run_config=None):
+    """Materialize assets with the given run name."""
     from pipeline.definitions import (
         manifest, preprocessed, analysis, edl, vlog_video,
         WorkspaceIOManager,
@@ -26,7 +26,7 @@ def _materialize(workspace: str, selection=None, run_config=None):
 
     result = dg.materialize(
         [manifest, preprocessed, analysis, edl, vlog_video],
-        resources={"io_manager": WorkspaceIOManager(workspace=workspace)},
+        resources={"io_manager": WorkspaceIOManager(base_dir="./workspace", run_name=run_name)},
         selection=selection,
         run_config=run_config,
     )
@@ -35,19 +35,19 @@ def _materialize(workspace: str, selection=None, run_config=None):
 
 
 @click.group()
-@click.option("--workspace", "-w", default=None, help="Workspace directory (default: ./workspace)")
+@click.option("--run-name", "-n", default=None, help="Run name (subdirectory under workspace/, default: 'default')")
 @click.pass_context
-def cli(ctx: click.Context, workspace: str | None) -> None:
+def cli(ctx: click.Context, run_name: str | None) -> None:
     """Automated vlog pipeline: fetch -> preprocess -> analyze -> plan -> assemble -> iterate."""
     ctx.ensure_object(dict)
-    ctx.obj["workspace"] = workspace
+    ctx.obj["run_name"] = run_name
 
 
 @cli.command()
 @click.pass_context
 def resume(ctx):
     """Resume pipeline — auto-skips stages with existing outputs."""
-    _materialize(_workspace(ctx))
+    _materialize(_run_name(ctx))
 
 
 @cli.command()
@@ -71,7 +71,7 @@ def auto(ctx, from_date, to_date, country, first_level, district, person_ids,
     type_list = [int(x) for x in item_types.split(",")] if item_types else None
 
     _materialize(
-        _workspace(ctx),
+        _run_name(ctx),
         run_config=dg.RunConfig(
             ops={
                 "manifest": FetchConfig(
@@ -96,7 +96,7 @@ def plan(ctx, style, duration, focus):
     from pipeline.definitions import PlanConfig, AssembleConfig
 
     _materialize(
-        _workspace(ctx),
+        _run_name(ctx),
         selection=["edl", "vlog_video"],
         run_config=dg.RunConfig(
             ops={
@@ -116,13 +116,14 @@ def assemble(ctx, version):
     from pipeline.config import Config as PipelineConfig
     from pipeline.iterate import _find_latest_version
 
-    ws = _workspace(ctx)
+    rn = _run_name(ctx)
+    ws = f"./workspace/{rn}"
     if version is None:
         cfg = PipelineConfig.load(ws)
         version = _find_latest_version(cfg) + 1
 
     _materialize(
-        ws,
+        rn,
         selection=["vlog_video"],
         run_config=dg.RunConfig(
             ops={"vlog_video": AssembleConfig(version=version, force=True)},
@@ -139,7 +140,7 @@ def iterate(ctx, feedback, rounds, style):
     """Improve the vlog via self-critique or human feedback."""
     from pipeline.definitions import IterateConfig, iterate_job
 
-    ws = _workspace(ctx)
+    ws = f"./workspace/{_run_name(ctx)}"
     iterate_job.execute_in_process(
         run_config=dg.RunConfig(
             ops={
@@ -161,7 +162,7 @@ def variations(ctx, styles):
     """Generate multiple vlog variations with different styles."""
     from pipeline.definitions import VariationsConfig, variations_job
 
-    ws = _workspace(ctx)
+    ws = f"./workspace/{_run_name(ctx)}"
     variations_job.execute_in_process(
         run_config=dg.RunConfig(
             ops={"variations_op": VariationsConfig(workspace=ws, styles=styles)},
