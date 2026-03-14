@@ -159,14 +159,14 @@ def iterate(ctx, feedback, rounds, style):
 @click.pass_context
 def variations(ctx, styles):
     """Generate multiple vlog variations with different styles."""
-    from pipeline.iterate import generate_variations
-    from pipeline.config import Config as PipelineConfig
+    from pipeline.definitions import VariationsConfig, variations_job
 
-    cfg = PipelineConfig.load(_workspace(ctx))
-    style_list = [s.strip() for s in styles.split(",")]
-    outputs = generate_variations(cfg, styles=style_list)
-    for path in outputs:
-        print(f"  {path}")
+    ws = _workspace(ctx)
+    variations_job.execute_in_process(
+        run_config=dg.RunConfig(
+            ops={"variations_op": VariationsConfig(workspace=ws, styles=styles)},
+        ),
+    )
 
 
 if __name__ == "__main__":

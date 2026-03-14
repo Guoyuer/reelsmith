@@ -110,6 +110,11 @@ class IterateConfig(dg.Config):
     feedback: str | None = None
 
 
+class VariationsConfig(dg.Config):
+    workspace: str = "./workspace"
+    styles: str = "energetic,reflective,cinematic"
+
+
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
@@ -315,6 +320,26 @@ def iterate_job() -> None:
     iterate_op()
 
 
+@dg.op(
+    retry_policy=dg.RetryPolicy(max_retries=1, delay=15),
+    tags={"dagster/concurrency_key": "ollama"},
+)
+def variations_op(config: VariationsConfig) -> None:
+    """Generate multiple vlog variations with different styles."""
+    from .iterate import generate_variations
+
+    cfg = Config.load(config.workspace)
+    style_list = [s.strip() for s in config.styles.split(",")]
+    outputs = generate_variations(cfg, styles=style_list)
+    for path in outputs:
+        print(f"  {path}")
+
+
+@dg.job(name="variations")
+def variations_job() -> None:
+    variations_op()
+
+
 # ---------------------------------------------------------------------------
 # Jobs
 # ---------------------------------------------------------------------------
@@ -336,7 +361,7 @@ from_plan = dg.define_asset_job(
 
 defs = dg.Definitions(
     assets=[manifest, preprocessed, analysis, edl, vlog_video],
-    jobs=[full_pipeline, from_plan, iterate_job],
+    jobs=[full_pipeline, from_plan, iterate_job, variations_job],
     resources={
         "io_manager": WorkspaceIOManager(workspace="./workspace"),
     },
