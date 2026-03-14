@@ -10,12 +10,13 @@ dependencies = [
     "Pillow>=10.0",
     "python-dotenv>=1.0",
     "tqdm>=4.60",
-    "prefect>=3.0,<4.0",
+    "dagster>=1.9",
+    "dagster-webserver>=1.9",
 ]
 
 [project.optional-dependencies]
 whisper = ["mlx-whisper>=0.4"]
-test = ["pytest>=8.0", "prefect>=3.0,<4.0"]
+test = ["pytest>=8.0", "dagster>=1.9"]
 
 [project.scripts]
 vlog = "run:cli"
