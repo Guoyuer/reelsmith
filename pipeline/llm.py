@@ -20,6 +20,7 @@ def ollama_chat(
     prompt: str,
     images: list[Path] | None = None,
     temperature: float = 0.3,
+    json_mode: bool = False,
     log_fn=None,
 ) -> str:
     """Send a chat request to Ollama and return the response text.
@@ -43,15 +44,19 @@ def ollama_chat(
         ]
     messages.append(user_msg)
 
+    payload: dict = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+        "options": {"temperature": temperature, "num_ctx": 32768},
+    }
+    if json_mode:
+        payload["format"] = "json"
+
     with httpx.stream(
         "POST",
         f"{cfg.ollama_base}/api/chat",
-        json={
-            "model": model,
-            "messages": messages,
-            "stream": True,
-            "options": {"temperature": temperature, "num_ctx": 32768},
-        },
+        json=payload,
         timeout=600,
     ) as resp:
         resp.raise_for_status()
@@ -85,7 +90,7 @@ def ollama_json(
     """Call Ollama and parse the response as JSON."""
     text = ollama_chat(
         cfg, model=model, system=system, prompt=prompt,
-        images=images, temperature=0.1,
+        images=images, temperature=0.1, json_mode=True,
     )
     # Strip markdown code fences if present
     text = strip_markdown_fences(text)

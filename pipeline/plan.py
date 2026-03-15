@@ -97,7 +97,7 @@ Select ~{target_duration // 4} items total. Pick the warmest, happiest moments."
     _log = log_fn or print
     _log(f"Planning vlog (target {target_duration}s, model={cfg.planning_model})...")
 
-    content = ollama_chat(cfg, system=SYSTEM_PROMPT, prompt=user_message, log_fn=_log)
+    content = ollama_chat(cfg, system=SYSTEM_PROMPT, prompt=user_message, json_mode=True, log_fn=_log)
 
     content = strip_markdown_fences(content)
 

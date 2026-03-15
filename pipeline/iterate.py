@@ -81,7 +81,7 @@ def _save_edl_version(cfg: Config, edl: EDL, version: int) -> None:
 
 def _revise_and_render(cfg: Config, edl: EDL, prompt: str, **chat_kwargs) -> EDL:
     """Call LLM, parse revised EDL, save version, clear clips, and re-render."""
-    content = strip_markdown_fences(ollama_chat(cfg, prompt=prompt, **chat_kwargs))
+    content = strip_markdown_fences(ollama_chat(cfg, prompt=prompt, json_mode=True, **chat_kwargs))
     new_edl = EDL.model_validate_json(content)
 
     version = _find_latest_version(cfg) + 1
