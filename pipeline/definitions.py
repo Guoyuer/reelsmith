@@ -92,6 +92,9 @@ class PlanConfig(dg.Config):
 
 class AssembleConfig(dg.Config):
     version: int = 1
+    width: int = 3840
+    height: int = 2160
+    fps: int = 60
     force: bool = False
     skip_broken: bool = False
 
@@ -263,7 +266,7 @@ def fetch_media(
 )
 def preprocess(
     context: dg.AssetExecutionContext,
-    fetch_media: None,
+    fetch_media,
     config: PreprocessConfig,
 ) -> dg.MaterializeResult:
     """Tier by family presence, cluster duplicates, build timeline."""
@@ -299,7 +302,7 @@ def preprocess(
 )
 def analyze(
     context: dg.AssetExecutionContext,
-    preprocess: None,
+    preprocess,
     config: AnalyzeConfig,
 ) -> dg.MaterializeResult:
     """Analyze media with vision model (llava:7b)."""
@@ -354,7 +357,7 @@ def analyze(
 )
 def plan(
     context: dg.AssetExecutionContext,
-    analyze: None,
+    analyze,
     config: PlanConfig,
 ) -> dg.MaterializeResult:
     """Generate edit decision list using local LLM."""
@@ -407,7 +410,7 @@ def plan(
 )
 def assemble(
     context: dg.AssetExecutionContext,
-    plan: None,
+    plan,
     config: AssembleConfig,
 ) -> dg.MaterializeResult:
     """Render vlog from EDL via FFmpeg."""
@@ -423,6 +426,7 @@ def assemble(
     t0 = time.monotonic()
     output_path = do_assemble(
         io.config, version=config.version,
+        resolution=(config.width, config.height), fps=config.fps,
         progress_callback=_progress_cb(context, t0),
         skip_broken=config.skip_broken,
     )

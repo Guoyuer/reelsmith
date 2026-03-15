@@ -61,7 +61,8 @@ def _build_portrait_photo_filter(
 # Main assemble entry point
 # ---------------------------------------------------------------------------
 
-def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_broken: bool = False) -> Path:
+def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_broken: bool = False,
+             resolution: tuple[int, int] | None = None, fps: int | None = None) -> Path:
     """Read edl.json and render the final vlog video."""
     cfg.ensure_dirs()
     edl_path = cfg.workspace / "edl.json"
@@ -71,8 +72,8 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     output_dir = cfg.workspace / "output"
     output_path = output_dir / f"vlog_v{version}.mp4"
 
-    w, h = edl.resolution
-    fps = edl.fps
+    w, h = resolution or edl.resolution
+    fps = fps or edl.fps
 
     # Phase 1: Render each item as a normalized clip
     all_clips: list[dict] = []  # {"path": Path, "duration": float, "transition": str, "transition_duration": float}
