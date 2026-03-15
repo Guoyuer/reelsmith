@@ -196,6 +196,53 @@ def fetch_media(
     )
 
 
+def _preprocess_metadata(data: dict, extra: dict | None = None) -> dict:
+    """Build metadata dict for the preprocess asset."""
+    tc = data.get("tier_counts", {})
+    tier_table = (
+        "| Tier | Count | Description |\n"
+        "|------|-------|-------------|\n"
+        f"| A | {tc.get('A', 0)} | Family together |\n"
+        f"| B | {tc.get('B', 0)} | One family member |\n"
+        f"| C | {tc.get('C', 0)} | Scene / B-roll |\n"
+        f"| D | {tc.get('D', 0)} | Skipped |"
+    )
+
+    # Build timeline summary
+    timeline = data.get("timeline", [])
+    timeline_rows = []
+    for day in timeline:
+        chapters = day.get("chapters", [])
+        total_items = sum(c.get("count", 0) for c in chapters)
+        timeline_rows.append(
+            f"| {day.get('date', '?')} ({day.get('day_name', '?')}) "
+            f"| {len(chapters)} | {total_items} |"
+        )
+    timeline_table = (
+        "| Day | Chapters | Items |\n"
+        "|-----|----------|-------|\n"
+        + "\n".join(timeline_rows)
+    ) if timeline_rows else ""
+
+    meta = {
+        "total_items": dg.MetadataValue.int(data.get("total_items", 0)),
+        "selected_items": dg.MetadataValue.int(data.get("selected_items", 0)),
+        "family_members": dg.MetadataValue.md(
+            ", ".join(data.get("family_names", [])) or "(none detected)"
+        ),
+        "tiers": dg.MetadataValue.md(tier_table),
+        "timeline_days": dg.MetadataValue.int(len(timeline)),
+        "chapters": dg.MetadataValue.int(
+            sum(len(d.get("chapters", [])) for d in timeline)
+        ),
+    }
+    if timeline_table:
+        meta["timeline"] = dg.MetadataValue.md(timeline_table)
+    if extra:
+        meta.update(extra)
+    return meta
+
+
 @dg.asset(
     group_name="vlog",
     retry_policy=dg.RetryPolicy(max_retries=1),
@@ -213,11 +260,9 @@ def preprocess(
         context.log.info("Skipping preprocess — preprocessed.json exists")
         data = json.loads(Path(out).read_text())
         return dg.MaterializeResult(
-            metadata={
+            metadata=_preprocess_metadata(data, {
                 "status": dg.MetadataValue.text("skipped (cached)"),
-                "total_items": dg.MetadataValue.int(data.get("total_items", 0)),
-                "selected_items": dg.MetadataValue.int(data.get("selected_items", 0)),
-            }
+            })
         )
 
     from .preprocess import preprocess as do_preprocess
@@ -227,28 +272,7 @@ def preprocess(
         f"Preprocessed: {result['selected_items']}/{result['total_items']} items, "
         f"tiers: {result['tier_counts']}"
     )
-
-    tc = result["tier_counts"]
-    tier_table = (
-        "| Tier | Count | Description |\n"
-        "|------|-------|-------------|\n"
-        f"| A | {tc.get('A', 0)} | Family together |\n"
-        f"| B | {tc.get('B', 0)} | One family member |\n"
-        f"| C | {tc.get('C', 0)} | Scene / B-roll |\n"
-        f"| D | {tc.get('D', 0)} | Skipped |"
-    )
-    return dg.MaterializeResult(
-        metadata={
-            "total_items": dg.MetadataValue.int(result["total_items"]),
-            "selected_items": dg.MetadataValue.int(result["selected_items"]),
-            "family_members": dg.MetadataValue.md(", ".join(result.get("family_names", []))),
-            "tiers": dg.MetadataValue.md(tier_table),
-            "timeline_days": dg.MetadataValue.int(len(result.get("timeline", []))),
-            "chapters": dg.MetadataValue.int(
-                sum(len(d.get("chapters", [])) for d in result.get("timeline", []))
-            ),
-        }
-    )
+    return dg.MaterializeResult(metadata=_preprocess_metadata(result))
 
 
 def _analyze_metadata(results: list[dict], out: str, extra: dict | None = None) -> dict:
