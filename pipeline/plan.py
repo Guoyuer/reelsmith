@@ -148,6 +148,13 @@ Pick the warmest, happiest moments."""
         _log(f"Fixed {fixed} hallucinated file paths in EDL")
 
     edl_path.write_text(edl.model_dump_json(indent=2))
+
+    # Clear downstream outputs so assemble doesn't skip with stale video
+    for d in [cfg.workspace / "clips", cfg.workspace / "output"]:
+        if d.exists():
+            for f in d.iterdir():
+                f.unlink(missing_ok=True)
+
     _log(f"EDL saved: {len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s estimated")
     return edl
 
