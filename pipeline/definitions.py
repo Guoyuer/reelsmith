@@ -91,7 +91,7 @@ class PlanConfig(dg.Config):
 
 
 class AssembleConfig(dg.Config):
-    version: int = 1
+    version: int = 0  # 0 = auto-detect next version
     width: int = 3840
     height: int = 2160
     fps: int = 60
@@ -364,18 +364,22 @@ def plan(
     io = context.resources.io_manager
     out = Path(io.workspace_path) / "edl.json"
 
+    from .iterate import _find_latest_version
+
     if not config.force and out.exists():
         context.log.info("Skipping plan — edl.json exists")
         edl_data = EDL.model_validate_json(out.read_text())
+        version = _find_latest_version(io.config) or 1
         return dg.MaterializeResult(
             metadata={
                 "status": dg.MetadataValue.text("finished"),
+                "version": dg.MetadataValue.int(version),
                 "segments": dg.MetadataValue.int(len(edl_data.segments)),
                 "items": dg.MetadataValue.int(len(edl_data.all_items())),
             }
         )
 
-    result = do_plan(
+    result, version = do_plan(
         io.config,
         style=config.style,
         target_duration=config.target_duration,
@@ -383,7 +387,7 @@ def plan(
         log_fn=context.log.info,
     )
     context.log.info(
-        f"EDL: {len(result.segments)} segments, "
+        f"EDL v{version}: {len(result.segments)} segments, "
         f"{len(result.all_items())} items, "
         f"~{result.estimated_duration():.0f}s"
     )
@@ -391,6 +395,7 @@ def plan(
     return dg.MaterializeResult(
         metadata={
             "style": dg.MetadataValue.text(config.style),
+            "version": dg.MetadataValue.int(version),
             "target_duration": dg.MetadataValue.int(config.target_duration),
             "estimated_duration": dg.MetadataValue.float(round(result.estimated_duration(), 1)),
             "segments": dg.MetadataValue.int(len(result.segments)),
@@ -414,18 +419,23 @@ def assemble(
     config: AssembleConfig,
 ) -> dg.MaterializeResult:
     """Render vlog from EDL via FFmpeg."""
-    io = context.resources.io_manager
-    output_dir = Path(io.workspace_path) / "output"
+    from .iterate import _find_latest_version
 
-    if not config.force and output_dir.exists() and any(output_dir.glob("vlog_v*.mp4")):
-        context.log.info("Skipping assemble — vlog already exists")
+    io = context.resources.io_manager
+    cfg = io.config
+    version = config.version if config.version > 0 else _find_latest_version(cfg) + 1
+    output_dir = Path(io.workspace_path) / "output"
+    output_file = output_dir / f"vlog_v{version}.mp4"
+
+    if not config.force and output_file.exists():
+        context.log.info(f"Skipping assemble — vlog_v{version}.mp4 already exists")
         return dg.MaterializeResult(
-            metadata={"status": dg.MetadataValue.text("finished")}
+            metadata={"status": dg.MetadataValue.text("finished"), "version": dg.MetadataValue.int(version)}
         )
 
     t0 = time.monotonic()
     output_path = do_assemble(
-        io.config, version=config.version,
+        cfg, version=version,
         resolution=(config.width, config.height), fps=config.fps,
         progress_callback=_progress_cb(context, t0),
         skip_broken=config.skip_broken,

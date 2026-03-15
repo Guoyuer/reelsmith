@@ -68,7 +68,7 @@ def plan(
     target_duration: int = 180,
     focus: str = "happiness with family",
     log_fn=None,
-) -> EDL:
+) -> tuple[EDL, int]:
     """Build structured prompt from timeline + analysis, ask LLM to select and arrange."""
     preprocessed_path = cfg.workspace / "preprocessed.json"
     analysis_path = cfg.workspace / "analysis.json"
@@ -147,16 +147,20 @@ Pick the warmest, happiest moments."""
     if fixed:
         _log(f"Fixed {fixed} hallucinated file paths in EDL")
 
+    # Save versioned copy before overwriting
+    from .iterate import _find_latest_version, _save_edl_version
+    version = _find_latest_version(cfg) + 1
+    _save_edl_version(cfg, edl, version)
     edl_path.write_text(edl.model_dump_json(indent=2))
 
-    # Clear downstream outputs so assemble doesn't skip with stale video
-    for d in [cfg.workspace / "clips", cfg.workspace / "output"]:
-        if d.exists():
-            for f in d.iterdir():
-                f.unlink(missing_ok=True)
+    # Clear clips so assemble re-renders (keep old videos for comparison)
+    clips_dir = cfg.workspace / "clips"
+    if clips_dir.exists():
+        for f in clips_dir.iterdir():
+            f.unlink(missing_ok=True)
 
-    _log(f"EDL saved: {len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s estimated")
-    return edl
+    _log(f"EDL v{version} saved: {len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s estimated")
+    return edl, version
 
 
 def _build_chapters_prompt(preprocessed: dict, analysis_by_id: dict) -> str:

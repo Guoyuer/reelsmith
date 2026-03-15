@@ -184,7 +184,7 @@ class TestPlanReturnsEdl:
         _setup_workspace(cfg)
 
         with patch("pipeline.plan.ollama_chat", return_value=_valid_edl_json()):
-            result = plan(cfg)
+            result, version = plan(cfg)
 
         assert isinstance(result, EDL)
         assert result.title == "Test Trip"
@@ -214,7 +214,7 @@ class TestPlanStripsFences:
 
         fenced = f"```json\n{_valid_edl_json()}\n```"
         with patch("pipeline.plan.ollama_chat", return_value=fenced):
-            result = plan(cfg)
+            result, version = plan(cfg)
 
         assert isinstance(result, EDL)
         assert result.title == "Test Trip"
