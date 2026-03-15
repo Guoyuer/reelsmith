@@ -159,7 +159,7 @@ class TestPlanCallsOllama:
         with patch("pipeline.plan.ollama_chat", return_value=_valid_edl_json()) as mock_chat:
             plan(cfg)
 
-        mock_chat.assert_called_once()
+        assert mock_chat.call_count >= 1
         _, kwargs = mock_chat.call_args
         assert kwargs["system"] == SYSTEM_PROMPT
 

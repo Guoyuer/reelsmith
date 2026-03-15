@@ -92,16 +92,27 @@ Family members: {', '.join(preprocessed['family_names'])}
 Timeline with scored candidates:
 {chapters_text}
 
-Select ~{target_duration // 4} items total. Pick the warmest, happiest moments."""
+IMPORTANT: You MUST select at least {target_duration // 4} items total (roughly {target_duration // 4} photos at ~4s each).
+A 3-minute vlog needs ~45 items. Do NOT generate fewer than {max(target_duration // 6, 10)} items.
+Pick the warmest, happiest moments."""
 
     _log = log_fn or print
     _log(f"Planning vlog (target {target_duration}s, model={cfg.planning_model})...")
 
-    content = ollama_chat(cfg, system=SYSTEM_PROMPT, prompt=user_message, json_mode=True, log_fn=_log)
+    min_items = max(target_duration // 6, 10)
+    min_duration = target_duration * 0.5
 
-    content = strip_markdown_fences(content)
+    # Retry if the model generates a too-short EDL
+    for attempt in range(3):
+        content = ollama_chat(cfg, system=SYSTEM_PROMPT, prompt=user_message, json_mode=True, log_fn=_log)
+        content = strip_markdown_fences(content)
+        edl = EDL.model_validate_json(content)
 
-    edl = EDL.model_validate_json(content)
+        n_items = len(edl.all_items())
+        est = edl.estimated_duration()
+        if n_items >= min_items and est >= min_duration:
+            break
+        _log(f"EDL too short ({n_items} items, {est:.0f}s) — need ≥{min_items} items, ≥{min_duration:.0f}s. Retrying ({attempt+1}/3)...")
 
     # Fix hallucinated paths — LLMs often mangle source_file paths.
     # Build multiple indexes for fuzzy matching: full path, basename, filename,
