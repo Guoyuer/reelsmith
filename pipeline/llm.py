@@ -48,7 +48,7 @@ def ollama_chat(
         "model": model,
         "messages": messages,
         "stream": True,
-        "options": {"temperature": temperature, "num_ctx": 32768},
+        "options": {"temperature": temperature, "num_ctx": 32768, "num_predict": 8192},
     }
     if json_mode:
         payload["format"] = "json"
