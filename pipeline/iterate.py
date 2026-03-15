@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
 from .assemble import assemble, _probe_duration

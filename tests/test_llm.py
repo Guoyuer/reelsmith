@@ -6,8 +6,7 @@ import base64
 import json
 import os
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
-from contextlib import contextmanager
+from unittest.mock import MagicMock, patch
 
 import pytest
 

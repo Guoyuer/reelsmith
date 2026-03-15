@@ -12,7 +12,7 @@ import pytest
 
 def _make_workspace(tmp_path: Path) -> str:
     """Create a minimal workspace directory structure."""
-    for d in ("raw", "keyframes", "clips", "output"):
+    for d in ("media", "keyframes", "clips", "output"):
         (tmp_path / d).mkdir()
     return str(tmp_path)
 
@@ -130,7 +130,7 @@ class TestAnalyzeProgressCallback:
             "items": [
                 {
                     "id": 999, "tier": "C", "filename": "test.jpg",
-                    "local_path": str(tmp_path / "raw" / "test.jpg"),
+                    "local_path": str(tmp_path / "media" / "test.jpg"),
                     "family_count": 0,
                 }
             ],
@@ -139,7 +139,7 @@ class TestAnalyzeProgressCallback:
 
         from PIL import Image
         img = Image.new("RGB", (100, 100), "blue")
-        img.save(tmp_path / "raw" / "test.jpg")
+        img.save(tmp_path / "media" / "test.jpg")
 
         callback_calls = []
 
@@ -164,8 +164,8 @@ class TestAssembleProgressCallback:
 
         from PIL import Image
         img = Image.new("RGB", (160, 90), "green")
-        raw_path = tmp_path / "raw" / "test.jpg"
-        img.save(raw_path)
+        media_path = tmp_path / "media" / "test.jpg"
+        img.save(media_path)
 
         edl_obj = EDL(
             title="Test", target_duration=5.0, resolution=(320, 180), fps=24,
@@ -174,7 +174,7 @@ class TestAssembleProgressCallback:
                     name="test",
                     items=[
                         EditItem(
-                            source_file=str(raw_path), media_type="photo",
+                            source_file=str(media_path), media_type="photo",
                             display_duration=2.0, effect="static",
                         ),
                     ],
