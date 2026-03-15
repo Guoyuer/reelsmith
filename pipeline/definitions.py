@@ -152,6 +152,7 @@ def fetch_media(
     ws = _ws(context)
     out = str(Path(ws) / "manifest.json")
 
+    newly_fetched = 0
     if not config.force and _output_exists(ws, "fetch_media"):
         context.log.info("Skipping fetch — manifest.json exists")
         items = json.loads(Path(out).read_text())
@@ -164,6 +165,8 @@ def fetch_media(
 
         from .fetch import fetch as do_fetch
         cfg = Config.load(ws)
+        # Count files before fetch to determine how many are new
+        existing_before = set(cfg.media_dir.iterdir()) if cfg.media_dir.exists() else set()
         items = do_fetch(
             cfg,
             from_date=config.from_date,
@@ -174,12 +177,16 @@ def fetch_media(
             person_ids=config.person_ids,
             item_types=config.item_types,
         )
-        context.log.info(f"Fetched {len(items)} items")
+        existing_after = set(cfg.media_dir.iterdir()) if cfg.media_dir.exists() else set()
+        newly_fetched = len(existing_after - existing_before)
+        context.log.info(f"Fetched {len(items)} items ({newly_fetched} new, {len(items) - newly_fetched} cached)")
 
     sample = [it.get("filename", "?") for it in items[:10]]
     return dg.MaterializeResult(
         metadata={
             "items": dg.MetadataValue.int(len(items)),
+            "newly_fetched": dg.MetadataValue.int(newly_fetched),
+            "from_cache": dg.MetadataValue.int(len(items) - newly_fetched),
             "manifest": dg.MetadataValue.path(out),
             "sample_files": dg.MetadataValue.md("\n".join(f"- {f}" for f in sample)),
         }
