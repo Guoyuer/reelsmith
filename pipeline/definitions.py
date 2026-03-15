@@ -157,7 +157,7 @@ def fetch_media(
         items = json.loads(Path(out).read_text())
         return dg.MaterializeResult(
             metadata={
-                "status": dg.MetadataValue.text("skipped (cached)"),
+                "status": dg.MetadataValue.text("finished"),
                 "items": dg.MetadataValue.int(len(items)),
                 "manifest": dg.MetadataValue.path(out),
             }
@@ -261,7 +261,7 @@ def preprocess(
         data = json.loads(Path(out).read_text())
         return dg.MaterializeResult(
             metadata=_preprocess_metadata(data, {
-                "status": dg.MetadataValue.text("skipped (cached)"),
+                "status": dg.MetadataValue.text("finished"),
             })
         )
 
@@ -326,7 +326,7 @@ def analyze(
         results = json.loads(Path(out).read_text())
         return dg.MaterializeResult(
             metadata=_analyze_metadata(results, out, {
-                "status": dg.MetadataValue.text("skipped (all cached)"),
+                "status": dg.MetadataValue.text("finished"),
                 "from_cache": dg.MetadataValue.int(len(results)),
                 "newly_analyzed": dg.MetadataValue.int(0),
             })
@@ -403,7 +403,7 @@ def plan(
         edl_data = EDL.model_validate_json(Path(out).read_text())
         return dg.MaterializeResult(
             metadata={
-                "status": dg.MetadataValue.text("skipped (cached)"),
+                "status": dg.MetadataValue.text("finished"),
                 "segments": dg.MetadataValue.int(len(edl_data.segments)),
                 "items": dg.MetadataValue.int(len(edl_data.all_items())),
             }
@@ -462,7 +462,7 @@ def assemble(
         context.log.info("Skipping assemble — vlog already exists")
         return dg.MaterializeResult(
             metadata={
-                "status": dg.MetadataValue.text("skipped (cached)"),
+                "status": dg.MetadataValue.text("finished"),
             }
         )
 
