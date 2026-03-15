@@ -290,8 +290,8 @@ class TestAnalyzeHeicConvertsViaSips:
         }
         mock_resp.raise_for_status = MagicMock()
 
-        with patch("pipeline.analyze.subprocess.run", side_effect=mock_subprocess_run), \
-             patch("pipeline.media_utils.subprocess.run", side_effect=mock_subprocess_run), \
+        with patch("pipeline.analyze.run_subprocess", side_effect=mock_subprocess_run), \
+             patch("pipeline.media_utils.run_subprocess", side_effect=mock_subprocess_run), \
              patch("pipeline.analyze.httpx.post", return_value=mock_resp):
             analyze(cfg)
 
@@ -349,7 +349,7 @@ class TestExtractKeyframes:
             result.stderr = ""
             return result
 
-        with patch("pipeline.media_utils.subprocess.run", side_effect=mock_run):
+        with patch("pipeline.media_utils.run_subprocess", side_effect=mock_run):
             _extract_keyframes(video_path, kf_dir, item_id=999)
 
         assert "ffprobe" in calls

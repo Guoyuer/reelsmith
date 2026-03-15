@@ -2,8 +2,40 @@
 
 from __future__ import annotations
 
+import signal
 import subprocess
 from pathlib import Path
+
+
+def run_subprocess(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
+    """Run a subprocess that is killed when the parent receives SIGINT/SIGTERM.
+
+    Unlike ``subprocess.run``, this uses ``Popen`` so that Python's signal
+    handler can execute between poll intervals.  When interrupted, the child
+    process is terminated immediately (SIGTERM, then SIGKILL after 3s).
+
+    Accepts the same keyword arguments as ``subprocess.run``.
+    """
+    capture = kwargs.pop("capture_output", False)
+    if capture:
+        kwargs.setdefault("stdout", subprocess.PIPE)
+        kwargs.setdefault("stderr", subprocess.PIPE)
+
+    proc = subprocess.Popen(cmd, **kwargs)
+    try:
+        stdout, stderr = proc.communicate()
+    except KeyboardInterrupt:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        raise
+    return subprocess.CompletedProcess(
+        cmd, proc.returncode,
+        stdout=stdout, stderr=stderr,
+    )
 
 
 def strip_markdown_fences(text: str) -> str:
@@ -43,7 +75,7 @@ def convert_heic(source: Path, dest_dir: Path | None = None) -> Path:
     if jpeg_path.exists():
         return jpeg_path
 
-    subprocess.run(
+    run_subprocess(
         ["sips", "-s", "format", "jpeg",
          str(source), "--out", str(jpeg_path)],
         capture_output=True,
@@ -80,7 +112,7 @@ def extract_frames(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    probe = subprocess.run(
+    probe = run_subprocess(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
          "-of", "csv=p=0", str(video_path)],
         capture_output=True, text=True,
@@ -95,7 +127,7 @@ def extract_frames(
     for i in range(1, count + 1):
         t = interval * i
         out_path = output_dir / f"{prefix}_{i:02d}.jpg"
-        subprocess.run(
+        run_subprocess(
             [
                 "ffmpeg", "-y", "-ss", str(t), "-i", str(video_path),
                 "-frames:v", "1", "-vf", "scale=1024:-1",

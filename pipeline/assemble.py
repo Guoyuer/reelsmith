@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from .config import Config
 from .edl import EDL, EditItem, Segment
-from .media_utils import convert_heic, _zoompan_filter, _portrait_bg_filter
+from .media_utils import convert_heic, run_subprocess, _zoompan_filter, _portrait_bg_filter
 
 
 # ---------------------------------------------------------------------------
@@ -20,7 +20,7 @@ from .media_utils import convert_heic, _zoompan_filter, _portrait_bg_filter
 
 def _probe_dimensions(path: Path) -> tuple[int, int]:
     """Use ffprobe to get (width, height) of a media file."""
-    result = subprocess.run(
+    result = run_subprocess(
         [
             "ffprobe", "-v", "error",
             "-select_streams", "v:0",
@@ -221,7 +221,7 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
             str(out),
         ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"    Photo render failed: {result.stderr[-200:]}")
 
@@ -263,7 +263,7 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
             str(out),
         ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"    Video render failed: {result.stderr[-200:]}")
 
@@ -294,7 +294,7 @@ def _add_text_overlay(
         "-c:a", "copy",
         str(output_path),
     ]
-    subprocess.run(cmd, capture_output=True)
+    run_subprocess(cmd, capture_output=True)
 
 
 def _concatenate(clips: list[dict], output_path: Path) -> None:
@@ -324,7 +324,7 @@ def _concat_demuxer(clips: list[dict], output_path: Path) -> None:
         "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
         str(output_path),
     ]
-    subprocess.run(cmd, capture_output=True, check=True)
+    run_subprocess(cmd, capture_output=True)
     list_path.unlink(missing_ok=True)
 
 
@@ -386,7 +386,7 @@ def _concat_xfade(clips: list[dict], output_path: Path) -> None:
         "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
         str(output_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"xfade failed, falling back to concat demuxer: {result.stderr[-200:]}")
         _concat_demuxer(clips, output_path)
@@ -412,12 +412,12 @@ def _add_music(video_path: Path, music, output_path: Path) -> None:
         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
         str(output_path),
     ]
-    subprocess.run(cmd, capture_output=True, check=True)
+    run_subprocess(cmd, capture_output=True)
 
 
 def _probe_duration(path: Path) -> float:
     """Get video duration in seconds."""
-    result = subprocess.run(
+    result = run_subprocess(
         [
             "ffprobe", "-v", "error",
             "-show_entries", "format=duration",

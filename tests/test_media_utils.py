@@ -57,7 +57,7 @@ class TestConvertHeicCallsSips:
                 out_path.write_bytes(b"\xff\xd8" + b"\x00" * 50)
             return result
 
-        with patch("pipeline.media_utils.subprocess.run", side_effect=mock_run):
+        with patch("pipeline.media_utils.run_subprocess", side_effect=mock_run):
             jpeg = convert_heic(heic_file)
 
         sips_calls = [c for c in calls if c[0] == "sips"]
@@ -77,7 +77,7 @@ class TestConvertHeicSkipsExisting:
         jpeg_path = tmp_path / f"_converted_{heic_file.stem}.jpg"
         jpeg_path.write_bytes(b"\xff\xd8" + b"\x00" * 50)
 
-        with patch("pipeline.media_utils.subprocess.run") as mock_run:
+        with patch("pipeline.media_utils.run_subprocess") as mock_run:
             result = convert_heic(heic_file)
 
         mock_run.assert_not_called()
@@ -111,7 +111,7 @@ class TestExtractFramesCallsFfmpeg:
                 out_path.write_bytes(b"\xff\xd8" + b"\x00" * 20)
             return result
 
-        with patch("pipeline.media_utils.subprocess.run", side_effect=mock_run):
+        with patch("pipeline.media_utils.run_subprocess", side_effect=mock_run):
             frames = extract_frames(video, out_dir, prefix="test", count=3)
 
         assert "ffprobe" in tool_calls

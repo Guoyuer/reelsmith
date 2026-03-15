@@ -14,7 +14,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from .config import Config
-from .media_utils import convert_heic, extract_frames, strip_markdown_fences
+from .media_utils import convert_heic, extract_frames, run_subprocess, strip_markdown_fences
 
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
@@ -248,7 +248,7 @@ def _analyze_image(image_path: Path, cfg: Config, prompt: str) -> dict | None:
 def _transcribe(video_path: Path, cfg: Config) -> str | None:
     """Transcribe audio from video using mlx-whisper or whisper CLI."""
     audio_path = video_path.parent / f"_audio_{video_path.stem}.wav"
-    subprocess.run(
+    run_subprocess(
         ["ffmpeg", "-y", "-i", str(video_path),
          "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
          str(audio_path)],
@@ -267,10 +267,10 @@ def _transcribe(video_path: Path, cfg: Config) -> str | None:
         transcript = result.get("text", "").strip()
     except ImportError:
         try:
-            result = subprocess.run(
+            result = run_subprocess(
                 ["whisper-cpp", "-m", f"models/ggml-{cfg.whisper_model}.bin",
                  "-f", str(audio_path), "--no-timestamps"],
-                capture_output=True, text=True, timeout=120,
+                capture_output=True, text=True,
             )
             if result.returncode == 0:
                 transcript = result.stdout.strip()

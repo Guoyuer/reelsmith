@@ -88,7 +88,7 @@ class TestProbeDimensions:
         fake_result.stdout = "3840x2160\n"
         fake_result.returncode = 0
 
-        with patch("pipeline.assemble.subprocess.run", return_value=fake_result):
+        with patch("pipeline.assemble.run_subprocess", return_value=fake_result):
             w, h = _probe_dimensions(Path("/fake/video.mp4"))
         assert (w, h) == (3840, 2160)
 
@@ -98,7 +98,7 @@ class TestProbeDimensions:
         fake_result.stdout = ""
         fake_result.returncode = 1
 
-        with patch("pipeline.assemble.subprocess.run", return_value=fake_result):
+        with patch("pipeline.assemble.run_subprocess", return_value=fake_result):
             w, h = _probe_dimensions(Path("/fake/bad.mp4"))
         assert (w, h) == (0, 0)
 
@@ -130,8 +130,8 @@ class TestHeicConversion:
             display_duration=3.0,
         )
 
-        with patch("pipeline.assemble.subprocess.run", side_effect=mock_run), \
-             patch("pipeline.media_utils.subprocess.run", side_effect=mock_run):
+        with patch("pipeline.assemble.run_subprocess", side_effect=mock_run), \
+             patch("pipeline.media_utils.run_subprocess", side_effect=mock_run):
             _render_photo(item, out_file, 3840, 2160, 60)
 
         sips_calls = [c for c in calls if c[0] == "sips"]
