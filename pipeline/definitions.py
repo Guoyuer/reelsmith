@@ -398,7 +398,6 @@ def analyze(
 )
 def plan(
     context: dg.AssetExecutionContext,
-    preprocess: dg.MaterializeResult,
     analyze: dg.MaterializeResult,
     config: PlanConfig,
 ) -> dg.MaterializeResult:
