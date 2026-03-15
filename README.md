@@ -17,8 +17,7 @@ flowchart LR
         direction LR
         FM[fetch_media] --> PP[preprocess]
         PP --> AN[analyze]
-        PP --> PL[plan]
-        AN --> PL
+        AN --> PL[plan]
         PL --> AS[assemble]
     end
 
@@ -181,7 +180,7 @@ flowchart TD
     end
 
     subgraph "Stage 4: plan"
-        P5 & A5 --> PL1[Build structured prompt<br/>chapters with scored candidates]
+        A5 --> PL1[Build structured prompt<br/>chapters with scored candidates]
         PL1 --> PL2[Ollama qwen2.5-coder:7b<br/>select best items per chapter<br/>arrange into narrative]
         PL2 --> PL3[edl.json<br/>Edit Decision List]
     end
