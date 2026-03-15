@@ -259,11 +259,11 @@ def fetch_media(
 
 @dg.asset(
     group_name="vlog",
-    deps=["fetch_media"],
     retry_policy=dg.RetryPolicy(max_retries=1),
 )
 def preprocess(
     context: dg.AssetExecutionContext,
+    fetch_media: None,
     config: PreprocessConfig,
 ) -> dg.MaterializeResult:
     """Tier by family presence, cluster duplicates, build timeline."""
@@ -294,12 +294,12 @@ def preprocess(
 
 @dg.asset(
     group_name="vlog",
-    deps=["preprocess"],
     retry_policy=dg.RetryPolicy(max_retries=1, delay=10),
     op_tags={"dagster/concurrency_key": "ollama"},
 )
 def analyze(
     context: dg.AssetExecutionContext,
+    preprocess: None,
     config: AnalyzeConfig,
 ) -> dg.MaterializeResult:
     """Analyze media with vision model (llava:7b)."""
@@ -349,12 +349,12 @@ def analyze(
 
 @dg.asset(
     group_name="vlog",
-    deps=["analyze"],
     retry_policy=dg.RetryPolicy(max_retries=2, delay=15),
     op_tags={"dagster/concurrency_key": "ollama"},
 )
 def plan(
     context: dg.AssetExecutionContext,
+    analyze: None,
     config: PlanConfig,
 ) -> dg.MaterializeResult:
     """Generate edit decision list using local LLM."""
@@ -403,11 +403,11 @@ def plan(
 
 @dg.asset(
     group_name="vlog",
-    deps=["plan"],
     retry_policy=dg.RetryPolicy(max_retries=1, delay=30),
 )
 def assemble(
     context: dg.AssetExecutionContext,
+    plan: None,
     config: AssembleConfig,
 ) -> dg.MaterializeResult:
     """Render vlog from EDL via FFmpeg."""
