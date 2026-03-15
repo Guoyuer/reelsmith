@@ -138,7 +138,7 @@ def auto(ctx, from_date, to_date, country, first_level, district, person_ids,
 @click.pass_context
 def plan(ctx, style, duration, focus):
     """Force re-plan + re-assemble (downstream)."""
-    _submit("from_plan", _run_name(ctx), {
+    _submit("full_pipeline", _run_name(ctx), {
         "ops": {
             "plan": {"config": {"style": style, "target_duration": duration, "focus": focus, "force": True}},
             "assemble": {"config": {"force": True}},

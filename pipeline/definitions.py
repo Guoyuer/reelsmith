@@ -567,11 +567,6 @@ full_pipeline = dg.define_asset_job(
     selection=dg.AssetSelection.groups("vlog"),
 )
 
-from_plan = dg.define_asset_job(
-    name="from_plan",
-    selection=dg.AssetSelection.assets("plan", "assemble"),
-)
-
 
 # ---------------------------------------------------------------------------
 # Definitions — entry point for Dagster
@@ -579,7 +574,7 @@ from_plan = dg.define_asset_job(
 
 defs = dg.Definitions(
     assets=[fetch_media, preprocess, analyze, plan, assemble],
-    jobs=[full_pipeline, from_plan, iterate_job, variations_job],
+    jobs=[full_pipeline, iterate_job, variations_job],
     resources={
         "io_manager": WorkspaceIOManager(base_dir="./workspace", run_name="default"),
     },
