@@ -14,15 +14,16 @@ SGT = timezone(timedelta(hours=8))
 SKIP_PREFIXES = ("screenshot", "screen_", "pano_")
 
 
-def preprocess(cfg: Config, *, family_names: list[str] | None = None) -> dict:
+def preprocess(cfg: Config, *, family_names: list[str] | None = None, log_fn=None) -> dict:
     """Read manifest, assign tiers, cluster duplicates, build timeline."""
+    _log = log_fn or print
     cfg.ensure_dirs()
     manifest = json.loads((cfg.workspace / "manifest.json").read_text())
 
     # Auto-detect family members if not specified
     if not family_names:
         family_names = _detect_family(manifest)
-    print(f"Family members: {family_names}")
+    _log(f"Family members: {family_names}")
 
     # Assign tiers
     for item in manifest:
@@ -45,6 +46,8 @@ def preprocess(cfg: Config, *, family_names: list[str] | None = None) -> dict:
             item["tier"] = "C"
         else:
             item["tier"] = "D"
+
+        _log(f"[tier] {item['filename']}: {item['tier']} (family: {len(family_in_photo)})")
 
     # Cluster near-duplicates (within 10s window)
     items_sorted = sorted(manifest, key=lambda x: x.get("takentime") or 0)
@@ -95,13 +98,11 @@ def preprocess(cfg: Config, *, family_names: list[str] | None = None) -> dict:
     out_path = cfg.workspace / "preprocessed.json"
     out_path.write_text(json.dumps(result, indent=2))
 
-    print(f"Preprocessed: {len(manifest)} → {len(selected)} unique moments")
-    print(f"  Tiers: A={tier_counts.get('A',0)} (family together) "
-          f"B={tier_counts.get('B',0)} (one family) "
-          f"C={tier_counts.get('C',0)} (scene) "
-          f"D={tier_counts.get('D',0)} (skip)")
-    print(f"  Timeline: {len(timeline)} days, "
-          f"{sum(len(d['chapters']) for d in timeline)} chapters")
+    _log(f"Preprocessed: {len(manifest)} → {len(selected)} unique moments")
+    _log(f"Tiers: A={tier_counts.get('A',0)} B={tier_counts.get('B',0)} "
+         f"C={tier_counts.get('C',0)} D={tier_counts.get('D',0)}")
+    _log(f"Timeline: {len(timeline)} days, "
+         f"{sum(len(d['chapters']) for d in timeline)} chapters")
     return result
 
 

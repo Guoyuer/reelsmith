@@ -176,6 +176,7 @@ def fetch_media(
             district=config.district,
             person_ids=config.person_ids,
             item_types=config.item_types,
+            log_fn=context.log.info,
         )
         existing_after = set(cfg.media_dir.iterdir()) if cfg.media_dir.exists() else set()
         newly_fetched = len(existing_after - existing_before)
@@ -264,7 +265,7 @@ def preprocess(
 
     from .preprocess import preprocess as do_preprocess
     cfg = Config.load(ws)
-    result = do_preprocess(cfg, family_names=config.family_names)
+    result = do_preprocess(cfg, family_names=config.family_names, log_fn=context.log.info)
     context.log.info(
         f"Preprocessed: {result['selected_items']}/{result['total_items']} items, "
         f"tiers: {result['tier_counts']}"
@@ -361,7 +362,7 @@ def analyze(
                 )
             )
 
-    results = do_analyze(cfg, progress_callback=on_progress)
+    results = do_analyze(cfg, progress_callback=on_progress, log_fn=context.log.info)
     ok = sum(1 for r in results if r.get("vision"))
     newly = ok - existing_count
     from_cache = ok - newly

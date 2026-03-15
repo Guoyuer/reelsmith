@@ -15,6 +15,7 @@ def fetch(
     *,
     from_date: str | None = None,
     to_date: str | None = None,
+    log_fn=None,
     country: str | None = None,
     first_level: str | None = None,
     district: str | None = None,
@@ -22,6 +23,7 @@ def fetch(
     item_types: list[int] | None = None,
 ) -> list[dict]:
     """Query the Synology Photos API, download all matching items, and build a manifest."""
+    _log = log_fn or print
     cfg.ensure_dirs()
     raw_dir = cfg.media_dir
 
@@ -48,7 +50,7 @@ def fetch(
         resp.raise_for_status()
         data = resp.json()
         items = data["items"]
-        print(f"Found {data['count']} items ({data['total_mb']:.1f} MB)")
+        _log(f"Found {data['count']} items ({data['total_mb']:.1f} MB)")
 
         manifest = []
         for i, item in enumerate(items, 1):
@@ -67,21 +69,21 @@ def fetch(
 
             # Download file (skip if already exists)
             if not filepath.exists():
-                print(f"  [{i}/{len(items)}] Downloading {filename}...")
+                _log(f"[{i}/{len(items)}] Downloading {filename}")
                 with client.stream("GET", f"/api/media/{item_id}", timeout=600) as stream:
                     stream.raise_for_status()
                     with open(filepath, "wb") as f:
                         for chunk in stream.iter_bytes(65536):
                             f.write(chunk)
             else:
-                print(f"  [{i}/{len(items)}] {filename} (cached)")
+                _log(f"[{i}/{len(items)}] {filename} (cached)")
 
             # For live photos (type 3), also download the video companion
             video_path = None
             if item.get("item_type") == 3:
                 video_path = raw_dir / f"{item_id}_{Path(filename).stem}.mov"
                 if not video_path.exists():
-                    print(f"         + live photo video...")
+                    _log(f"[{i}/{len(items)}] + live photo video")
                     with client.stream(
                         "GET",
                         f"/api/media/{item_id}",
@@ -106,5 +108,5 @@ def fetch(
 
     manifest_path = cfg.workspace / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2))
-    print(f"Manifest saved: {len(manifest)} items")
+    _log(f"Manifest saved: {len(manifest)} items")
     return manifest

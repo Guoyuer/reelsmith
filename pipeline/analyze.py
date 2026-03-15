@@ -81,8 +81,9 @@ def _load_existing_analysis(path: Path) -> dict[int, dict]:
     return existing
 
 
-def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
+def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
     """Analyze items from preprocessed.json — tier A+B with full prompt, tier C quick scan."""
+    _log = log_fn or print
     cfg.ensure_dirs()
     preprocessed_path = cfg.workspace / "preprocessed.json"
     analysis_path = cfg.workspace / "analysis.json"
@@ -98,8 +99,8 @@ def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
     tier_c = [x for x in items if x["tier"] == "C"]
     tier_d = [x for x in items if x["tier"] == "D"]
     to_analyze = tier_a + tier_b + tier_c
-    print(f"Analyzing: {len(tier_a)} tier-A + {len(tier_b)} tier-B + {len(tier_c)} tier-C "
-          f"= {len(to_analyze)} items (skipping {len(tier_d)} tier-D)")
+    _log(f"Analyzing: {len(tier_a)} tier-A + {len(tier_b)} tier-B + {len(tier_c)} tier-C "
+         f"= {len(to_analyze)} items (skipping {len(tier_d)} tier-D)")
 
     # Load existing analysis to support resuming (run-level)
     existing = _load_existing_analysis(analysis_path)
@@ -120,6 +121,7 @@ def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
         # Resume: skip if already analyzed WITH vision results (run-level cache)
         if item_id in existing and existing[item_id].get("vision"):
             results.append(existing[item_id])
+            _log(f"[{i}/{len(to_analyze)}] {item['filename']} — run cache hit")
             continue
 
         local_path = Path(item["local_path"])
@@ -154,6 +156,7 @@ def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
                 cached = json.loads(cache_file.read_text())
                 entry.update(cached)
                 results.append(entry)
+                _log(f"[{i}/{len(to_analyze)}] {item['filename']} — shared cache hit")
                 pbar.update(1)
                 if progress_callback:
                     progress_callback(pbar.n, to_do, item.get("filename", ""))
@@ -188,6 +191,8 @@ def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
             cache_file.write_text(json.dumps(cache_entry, indent=2))
 
         results.append(entry)
+        status = "analyzed" if entry.get("vision") else "no vision"
+        _log(f"[{i}/{len(to_analyze)}] {item['filename']} — {status}")
         pbar.update(1)
         if progress_callback:
             progress_callback(pbar.n, to_do, item.get("filename", ""))
@@ -198,7 +203,7 @@ def analyze(cfg: Config, *, progress_callback=None) -> list[dict]:
     (cfg.workspace / "analyze.pid").unlink(missing_ok=True)
 
     ok = sum(1 for r in results if r.get("vision"))
-    print(f"Analysis complete: {ok}/{len(results)} with vision results")
+    _log(f"Analysis complete: {ok}/{len(results)} with vision results")
     return results
 
 
