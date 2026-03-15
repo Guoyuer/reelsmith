@@ -10,6 +10,7 @@ Each run lives in its own subdirectory under the base workspace:
 Set run_name in the IOManager config (Launchpad or CLI -n) to isolate runs.
 """
 
+import json
 import time
 from pathlib import Path
 
@@ -146,14 +147,21 @@ def _ws(context: dg.AssetExecutionContext) -> str:
 def fetch_media(
     context: dg.AssetExecutionContext,
     config: FetchConfig,
-) -> str:
+) -> dg.MaterializeResult:
     """Download photos/videos from Synology Photos."""
     ws = _ws(context)
     out = str(Path(ws) / "manifest.json")
 
     if not config.force and _output_exists(ws, "fetch_media"):
         context.log.info("Skipping fetch — manifest.json exists")
-        return out
+        items = json.loads(Path(out).read_text())
+        return dg.MaterializeResult(
+            metadata={
+                "status": dg.MetadataValue.text("skipped (cached)"),
+                "items": dg.MetadataValue.int(len(items)),
+                "manifest": dg.MetadataValue.path(out),
+            }
+        )
 
     if not config.from_date or not config.to_date:
         raise dg.Failure(
@@ -174,7 +182,18 @@ def fetch_media(
         item_types=config.item_types,
     )
     context.log.info(f"Fetched {len(items)} items")
-    return out
+
+    # Sample filenames for quick review
+    sample = [it.get("filename", "?") for it in items[:10]]
+    return dg.MaterializeResult(
+        metadata={
+            "items": dg.MetadataValue.int(len(items)),
+            "date_range": dg.MetadataValue.text(f"{config.from_date} to {config.to_date}"),
+            "media_dir": dg.MetadataValue.path(str(cfg.media_dir)),
+            "manifest": dg.MetadataValue.path(out),
+            "sample_files": dg.MetadataValue.md("\n".join(f"- {f}" for f in sample)),
+        }
+    )
 
 
 @dg.asset(
@@ -183,16 +202,23 @@ def fetch_media(
 )
 def preprocess(
     context: dg.AssetExecutionContext,
-    fetch_media: str,
+    fetch_media: dg.MaterializeResult,
     config: PreprocessConfig,
-) -> str:
+) -> dg.MaterializeResult:
     """Tier by family presence, cluster duplicates, build timeline."""
     ws = _ws(context)
     out = str(Path(ws) / "preprocessed.json")
 
     if not config.force and _output_exists(ws, "preprocess"):
         context.log.info("Skipping preprocess — preprocessed.json exists")
-        return out
+        data = json.loads(Path(out).read_text())
+        return dg.MaterializeResult(
+            metadata={
+                "status": dg.MetadataValue.text("skipped (cached)"),
+                "total_items": dg.MetadataValue.int(data.get("total_items", 0)),
+                "selected_items": dg.MetadataValue.int(data.get("selected_items", 0)),
+            }
+        )
 
     from .preprocess import preprocess as do_preprocess
     cfg = Config.load(ws)
@@ -201,7 +227,28 @@ def preprocess(
         f"Preprocessed: {result['selected_items']}/{result['total_items']} items, "
         f"tiers: {result['tier_counts']}"
     )
-    return out
+
+    tc = result["tier_counts"]
+    tier_table = (
+        "| Tier | Count | Description |\n"
+        "|------|-------|-------------|\n"
+        f"| A | {tc.get('A', 0)} | Family together |\n"
+        f"| B | {tc.get('B', 0)} | One family member |\n"
+        f"| C | {tc.get('C', 0)} | Scene / B-roll |\n"
+        f"| D | {tc.get('D', 0)} | Skipped |"
+    )
+    return dg.MaterializeResult(
+        metadata={
+            "total_items": dg.MetadataValue.int(result["total_items"]),
+            "selected_items": dg.MetadataValue.int(result["selected_items"]),
+            "family_members": dg.MetadataValue.md(", ".join(result.get("family_names", []))),
+            "tiers": dg.MetadataValue.md(tier_table),
+            "timeline_days": dg.MetadataValue.int(len(result.get("timeline", []))),
+            "chapters": dg.MetadataValue.int(
+                sum(len(d.get("chapters", [])) for d in result.get("timeline", []))
+            ),
+        }
+    )
 
 
 @dg.asset(
@@ -211,16 +258,24 @@ def preprocess(
 )
 def analyze(
     context: dg.AssetExecutionContext,
-    preprocess: str,
+    preprocess: dg.MaterializeResult,
     config: AnalyzeConfig,
-) -> str:
+) -> dg.MaterializeResult:
     """Analyze media with vision model (llava:7b)."""
     ws = _ws(context)
     out = str(Path(ws) / "analysis.json")
 
     if not config.force and _output_exists(ws, "analyze"):
         context.log.info("Skipping analyze — analysis.json exists")
-        return out
+        results = json.loads(Path(out).read_text())
+        ok = sum(1 for r in results if r.get("vision"))
+        return dg.MaterializeResult(
+            metadata={
+                "status": dg.MetadataValue.text("skipped (cached)"),
+                "items_analyzed": dg.MetadataValue.int(len(results)),
+                "with_vision": dg.MetadataValue.int(ok),
+            }
+        )
 
     from .analyze import analyze as do_analyze
     cfg = Config.load(ws)
@@ -249,7 +304,36 @@ def analyze(
     results = do_analyze(cfg, progress_callback=on_progress)
     ok = sum(1 for r in results if r.get("vision"))
     context.log.info(f"Analysis complete: {ok}/{len(results)} with vision results")
-    return out
+
+    # Build top-scored items table
+    scored = [r for r in results if r.get("vision")]
+    scored.sort(
+        key=lambda r: r["vision"].get("togetherness", 0) + r["vision"].get("genuine_emotion", 0),
+        reverse=True,
+    )
+    top_rows = []
+    for r in scored[:10]:
+        v = r["vision"]
+        top_rows.append(
+            f"| {r['filename'][:30]} | {r.get('tier', '?')} "
+            f"| {v.get('togetherness', '-')} | {v.get('genuine_emotion', '-')} "
+            f"| {v.get('visual_quality', '-')} | {v.get('description', '')[:50]} |"
+        )
+    top_table = (
+        "| File | Tier | Together | Emotion | Quality | Description |\n"
+        "|------|------|----------|---------|---------|-------------|\n"
+        + "\n".join(top_rows)
+    )
+
+    return dg.MaterializeResult(
+        metadata={
+            "items_analyzed": dg.MetadataValue.int(len(results)),
+            "with_vision": dg.MetadataValue.int(ok),
+            "duration_min": dg.MetadataValue.float(round((time.monotonic() - t0) / 60, 1)),
+            "top_scored": dg.MetadataValue.md(top_table),
+            "analysis_path": dg.MetadataValue.path(out),
+        }
+    )
 
 
 @dg.asset(
@@ -259,17 +343,25 @@ def analyze(
 )
 def plan(
     context: dg.AssetExecutionContext,
-    preprocess: str,
-    analyze: str,
+    preprocess: dg.MaterializeResult,
+    analyze: dg.MaterializeResult,
     config: PlanConfig,
-) -> str:
+) -> dg.MaterializeResult:
     """Generate edit decision list using local LLM."""
     ws = _ws(context)
     out = str(Path(ws) / "edl.json")
 
     if not config.force and _output_exists(ws, "plan"):
         context.log.info("Skipping plan — edl.json exists")
-        return out
+        from .edl import EDL
+        edl_data = EDL.model_validate_json(Path(out).read_text())
+        return dg.MaterializeResult(
+            metadata={
+                "status": dg.MetadataValue.text("skipped (cached)"),
+                "segments": dg.MetadataValue.int(len(edl_data.segments)),
+                "items": dg.MetadataValue.int(len(edl_data.all_items())),
+            }
+        )
 
     from .plan import plan as do_plan
     cfg = Config.load(ws)
@@ -284,7 +376,28 @@ def plan(
         f"{len(result.all_items())} items, "
         f"~{result.estimated_duration():.0f}s"
     )
-    return out
+
+    # Build segment summary
+    seg_rows = []
+    for seg in result.segments:
+        seg_rows.append(f"| {seg.name} | {len(seg.items)} | {seg.transition} |")
+    seg_table = (
+        "| Segment | Items | Transition |\n"
+        "|---------|-------|------------|\n"
+        + "\n".join(seg_rows)
+    )
+
+    return dg.MaterializeResult(
+        metadata={
+            "style": dg.MetadataValue.text(config.style),
+            "target_duration": dg.MetadataValue.int(config.target_duration),
+            "estimated_duration": dg.MetadataValue.float(round(result.estimated_duration(), 1)),
+            "segments": dg.MetadataValue.int(len(result.segments)),
+            "total_items": dg.MetadataValue.int(len(result.all_items())),
+            "segment_summary": dg.MetadataValue.md(seg_table),
+            "edl_path": dg.MetadataValue.path(out),
+        }
+    )
 
 
 @dg.asset(
@@ -293,7 +406,7 @@ def plan(
 )
 def assemble(
     context: dg.AssetExecutionContext,
-    plan: str,
+    plan: dg.MaterializeResult,
     config: AssembleConfig,
 ) -> dg.MaterializeResult:
     """Render vlog from EDL via FFmpeg."""
@@ -302,7 +415,9 @@ def assemble(
     if not config.force and _output_exists(ws, "assemble"):
         context.log.info("Skipping assemble — vlog already exists")
         return dg.MaterializeResult(
-            metadata={"path": dg.MetadataValue.text("(skipped)"), "version": dg.MetadataValue.int(0)}
+            metadata={
+                "status": dg.MetadataValue.text("skipped (cached)"),
+            }
         )
 
     from .assemble import assemble as do_assemble
@@ -333,12 +448,14 @@ def assemble(
         cfg, version=config.version, progress_callback=on_progress,
         skip_broken=config.skip_broken,
     )
+    duration_min = round((time.monotonic() - t0) / 60, 1)
     context.log.info(f"Assembled: {output_path}")
 
     return dg.MaterializeResult(
         metadata={
-            "path": dg.MetadataValue.path(str(output_path)),
+            "output": dg.MetadataValue.path(str(output_path)),
             "version": dg.MetadataValue.int(config.version),
+            "render_time_min": dg.MetadataValue.float(duration_min),
         }
     )
 
