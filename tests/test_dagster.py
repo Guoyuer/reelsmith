@@ -22,52 +22,26 @@ def _make_workspace(tmp_path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 class TestWorkspaceIOManager:
-    def test_output_exists_true_when_file_exists(self, tmp_path):
-        from pipeline.definitions import _output_exists
-
-        ws = _make_workspace(tmp_path)
-        (tmp_path / "manifest.json").write_text("[]")
-        assert _output_exists(ws, "fetch_media") is True
-
-    def test_output_exists_false_when_file_missing(self, tmp_path):
-        from pipeline.definitions import _output_exists
-
-        ws = _make_workspace(tmp_path)
-        assert _output_exists(ws, "fetch_media") is False
-
-    def test_output_exists_assemble_glob(self, tmp_path):
-        from pipeline.definitions import _output_exists
-
-        ws = _make_workspace(tmp_path)
-        assert _output_exists(ws, "assemble") is False
-
-        (tmp_path / "output" / "vlog_v1.mp4").write_text("fake")
-        assert _output_exists(ws, "assemble") is True
-
-    def test_load_input_returns_path(self, tmp_path):
+    def test_workspace_path(self, tmp_path):
         from pipeline.definitions import WorkspaceIOManager
 
-        ws = _make_workspace(tmp_path)
-        run_dir = tmp_path / "runs" / "myrun"
-        run_dir.mkdir(parents=True)
-        (run_dir / "analysis.json").write_text("[]")
+        mgr = WorkspaceIOManager(base_dir=str(tmp_path), run_name="myrun")
+        assert mgr.workspace_path == str(tmp_path / "runs" / "myrun")
+
+    def test_config_property(self, tmp_path):
+        from pipeline.definitions import WorkspaceIOManager
+
+        mgr = WorkspaceIOManager(base_dir=str(tmp_path), run_name="myrun")
+        cfg = mgr.config
+        assert cfg.workspace == Path(tmp_path / "runs" / "myrun")
+
+    def test_load_input_returns_workspace(self, tmp_path):
+        from pipeline.definitions import WorkspaceIOManager
 
         mgr = WorkspaceIOManager(base_dir=str(tmp_path), run_name="myrun")
         ctx = MagicMock()
-        ctx.upstream_output.asset_key.path = ["analyze"]
         result = mgr.load_input(ctx)
-        assert result == str(run_dir / "analysis.json")
-
-    def test_load_input_raises_when_missing(self, tmp_path):
-        from pipeline.definitions import WorkspaceIOManager
-
-        _make_workspace(tmp_path)
-        mgr = WorkspaceIOManager(base_dir=str(tmp_path), run_name="myrun")
-        ctx = MagicMock()
-        ctx.upstream_output.asset_key.path = ["analyze"]
-
-        with pytest.raises(FileNotFoundError):
-            mgr.load_input(ctx)
+        assert result == str(tmp_path / "runs" / "myrun")
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +78,7 @@ class TestFetchMediaAsset:
 
         mock_data = [{"id": 1, "filename": "test.jpg"}]
 
-        with patch("pipeline.fetch.fetch", return_value=mock_data):
+        with patch("pipeline.definitions.do_fetch", return_value=mock_data):
             result = dg.materialize(
                 [fetch_media],
                 resources={"io_manager": WorkspaceIOManager(base_dir=ws, run_name="test")},
