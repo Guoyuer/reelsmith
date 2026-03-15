@@ -102,6 +102,31 @@ Select ~{target_duration // 4} items total. Pick the warmest, happiest moments."
     content = strip_markdown_fences(content)
 
     edl = EDL.model_validate_json(content)
+
+    # Fix hallucinated paths — LLMs often mangle source_file paths
+    path_index = {a["local_path"]: a["local_path"] for a in analysis_items}
+    # Also index by filename and by item_id prefix for fuzzy matching
+    for a in analysis_items:
+        path_index[a["filename"]] = a["local_path"]
+        path_index[str(a["id"])] = a["local_path"]
+        # Match "id_filename" pattern (e.g. "88585_IMG001.jpg")
+        basename = Path(a["local_path"]).name
+        path_index[basename] = a["local_path"]
+
+    fixed = 0
+    for item in edl.all_items():
+        if item.source_file in path_index and item.source_file != path_index[item.source_file]:
+            item.source_file = path_index[item.source_file]
+            fixed += 1
+        elif not Path(item.source_file).exists():
+            # Try to match by basename or any substring
+            basename = Path(item.source_file).name
+            if basename in path_index:
+                item.source_file = path_index[basename]
+                fixed += 1
+    if fixed:
+        _log(f"Fixed {fixed} hallucinated file paths in EDL")
+
     edl_path.write_text(edl.model_dump_json(indent=2))
     _log(f"EDL saved: {len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s estimated")
     return edl
