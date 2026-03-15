@@ -282,17 +282,19 @@ class TestAnalyzeHeicConvertsViaSips:
                 jpeg_img.save(out_path, "JPEG")
             return result
 
-        # Mock httpx.post for the Ollama vision call to return valid JSON
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {
-            "message": {"content": json.dumps(FAKE_VISION)}
-        }
-        mock_resp.raise_for_status = MagicMock()
+        # Mock httpx.stream for the Ollama vision call (streaming mode)
+        mock_stream_resp = MagicMock()
+        mock_stream_resp.raise_for_status = MagicMock()
+        vision_json = json.dumps(FAKE_VISION)
+        mock_stream_resp.iter_lines.return_value = iter([
+            json.dumps({"message": {"content": vision_json}, "done": True}),
+        ])
+        mock_stream_resp.__enter__ = MagicMock(return_value=mock_stream_resp)
+        mock_stream_resp.__exit__ = MagicMock(return_value=False)
 
         with patch("pipeline.analyze.run_subprocess", side_effect=mock_subprocess_run), \
              patch("pipeline.media_utils.run_subprocess", side_effect=mock_subprocess_run), \
-             patch("pipeline.analyze.httpx.post", return_value=mock_resp):
+             patch("pipeline.analyze.httpx.stream", return_value=mock_stream_resp):
             analyze(cfg)
 
         assert len(sips_calls) >= 1

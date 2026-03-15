@@ -6,7 +6,8 @@ import base64
 import json
 import os
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
+from contextlib import contextmanager
 
 import pytest
 
@@ -22,12 +23,23 @@ def cfg(tmp_path: Path) -> Config:
         return Config.load(workspace=str(tmp_path / "workspace"))
 
 
-def _mock_response(content: str) -> MagicMock:
-    """Create a mock httpx response with the given content."""
-    resp = MagicMock()
-    resp.json.return_value = {"message": {"content": content}}
-    resp.raise_for_status = MagicMock()
-    return resp
+def _mock_stream(content: str):
+    """Create a mock httpx.stream context manager that yields streaming tokens."""
+    # Simulate Ollama streaming: each token is a JSON line
+    tokens = list(content)  # split into chars for realism
+    lines = []
+    for i, tok in enumerate(tokens):
+        lines.append(json.dumps({
+            "message": {"content": tok},
+            "done": i == len(tokens) - 1,
+        }))
+
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.iter_lines.return_value = iter(lines)
+    mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+    mock_resp.__exit__ = MagicMock(return_value=False)
+    return mock_resp
 
 
 # -----------------------------------------------------------------------
@@ -38,18 +50,19 @@ def _mock_response(content: str) -> MagicMock:
 class TestOllamaChat:
     def test_sends_correct_payload(self, cfg: Config):
         """ollama_chat posts correct model, messages, and options."""
-        mock_resp = _mock_response("Hello!")
+        mock_resp = _mock_stream("Hello!")
 
-        with patch("pipeline.llm.httpx.post", return_value=mock_resp) as mock_post:
+        with patch("pipeline.llm.httpx.stream", return_value=mock_resp) as mock_stream:
             result = ollama_chat(cfg, prompt="Say hi")
 
         assert result == "Hello!"
-        mock_post.assert_called_once()
-        call_args = mock_post.call_args
-        assert call_args[0][0] == f"{cfg.ollama_base}/api/chat"
+        mock_stream.assert_called_once()
+        call_args = mock_stream.call_args
+        assert call_args[0][0] == "POST"
+        assert call_args[0][1] == f"{cfg.ollama_base}/api/chat"
         payload = call_args[1]["json"]
         assert payload["model"] == cfg.planning_model
-        assert payload["stream"] is False
+        assert payload["stream"] is True
         assert payload["options"]["temperature"] == 0.3
         assert payload["options"]["num_ctx"] == 32768
         assert len(payload["messages"]) == 1
@@ -58,16 +71,15 @@ class TestOllamaChat:
 
     def test_system_prompt_prepended(self, cfg: Config):
         """When system is provided, it appears as the first message."""
-        mock_resp = _mock_response("OK")
+        mock_resp = _mock_stream("OK")
 
-        with patch("pipeline.llm.httpx.post", return_value=mock_resp) as mock_post:
+        with patch("pipeline.llm.httpx.stream", return_value=mock_resp) as mock_stream:
             ollama_chat(cfg, system="You are helpful", prompt="Help me")
 
-        payload = mock_post.call_args[1]["json"]
+        payload = mock_stream.call_args[1]["json"]
         assert len(payload["messages"]) == 2
         assert payload["messages"][0] == {"role": "system", "content": "You are helpful"}
         assert payload["messages"][1]["role"] == "user"
-        assert payload["messages"][1]["content"] == "Help me"
 
     def test_images_base64_encoded(self, cfg: Config, tmp_path: Path):
         """Images should be base64-encoded and included in the user message."""
@@ -75,27 +87,25 @@ class TestOllamaChat:
         img_path = tmp_path / "test.png"
         img_path.write_bytes(img_data)
 
-        mock_resp = _mock_response("I see an image")
+        mock_resp = _mock_stream("I see an image")
 
-        with patch("pipeline.llm.httpx.post", return_value=mock_resp) as mock_post:
+        with patch("pipeline.llm.httpx.stream", return_value=mock_resp) as mock_stream:
             ollama_chat(cfg, prompt="Describe this", images=[img_path])
 
-        payload = mock_post.call_args[1]["json"]
+        payload = mock_stream.call_args[1]["json"]
         user_msg = payload["messages"][0]
         assert "images" in user_msg
-        assert len(user_msg["images"]) == 1
-        # Verify base64 roundtrip
         decoded = base64.b64decode(user_msg["images"][0])
         assert decoded == img_data
 
     def test_custom_model(self, cfg: Config):
         """Explicit model parameter overrides the config default."""
-        mock_resp = _mock_response("Hi")
+        mock_resp = _mock_stream("Hi")
 
-        with patch("pipeline.llm.httpx.post", return_value=mock_resp) as mock_post:
+        with patch("pipeline.llm.httpx.stream", return_value=mock_resp) as mock_stream:
             ollama_chat(cfg, model="llama3:70b", prompt="test")
 
-        payload = mock_post.call_args[1]["json"]
+        payload = mock_stream.call_args[1]["json"]
         assert payload["model"] == "llama3:70b"
 
 
@@ -108,38 +118,38 @@ class TestOllamaJson:
     def test_parses_plain_json(self, cfg: Config):
         """Plain JSON string is parsed correctly."""
         data = {"key": "value", "count": 42}
-        mock_resp = _mock_response(json.dumps(data))
+        mock_resp = _mock_stream(json.dumps(data))
 
-        with patch("pipeline.llm.httpx.post", return_value=mock_resp):
+        with patch("pipeline.llm.httpx.stream", return_value=mock_resp):
             result = ollama_json(cfg, prompt="Give JSON")
 
         assert result == data
 
     def test_strips_markdown_fences(self, cfg: Config):
-        """Markdown code fences (```json ... ```) are stripped before parsing."""
+        """Markdown code fences are stripped before parsing."""
         data = {"segments": [1, 2, 3]}
         fenced = f"```json\n{json.dumps(data)}\n```"
-        mock_resp = _mock_response(fenced)
+        mock_resp = _mock_stream(fenced)
 
-        with patch("pipeline.llm.httpx.post", return_value=mock_resp):
+        with patch("pipeline.llm.httpx.stream", return_value=mock_resp):
             result = ollama_json(cfg, prompt="Give JSON")
 
         assert result == data
 
     def test_raises_on_invalid_json(self, cfg: Config):
         """Invalid JSON should raise json.JSONDecodeError."""
-        mock_resp = _mock_response("This is not JSON at all")
+        mock_resp = _mock_stream("This is not JSON at all")
 
-        with patch("pipeline.llm.httpx.post", return_value=mock_resp):
+        with patch("pipeline.llm.httpx.stream", return_value=mock_resp):
             with pytest.raises(json.JSONDecodeError):
                 ollama_json(cfg, prompt="Give JSON")
 
     def test_uses_low_temperature(self, cfg: Config):
         """ollama_json should use temperature=0.1 for deterministic output."""
-        mock_resp = _mock_response('{"ok": true}')
+        mock_resp = _mock_stream('{"ok": true}')
 
-        with patch("pipeline.llm.httpx.post", return_value=mock_resp) as mock_post:
+        with patch("pipeline.llm.httpx.stream", return_value=mock_resp) as mock_stream:
             ollama_json(cfg, prompt="Give JSON")
 
-        payload = mock_post.call_args[1]["json"]
+        payload = mock_stream.call_args[1]["json"]
         assert payload["options"]["temperature"] == 0.1

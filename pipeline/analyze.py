@@ -226,19 +226,30 @@ def _analyze_image(image_path: Path, cfg: Config, prompt: str) -> dict | None:
 
         img_b64 = base64.b64encode(image_path.read_bytes()).decode()
 
-        resp = httpx.post(
+        # Use streaming so the call is interruptible between token chunks
+        chunks = []
+        with httpx.stream(
+            "POST",
             f"{cfg.ollama_base}/api/chat",
             json={
                 "model": cfg.vision_model,
                 "messages": [{"role": "user", "content": prompt, "images": [img_b64]}],
-                "stream": False,
+                "stream": True,
                 "options": {"temperature": 0.1},
             },
             timeout=120,
-        )
-        resp.raise_for_status()
-        content = resp.json()["message"]["content"]
-        content = strip_markdown_fences(content)
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                data = json.loads(line)
+                content = data.get("message", {}).get("content", "")
+                if content:
+                    chunks.append(content)
+                if data.get("done"):
+                    break
+        content = strip_markdown_fences("".join(chunks))
         return json.loads(content)
     except Exception as e:
         print(f"    Vision failed: {e}")

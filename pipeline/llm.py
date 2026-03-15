@@ -21,7 +21,11 @@ def ollama_chat(
     images: list[Path] | None = None,
     temperature: float = 0.3,
 ) -> str:
-    """Send a chat request to Ollama and return the response text."""
+    """Send a chat request to Ollama and return the response text.
+
+    Uses streaming so the request can be interrupted (KeyboardInterrupt)
+    between token chunks — typically within 1-2 seconds.
+    """
     model = model or cfg.planning_model
 
     messages = []
@@ -35,18 +39,30 @@ def ollama_chat(
         ]
     messages.append(user_msg)
 
-    resp = httpx.post(
+    with httpx.stream(
+        "POST",
         f"{cfg.ollama_base}/api/chat",
         json={
             "model": model,
             "messages": messages,
-            "stream": False,
+            "stream": True,
             "options": {"temperature": temperature, "num_ctx": 32768},
         },
         timeout=600,
-    )
-    resp.raise_for_status()
-    return resp.json()["message"]["content"]
+    ) as resp:
+        resp.raise_for_status()
+        chunks = []
+        for line in resp.iter_lines():
+            # Each line is a JSON object with a "message" field
+            if not line:
+                continue
+            data = json.loads(line)
+            content = data.get("message", {}).get("content", "")
+            if content:
+                chunks.append(content)
+            if data.get("done"):
+                break
+        return "".join(chunks)
 
 
 def ollama_json(
