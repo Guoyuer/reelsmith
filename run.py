@@ -104,22 +104,22 @@ def auto(ctx, from_date, to_date, country, first_level, district, person_ids,
     type_list = [int(x) for x in item_types.split(",")] if item_types else None
 
     config: dict = {"ops": {}}
-    config["ops"]["manifest"] = {"config": {
+    config["ops"]["fetch_media"] = {"config": {
         "from_date": from_date, "to_date": to_date,
         "force": True,
     }}
     if country:
-        config["ops"]["manifest"]["config"]["country"] = country
+        config["ops"]["fetch_media"]["config"]["country"] = country
     if first_level:
-        config["ops"]["manifest"]["config"]["first_level"] = first_level
+        config["ops"]["fetch_media"]["config"]["first_level"] = first_level
     if district:
-        config["ops"]["manifest"]["config"]["district"] = district
+        config["ops"]["fetch_media"]["config"]["district"] = district
     if person_id_list:
-        config["ops"]["manifest"]["config"]["person_ids"] = person_id_list
+        config["ops"]["fetch_media"]["config"]["person_ids"] = person_id_list
     if type_list:
-        config["ops"]["manifest"]["config"]["item_types"] = type_list
+        config["ops"]["fetch_media"]["config"]["item_types"] = type_list
 
-    config["ops"]["edl"] = {"config": {
+    config["ops"]["plan"] = {"config": {
         "style": style, "target_duration": duration, "focus": focus,
     }}
 
@@ -135,8 +135,8 @@ def plan(ctx, style, duration, focus):
     """Force re-plan + re-assemble (downstream)."""
     _submit("from_plan", _run_name(ctx), {
         "ops": {
-            "edl": {"config": {"style": style, "target_duration": duration, "focus": focus, "force": True}},
-            "vlog_video": {"config": {"force": True}},
+            "plan": {"config": {"style": style, "target_duration": duration, "focus": focus, "force": True}},
+            "assemble": {"config": {"force": True}},
         },
     })
 
@@ -157,7 +157,7 @@ def assemble(ctx, version):
 
     _submit("full_pipeline", rn, {
         "ops": {
-            "vlog_video": {"config": {"version": version, "force": True}},
+            "assemble": {"config": {"version": version, "force": True}},
         },
     })
 

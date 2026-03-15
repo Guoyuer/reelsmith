@@ -5,9 +5,9 @@ file already exists (unless force=True in config). Re-materialize any asset
 from the Dagster UI to force re-run it + all downstream dependencies.
 
 Each run lives in its own subdirectory under the base workspace:
-  workspace/{run_name}/manifest.json, analysis.json, output/vlog_v1.mp4, ...
+  workspace/runs/{run_name}/manifest.json, analysis.json, output/vlog_v1.mp4, ...
 
-Set run_name in the IOManager config (Launchpad or CLI -w) to isolate runs.
+Set run_name in the IOManager config (Launchpad or CLI -n) to isolate runs.
 """
 
 import time
@@ -22,12 +22,13 @@ from .config import Config
 # IOManager — workspace-aware file path passing
 # ---------------------------------------------------------------------------
 
+# Maps asset function name → output filename
 OUTPUT_FILES: dict[str, str | None] = {
-    "manifest": "manifest.json",
-    "preprocessed": "preprocessed.json",
-    "analysis": "analysis.json",
-    "edl": "edl.json",
-    "vlog_video": None,
+    "fetch_media": "manifest.json",
+    "preprocess": "preprocessed.json",
+    "analyze": "analysis.json",
+    "plan": "edl.json",
+    "assemble": None,  # checked via glob for vlog_v*.mp4
 }
 
 
@@ -37,7 +38,7 @@ class WorkspaceIOManager(dg.ConfigurableIOManager):
     - base_dir: root directory containing all runs (default: ./workspace)
     - run_name: subdirectory for this run (default: "default")
 
-    Actual workspace path = {base_dir}/{run_name}
+    Actual workspace path = {base_dir}/runs/{run_name}
 
     Set these in the Launchpad to target different runs:
       resources > io_manager > base_dir / run_name
@@ -68,7 +69,7 @@ class WorkspaceIOManager(dg.ConfigurableIOManager):
 def _output_exists(workspace: str, asset_name: str) -> bool:
     """Check if an asset's output file exists."""
     ws = Path(workspace)
-    if asset_name == "vlog_video":
+    if asset_name == "assemble":
         output_dir = ws / "output"
         return output_dir.exists() and any(output_dir.glob("vlog_v*.mp4"))
     filename = OUTPUT_FILES.get(asset_name)
@@ -142,15 +143,15 @@ def _ws(context: dg.AssetExecutionContext) -> str:
     group_name="vlog",
     retry_policy=dg.RetryPolicy(max_retries=2, delay=30),
 )
-def manifest(
+def fetch_media(
     context: dg.AssetExecutionContext,
     config: FetchConfig,
 ) -> str:
-    """Stage 1: Download media from Synology Photos."""
+    """Download photos/videos from Synology Photos."""
     ws = _ws(context)
     out = str(Path(ws) / "manifest.json")
 
-    if not config.force and _output_exists(ws, "manifest"):
+    if not config.force and _output_exists(ws, "fetch_media"):
         context.log.info("Skipping fetch — manifest.json exists")
         return out
 
@@ -180,16 +181,16 @@ def manifest(
     group_name="vlog",
     retry_policy=dg.RetryPolicy(max_retries=1),
 )
-def preprocessed(
+def preprocess(
     context: dg.AssetExecutionContext,
-    manifest: str,
+    fetch_media: str,
     config: PreprocessConfig,
 ) -> str:
-    """Stage 2: Tier items, cluster duplicates, build timeline."""
+    """Tier by family presence, cluster duplicates, build timeline."""
     ws = _ws(context)
     out = str(Path(ws) / "preprocessed.json")
 
-    if not config.force and _output_exists(ws, "preprocessed"):
+    if not config.force and _output_exists(ws, "preprocess"):
         context.log.info("Skipping preprocess — preprocessed.json exists")
         return out
 
@@ -208,16 +209,16 @@ def preprocessed(
     retry_policy=dg.RetryPolicy(max_retries=1, delay=10),
     op_tags={"dagster/concurrency_key": "ollama"},
 )
-def analysis(
+def analyze(
     context: dg.AssetExecutionContext,
-    preprocessed: str,
+    preprocess: str,
     config: AnalyzeConfig,
 ) -> str:
-    """Stage 3: Analyze media with vision model (llava:7b)."""
+    """Analyze media with vision model (llava:7b)."""
     ws = _ws(context)
     out = str(Path(ws) / "analysis.json")
 
-    if not config.force and _output_exists(ws, "analysis"):
+    if not config.force and _output_exists(ws, "analyze"):
         context.log.info("Skipping analyze — analysis.json exists")
         return out
 
@@ -256,17 +257,17 @@ def analysis(
     retry_policy=dg.RetryPolicy(max_retries=2, delay=15),
     op_tags={"dagster/concurrency_key": "ollama"},
 )
-def edl(
+def plan(
     context: dg.AssetExecutionContext,
-    preprocessed: str,
-    analysis: str,
+    preprocess: str,
+    analyze: str,
     config: PlanConfig,
 ) -> str:
-    """Stage 4: Generate edit decision list using local LLM."""
+    """Generate edit decision list using local LLM."""
     ws = _ws(context)
     out = str(Path(ws) / "edl.json")
 
-    if not config.force and _output_exists(ws, "edl"):
+    if not config.force and _output_exists(ws, "plan"):
         context.log.info("Skipping plan — edl.json exists")
         return out
 
@@ -290,15 +291,15 @@ def edl(
     group_name="vlog",
     retry_policy=dg.RetryPolicy(max_retries=1, delay=30),
 )
-def vlog_video(
+def assemble(
     context: dg.AssetExecutionContext,
-    edl: str,
+    plan: str,
     config: AssembleConfig,
 ) -> dg.MaterializeResult:
-    """Stage 5: Render vlog from EDL via FFmpeg."""
+    """Render vlog from EDL via FFmpeg."""
     ws = _ws(context)
 
-    if not config.force and _output_exists(ws, "vlog_video"):
+    if not config.force and _output_exists(ws, "assemble"):
         context.log.info("Skipping assemble — vlog already exists")
         return dg.MaterializeResult(
             metadata={"path": dg.MetadataValue.text("(skipped)"), "version": dg.MetadataValue.int(0)}
@@ -397,7 +398,7 @@ full_pipeline = dg.define_asset_job(
 
 from_plan = dg.define_asset_job(
     name="from_plan",
-    selection=dg.AssetSelection.assets("edl", "vlog_video"),
+    selection=dg.AssetSelection.assets("plan", "assemble"),
 )
 
 
@@ -406,7 +407,7 @@ from_plan = dg.define_asset_job(
 # ---------------------------------------------------------------------------
 
 defs = dg.Definitions(
-    assets=[manifest, preprocessed, analysis, edl, vlog_video],
+    assets=[fetch_media, preprocess, analyze, plan, assemble],
     jobs=[full_pipeline, from_plan, iterate_job, variations_job],
     resources={
         "io_manager": WorkspaceIOManager(base_dir="./workspace", run_name="default"),

@@ -27,22 +27,22 @@ class TestWorkspaceIOManager:
 
         ws = _make_workspace(tmp_path)
         (tmp_path / "manifest.json").write_text("[]")
-        assert _output_exists(ws, "manifest") is True
+        assert _output_exists(ws, "fetch_media") is True
 
     def test_output_exists_false_when_file_missing(self, tmp_path):
         from pipeline.definitions import _output_exists
 
         ws = _make_workspace(tmp_path)
-        assert _output_exists(ws, "manifest") is False
+        assert _output_exists(ws, "fetch_media") is False
 
-    def test_output_exists_vlog_video_glob(self, tmp_path):
+    def test_output_exists_assemble_glob(self, tmp_path):
         from pipeline.definitions import _output_exists
 
         ws = _make_workspace(tmp_path)
-        assert _output_exists(ws, "vlog_video") is False
+        assert _output_exists(ws, "assemble") is False
 
         (tmp_path / "output" / "vlog_v1.mp4").write_text("fake")
-        assert _output_exists(ws, "vlog_video") is True
+        assert _output_exists(ws, "assemble") is True
 
     def test_load_input_returns_path(self, tmp_path):
         from pipeline.definitions import WorkspaceIOManager
@@ -54,7 +54,7 @@ class TestWorkspaceIOManager:
 
         mgr = WorkspaceIOManager(base_dir=str(tmp_path), run_name="myrun")
         ctx = MagicMock()
-        ctx.upstream_output.asset_key.path = ["analysis"]
+        ctx.upstream_output.asset_key.path = ["analyze"]
         result = mgr.load_input(ctx)
         assert result == str(run_dir / "analysis.json")
 
@@ -64,7 +64,7 @@ class TestWorkspaceIOManager:
         _make_workspace(tmp_path)
         mgr = WorkspaceIOManager(base_dir=str(tmp_path), run_name="myrun")
         ctx = MagicMock()
-        ctx.upstream_output.asset_key.path = ["analysis"]
+        ctx.upstream_output.asset_key.path = ["analyze"]
 
         with pytest.raises(FileNotFoundError):
             mgr.load_input(ctx)
@@ -80,25 +80,25 @@ class TestAssetGraph:
 
         specs = defs.resolve_all_asset_specs()
         keys = {s.key.path[-1] for s in specs}
-        assert keys == {"manifest", "preprocessed", "analysis", "edl", "vlog_video"}
+        assert keys == {"fetch_media", "preprocess", "analyze", "plan", "assemble"}
 
-    def test_edl_depends_on_preprocessed_and_analysis(self):
+    def test_plan_depends_on_preprocess_and_analyze(self):
         from pipeline.definitions import defs
 
         specs = {s.key.path[-1]: s for s in defs.resolve_all_asset_specs()}
-        edl_spec = specs["edl"]
-        dep_keys = {d.asset_key.path[-1] for d in edl_spec.deps}
-        assert "preprocessed" in dep_keys
-        assert "analysis" in dep_keys
+        plan_spec = specs["plan"]
+        dep_keys = {d.asset_key.path[-1] for d in plan_spec.deps}
+        assert "preprocess" in dep_keys
+        assert "analyze" in dep_keys
 
 
 # ---------------------------------------------------------------------------
 # Asset function tests (mocked)
 # ---------------------------------------------------------------------------
 
-class TestManifestAsset:
+class TestFetchMediaAsset:
     def test_returns_manifest_path(self, tmp_path):
-        from pipeline.definitions import manifest, FetchConfig, WorkspaceIOManager
+        from pipeline.definitions import fetch_media, FetchConfig, WorkspaceIOManager
 
         ws = _make_workspace(tmp_path)
         (tmp_path / "manifest.json").write_text("[]")
@@ -107,10 +107,10 @@ class TestManifestAsset:
 
         with patch("pipeline.fetch.fetch", return_value=mock_data):
             result = dg.materialize(
-                [manifest],
-                resources={"io_manager": WorkspaceIOManager(workspace=ws)},
+                [fetch_media],
+                resources={"io_manager": WorkspaceIOManager(base_dir=ws, run_name="test")},
                 run_config=dg.RunConfig(
-                    ops={"manifest": FetchConfig(from_date="2025-01-01", to_date="2025-01-31")},
+                    ops={"fetch_media": FetchConfig(from_date="2025-01-01", to_date="2025-01-31")},
                 ),
             )
 
