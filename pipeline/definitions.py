@@ -129,11 +129,98 @@ class VariationsConfig(dg.Config):
 
 
 # ---------------------------------------------------------------------------
-# Helper
+# Helpers
 # ---------------------------------------------------------------------------
 
-def _ws(context: dg.AssetExecutionContext) -> str:
-    return context.resources.io_manager.workspace_path
+def _progress_cb(context: dg.AssetExecutionContext, t0: float, granularity: int = 10):
+    """Create a progress callback that logs and emits AssetObservations."""
+    label = context.asset_key.path[-1].capitalize()
+
+    def cb(current: int, total: int, name: str) -> None:
+        if current % max(total // granularity, 1) == 0 or current == total:
+            elapsed = time.monotonic() - t0
+            eta = (elapsed / current * (total - current) / 60) if current else 0
+            pct = current / total * 100 if total else 0
+            context.log.info(f"{label}: {current}/{total} ({pct:.0f}%) ETA {eta:.1f}min — {name}")
+            context.log_event(dg.AssetObservation(
+                asset_key=context.asset_key,
+                metadata={
+                    "progress_pct": dg.MetadataValue.float(pct),
+                    "current": dg.MetadataValue.int(current),
+                    "total": dg.MetadataValue.int(total),
+                    "eta_minutes": dg.MetadataValue.float(round(eta, 1)),
+                },
+            ))
+
+    return cb
+
+
+def _md_table(headers: list[str], rows: list[list]) -> str:
+    """Build a markdown table from headers and rows."""
+    sep = ["-" * max(len(h), 3) for h in headers]
+    lines = [" | ".join(headers), " | ".join(sep)]
+    lines += [" | ".join(str(c) for c in row) for row in rows]
+    return "\n".join(f"| {line} |" for line in lines)
+
+
+def _preprocess_metadata(data: dict, extra: dict | None = None) -> dict:
+    """Build metadata dict for the preprocess asset."""
+    tc = data.get("tier_counts", {})
+    tier_table = _md_table(
+        ["Tier", "Count", "Description"],
+        [["A", tc.get("A", 0), "Family together"],
+         ["B", tc.get("B", 0), "One family member"],
+         ["C", tc.get("C", 0), "Scene / B-roll"],
+         ["D", tc.get("D", 0), "Skipped"]],
+    )
+    timeline = data.get("timeline", [])
+    meta: dict = {
+        "total_items": dg.MetadataValue.int(data.get("total_items", 0)),
+        "selected_items": dg.MetadataValue.int(data.get("selected_items", 0)),
+        "family_members": dg.MetadataValue.md(
+            ", ".join(data.get("family_names", [])) or "(none detected)"
+        ),
+        "tiers": dg.MetadataValue.md(tier_table),
+        "timeline_days": dg.MetadataValue.int(len(timeline)),
+        "chapters": dg.MetadataValue.int(sum(len(d.get("chapters", [])) for d in timeline)),
+    }
+    if timeline:
+        meta["timeline"] = dg.MetadataValue.md(_md_table(
+            ["Day", "Chapters", "Items"],
+            [[f"{d.get('date','?')} ({d.get('day_name','?')})",
+              len(d.get("chapters", [])),
+              sum(c.get("count", 0) for c in d.get("chapters", []))]
+             for d in timeline],
+        ))
+    if extra:
+        meta.update(extra)
+    return meta
+
+
+def _analyze_metadata(results: list[dict], out: str, extra: dict | None = None) -> dict:
+    """Build metadata dict for the analyze asset from analysis results."""
+    ok = sum(1 for r in results if r.get("vision"))
+    scored = sorted(
+        (r for r in results if r.get("vision")),
+        key=lambda r: r["vision"].get("togetherness", 0) + r["vision"].get("genuine_emotion", 0),
+        reverse=True,
+    )
+    top_table = _md_table(
+        ["File", "Tier", "Together", "Emotion", "Quality", "Description"],
+        [[r["filename"][:30], r.get("tier", "?"),
+          r["vision"].get("togetherness", "-"), r["vision"].get("genuine_emotion", "-"),
+          r["vision"].get("visual_quality", "-"), r["vision"].get("description", "")]
+         for r in list(scored)[:10]],
+    )
+    meta = {
+        "items_analyzed": dg.MetadataValue.int(len(results)),
+        "with_vision": dg.MetadataValue.int(ok),
+        "top_scored": dg.MetadataValue.md(top_table),
+        "analysis_path": dg.MetadataValue.path(out),
+    }
+    if extra:
+        meta.update(extra)
+    return meta
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +236,7 @@ def fetch_media(
     config: FetchConfig,
 ) -> dg.MaterializeResult:
     """Download photos/videos from Synology Photos."""
-    ws = _ws(context)
+    ws = context.resources.io_manager.workspace_path
     out = str(Path(ws) / "manifest.json")
 
     newly_fetched = 0
@@ -167,7 +254,6 @@ def fetch_media(
 
         from .fetch import fetch as do_fetch
         cfg = Config.load(ws)
-        # Count files before fetch to determine how many are new
         existing_before = set(cfg.media_dir.iterdir()) if cfg.media_dir.exists() else set()
         items = do_fetch(
             cfg,
@@ -196,53 +282,6 @@ def fetch_media(
     )
 
 
-def _preprocess_metadata(data: dict, extra: dict | None = None) -> dict:
-    """Build metadata dict for the preprocess asset."""
-    tc = data.get("tier_counts", {})
-    tier_table = (
-        "| Tier | Count | Description |\n"
-        "|------|-------|-------------|\n"
-        f"| A | {tc.get('A', 0)} | Family together |\n"
-        f"| B | {tc.get('B', 0)} | One family member |\n"
-        f"| C | {tc.get('C', 0)} | Scene / B-roll |\n"
-        f"| D | {tc.get('D', 0)} | Skipped |"
-    )
-
-    # Build timeline summary
-    timeline = data.get("timeline", [])
-    timeline_rows = []
-    for day in timeline:
-        chapters = day.get("chapters", [])
-        total_items = sum(c.get("count", 0) for c in chapters)
-        timeline_rows.append(
-            f"| {day.get('date', '?')} ({day.get('day_name', '?')}) "
-            f"| {len(chapters)} | {total_items} |"
-        )
-    timeline_table = (
-        "| Day | Chapters | Items |\n"
-        "|-----|----------|-------|\n"
-        + "\n".join(timeline_rows)
-    ) if timeline_rows else ""
-
-    meta = {
-        "total_items": dg.MetadataValue.int(data.get("total_items", 0)),
-        "selected_items": dg.MetadataValue.int(data.get("selected_items", 0)),
-        "family_members": dg.MetadataValue.md(
-            ", ".join(data.get("family_names", [])) or "(none detected)"
-        ),
-        "tiers": dg.MetadataValue.md(tier_table),
-        "timeline_days": dg.MetadataValue.int(len(timeline)),
-        "chapters": dg.MetadataValue.int(
-            sum(len(d.get("chapters", [])) for d in timeline)
-        ),
-    }
-    if timeline_table:
-        meta["timeline"] = dg.MetadataValue.md(timeline_table)
-    if extra:
-        meta.update(extra)
-    return meta
-
-
 @dg.asset(
     group_name="vlog",
     retry_policy=dg.RetryPolicy(max_retries=1),
@@ -253,7 +292,7 @@ def preprocess(
     config: PreprocessConfig,
 ) -> dg.MaterializeResult:
     """Tier by family presence, cluster duplicates, build timeline."""
-    ws = _ws(context)
+    ws = context.resources.io_manager.workspace_path
     out = str(Path(ws) / "preprocessed.json")
 
     if not config.force and _output_exists(ws, "preprocess"):
@@ -280,38 +319,6 @@ def preprocess(
     return dg.MaterializeResult(metadata=_preprocess_metadata(result))
 
 
-def _analyze_metadata(results: list[dict], out: str, extra: dict | None = None) -> dict:
-    """Build metadata dict for the analyze asset from analysis results."""
-    ok = sum(1 for r in results if r.get("vision"))
-    scored = [r for r in results if r.get("vision")]
-    scored.sort(
-        key=lambda r: r["vision"].get("togetherness", 0) + r["vision"].get("genuine_emotion", 0),
-        reverse=True,
-    )
-    top_rows = []
-    for r in scored[:10]:
-        v = r["vision"]
-        top_rows.append(
-            f"| {r['filename'][:30]} | {r.get('tier', '?')} "
-            f"| {v.get('togetherness', '-')} | {v.get('genuine_emotion', '-')} "
-            f"| {v.get('visual_quality', '-')} | {v.get('description', '')} |"
-        )
-    top_table = (
-        "| File | Tier | Together | Emotion | Quality | Description |\n"
-        "|------|------|----------|---------|---------|-------------|\n"
-        + "\n".join(top_rows)
-    )
-    meta = {
-        "items_analyzed": dg.MetadataValue.int(len(results)),
-        "with_vision": dg.MetadataValue.int(ok),
-        "top_scored": dg.MetadataValue.md(top_table),
-        "analysis_path": dg.MetadataValue.path(out),
-    }
-    if extra:
-        meta.update(extra)
-    return meta
-
-
 @dg.asset(
     group_name="vlog",
     retry_policy=dg.RetryPolicy(max_retries=1, delay=10),
@@ -323,7 +330,7 @@ def analyze(
     config: AnalyzeConfig,
 ) -> dg.MaterializeResult:
     """Analyze media with vision model (llava:7b)."""
-    ws = _ws(context)
+    ws = context.resources.io_manager.workspace_path
     out = str(Path(ws) / "analysis.json")
 
     if not config.force and _output_exists(ws, "analyze"):
@@ -344,7 +351,6 @@ def analyze(
     from .analyze import analyze as do_analyze
     cfg = Config.load(ws)
 
-    # Count how many items already have vision results before we start
     existing_count = 0
     existing_path = Path(out)
     if existing_path.exists():
@@ -353,27 +359,11 @@ def analyze(
         )
 
     t0 = time.monotonic()
-
-    def on_progress(current: int, total: int, filename: str) -> None:
-        if current % max(total // 20, 1) == 0 or current == total:
-            elapsed = time.monotonic() - t0
-            eta_min = (elapsed / current * (total - current) / 60) if current > 0 else 0
-            pct = current / total * 100 if total else 0
-            context.log.info(f"Analyze: {current}/{total} ({pct:.0f}%) ETA {eta_min:.1f}min — {filename}")
-            context.log_event(
-                dg.AssetObservation(
-                    asset_key=context.asset_key,
-                    metadata={
-                        "progress_pct": dg.MetadataValue.float(pct),
-                        "current": dg.MetadataValue.int(current),
-                        "total": dg.MetadataValue.int(total),
-                        "eta_minutes": dg.MetadataValue.float(round(eta_min, 1)),
-                        "current_item": dg.MetadataValue.text(filename),
-                    },
-                )
-            )
-
-    results = do_analyze(cfg, progress_callback=on_progress, log_fn=context.log.info)
+    results = do_analyze(
+        cfg,
+        progress_callback=_progress_cb(context, t0, granularity=20),
+        log_fn=context.log.info,
+    )
     ok = sum(1 for r in results if r.get("vision"))
     newly = ok - existing_count
     from_cache = ok - newly
@@ -402,7 +392,7 @@ def plan(
     config: PlanConfig,
 ) -> dg.MaterializeResult:
     """Generate edit decision list using local LLM."""
-    ws = _ws(context)
+    ws = context.resources.io_manager.workspace_path
     out = str(Path(ws) / "edl.json")
 
     if not config.force and _output_exists(ws, "plan"):
@@ -424,6 +414,7 @@ def plan(
         style=config.style,
         target_duration=config.target_duration,
         focus=config.focus,
+        log_fn=context.log.info,
     )
     context.log.info(
         f"EDL: {len(result.segments)} segments, "
@@ -431,10 +422,10 @@ def plan(
         f"~{result.estimated_duration():.0f}s"
     )
 
-    # Build segment summary
-    seg_rows = []
-    for seg in result.segments:
-        seg_rows.append(f"| {seg.name} | {len(seg.items)} | {seg.transition} |")
+    seg_rows = [
+        f"| {seg.name} | {len(seg.items)} | {seg.transition} |"
+        for seg in result.segments
+    ]
     seg_table = (
         "| Segment | Items | Transition |\n"
         "|---------|-------|------------|\n"
@@ -464,42 +455,21 @@ def assemble(
     config: AssembleConfig,
 ) -> dg.MaterializeResult:
     """Render vlog from EDL via FFmpeg."""
-    ws = _ws(context)
+    ws = context.resources.io_manager.workspace_path
 
     if not config.force and _output_exists(ws, "assemble"):
         context.log.info("Skipping assemble — vlog already exists")
         return dg.MaterializeResult(
-            metadata={
-                "status": dg.MetadataValue.text("finished"),
-            }
+            metadata={"status": dg.MetadataValue.text("finished")}
         )
 
     from .assemble import assemble as do_assemble
     cfg = Config.load(ws)
-
     t0 = time.monotonic()
 
-    def on_progress(current: int, total: int, clip_name: str) -> None:
-        if current % max(total // 10, 1) == 0 or current == total:
-            elapsed = time.monotonic() - t0
-            eta_min = (elapsed / current * (total - current) / 60) if current > 0 else 0
-            pct = current / total * 100 if total else 0
-            context.log.info(f"Assemble: {current}/{total} ({pct:.0f}%) ETA {eta_min:.1f}min — {clip_name}")
-            context.log_event(
-                dg.AssetObservation(
-                    asset_key=context.asset_key,
-                    metadata={
-                        "progress_pct": dg.MetadataValue.float(pct),
-                        "current": dg.MetadataValue.int(current),
-                        "total": dg.MetadataValue.int(total),
-                        "eta_minutes": dg.MetadataValue.float(round(eta_min, 1)),
-                        "current_clip": dg.MetadataValue.text(clip_name),
-                    },
-                )
-            )
-
     output_path = do_assemble(
-        cfg, version=config.version, progress_callback=on_progress,
+        cfg, version=config.version,
+        progress_callback=_progress_cb(context, t0),
         skip_broken=config.skip_broken,
     )
     duration_min = round((time.monotonic() - t0) / 60, 1)

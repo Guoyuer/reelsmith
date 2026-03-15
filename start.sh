@@ -35,6 +35,15 @@ stop_all() {
         fi
         rm -f "$pidfile"
     done
+    # Kill any orphaned Dagster processes (children of previous dagster dev)
+    for orphan in $(pgrep -f "dagster" 2>/dev/null); do
+        if kill -0 "$orphan" 2>/dev/null; then
+            echo "  Killing orphaned dagster process (PID $orphan)"
+            kill "$orphan" 2>/dev/null || true
+        fi
+    done
+    # Kill anything still holding the Dagster port
+    lsof -ti :"$DAGSTER_PORT" 2>/dev/null | xargs kill 2>/dev/null || true
     echo "All services stopped."
 }
 

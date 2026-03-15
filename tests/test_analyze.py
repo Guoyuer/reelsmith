@@ -12,28 +12,9 @@ from PIL import Image
 from pipeline.analyze import (
     VISION_PROMPT_FAMILY,
     VISION_PROMPT_SCENE,
-    _extract_keyframes,
     analyze,
 )
-from pipeline.config import Config
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _make_config(tmp_path: Path) -> Config:
-    """Build a Config rooted at tmp_path with dirs created."""
-    cfg = Config(
-        api_base="http://fake:8000",
-        ollama_base="http://fake:11434",
-        workspace=tmp_path / "workspace",
-        media_dir=tmp_path / "workspace" / "media",
-        cache_dir=tmp_path / "workspace" / "analysis_cache",
-        keyframes_dir=tmp_path / "workspace" / "keyframes",
-    )
-    cfg.ensure_dirs()
-    return cfg
+from pipeline.media_utils import extract_frames
 
 
 def _make_tiny_image(path: Path, size=(160, 90)) -> Path:
@@ -81,9 +62,9 @@ FAKE_VISION = {"description": "test scene", "visual_quality": 8, "vlog_worthy": 
 
 
 class TestAnalyzeSkipsTierD:
-    def test_analyze_skips_tier_d(self, tmp_path: Path):
+    def test_analyze_skips_tier_d(self, tmp_path: Path, mock_config):
         """Tier D items should not be analyzed."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "100_photo.jpg")
 
         items = [
@@ -99,9 +80,9 @@ class TestAnalyzeSkipsTierD:
 
 
 class TestAnalyzeResumesFromExisting:
-    def test_analyze_resumes_from_existing(self, tmp_path: Path):
+    def test_analyze_resumes_from_existing(self, tmp_path: Path, mock_config):
         """Items with vision data in analysis.json should be skipped on resume."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "101_photo.jpg")
 
         items = [
@@ -128,9 +109,9 @@ class TestAnalyzeResumesFromExisting:
 
 
 class TestAnalyzeUsesSharedCache:
-    def test_analyze_uses_shared_cache(self, tmp_path: Path):
+    def test_analyze_uses_shared_cache(self, tmp_path: Path, mock_config):
         """If cache_dir/{id}.json exists, vision call should be skipped."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "102_photo.jpg")
 
         items = [
@@ -151,9 +132,9 @@ class TestAnalyzeUsesSharedCache:
 
 
 class TestAnalyzeSavesToSharedCache:
-    def test_analyze_saves_to_shared_cache(self, tmp_path: Path):
+    def test_analyze_saves_to_shared_cache(self, tmp_path: Path, mock_config):
         """After analysis, cache_dir/{id}.json should be written."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "103_photo.jpg")
 
         items = [
@@ -171,9 +152,9 @@ class TestAnalyzeSavesToSharedCache:
 
 
 class TestAnalyzeWritesIncrementally:
-    def test_analyze_writes_incrementally(self, tmp_path: Path):
+    def test_analyze_writes_incrementally(self, tmp_path: Path, mock_config):
         """analysis.json should be written after each item."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
 
         img1 = _make_tiny_image(cfg.media_dir / "104_a.jpg")
         img2 = _make_tiny_image(cfg.media_dir / "105_b.jpg")
@@ -207,9 +188,9 @@ class TestAnalyzeWritesIncrementally:
 
 
 class TestAnalyzeFamilyPromptForTierA:
-    def test_analyze_family_prompt_for_tier_a(self, tmp_path: Path):
+    def test_analyze_family_prompt_for_tier_a(self, tmp_path: Path, mock_config):
         """Tier A should get VISION_PROMPT_FAMILY."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "106_photo.jpg")
 
         items = [
@@ -230,9 +211,9 @@ class TestAnalyzeFamilyPromptForTierA:
 
 
 class TestAnalyzeScenePromptForTierC:
-    def test_analyze_scene_prompt_for_tier_c(self, tmp_path: Path):
+    def test_analyze_scene_prompt_for_tier_c(self, tmp_path: Path, mock_config):
         """Tier C should get VISION_PROMPT_SCENE."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "107_photo.jpg")
 
         items = [
@@ -250,9 +231,9 @@ class TestAnalyzeScenePromptForTierC:
 
 
 class TestAnalyzeHeicConvertsViaSips:
-    def test_analyze_heic_converts_via_sips(self, tmp_path: Path):
+    def test_analyze_heic_converts_via_sips(self, tmp_path: Path, mock_config):
         """A .heic file should trigger a sips subprocess call inside _analyze_image."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
 
         # Create a fake .heic file (we will mock _analyze_image but check sips
         # is called by NOT patching _analyze_image — instead patch the lower
@@ -282,19 +263,9 @@ class TestAnalyzeHeicConvertsViaSips:
                 jpeg_img.save(out_path, "JPEG")
             return result
 
-        # Mock httpx.stream for the Ollama vision call (streaming mode)
-        mock_stream_resp = MagicMock()
-        mock_stream_resp.raise_for_status = MagicMock()
-        vision_json = json.dumps(FAKE_VISION)
-        mock_stream_resp.iter_lines.return_value = iter([
-            json.dumps({"message": {"content": vision_json}, "done": True}),
-        ])
-        mock_stream_resp.__enter__ = MagicMock(return_value=mock_stream_resp)
-        mock_stream_resp.__exit__ = MagicMock(return_value=False)
-
         with patch("pipeline.analyze.run_subprocess", side_effect=mock_subprocess_run), \
              patch("pipeline.media_utils.run_subprocess", side_effect=mock_subprocess_run), \
-             patch("pipeline.analyze.httpx.stream", return_value=mock_stream_resp):
+             patch("pipeline.analyze.ollama_json", return_value=FAKE_VISION):
             analyze(cfg)
 
         assert len(sips_calls) >= 1
@@ -303,9 +274,9 @@ class TestAnalyzeHeicConvertsViaSips:
 
 
 class TestAnalyzeProgressCallback:
-    def test_analyze_progress_callback(self, tmp_path: Path):
+    def test_analyze_progress_callback(self, tmp_path: Path, mock_config):
         """Callback should be called with (current, total, filename)."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         img1 = _make_tiny_image(cfg.media_dir / "109_a.jpg")
         img2 = _make_tiny_image(cfg.media_dir / "110_b.jpg")
 
@@ -335,7 +306,7 @@ class TestAnalyzeProgressCallback:
 
 
 class TestExtractKeyframes:
-    def test_extract_keyframes(self, tmp_path: Path):
+    def test_extract_keyframes(self, tmp_path: Path, mock_config):
         """Should call ffprobe then ffmpeg."""
         video_path = tmp_path / "video.mp4"
         video_path.write_bytes(b"\x00" * 100)
@@ -352,9 +323,8 @@ class TestExtractKeyframes:
             return result
 
         with patch("pipeline.media_utils.run_subprocess", side_effect=mock_run):
-            _extract_keyframes(video_path, kf_dir, item_id=999)
+            extract_frames(video_path, kf_dir, prefix="999", count=5)
 
         assert "ffprobe" in calls
         assert "ffmpeg" in calls
-        # ffprobe should be called before ffmpeg
         assert calls.index("ffprobe") < calls.index("ffmpeg")

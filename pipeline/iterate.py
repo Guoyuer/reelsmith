@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .assemble import assemble, _probe_duration
+from .assemble import assemble
 from .config import Config
 from .edl import EDL
 from .llm import ollama_chat
@@ -54,160 +54,9 @@ Create a variation with style: {variation_style}
 Only output the JSON EDL, no other text."""
 
 
-def self_critique(cfg: Config, *, style: str = "upbeat", max_rounds: int = 2) -> EDL:
-    """Extract frames from the rendered vlog, send to vision model for critique, regenerate EDL."""
-    edl_path = cfg.workspace / "edl.json"
-    edl = EDL.model_validate_json(edl_path.read_text())
-
-    current_version = _find_latest_version(cfg)
-
-    for round_num in range(1, max_rounds + 1):
-        print(f"Self-critique round {round_num}/{max_rounds}...")
-
-        current_video = cfg.workspace / "output" / f"vlog_v{current_version}.mp4"
-        if not current_video.exists():
-            print(f"  No video at {current_video}, assembling first...")
-            assemble(cfg, version=current_version)
-
-        # Extract review frames
-        frames = _extract_review_frames(current_video, cfg.workspace / "review_frames", count=8)
-
-        prompt = CRITIQUE_PROMPT.format(
-            style=style,
-            edl_json=edl.model_dump_json(indent=2),
-        )
-
-        # Use vision model (llava) for multimodal critique
-        content = ollama_chat(
-            cfg,
-            model=cfg.vision_model,
-            prompt=prompt,
-            images=frames,
-        )
-
-        content = strip_markdown_fences(content)
-
-        try:
-            edl = EDL.model_validate_json(content)
-        except Exception as e:
-            print(f"  Failed to parse critique EDL: {e}")
-            break
-
-        # Save and render new version
-        current_version += 1
-        edl_path.write_text(edl.model_dump_json(indent=2))
-        _save_edl_version(cfg, edl, current_version)
-        assemble(cfg, version=current_version)
-        print(f"  Rendered v{current_version}")
-
-    return edl
-
-
-def apply_feedback(cfg: Config, feedback: str) -> EDL:
-    """Apply human feedback to the current EDL and re-render."""
-    edl_path = cfg.workspace / "edl.json"
-    edl = EDL.model_validate_json(edl_path.read_text())
-
-    print(f"Applying feedback: {feedback[:80]}...")
-    content = ollama_chat(
-        cfg,
-        prompt=FEEDBACK_PROMPT.format(
-            edl_json=edl.model_dump_json(indent=2),
-            feedback=feedback,
-        ),
-    )
-
-    content = strip_markdown_fences(content)
-
-    edl = EDL.model_validate_json(content)
-
-    version = _find_latest_version(cfg) + 1
-    edl_path.write_text(edl.model_dump_json(indent=2))
-    _save_edl_version(cfg, edl, version)
-
-    # Clear old clips to force re-render
-    clips_dir = cfg.workspace / "clips"
-    if clips_dir.exists():
-        for f in clips_dir.iterdir():
-            f.unlink(missing_ok=True)
-
-    assemble(cfg, version=version)
-    print(f"Rendered v{version} with feedback applied")
-    return edl
-
-
-def generate_variations(
-    cfg: Config,
-    styles: list[str] | None = None,
-) -> list[Path]:
-    """Generate multiple vlog variations with different styles."""
-    if styles is None:
-        styles = ["energetic", "reflective", "cinematic"]
-
-    edl_path = cfg.workspace / "edl.json"
-    edl = EDL.model_validate_json(edl_path.read_text())
-
-    analysis_path = cfg.workspace / "analysis.json"
-    analysis = json.loads(analysis_path.read_text())
-    media_summary = json.dumps(
-        [{"local_path": a["local_path"], "media_type": a["media_type"],
-          "duration_sec": round(a["duration_ms"]/1000, 1) if a.get("duration_ms") else None,
-          "description": a.get("vision", {}).get("description"),
-          "happiness": a.get("vision", {}).get("happiness_score")}
-         for a in analysis],
-        indent=2,
-    )
-
-    base_version = _find_latest_version(cfg)
-    outputs = []
-
-    for i, variation_style in enumerate(styles, 1):
-        print(f"Generating {variation_style} variation...")
-
-        content = ollama_chat(
-            cfg,
-            prompt=VARIATION_PROMPT.format(
-                edl_json=edl.model_dump_json(indent=2),
-                media_summary=media_summary,
-                variation_style=variation_style,
-            ),
-        )
-
-        content = strip_markdown_fences(content)
-
-        try:
-            var_edl = EDL.model_validate_json(content)
-            version = base_version + i
-            _save_edl_version(cfg, var_edl, version)
-
-            # Write as current EDL temporarily for assembly
-            edl_path.write_text(var_edl.model_dump_json(indent=2))
-
-            # Clear clips for fresh render
-            clips_dir = cfg.workspace / "clips"
-            if clips_dir.exists():
-                for f in clips_dir.iterdir():
-                    f.unlink(missing_ok=True)
-
-            output = assemble(cfg, version=version)
-            outputs.append(output)
-            print(f"  → {output}")
-        except Exception as e:
-            print(f"  Failed: {e}")
-
-    # Restore original EDL
-    edl_path.write_text(edl.model_dump_json(indent=2))
-    return outputs
-
-
-def _extract_review_frames(video: Path, out_dir: Path, count: int = 8) -> list[Path]:
-    """Extract evenly-spaced frames from the rendered vlog for review."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    for f in out_dir.glob("frame_*.jpg"):
-        f.unlink()
-
-    return extract_frames(video, out_dir, prefix="frame", count=count)
-
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
 
 def _find_latest_version(cfg: Config) -> int:
     """Find the latest vlog version number in the output directory."""
@@ -217,8 +66,7 @@ def _find_latest_version(cfg: Config) -> int:
     versions = []
     for f in output_dir.glob("vlog_v*.mp4"):
         try:
-            v = int(f.stem.split("_v")[1])
-            versions.append(v)
+            versions.append(int(f.stem.split("_v")[1]))
         except (IndexError, ValueError):
             pass
     return max(versions) if versions else 0
@@ -228,5 +76,110 @@ def _save_edl_version(cfg: Config, edl: EDL, version: int) -> None:
     """Save a versioned copy of the EDL."""
     edl_dir = cfg.workspace / "edl_history"
     edl_dir.mkdir(parents=True, exist_ok=True)
-    path = edl_dir / f"edl_v{version}.json"
-    path.write_text(edl.model_dump_json(indent=2))
+    (edl_dir / f"edl_v{version}.json").write_text(edl.model_dump_json(indent=2))
+
+
+def _revise_and_render(cfg: Config, edl: EDL, prompt: str, **chat_kwargs) -> EDL:
+    """Call LLM, parse revised EDL, save version, clear clips, and re-render."""
+    content = strip_markdown_fences(ollama_chat(cfg, prompt=prompt, **chat_kwargs))
+    new_edl = EDL.model_validate_json(content)
+
+    version = _find_latest_version(cfg) + 1
+    edl_path = cfg.workspace / "edl.json"
+    edl_path.write_text(new_edl.model_dump_json(indent=2))
+    _save_edl_version(cfg, new_edl, version)
+
+    # Clear old clips to force re-render
+    clips_dir = cfg.workspace / "clips"
+    if clips_dir.exists():
+        for f in clips_dir.iterdir():
+            f.unlink(missing_ok=True)
+
+    assemble(cfg, version=version)
+    print(f"  Rendered v{version}")
+    return new_edl
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def self_critique(cfg: Config, *, style: str = "upbeat", max_rounds: int = 2) -> EDL:
+    """Extract frames from the rendered vlog, send to vision model for critique, regenerate EDL."""
+    edl_path = cfg.workspace / "edl.json"
+    edl = EDL.model_validate_json(edl_path.read_text())
+    current_version = _find_latest_version(cfg)
+
+    for round_num in range(1, max_rounds + 1):
+        print(f"Self-critique round {round_num}/{max_rounds}...")
+
+        current_video = cfg.workspace / "output" / f"vlog_v{current_version}.mp4"
+        if not current_video.exists():
+            assemble(cfg, version=current_version)
+
+        # Extract review frames (clean old ones first)
+        review_dir = cfg.workspace / "review_frames"
+        review_dir.mkdir(parents=True, exist_ok=True)
+        for f in review_dir.glob("frame_*.jpg"):
+            f.unlink()
+        frames = extract_frames(current_video, review_dir, prefix="frame", count=8)
+
+        prompt = CRITIQUE_PROMPT.format(style=style, edl_json=edl.model_dump_json(indent=2))
+
+        try:
+            edl = _revise_and_render(cfg, edl, prompt, model=cfg.vision_model, images=frames)
+            current_version = _find_latest_version(cfg)
+        except Exception as e:
+            print(f"  Failed to parse critique EDL: {e}")
+            break
+
+    return edl
+
+
+def apply_feedback(cfg: Config, feedback: str) -> EDL:
+    """Apply human feedback to the current EDL and re-render."""
+    edl = EDL.model_validate_json((cfg.workspace / "edl.json").read_text())
+    print(f"Applying feedback: {feedback[:80]}...")
+    prompt = FEEDBACK_PROMPT.format(edl_json=edl.model_dump_json(indent=2), feedback=feedback)
+    return _revise_and_render(cfg, edl, prompt)
+
+
+def generate_variations(cfg: Config, styles: list[str] | None = None) -> list[Path]:
+    """Generate multiple vlog variations with different styles."""
+    styles = styles or ["energetic", "reflective", "cinematic"]
+
+    edl_path = cfg.workspace / "edl.json"
+    original_edl = EDL.model_validate_json(edl_path.read_text())
+
+    analysis = json.loads((cfg.workspace / "analysis.json").read_text())
+    media_summary = json.dumps(
+        [{"local_path": a["local_path"], "media_type": a["media_type"],
+          "duration_sec": round(a["duration_ms"]/1000, 1) if a.get("duration_ms") else None,
+          "description": a.get("vision", {}).get("description"),
+          "happiness": a.get("vision", {}).get("happiness_score")}
+         for a in analysis],
+        indent=2,
+    )
+
+    outputs = []
+    for variation_style in styles:
+        print(f"Generating {variation_style} variation...")
+        prompt = VARIATION_PROMPT.format(
+            edl_json=original_edl.model_dump_json(indent=2),
+            media_summary=media_summary,
+            variation_style=variation_style,
+        )
+        try:
+            _revise_and_render(cfg, original_edl, prompt)
+            video = max(
+                (cfg.workspace / "output").glob("vlog_v*.mp4"),
+                key=lambda p: p.stat().st_mtime,
+            )
+            outputs.append(video)
+            print(f"  → {video}")
+        except Exception as e:
+            print(f"  Failed: {e}")
+
+    # Restore original EDL
+    edl_path.write_text(original_edl.model_dump_json(indent=2))
+    return outputs

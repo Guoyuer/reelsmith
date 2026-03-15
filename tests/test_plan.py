@@ -8,27 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
-from pipeline.config import Config
 from pipeline.edl import EDL
 from pipeline.plan import SYSTEM_PROMPT, _build_chapters_prompt, plan
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _make_config(tmp_path: Path) -> Config:
-    """Build a Config rooted at tmp_path with dirs created."""
-    cfg = Config(
-        api_base="http://fake:8000",
-        ollama_base="http://fake:11434",
-        workspace=tmp_path / "workspace",
-        media_dir=tmp_path / "workspace" / "media",
-        cache_dir=tmp_path / "workspace" / "analysis_cache",
-        keyframes_dir=tmp_path / "workspace" / "keyframes",
-    )
-    cfg.ensure_dirs()
-    return cfg
 
 
 def _valid_edl_json() -> str:
@@ -170,9 +151,9 @@ def _setup_workspace(cfg: Config) -> None:
 
 
 class TestPlanCallsOllama:
-    def test_plan_calls_ollama(self, tmp_path: Path):
+    def test_plan_calls_ollama(self, tmp_path: Path, mock_config):
         """ollama_chat should be called with a system prompt."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         _setup_workspace(cfg)
 
         with patch("pipeline.plan.ollama_chat", return_value=_valid_edl_json()) as mock_chat:
@@ -184,9 +165,9 @@ class TestPlanCallsOllama:
 
 
 class TestPlanIncludesDuration:
-    def test_plan_includes_duration(self, tmp_path: Path):
+    def test_plan_includes_duration(self, tmp_path: Path, mock_config):
         """target_duration should appear in the user prompt sent to ollama_chat."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         _setup_workspace(cfg)
 
         with patch("pipeline.plan.ollama_chat", return_value=_valid_edl_json()) as mock_chat:
@@ -197,9 +178,9 @@ class TestPlanIncludesDuration:
 
 
 class TestPlanReturnsEdl:
-    def test_plan_returns_edl(self, tmp_path: Path):
+    def test_plan_returns_edl(self, tmp_path: Path, mock_config):
         """Return value should be an EDL instance."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         _setup_workspace(cfg)
 
         with patch("pipeline.plan.ollama_chat", return_value=_valid_edl_json()):
@@ -211,9 +192,9 @@ class TestPlanReturnsEdl:
 
 
 class TestPlanWritesEdlJson:
-    def test_plan_writes_edl_json(self, tmp_path: Path):
+    def test_plan_writes_edl_json(self, tmp_path: Path, mock_config):
         """edl.json should be written to workspace."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         _setup_workspace(cfg)
 
         with patch("pipeline.plan.ollama_chat", return_value=_valid_edl_json()):
@@ -226,9 +207,9 @@ class TestPlanWritesEdlJson:
 
 
 class TestPlanStripsFences:
-    def test_plan_strips_fences(self, tmp_path: Path):
+    def test_plan_strips_fences(self, tmp_path: Path, mock_config):
         """LLM returns ```json...```, plan should still parse correctly."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         _setup_workspace(cfg)
 
         fenced = f"```json\n{_valid_edl_json()}\n```"

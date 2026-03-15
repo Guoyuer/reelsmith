@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 import signal
 import subprocess
 from pathlib import Path
 
-import httpx
 from PIL import Image
 from tqdm import tqdm
 
 from .config import Config
-from .media_utils import convert_heic, extract_frames, run_subprocess, strip_markdown_fences
+from .llm import ollama_json
+from .media_utils import convert_heic, extract_frames, run_subprocess
 
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
@@ -167,7 +166,7 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
 
         # For video, extract keyframes
         if is_video:
-            kf_paths = _extract_keyframes(local_path, cfg.keyframes_dir, item_id)
+            kf_paths = extract_frames(local_path, cfg.keyframes_dir, prefix=str(item_id), count=5)
             entry["keyframe_paths"] = [str(p) for p in kf_paths]
             vision_target = kf_paths[0] if kf_paths else None
 
@@ -207,16 +206,10 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
     return results
 
 
-def _extract_keyframes(video_path: Path, keyframe_dir: Path, item_id: int, max_frames: int = 5) -> list[Path]:
-    """Extract evenly-spaced frames from a video."""
-    return extract_frames(video_path, keyframe_dir, prefix=str(item_id), count=max_frames)
-
-
 def _analyze_image(image_path: Path, cfg: Config, prompt: str) -> dict | None:
     """Send image to Ollama vision model for analysis."""
     try:
-        suffix = image_path.suffix.lower()
-        if suffix in {".heic", ".heif"}:
+        if image_path.suffix.lower() in {".heic", ".heif"}:
             try:
                 image_path = convert_heic(image_path)
             except RuntimeError:
@@ -229,33 +222,7 @@ def _analyze_image(image_path: Path, cfg: Config, prompt: str) -> dict | None:
             img.save(resized, "JPEG", quality=85)
             image_path = resized
 
-        img_b64 = base64.b64encode(image_path.read_bytes()).decode()
-
-        # Use streaming so the call is interruptible between token chunks
-        chunks = []
-        with httpx.stream(
-            "POST",
-            f"{cfg.ollama_base}/api/chat",
-            json={
-                "model": cfg.vision_model,
-                "messages": [{"role": "user", "content": prompt, "images": [img_b64]}],
-                "stream": True,
-                "options": {"temperature": 0.1},
-            },
-            timeout=120,
-        ) as resp:
-            resp.raise_for_status()
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                data = json.loads(line)
-                content = data.get("message", {}).get("content", "")
-                if content:
-                    chunks.append(content)
-                if data.get("done"):
-                    break
-        content = strip_markdown_fences("".join(chunks))
-        return json.loads(content)
+        return ollama_json(cfg, model=cfg.vision_model, prompt=prompt, images=[image_path])
     except Exception as e:
         print(f"    Vision failed: {e}")
         return None

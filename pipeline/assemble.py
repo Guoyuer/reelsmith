@@ -57,11 +57,6 @@ def _build_portrait_photo_filter(
     )
 
 
-def _build_portrait_video_filter(out_w: int, out_h: int) -> str:
-    """Build FFmpeg filter_complex for portrait videos: blurred BG + sharp FG (no black bars)."""
-    return _portrait_bg_filter(out_w, out_h)
-
-
 # ---------------------------------------------------------------------------
 # Main assemble entry point
 # ---------------------------------------------------------------------------

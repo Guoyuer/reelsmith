@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pipeline.config import Config
 from pipeline.edl import EDL, EditItem, Segment
 from pipeline.iterate import (
     _find_latest_version,
@@ -17,24 +16,6 @@ from pipeline.iterate import (
     generate_variations,
     self_critique,
 )
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _make_config(tmp_path: Path) -> Config:
-    """Build a Config rooted at tmp_path with dirs created."""
-    cfg = Config(
-        api_base="http://fake:8000",
-        ollama_base="http://fake:11434",
-        workspace=tmp_path / "workspace",
-        media_dir=tmp_path / "workspace" / "media",
-        cache_dir=tmp_path / "workspace" / "analysis_cache",
-        keyframes_dir=tmp_path / "workspace" / "keyframes",
-    )
-    cfg.ensure_dirs()
-    return cfg
 
 
 def _make_edl() -> EDL:
@@ -112,16 +93,16 @@ def _setup_workspace(cfg: Config, edl: EDL | None = None, version: int = 1) -> N
 
 
 class TestFindLatestVersionEmpty:
-    def test_find_latest_version_empty(self, tmp_path: Path):
+    def test_find_latest_version_empty(self, tmp_path: Path, mock_config):
         """With no output directory, should return 0."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         assert _find_latest_version(cfg) == 0
 
 
 class TestFindLatestVersionMax:
-    def test_find_latest_version_max(self, tmp_path: Path):
+    def test_find_latest_version_max(self, tmp_path: Path, mock_config):
         """Should return the highest version number found."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         output_dir = cfg.workspace / "output"
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -133,9 +114,9 @@ class TestFindLatestVersionMax:
 
 
 class TestSaveEdlVersion:
-    def test_save_edl_version(self, tmp_path: Path):
+    def test_save_edl_version(self, tmp_path: Path, mock_config):
         """Should create edl_history/edl_v{N}.json."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         edl = _make_edl()
 
         _save_edl_version(cfg, edl, 5)
@@ -147,13 +128,13 @@ class TestSaveEdlVersion:
 
 
 class TestSelfCritiqueIncrementsVersion:
-    def test_self_critique_increments_version(self, tmp_path: Path):
+    def test_self_critique_increments_version(self, tmp_path: Path, mock_config):
         """Version should go from 1 to 2 after one round of self-critique."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         _setup_workspace(cfg, version=1)
 
         with patch("pipeline.iterate.ollama_chat", return_value=_valid_edl_json_str()), \
-             patch("pipeline.iterate._extract_review_frames", return_value=[]), \
+             patch("pipeline.iterate.extract_frames", return_value=[]), \
              patch("pipeline.iterate.assemble", return_value=Path("/fake/v2.mp4")):
             result = self_critique(cfg, max_rounds=1)
 
@@ -166,13 +147,13 @@ class TestSelfCritiqueIncrementsVersion:
 
 
 class TestSelfCritiqueStopsOnParseFailure:
-    def test_self_critique_stops_on_parse_failure(self, tmp_path: Path):
+    def test_self_critique_stops_on_parse_failure(self, tmp_path: Path, mock_config):
         """If LLM returns garbage, the loop should break early."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         _setup_workspace(cfg, version=1)
 
         with patch("pipeline.iterate.ollama_chat", return_value="not valid json at all"), \
-             patch("pipeline.iterate._extract_review_frames", return_value=[]), \
+             patch("pipeline.iterate.extract_frames", return_value=[]), \
              patch("pipeline.iterate.assemble", return_value=Path("/fake/v2.mp4")) as mock_assemble:
             result = self_critique(cfg, max_rounds=3)
 
@@ -186,9 +167,9 @@ class TestSelfCritiqueStopsOnParseFailure:
 
 
 class TestApplyFeedbackClearsClips:
-    def test_apply_feedback_clears_clips(self, tmp_path: Path):
+    def test_apply_feedback_clears_clips(self, tmp_path: Path, mock_config):
         """clips/ should be emptied after applying feedback."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         _setup_workspace(cfg, version=1)
 
         # Create some clip files
@@ -207,9 +188,9 @@ class TestApplyFeedbackClearsClips:
 
 
 class TestApplyFeedbackSavesEdl:
-    def test_apply_feedback_saves_edl(self, tmp_path: Path):
+    def test_apply_feedback_saves_edl(self, tmp_path: Path, mock_config):
         """New EDL should be written to edl.json and edl_history/."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         _setup_workspace(cfg, version=1)
 
         with patch("pipeline.iterate.ollama_chat", return_value=_valid_edl_json_str()), \
@@ -227,9 +208,9 @@ class TestApplyFeedbackSavesEdl:
 
 
 class TestGenerateVariationsRestoresOriginal:
-    def test_generate_variations_restores_original(self, tmp_path: Path):
+    def test_generate_variations_restores_original(self, tmp_path: Path, mock_config):
         """After generating variations, the original edl.json should be restored."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         original_edl = _make_edl()
         _setup_workspace(cfg, edl=original_edl, version=1)
 

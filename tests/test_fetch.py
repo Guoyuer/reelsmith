@@ -9,25 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pipeline.config import Config
 from pipeline.fetch import fetch
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _make_config(tmp_path: Path) -> Config:
-    """Build a Config rooted at tmp_path with dirs created."""
-    cfg = Config(
-        api_base="http://fake:8000",
-        workspace=tmp_path / "workspace",
-        media_dir=tmp_path / "workspace" / "media",
-        cache_dir=tmp_path / "workspace" / "analysis_cache",
-        keyframes_dir=tmp_path / "workspace" / "keyframes",
-    )
-    cfg.ensure_dirs()
-    return cfg
 
 
 COLLECT_RESPONSE = {
@@ -121,9 +103,9 @@ class FakeClient:
 
 
 class TestFetchBuildsCorrectBody:
-    def test_fetch_builds_correct_body(self, tmp_path: Path):
+    def test_fetch_builds_correct_body(self, tmp_path: Path, mock_config):
         """Given all filter params, POST body should contain the right keys."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         client = FakeClient()
 
         with patch("pipeline.fetch.httpx.Client", return_value=client):
@@ -152,9 +134,9 @@ class TestFetchBuildsCorrectBody:
 
 
 class TestFetchDownloadsToMediaDir:
-    def test_fetch_downloads_to_media_dir(self, tmp_path: Path):
+    def test_fetch_downloads_to_media_dir(self, tmp_path: Path, mock_config):
         """Files should be written to cfg.media_dir, not workspace/raw."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         client = FakeClient()
 
         with patch("pipeline.fetch.httpx.Client", return_value=client):
@@ -169,9 +151,9 @@ class TestFetchDownloadsToMediaDir:
 
 
 class TestFetchSkipsCached:
-    def test_fetch_skips_cached(self, tmp_path: Path):
+    def test_fetch_skips_cached(self, tmp_path: Path, mock_config):
         """If a file already exists in media_dir, the stream should not be called for it."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
 
         # Pre-create the first file so it is "cached"
         cached_file = cfg.media_dir / "10_IMG_010.jpg"
@@ -189,9 +171,9 @@ class TestFetchSkipsCached:
 
 
 class TestFetchLivePhotoDownloadsVideo:
-    def test_fetch_live_photo_downloads_video(self, tmp_path: Path):
+    def test_fetch_live_photo_downloads_video(self, tmp_path: Path, mock_config):
         """item_type=3 should trigger an extra GET with as_video=true."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         client = FakeClient(collect_response=LIVE_PHOTO_RESPONSE)
 
         with patch("pipeline.fetch.httpx.Client", return_value=client):
@@ -210,9 +192,9 @@ class TestFetchLivePhotoDownloadsVideo:
 
 
 class TestFetchWritesManifest:
-    def test_fetch_writes_manifest(self, tmp_path: Path):
+    def test_fetch_writes_manifest(self, tmp_path: Path, mock_config):
         """manifest.json should be written at cfg.workspace / 'manifest.json'."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         client = FakeClient()
 
         with patch("pipeline.fetch.httpx.Client", return_value=client):
@@ -225,9 +207,9 @@ class TestFetchWritesManifest:
 
 
 class TestFetchManifestHasLocalPath:
-    def test_fetch_manifest_has_local_path(self, tmp_path: Path):
+    def test_fetch_manifest_has_local_path(self, tmp_path: Path, mock_config):
         """Each entry in the manifest should have a local_path key."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         client = FakeClient()
 
         with patch("pipeline.fetch.httpx.Client", return_value=client):
@@ -240,9 +222,9 @@ class TestFetchManifestHasLocalPath:
 
 
 class TestFetchHandlesMetaFailure:
-    def test_fetch_handles_meta_failure(self, tmp_path: Path):
+    def test_fetch_handles_meta_failure(self, tmp_path: Path, mock_config):
         """/api/meta returns 500 — metadata should be {} in the manifest."""
-        cfg = _make_config(tmp_path)
+        cfg = mock_config
         client = FakeClient(meta_status=500)
 
         with patch("pipeline.fetch.httpx.Client", return_value=client):

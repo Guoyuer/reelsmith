@@ -10,13 +10,13 @@ import pytest
 
 from pipeline.assemble import (
     _build_portrait_photo_filter,
-    _build_portrait_video_filter,
     _is_portrait,
     _probe_dimensions,
     _render_photo,
     _render_video,
 )
 from pipeline.edl import EditItem
+from pipeline.media_utils import _portrait_bg_filter
 
 
 # -----------------------------------------------------------------------
@@ -65,14 +65,14 @@ class TestBuildPortraitPhotoFilter:
 class TestBuildPortraitVideoFilter:
     def test_portrait_video_filter_structure(self):
         """Filter must contain split, gblur, and overlay stages."""
-        fc = _build_portrait_video_filter(out_w=3840, out_h=2160)
+        fc = _portrait_bg_filter(3840, 2160)
         assert "split" in fc
         assert "gblur" in fc
         assert "overlay" in fc
 
     def test_portrait_video_filter_no_pad(self):
         """Portrait video filter must NOT use pad (no black bars)."""
-        fc = _build_portrait_video_filter(out_w=3840, out_h=2160)
+        fc = _portrait_bg_filter(3840, 2160)
         assert "pad=" not in fc
 
 

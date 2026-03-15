@@ -20,13 +20,17 @@ def ollama_chat(
     prompt: str,
     images: list[Path] | None = None,
     temperature: float = 0.3,
+    log_fn=None,
 ) -> str:
     """Send a chat request to Ollama and return the response text.
 
     Uses streaming so the request can be interrupted (KeyboardInterrupt)
     between token chunks — typically within 1-2 seconds.
+
+    If *log_fn* is provided, progress is logged every ~50 tokens.
     """
     model = model or cfg.planning_model
+    _log = log_fn
 
     messages = []
     if system:
@@ -52,15 +56,20 @@ def ollama_chat(
     ) as resp:
         resp.raise_for_status()
         chunks = []
+        token_count = 0
         for line in resp.iter_lines():
-            # Each line is a JSON object with a "message" field
             if not line:
                 continue
             data = json.loads(line)
             content = data.get("message", {}).get("content", "")
             if content:
                 chunks.append(content)
+                token_count += 1
+                if _log and token_count % 50 == 0:
+                    _log(f"Generating... ({token_count} tokens)")
             if data.get("done"):
+                if _log:
+                    _log(f"Generation complete ({token_count} tokens)")
                 break
         return "".join(chunks)
 

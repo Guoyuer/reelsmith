@@ -67,6 +67,7 @@ def plan(
     style: str = "upbeat",
     target_duration: int = 180,
     focus: str = "happiness with family",
+    log_fn=None,
 ) -> EDL:
     """Build structured prompt from timeline + analysis, ask LLM to select and arrange."""
     preprocessed_path = cfg.workspace / "preprocessed.json"
@@ -93,15 +94,16 @@ Timeline with scored candidates:
 
 Select ~{target_duration // 4} items total. Pick the warmest, happiest moments."""
 
-    print(f"Planning vlog (target {target_duration}s, model={cfg.planning_model})...")
+    _log = log_fn or print
+    _log(f"Planning vlog (target {target_duration}s, model={cfg.planning_model})...")
 
-    content = ollama_chat(cfg, system=SYSTEM_PROMPT, prompt=user_message)
+    content = ollama_chat(cfg, system=SYSTEM_PROMPT, prompt=user_message, log_fn=_log)
 
     content = strip_markdown_fences(content)
 
     edl = EDL.model_validate_json(content)
     edl_path.write_text(edl.model_dump_json(indent=2))
-    print(f"EDL saved: {len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s estimated")
+    _log(f"EDL saved: {len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s estimated")
     return edl
 
 
