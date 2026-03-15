@@ -14,8 +14,8 @@ import time
 import click
 
 
-DAGSTER_HOST = "localhost"
-DAGSTER_PORT = 3000
+DAGSTER_HOST = os.getenv("DAGSTER_HOST", "localhost")
+DAGSTER_PORT = int(os.getenv("DAGSTER_PORT", "3000"))
 
 
 def _run_name(ctx: click.Context) -> str:

@@ -24,3 +24,6 @@ Thumbs.db
 
 # Dagster
 .dagster/
+.dagster_home/
+.pids/
+.tmp_dagster_home_*/
