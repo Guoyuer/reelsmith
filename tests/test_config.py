@@ -39,14 +39,13 @@ class TestConfigLoadDefaults:
 
     @patch.dict(os.environ, {}, clear=True)
     def test_runs_parent_detected(self, tmp_path: Path):
-        """workspace/runs/myrun -> shared dirs at runs/ level (ws.parent)."""
+        """workspace/runs/myrun -> shared dirs at workspace/ level (ws.parent.parent)."""
         ws = str(tmp_path / "workspace" / "runs" / "myrun")
         with patch("pipeline.config.load_dotenv"):
             cfg = Config.load(workspace=ws)
         assert cfg.workspace == Path(ws)
-        # ws.parent is workspace/runs, and ws.parent.name == "runs" is True
-        # so base = ws.parent = workspace/runs
-        expected_base = tmp_path / "workspace" / "runs"
+        # ws.parent is workspace/runs, ws.parent.parent is workspace/
+        expected_base = tmp_path / "workspace"
         assert cfg.media_dir == expected_base / "media"
         assert cfg.cache_dir == expected_base / "analysis_cache"
         assert cfg.keyframes_dir == expected_base / "keyframes"

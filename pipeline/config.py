@@ -28,10 +28,10 @@ class Config:
     def load(cls, workspace: str | None = None) -> Config:
         load_dotenv()
         ws = Path(workspace or os.getenv("WORKSPACE", "./workspace"))
-        # Shared dirs live at the workspace root (parent of run dirs)
+        # Shared dirs live at the workspace root (grandparent of run dirs)
         # If workspace is workspace/runs/myrun, shared = workspace/
         # If workspace is ./workspace, shared = ./workspace/
-        base = ws.parent if ws.parent.name == "runs" else ws
+        base = ws.parent.parent if ws.parent.name == "runs" else ws
         cfg = cls(
             api_base=os.getenv("SYNOLOGY_API_BASE", cls.api_base),
             ollama_base=os.getenv("OLLAMA_BASE", cls.ollama_base),
