@@ -155,41 +155,31 @@ def fetch_media(
     if not config.force and _output_exists(ws, "fetch_media"):
         context.log.info("Skipping fetch — manifest.json exists")
         items = json.loads(Path(out).read_text())
-        return dg.MaterializeResult(
-            metadata={
-                "status": dg.MetadataValue.text("finished"),
-                "items": dg.MetadataValue.int(len(items)),
-                "manifest": dg.MetadataValue.path(out),
-            }
+    else:
+        if not config.from_date or not config.to_date:
+            raise dg.Failure(
+                description="fetch requires from_date and to_date. "
+                "Use the 'auto' CLI command or set them in the Launchpad."
+            )
+
+        from .fetch import fetch as do_fetch
+        cfg = Config.load(ws)
+        items = do_fetch(
+            cfg,
+            from_date=config.from_date,
+            to_date=config.to_date,
+            country=config.country,
+            first_level=config.first_level,
+            district=config.district,
+            person_ids=config.person_ids,
+            item_types=config.item_types,
         )
+        context.log.info(f"Fetched {len(items)} items")
 
-    if not config.from_date or not config.to_date:
-        raise dg.Failure(
-            description="fetch requires from_date and to_date. "
-            "Use the 'auto' CLI command or set them in the Launchpad."
-        )
-
-    from .fetch import fetch as do_fetch
-    cfg = Config.load(ws)
-    items = do_fetch(
-        cfg,
-        from_date=config.from_date,
-        to_date=config.to_date,
-        country=config.country,
-        first_level=config.first_level,
-        district=config.district,
-        person_ids=config.person_ids,
-        item_types=config.item_types,
-    )
-    context.log.info(f"Fetched {len(items)} items")
-
-    # Sample filenames for quick review
     sample = [it.get("filename", "?") for it in items[:10]]
     return dg.MaterializeResult(
         metadata={
             "items": dg.MetadataValue.int(len(items)),
-            "date_range": dg.MetadataValue.text(f"{config.from_date} to {config.to_date}"),
-            "media_dir": dg.MetadataValue.path(str(cfg.media_dir)),
             "manifest": dg.MetadataValue.path(out),
             "sample_files": dg.MetadataValue.md("\n".join(f"- {f}" for f in sample)),
         }
