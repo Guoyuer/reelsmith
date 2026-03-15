@@ -103,27 +103,36 @@ Select ~{target_duration // 4} items total. Pick the warmest, happiest moments."
 
     edl = EDL.model_validate_json(content)
 
-    # Fix hallucinated paths — LLMs often mangle source_file paths
-    path_index = {a["local_path"]: a["local_path"] for a in analysis_items}
-    # Also index by filename and by item_id prefix for fuzzy matching
+    # Fix hallucinated paths — LLMs often mangle source_file paths.
+    # Build multiple indexes for fuzzy matching: full path, basename, filename,
+    # and filename without ID prefix (e.g. "DJI_20250613.JPG" from "89868_DJI_20250613.JPG")
+    path_index: dict[str, str] = {}
     for a in analysis_items:
-        path_index[a["filename"]] = a["local_path"]
-        path_index[str(a["id"])] = a["local_path"]
-        # Match "id_filename" pattern (e.g. "88585_IMG001.jpg")
-        basename = Path(a["local_path"]).name
-        path_index[basename] = a["local_path"]
+        lp = a["local_path"]
+        path_index[lp] = lp
+        path_index[a["filename"]] = lp
+        path_index[str(a["id"])] = lp
+        basename = Path(lp).name
+        path_index[basename] = lp
+        # Strip numeric ID prefix: "89868_DJI_xxx.JPG" → "DJI_xxx.JPG"
+        parts = basename.split("_", 1)
+        if len(parts) == 2 and parts[0].isdigit():
+            path_index[parts[1]] = lp
 
     fixed = 0
     for item in edl.all_items():
-        if item.source_file in path_index and item.source_file != path_index[item.source_file]:
-            item.source_file = path_index[item.source_file]
+        if Path(item.source_file).exists():
+            continue
+        basename = Path(item.source_file).name
+        # Try exact basename, then without ID prefix
+        parts = basename.split("_", 1)
+        name_no_id = parts[1] if len(parts) == 2 and parts[0].isdigit() else None
+        match = path_index.get(basename) or path_index.get(name_no_id or "")
+        if match:
+            item.source_file = match
             fixed += 1
-        elif not Path(item.source_file).exists():
-            # Try to match by basename or any substring
-            basename = Path(item.source_file).name
-            if basename in path_index:
-                item.source_file = path_index[basename]
-                fixed += 1
+        else:
+            _log(f"WARNING: no match for {item.source_file}")
     if fixed:
         _log(f"Fixed {fixed} hallucinated file paths in EDL")
 
