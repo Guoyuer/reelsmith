@@ -35,6 +35,11 @@ def _submit(job_name: str, run_name: str, run_config: dict | None = None):
 
     try:
         client = DagsterGraphQLClient(DAGSTER_HOST, port_number=DAGSTER_PORT)
+        # Reload code so the webserver always uses the latest definitions
+        try:
+            client.reload_repository_location("pipeline.definitions")
+        except Exception:
+            pass  # best-effort; may fail if location name differs
         run_id = client.submit_job_execution(
             job_name=job_name,
             run_config=config,
