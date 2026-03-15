@@ -251,6 +251,38 @@ def preprocess(
     )
 
 
+def _analyze_metadata(results: list[dict], out: str, extra: dict | None = None) -> dict:
+    """Build metadata dict for the analyze asset from analysis results."""
+    ok = sum(1 for r in results if r.get("vision"))
+    scored = [r for r in results if r.get("vision")]
+    scored.sort(
+        key=lambda r: r["vision"].get("togetherness", 0) + r["vision"].get("genuine_emotion", 0),
+        reverse=True,
+    )
+    top_rows = []
+    for r in scored[:10]:
+        v = r["vision"]
+        top_rows.append(
+            f"| {r['filename'][:30]} | {r.get('tier', '?')} "
+            f"| {v.get('togetherness', '-')} | {v.get('genuine_emotion', '-')} "
+            f"| {v.get('visual_quality', '-')} | {v.get('description', '')[:50]} |"
+        )
+    top_table = (
+        "| File | Tier | Together | Emotion | Quality | Description |\n"
+        "|------|------|----------|---------|---------|-------------|\n"
+        + "\n".join(top_rows)
+    )
+    meta = {
+        "items_analyzed": dg.MetadataValue.int(len(results)),
+        "with_vision": dg.MetadataValue.int(ok),
+        "top_scored": dg.MetadataValue.md(top_table),
+        "analysis_path": dg.MetadataValue.path(out),
+    }
+    if extra:
+        meta.update(extra)
+    return meta
+
+
 @dg.asset(
     group_name="vlog",
     retry_policy=dg.RetryPolicy(max_retries=1, delay=10),
@@ -266,19 +298,26 @@ def analyze(
     out = str(Path(ws) / "analysis.json")
 
     if not config.force and _output_exists(ws, "analyze"):
-        context.log.info("Skipping analyze — analysis.json exists")
+        context.log.info("Skipping analyze — analysis.json exists (all from cache)")
         results = json.loads(Path(out).read_text())
-        ok = sum(1 for r in results if r.get("vision"))
         return dg.MaterializeResult(
-            metadata={
-                "status": dg.MetadataValue.text("skipped (cached)"),
-                "items_analyzed": dg.MetadataValue.int(len(results)),
-                "with_vision": dg.MetadataValue.int(ok),
-            }
+            metadata=_analyze_metadata(results, out, {
+                "status": dg.MetadataValue.text("skipped (all cached)"),
+                "from_cache": dg.MetadataValue.int(len(results)),
+                "newly_analyzed": dg.MetadataValue.int(0),
+            })
         )
 
     from .analyze import analyze as do_analyze
     cfg = Config.load(ws)
+
+    # Count how many items already have vision results before we start
+    existing_count = 0
+    existing_path = Path(out)
+    if existing_path.exists():
+        existing_count = sum(
+            1 for r in json.loads(existing_path.read_text()) if r.get("vision")
+        )
 
     t0 = time.monotonic()
 
@@ -303,36 +342,19 @@ def analyze(
 
     results = do_analyze(cfg, progress_callback=on_progress)
     ok = sum(1 for r in results if r.get("vision"))
-    context.log.info(f"Analysis complete: {ok}/{len(results)} with vision results")
-
-    # Build top-scored items table
-    scored = [r for r in results if r.get("vision")]
-    scored.sort(
-        key=lambda r: r["vision"].get("togetherness", 0) + r["vision"].get("genuine_emotion", 0),
-        reverse=True,
-    )
-    top_rows = []
-    for r in scored[:10]:
-        v = r["vision"]
-        top_rows.append(
-            f"| {r['filename'][:30]} | {r.get('tier', '?')} "
-            f"| {v.get('togetherness', '-')} | {v.get('genuine_emotion', '-')} "
-            f"| {v.get('visual_quality', '-')} | {v.get('description', '')[:50]} |"
-        )
-    top_table = (
-        "| File | Tier | Together | Emotion | Quality | Description |\n"
-        "|------|------|----------|---------|---------|-------------|\n"
-        + "\n".join(top_rows)
+    newly = ok - existing_count
+    from_cache = ok - newly
+    context.log.info(
+        f"Analysis complete: {ok}/{len(results)} with vision — "
+        f"{from_cache} from cache, {newly} newly analyzed"
     )
 
     return dg.MaterializeResult(
-        metadata={
-            "items_analyzed": dg.MetadataValue.int(len(results)),
-            "with_vision": dg.MetadataValue.int(ok),
+        metadata=_analyze_metadata(results, out, {
+            "from_cache": dg.MetadataValue.int(from_cache),
+            "newly_analyzed": dg.MetadataValue.int(newly),
             "duration_min": dg.MetadataValue.float(round((time.monotonic() - t0) / 60, 1)),
-            "top_scored": dg.MetadataValue.md(top_table),
-            "analysis_path": dg.MetadataValue.path(out),
-        }
+        })
     )
 
 
