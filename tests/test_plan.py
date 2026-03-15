@@ -193,16 +193,17 @@ class TestPlanReturnsEdl:
 
 class TestPlanWritesEdlJson:
     def test_plan_writes_edl_json(self, tmp_path: Path, mock_config):
-        """edl.json should be written to workspace."""
+        """edl_v{N}.json should be written to workspace."""
         cfg = mock_config
         _setup_workspace(cfg)
 
         with patch("pipeline.plan.ollama_chat", return_value=_valid_edl_json()):
             plan(cfg)
 
-        edl_path = cfg.workspace / "edl.json"
-        assert edl_path.exists()
-        data = json.loads(edl_path.read_text())
+        # Should write edl_v1.json (first version)
+        edl_files = list(cfg.workspace.glob("edl_v*.json"))
+        assert len(edl_files) >= 1
+        data = json.loads(edl_files[0].read_text())
         assert data["title"] == "Test Trip"
 
 

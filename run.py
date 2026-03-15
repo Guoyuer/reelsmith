@@ -143,11 +143,10 @@ def auto(ctx, from_date, to_date, country, first_level, district, person_ids,
 @click.option("--focus", default="happiness with family", help="What to emphasize")
 @click.pass_context
 def plan(ctx, style, duration, focus):
-    """Force re-plan + re-assemble (downstream)."""
+    """Re-plan + re-assemble (downstream)."""
     _submit("full_pipeline", _run_name(ctx), {
         "ops": {
-            "plan": {"config": {"style": style, "target_duration": duration, "focus": focus, "force": True}},
-            "assemble": {"config": {"force": True}},
+            "plan": {"config": {"style": style, "target_duration": duration, "focus": focus}},
         },
     })
 
@@ -168,7 +167,7 @@ def assemble(ctx, version):
 
     _submit("full_pipeline", rn, {
         "ops": {
-            "assemble": {"config": {"version": version, "force": True}},
+            "assemble": {"config": {"version": version}},
         },
     })
 

@@ -59,12 +59,9 @@ Only output the JSON EDL, no other text."""
 # ---------------------------------------------------------------------------
 
 def _find_latest_version(cfg: Config) -> int:
-    """Find the latest vlog version number in the output directory."""
-    output_dir = cfg.workspace / "output"
-    if not output_dir.exists():
-        return 0
+    """Find the latest version number from edl_v*.json files."""
     versions = []
-    for f in output_dir.glob("vlog_v*.mp4"):
+    for f in cfg.workspace.glob("edl_v*.json"):
         try:
             versions.append(int(f.stem.split("_v")[1]))
         except (IndexError, ValueError):
@@ -72,11 +69,25 @@ def _find_latest_version(cfg: Config) -> int:
     return max(versions) if versions else 0
 
 
-def _save_edl_version(cfg: Config, edl: EDL, version: int) -> None:
-    """Save a versioned copy of the EDL."""
-    edl_dir = cfg.workspace / "edl_history"
-    edl_dir.mkdir(parents=True, exist_ok=True)
-    (edl_dir / f"edl_v{version}.json").write_text(edl.model_dump_json(indent=2))
+def _save_edl(cfg: Config, edl: EDL, version: int) -> Path:
+    """Save EDL as workspace/edl_v{version}.json."""
+    path = cfg.workspace / f"edl_v{version}.json"
+    path.write_text(edl.model_dump_json(indent=2))
+    return path
+
+
+def _load_latest_edl(cfg: Config) -> tuple[EDL, int]:
+    """Load the latest edl_v{N}.json. Falls back to edl.json for migration."""
+    version = _find_latest_version(cfg)
+    if version > 0:
+        path = cfg.workspace / f"edl_v{version}.json"
+    else:
+        # Migration: old-style edl.json
+        path = cfg.workspace / "edl.json"
+        if not path.exists():
+            raise FileNotFoundError(f"No EDL found in {cfg.workspace}")
+        version = 1
+    return EDL.model_validate_json(path.read_text()), version
 
 
 def _revise_and_render(cfg: Config, edl: EDL, prompt: str, **chat_kwargs) -> EDL:
@@ -85,9 +96,7 @@ def _revise_and_render(cfg: Config, edl: EDL, prompt: str, **chat_kwargs) -> EDL
     new_edl = EDL.model_validate_json(content)
 
     version = _find_latest_version(cfg) + 1
-    edl_path = cfg.workspace / "edl.json"
-    edl_path.write_text(new_edl.model_dump_json(indent=2))
-    _save_edl_version(cfg, new_edl, version)
+    _save_edl(cfg, new_edl, version)
 
     # Clear old clips to force re-render
     clips_dir = cfg.workspace / "clips"
@@ -106,9 +115,7 @@ def _revise_and_render(cfg: Config, edl: EDL, prompt: str, **chat_kwargs) -> EDL
 
 def self_critique(cfg: Config, *, style: str = "upbeat", max_rounds: int = 2) -> EDL:
     """Extract frames from the rendered vlog, send to vision model for critique, regenerate EDL."""
-    edl_path = cfg.workspace / "edl.json"
-    edl = EDL.model_validate_json(edl_path.read_text())
-    current_version = _find_latest_version(cfg)
+    edl, current_version = _load_latest_edl(cfg)
 
     for round_num in range(1, max_rounds + 1):
         print(f"Self-critique round {round_num}/{max_rounds}...")
@@ -138,7 +145,7 @@ def self_critique(cfg: Config, *, style: str = "upbeat", max_rounds: int = 2) ->
 
 def apply_feedback(cfg: Config, feedback: str) -> EDL:
     """Apply human feedback to the current EDL and re-render."""
-    edl = EDL.model_validate_json((cfg.workspace / "edl.json").read_text())
+    edl, _ = _load_latest_edl(cfg)
     print(f"Applying feedback: {feedback[:80]}...")
     prompt = FEEDBACK_PROMPT.format(edl_json=edl.model_dump_json(indent=2), feedback=feedback)
     return _revise_and_render(cfg, edl, prompt)
@@ -148,8 +155,7 @@ def generate_variations(cfg: Config, styles: list[str] | None = None) -> list[Pa
     """Generate multiple vlog variations with different styles."""
     styles = styles or ["energetic", "reflective", "cinematic"]
 
-    edl_path = cfg.workspace / "edl.json"
-    original_edl = EDL.model_validate_json(edl_path.read_text())
+    original_edl, _ = _load_latest_edl(cfg)
 
     analysis = json.loads((cfg.workspace / "analysis.json").read_text())
     media_summary = json.dumps(
@@ -180,6 +186,4 @@ def generate_variations(cfg: Config, styles: list[str] | None = None) -> list[Pa
         except Exception as e:
             print(f"  Failed: {e}")
 
-    # Restore original EDL
-    edl_path.write_text(original_edl.model_dump_json(indent=2))
     return outputs

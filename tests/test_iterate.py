@@ -11,7 +11,7 @@ import pytest
 from pipeline.edl import EDL, EditItem, Segment
 from pipeline.iterate import (
     _find_latest_version,
-    _save_edl_version,
+    _save_edl,
     apply_feedback,
     generate_variations,
     self_critique,
@@ -76,9 +76,9 @@ def _valid_edl_json_str() -> str:
 
 
 def _setup_workspace(cfg: Config, edl: EDL | None = None, version: int = 1) -> None:
-    """Write edl.json and create output/vlog_v{version}.mp4."""
+    """Write edl_v{version}.json and create output/vlog_v{version}.mp4."""
     edl = edl or _make_edl()
-    edl_path = cfg.workspace / "edl.json"
+    edl_path = cfg.workspace / f"edl_v{version}.json"
     edl_path.write_text(edl.model_dump_json(indent=2))
 
     output_dir = cfg.workspace / "output"
@@ -103,25 +103,23 @@ class TestFindLatestVersionMax:
     def test_find_latest_version_max(self, tmp_path: Path, mock_config):
         """Should return the highest version number found."""
         cfg = mock_config
-        output_dir = cfg.workspace / "output"
-        output_dir.mkdir(parents=True, exist_ok=True)
 
-        (output_dir / "vlog_v1.mp4").write_bytes(b"\x00")
-        (output_dir / "vlog_v3.mp4").write_bytes(b"\x00")
-        (output_dir / "vlog_v2.mp4").write_bytes(b"\x00")
+        (cfg.workspace / "edl_v1.json").write_text("{}")
+        (cfg.workspace / "edl_v3.json").write_text("{}")
+        (cfg.workspace / "edl_v2.json").write_text("{}")
 
         assert _find_latest_version(cfg) == 3
 
 
-class TestSaveEdlVersion:
-    def test_save_edl_version(self, tmp_path: Path, mock_config):
-        """Should create edl_history/edl_v{N}.json."""
+class TestSaveEdl:
+    def test_save_edl(self, tmp_path: Path, mock_config):
+        """Should create edl_v{N}.json in workspace."""
         cfg = mock_config
         edl = _make_edl()
 
-        _save_edl_version(cfg, edl, 5)
+        _save_edl(cfg, edl, 5)
 
-        path = cfg.workspace / "edl_history" / "edl_v5.json"
+        path = cfg.workspace / "edl_v5.json"
         assert path.exists()
         saved = EDL.model_validate_json(path.read_text())
         assert saved.title == edl.title
@@ -138,8 +136,8 @@ class TestSelfCritiqueIncrementsVersion:
              patch("pipeline.iterate.assemble", return_value=Path("/fake/v2.mp4")):
             result = self_critique(cfg, max_rounds=1)
 
-        # Version 2 EDL should exist in history
-        v2_path = cfg.workspace / "edl_history" / "edl_v2.json"
+        # Version 2 EDL should exist
+        v2_path = cfg.workspace / "edl_v2.json"
         assert v2_path.exists()
 
         # The returned EDL should be the revised one
@@ -189,7 +187,7 @@ class TestApplyFeedbackClearsClips:
 
 class TestApplyFeedbackSavesEdl:
     def test_apply_feedback_saves_edl(self, tmp_path: Path, mock_config):
-        """New EDL should be written to edl.json and edl_history/."""
+        """New EDL should be written as edl_v{N}.json."""
         cfg = mock_config
         _setup_workspace(cfg, version=1)
 
@@ -197,19 +195,16 @@ class TestApplyFeedbackSavesEdl:
              patch("pipeline.iterate.assemble", return_value=Path("/fake/v2.mp4")):
             result = apply_feedback(cfg, "Add more family shots")
 
-        # edl.json should be updated
-        edl_path = cfg.workspace / "edl.json"
-        saved = EDL.model_validate_json(edl_path.read_text())
-        assert saved.title == "Revised Trip"
-
-        # Version history should exist
-        v2_path = cfg.workspace / "edl_history" / "edl_v2.json"
+        # edl_v2.json should exist
+        v2_path = cfg.workspace / "edl_v2.json"
         assert v2_path.exists()
+        saved = EDL.model_validate_json(v2_path.read_text())
+        assert saved.title == "Revised Trip"
 
 
 class TestGenerateVariationsRestoresOriginal:
-    def test_generate_variations_restores_original(self, tmp_path: Path, mock_config):
-        """After generating variations, the original edl.json should be restored."""
+    def test_generate_variations_creates_versions(self, tmp_path: Path, mock_config):
+        """Variations should create new versioned EDLs."""
         cfg = mock_config
         original_edl = _make_edl()
         _setup_workspace(cfg, edl=original_edl, version=1)
@@ -232,8 +227,6 @@ class TestGenerateVariationsRestoresOriginal:
              patch("pipeline.iterate.assemble", return_value=Path("/fake/var.mp4")):
             outputs = generate_variations(cfg, styles=["energetic"])
 
-        # edl.json should be restored to the original
-        edl_path = cfg.workspace / "edl.json"
-        restored = EDL.model_validate_json(edl_path.read_text())
-        assert restored.title == original_edl.title
-        assert len(restored.segments) == len(original_edl.segments)
+        # Original v1 should still exist, variation should be v2
+        assert (cfg.workspace / "edl_v1.json").exists()
+        assert (cfg.workspace / "edl_v2.json").exists()

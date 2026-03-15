@@ -155,7 +155,7 @@ class TestAssembleProgressCallback:
                 ),
             ],
         )
-        (tmp_path / "edl.json").write_text(edl_obj.model_dump_json(indent=2))
+        (tmp_path / "edl_v1.json").write_text(edl_obj.model_dump_json(indent=2))
 
         callback_calls = []
         cfg = Config.load(ws)

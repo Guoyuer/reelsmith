@@ -72,7 +72,6 @@ def plan(
     """Build structured prompt from timeline + analysis, ask LLM to select and arrange."""
     preprocessed_path = cfg.workspace / "preprocessed.json"
     analysis_path = cfg.workspace / "analysis.json"
-    edl_path = cfg.workspace / "edl.json"
 
     preprocessed = json.loads(preprocessed_path.read_text())
     analysis_items = json.loads(analysis_path.read_text())
@@ -147,11 +146,9 @@ Pick the warmest, happiest moments."""
     if fixed:
         _log(f"Fixed {fixed} hallucinated file paths in EDL")
 
-    # Save versioned copy before overwriting
-    from .iterate import _find_latest_version, _save_edl_version
+    from .iterate import _find_latest_version, _save_edl
     version = _find_latest_version(cfg) + 1
-    _save_edl_version(cfg, edl, version)
-    edl_path.write_text(edl.model_dump_json(indent=2))
+    edl_path = _save_edl(cfg, edl, version)
 
     # Clear clips so assemble re-renders (keep old videos for comparison)
     clips_dir = cfg.workspace / "clips"

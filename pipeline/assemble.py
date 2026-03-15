@@ -63,10 +63,10 @@ def _build_portrait_photo_filter(
 
 def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_broken: bool = False,
              resolution: tuple[int, int] | None = None, fps: int | None = None) -> Path:
-    """Read edl.json and render the final vlog video."""
+    """Read latest edl_v{N}.json and render the vlog video."""
     cfg.ensure_dirs()
-    edl_path = cfg.workspace / "edl.json"
-    edl = EDL.model_validate_json(edl_path.read_text())
+    from .iterate import _load_latest_edl
+    edl, _ = _load_latest_edl(cfg)
 
     clips_dir = cfg.workspace / "clips"
     output_dir = cfg.workspace / "output"
