@@ -294,7 +294,7 @@ def _analyze_metadata(results: list[dict], out: str, extra: dict | None = None) 
         top_rows.append(
             f"| {r['filename'][:30]} | {r.get('tier', '?')} "
             f"| {v.get('togetherness', '-')} | {v.get('genuine_emotion', '-')} "
-            f"| {v.get('visual_quality', '-')} | {v.get('description', '')[:50]} |"
+            f"| {v.get('visual_quality', '-')} | {v.get('description', '')} |"
         )
     top_table = (
         "| File | Tier | Together | Emotion | Quality | Description |\n"
@@ -329,7 +329,7 @@ def analyze(
     if not config.force and _output_exists(ws, "analyze"):
         results = json.loads(Path(out).read_text())
         for i, r in enumerate(results, 1):
-            desc = r.get("vision", {}).get("description", "")[:40] if r.get("vision") else "no vision"
+            desc = r.get("vision", {}).get("description", "") if r.get("vision") else "no vision"
             context.log.info(f"[{i}/{len(results)}] {r.get('filename', '?')} — {desc}")
         ok = sum(1 for r in results if r.get("vision"))
         context.log.info(f"Analyze complete: {ok}/{len(results)} with vision (all cached)")
