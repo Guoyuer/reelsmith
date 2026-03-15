@@ -154,8 +154,10 @@ def fetch_media(
 
     newly_fetched = 0
     if not config.force and _output_exists(ws, "fetch_media"):
-        context.log.info("Skipping fetch — manifest.json exists")
         items = json.loads(Path(out).read_text())
+        for i, it in enumerate(items, 1):
+            context.log.info(f"[{i}/{len(items)}] {it.get('filename', '?')} (cached)")
+        context.log.info(f"Fetch complete: {len(items)} items (all cached)")
     else:
         if not config.from_date or not config.to_date:
             raise dg.Failure(
@@ -255,8 +257,13 @@ def preprocess(
     out = str(Path(ws) / "preprocessed.json")
 
     if not config.force and _output_exists(ws, "preprocess"):
-        context.log.info("Skipping preprocess — preprocessed.json exists")
         data = json.loads(Path(out).read_text())
+        for i, it in enumerate(data.get("items", []), 1):
+            context.log.info(
+                f"[{i}/{len(data.get('items', []))}] {it.get('filename', '?')}: "
+                f"tier {it.get('tier', '?')} (family: {it.get('family_count', 0)})"
+            )
+        context.log.info(f"Preprocess complete: {data.get('selected_items', 0)} items")
         return dg.MaterializeResult(
             metadata=_preprocess_metadata(data, {
                 "status": dg.MetadataValue.text("finished"),
@@ -320,8 +327,12 @@ def analyze(
     out = str(Path(ws) / "analysis.json")
 
     if not config.force and _output_exists(ws, "analyze"):
-        context.log.info("Skipping analyze — analysis.json exists (all from cache)")
         results = json.loads(Path(out).read_text())
+        for i, r in enumerate(results, 1):
+            desc = r.get("vision", {}).get("description", "")[:40] if r.get("vision") else "no vision"
+            context.log.info(f"[{i}/{len(results)}] {r.get('filename', '?')} — {desc}")
+        ok = sum(1 for r in results if r.get("vision"))
+        context.log.info(f"Analyze complete: {ok}/{len(results)} with vision (all cached)")
         return dg.MaterializeResult(
             metadata=_analyze_metadata(results, out, {
                 "status": dg.MetadataValue.text("finished"),
