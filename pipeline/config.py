@@ -12,7 +12,7 @@ class Config:
     api_base: str = "http://localhost:8000"
     ollama_base: str = "http://localhost:11434"
     vision_model: str = "llava:7b"
-    planning_model: str = "qwen2.5-coder:7b"
+    planning_model: str = "llama3:8b"
     whisper_model: str = "medium"
     workspace: Path = Path("./workspace")
     media_dir: Path = Path("./workspace/media")

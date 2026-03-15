@@ -215,7 +215,7 @@ flowchart TD
 - **FFmpeg** — video processing (`brew install ffmpeg`)
 - **Ollama** — local LLM (`brew install ollama`)
   - `ollama pull llava:7b` — vision analysis
-  - `ollama pull qwen2.5-coder:7b` — narrative planning
+  - `ollama pull llama3:8b` — narrative planning
 - **Synology Photos API** — the [synology-photos-project](../synology-photos-project) backend running on `:8000`
 - **Dagster** — workflow orchestration (installed automatically via `pip install -e .`)
 
@@ -226,7 +226,7 @@ All services start with `./start.sh` (Ollama, Synology API, Dagster).
 | Component | Model | RAM |
 |-----------|-------|-----|
 | Vision | llava:7b | ~5GB |
-| Planning | qwen2.5-coder:7b | ~5GB |
+| Planning | llama3:8b | ~5GB |
 | Whisper | mlx-whisper medium | ~1.5GB |
 
 Only one Ollama model loaded at a time. Fits comfortably in 24GB. Dagster uses `concurrency_key` to prevent Ollama contention between concurrent runs.

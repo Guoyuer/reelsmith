@@ -67,7 +67,7 @@ else
 fi
 
 # Ensure required models are pulled
-for model in llava:7b qwen2.5-coder:7b; do
+for model in llava:7b llama3:8b; do
     if ! ollama list 2>/dev/null | grep -q "$model"; then
         echo "  Pulling $model..."
         ollama pull "$model"
