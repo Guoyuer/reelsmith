@@ -7,7 +7,12 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pillow_heif
+from PIL import Image
+
 from .config import Config
+
+pillow_heif.register_heif_opener()
 
 SGT = timezone(timedelta(hours=8))
 
@@ -49,27 +54,9 @@ def preprocess(cfg: Config, *, family_names: list[str] | None = None, log_fn=Non
 
         _log(f"[tier] {item['filename']}: {item['tier']} (family: {len(family_in_photo)})")
 
-    # Cluster near-duplicates: same location within 120s window.
-    # People often take 5-10 photos at the same spot over 1-2 minutes.
-    items_sorted = sorted(manifest, key=lambda x: x.get("takentime") or 0)
-    clusters: list[list[dict]] = []
-    current: list[dict] = []
-
-    def _location_key(item: dict) -> str:
-        return item.get("district") or item.get("first_level") or item.get("country") or ""
-
-    for item in items_sorted:
-        t = item.get("takentime") or 0
-        if current:
-            prev_t = current[-1].get("takentime") or 0
-            same_loc = _location_key(item) == _location_key(current[-1])
-            # Break cluster if >120s apart, or >30s apart AND different location
-            if t - prev_t > 120 or (t - prev_t > 30 and not same_loc):
-                clusters.append(current)
-                current = []
-        current.append(item)
-    if current:
-        clusters.append(current)
+    # Cluster near-duplicates using time+location and visual similarity.
+    _log("Clustering near-duplicates...")
+    clusters = _cluster_items(manifest, _log)
 
     # Pick best representative from each cluster
     tier_rank = {"A": 0, "B": 1, "C": 2, "D": 3}
@@ -193,3 +180,98 @@ def _build_timeline(items: list[dict]) -> list[dict]:
         })
 
     return timeline
+
+
+# ---------------------------------------------------------------------------
+# Visual deduplication via histogram similarity
+# ---------------------------------------------------------------------------
+
+def _cluster_items(items: list[dict], log_fn) -> list[list[dict]]:
+    """Cluster near-duplicate items using time+location then visual similarity.
+
+    Two-pass approach:
+    1. Group by time proximity (120s) + same location (when available)
+    2. Within each time group, merge items with high visual similarity (HSV histogram)
+    """
+    import cv2
+
+    # Pass 1: time-based pre-grouping (fast, reduces O(n²) comparisons)
+    sorted_items = sorted(items, key=lambda x: x.get("takentime") or 0)
+    time_groups: list[list[dict]] = []
+    current: list[dict] = []
+
+    for item in sorted_items:
+        t = item.get("takentime") or 0
+        if current:
+            prev_t = current[-1].get("takentime") or 0
+            if t - prev_t > 120:
+                time_groups.append(current)
+                current = []
+        current.append(item)
+    if current:
+        time_groups.append(current)
+
+    # Pass 2: within each time group, merge visually similar items
+    clusters: list[list[dict]] = []
+    for group in time_groups:
+        if len(group) <= 1:
+            clusters.append(group)
+            continue
+
+        # Compute HSV histograms — if none can be computed, keep as one cluster
+        hists = [_compute_hist(Path(item.get("local_path", ""))) for item in group]
+        if all(h is None for h in hists):
+            clusters.append(group)
+            continue
+
+        # Union-find by visual similarity
+        n = len(group)
+        parent = list(range(n))
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for i in range(n):
+            if hists[i] is None:
+                continue
+            for j in range(i + 1, n):
+                if hists[j] is None:
+                    continue
+                sim = cv2.compareHist(hists[i], hists[j], cv2.HISTCMP_CORREL)
+                if sim > 0.75:
+                    pi, pj = find(i), find(j)
+                    if pi != pj:
+                        parent[pi] = pj
+
+        sub: dict[int, list[dict]] = defaultdict(list)
+        for i in range(n):
+            sub[find(i)].append(group[i])
+        clusters.extend(sub.values())
+
+    merged = sum(1 for c in clusters if len(c) > 1)
+    log_fn(f"Clustering: {len(items)} items → {len(clusters)} clusters ({merged} merged)")
+    return clusters
+
+
+def _compute_hist(path: Path):
+    """Compute HSV color histogram for an image. Returns None on failure."""
+    import cv2
+    try:
+        # Try OpenCV first (fast, handles JPG/PNG)
+        img = cv2.imread(str(path))
+        if img is None:
+            # Fallback for HEIC: use PIL to convert
+            pil_img = Image.open(path).convert("RGB").resize((64, 64))
+            import numpy as np
+            img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+        else:
+            img = cv2.resize(img, (64, 64))
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        hist = cv2.calcHist([hsv], [0, 1], None, [16, 16], [0, 180, 0, 256])
+        cv2.normalize(hist, hist)
+        return hist
+    except Exception:
+        return None
