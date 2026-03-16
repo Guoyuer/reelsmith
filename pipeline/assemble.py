@@ -241,11 +241,13 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
         # Detect faces to center crop on them
         ow, oh = w * 2, h * 2
         face = _detect_face_center(source)
-        if face:
+        if face and src_w > 0 and src_h > 0:
             cx, cy = face
-            # Crop centered on face position, clamped to image bounds
-            crop_x = f"max(0,min(iw-{ow},{int(cx * src_w * 2)}-{ow//2}))"
-            crop_y = f"max(0,min(ih-{oh},{int(cy * src_h * 2)}-{oh//2}))"
+            # Compute crop offset as ratio — applied after scale
+            # After scale with increase, one dimension equals ow/oh, the other is larger
+            # Use the face center ratio to position the crop
+            crop_x = f"(iw-{ow})*{cx:.3f}"
+            crop_y = f"(ih-{oh})*{cy:.3f}"
         else:
             crop_x = f"(iw-{ow})/2"
             crop_y = f"(ih-{oh})/2"
