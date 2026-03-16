@@ -49,16 +49,24 @@ def preprocess(cfg: Config, *, family_names: list[str] | None = None, log_fn=Non
 
         _log(f"[tier] {item['filename']}: {item['tier']} (family: {len(family_in_photo)})")
 
-    # Cluster near-duplicates (within 10s window)
+    # Cluster near-duplicates: same location within 120s window.
+    # People often take 5-10 photos at the same spot over 1-2 minutes.
     items_sorted = sorted(manifest, key=lambda x: x.get("takentime") or 0)
     clusters: list[list[dict]] = []
     current: list[dict] = []
 
+    def _location_key(item: dict) -> str:
+        return item.get("district") or item.get("first_level") or item.get("country") or ""
+
     for item in items_sorted:
         t = item.get("takentime") or 0
-        if current and t - (current[-1].get("takentime") or 0) > 10:
-            clusters.append(current)
-            current = []
+        if current:
+            prev_t = current[-1].get("takentime") or 0
+            same_loc = _location_key(item) == _location_key(current[-1])
+            # Break cluster if >120s apart, or >30s apart AND different location
+            if t - prev_t > 120 or (t - prev_t > 30 and not same_loc):
+                clusters.append(current)
+                current = []
         current.append(item)
     if current:
         clusters.append(current)

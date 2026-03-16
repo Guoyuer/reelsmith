@@ -150,12 +150,12 @@ class TestClustering:
         assert result["items"][0]["tier"] == "A"
         assert result["items"][0]["id"] == 2
 
-    def test_items_beyond_10s_not_clustered(self, tmp_path: Path):
-        """Items separated by more than 10s are separate clusters."""
+    def test_items_beyond_120s_not_clustered(self, tmp_path: Path):
+        """Items separated by more than 120s are separate clusters."""
         base = 1700000000
         items = [
             _make_item(1, takentime=base, persons=["Alice"]),
-            _make_item(2, takentime=base + 20, persons=["Alice"]),
+            _make_item(2, takentime=base + 150, persons=["Alice"]),
         ]
         result = self._run_preprocess(items, tmp_path)
         assert result["selected_items"] == 2

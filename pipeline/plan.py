@@ -87,6 +87,13 @@ def _item_score(a: dict) -> float:
     return tier_bonus + togetherness * 2 + emotion * 1.5 + quality
 
 
+def _word_overlap(words_a: set[str], words_b: set[str]) -> float:
+    """Jaccard similarity between two word sets."""
+    if not words_a or not words_b:
+        return 0.0
+    return len(words_a & words_b) / len(words_a | words_b)
+
+
 def _plan_auto(
     preprocessed: dict, analysis_by_id: dict,
     style: str, target_duration: int,
@@ -130,22 +137,32 @@ def _plan_auto(
             ab = [c for c in candidates if c.get("tier") in ("A", "B")]
             c_items = [c for c in candidates if c.get("tier") == "C"][:2]
 
-            # Deduplicate by story_beat — avoid 3 "meal" or "posed" shots in a row
+            # Deduplicate: only keep visually distinct items per chapter.
+            # Skip if same story_beat already used, or description is too similar.
             seen_beats: set[str] = set()
+            seen_descs: list[str] = []
             diverse_ab = []
             for c in ab:
                 beat = c.get("vision", {}).get("story_beat", "other")
-                if beat not in seen_beats or beat in ("candid", "activity", "other"):
-                    diverse_ab.append(c)
-                    seen_beats.add(beat)
+                desc = c.get("vision", {}).get("description", "")
+                # Skip if same beat (except generic ones)
+                if beat in seen_beats and beat not in ("candid", "activity", "other"):
+                    continue
+                # Skip if description overlaps significantly with an already-picked item
+                desc_words = set(desc.lower().split())
+                if any(_word_overlap(desc_words, d) > 0.6 for d in seen_descs):
+                    continue
+                diverse_ab.append(c)
+                seen_beats.add(beat)
+                seen_descs.append(desc_words)
             ab = diverse_ab
 
             # Lead with a scene-setter if available, then family shots
-            selected = c_items[:1] + ab + c_items[1:]
+            selected = c_items[:1] + ab[:3] + c_items[1:]
 
-            # Cap per chapter: 2-5 items (tighter to avoid repetition)
+            # Cap per chapter: 2-4 items
             budget_items = max(2, int((target_duration - total_dur) / base_dur))
-            selected = selected[:min(5, budget_items)]
+            selected = selected[:min(4, budget_items)]
 
             if not selected:
                 continue
