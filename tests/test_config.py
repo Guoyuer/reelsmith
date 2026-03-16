@@ -24,7 +24,7 @@ class TestConfigLoadDefaults:
             cfg = Config.load()
         assert cfg.api_base == "http://localhost:8000"
         assert cfg.ollama_base == "http://localhost:11434"
-        assert cfg.vision_model == "llava:7b"
+        assert cfg.vision_model == "llava:13b"
         assert cfg.planning_model == "llama3:8b"
         assert cfg.whisper_model == "medium"
         assert cfg.workspace == Path("./workspace")

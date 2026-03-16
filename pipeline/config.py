@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 class Config:
     api_base: str = "http://localhost:8000"
     ollama_base: str = "http://localhost:11434"
-    vision_model: str = "llava:7b"
+    vision_model: str = "llava:13b"
     planning_model: str = "llama3:8b"
     whisper_model: str = "medium"
     workspace: Path = Path("./workspace")
