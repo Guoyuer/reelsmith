@@ -106,119 +106,125 @@ def _plan_auto(
     seg_td = params["td"]
     effect_cycle = itertools.cycle(EFFECTS)
 
-    segments: list[Segment] = []
-    total_dur = 0.0
-    prev_location = None
+    # Phase 1: Collect the best candidates from each day, family-first
+    days = preprocessed["timeline"]
+    n_days = len(days)
+    target_items = max(10, int(target_duration / base_dur))
+    items_per_day = max(3, target_items // n_days) if n_days else target_items
 
-    # Count total chapters to distribute budget evenly across the trip
-    all_chapters = [(day, ch) for day in preprocessed["timeline"] for ch in day["chapters"]]
-    items_per_chapter = max(2, target_duration // (len(all_chapters) * int(base_dur))) if all_chapters else 3
+    day_selections: list[list[tuple[dict, dict, str]]] = []  # [(analysis, chapter, date)]
 
-    for day in preprocessed["timeline"]:
+    for day in days:
         date_str = day["date"]
-        is_first_item_of_day = True
+        day_candidates = []
 
         for chapter in day["chapters"]:
             location = chapter["location"]
-
-            # Gather scored candidates for this chapter
-            candidates = []
             for item_id in chapter["item_ids"]:
                 a = analysis_by_id.get(item_id)
-                if not a or not a.get("vision"):
+                if not a or not a.get("vision") or a.get("tier") == "D":
                     continue
-                if a.get("tier") == "D":
+                v = a["vision"]
+                # Skip low quality, transport shots (highway, bus, toll)
+                if v.get("visual_quality", 5) < 4:
                     continue
-                # Skip low-quality photos (dark, blurry, etc.)
-                if a["vision"].get("visual_quality", 5) < 4:
+                beat = v.get("story_beat", v.get("scene_type", ""))
+                if beat == "transport":
                     continue
-                candidates.append(a)
+                day_candidates.append((a, chapter, date_str))
 
-            if not candidates:
+        # Sort: tier A first, then by score
+        day_candidates.sort(key=lambda x: _item_score(x[0]), reverse=True)
+
+        # Pick best items for this day: prioritize family (A/B), limit scenery (C)
+        selected = []
+        seen_descs: list[set[str]] = []
+        c_count = 0
+        for a, ch, ds in day_candidates:
+            if len(selected) >= items_per_day:
+                break
+            # Limit scenery to 1/3 of day's items
+            if a.get("tier") == "C":
+                if c_count >= max(1, items_per_day // 3):
+                    continue
+                c_count += 1
+            # Description dedup
+            desc_words = set(a.get("vision", {}).get("description", "").lower().split())
+            if any(_word_overlap(desc_words, d) > 0.5 for d in seen_descs):
                 continue
+            seen_descs.append(desc_words)
+            selected.append((a, ch, ds))
 
-            # Sort by score, pick top items
-            candidates.sort(key=_item_score, reverse=True)
+        day_selections.append(selected)
 
-            # Tier A/B first, then best C items for scene-setting
-            ab = [c for c in candidates if c.get("tier") in ("A", "B")]
-            c_items = [c for c in candidates if c.get("tier") == "C"][:2]
+    # Phase 2: Build segments — group by day, merge consecutive same-location
+    segments: list[Segment] = []
+    total_dur = 0.0
 
-            # Deduplicate: only keep visually distinct items per chapter.
-            # Skip if same story_beat already used, or description is too similar.
-            seen_beats: set[str] = set()
-            seen_descs: list[str] = []
-            diverse_ab = []
-            for c in ab:
-                beat = c.get("vision", {}).get("story_beat", "other")
-                desc = c.get("vision", {}).get("description", "")
-                # Skip if same beat (except generic ones)
-                if beat in seen_beats and beat not in ("candid", "activity", "other"):
-                    continue
-                # Skip if description overlaps significantly with an already-picked item
-                desc_words = set(desc.lower().split())
-                if any(_word_overlap(desc_words, d) > 0.6 for d in seen_descs):
-                    continue
-                diverse_ab.append(c)
-                seen_beats.add(beat)
-                seen_descs.append(desc_words)
-            ab = diverse_ab
+    for day_idx, selections in enumerate(day_selections):
+        if not selections:
+            continue
 
-            # Lead with a scene-setter if available, then family shots
-            selected = c_items[:1] + ab[:3] + c_items[1:]
+        # Sort by takentime within the day
+        selections.sort(key=lambda x: x[0].get("takentime", 0))
 
-            # Cap per chapter — distributed evenly across the trip
-            selected = selected[:min(4, items_per_chapter)]
+        # Group consecutive items at same location into one segment
+        current_items: list[EditItem] = []
+        current_location = ""
+        current_date = selections[0][2] if selections else ""
+        is_first_of_day = True
 
-            if not selected:
-                continue
+        for a, ch, date_str in selections:
+            location = ch["location"]
+            if location == "unknown":
+                location = ""
 
-            # Vary durations: tier A gets longer, tier C shorter
-            items: list[EditItem] = []
-            for i, a in enumerate(selected):
-                tier = a.get("tier", "C")
-                dur = base_dur + (vary if tier == "A" else -vary if tier == "C" else 0)
-
-                # Text overlay: location on first item of new location, date on first of day
-                overlay = None
-                loc_label = location if location != "unknown" else ""
-                if loc_label and location != prev_location:
-                    overlay = TextOverlay(text=loc_label, position="bottom")
-                    prev_location = location
-                if is_first_item_of_day:
-                    text = f"{date_str}  {loc_label}".strip() if loc_label else date_str
-                    overlay = TextOverlay(text=text, position="bottom")
-                    is_first_item_of_day = False
-
-                items.append(EditItem(
-                    source_file=a["local_path"],
-                    media_type=a.get("media_type", "photo"),
-                    display_duration=round(dur, 1),
-                    effect=next(effect_cycle),
-                    text_overlay=overlay,
+            # New segment if location changes (and current has items)
+            if location != current_location and current_items:
+                segments.append(Segment(
+                    name=current_location or current_date,
+                    items=current_items,
+                    transition=seg_transition,
+                    transition_duration=seg_td,
                 ))
-                total_dur += dur
+                current_items = []
 
+            current_location = location
+            tier = a.get("tier", "C")
+            dur = base_dur + (vary if tier == "A" else -vary if tier == "C" else 0)
+
+            # Text overlay
+            overlay = None
+            if is_first_of_day:
+                label = f"{date_str}  {location}".strip() if location else date_str
+                overlay = TextOverlay(text=label, position="bottom")
+                is_first_of_day = False
+            elif not current_items and location:
+                # First item at new location
+                overlay = TextOverlay(text=location, position="bottom")
+
+            current_items.append(EditItem(
+                source_file=a["local_path"],
+                media_type=a.get("media_type", "photo"),
+                display_duration=round(dur, 1),
+                effect=next(effect_cycle),
+                text_overlay=overlay,
+            ))
+            total_dur += dur
+
+        # Flush last segment of the day
+        if current_items:
             segments.append(Segment(
-                name=location if location != "unknown" else date_str,
-                items=items,
+                name=current_location or current_date,
+                items=current_items,
                 transition=seg_transition,
                 transition_duration=seg_td,
             ))
 
-            if total_dur >= target_duration:
-                break
-        if total_dur >= target_duration:
-            break
-
-    # Ensure strong opening (highest-scored landmark/family) and warm closing
-    if segments and len(segments[0].items) > 1:
-        all_first = segments[0].items
-        best_open = max(range(len(all_first)),
-                        key=lambda i: _item_score(analysis_by_id.get(
-                            _id_from_path(all_first[i].source_file, analysis_by_id), {})))
-        if best_open != 0:
-            all_first[0], all_first[best_open] = all_first[best_open], all_first[0]
+        # Use fade_black between days (not within a day)
+        if segments and day_idx < len(day_selections) - 1:
+            segments[-1].transition = "fade_black"
+            segments[-1].transition_duration = 1.0
 
     return EDL(
         title=f"{preprocessed.get('family_names', ['Family'])[0]}'s Trip",
@@ -226,13 +232,6 @@ def _plan_auto(
         segments=segments,
     )
 
-
-def _id_from_path(path: str, analysis_by_id: dict) -> int:
-    """Find item ID from a local_path."""
-    for aid, a in analysis_by_id.items():
-        if a.get("local_path") == path:
-            return aid
-    return 0
 
 
 # ---------------------------------------------------------------------------

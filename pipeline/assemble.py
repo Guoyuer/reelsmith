@@ -343,8 +343,11 @@ def _add_text_overlay(
     safe_text = text.replace("'", "\u2019").replace(":", "\\:")
 
     end_time = min(clip_duration - 0.5, 3.0)
+    # Use CJK-capable font for proper Chinese/Japanese/Korean rendering
+    font = "/System/Library/Fonts/STHeiti Medium.ttc"
     vf = (
-        f"drawtext=text='{safe_text}':fontsize={font_size}:fontcolor=white"
+        f"drawtext=text='{safe_text}':fontfile='{font}'"
+        f":fontsize={font_size}:fontcolor=white"
         f":borderw=2:bordercolor=black"
         f":x=(w-text_w)/2:y={y_expr}"
         f":enable='between(t,0.5,{end_time:.1f})'"
