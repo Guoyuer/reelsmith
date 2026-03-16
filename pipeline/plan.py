@@ -158,11 +158,13 @@ def _plan_auto(
 
                 # Text overlay: location on first item of new location, date on first of day
                 overlay = None
-                if location != prev_location:
-                    overlay = TextOverlay(text=location, position="bottom")
+                loc_label = location if location != "unknown" else ""
+                if loc_label and location != prev_location:
+                    overlay = TextOverlay(text=loc_label, position="bottom")
                     prev_location = location
                 if is_first_item_of_day:
-                    overlay = TextOverlay(text=f"{date_str}  {location}", position="bottom")
+                    text = f"{date_str}  {loc_label}".strip() if loc_label else date_str
+                    overlay = TextOverlay(text=text, position="bottom")
                     is_first_item_of_day = False
 
                 items.append(EditItem(

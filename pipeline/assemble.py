@@ -210,7 +210,7 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
         cmd = [
             "ffmpeg", "-y", "-loop", "1", "-i", str(source),
             "-t", str(item.display_duration),
-            "-vf", f"scale={w*2}:{h*2}:force_original_aspect_ratio=increase,crop={w*2}:{h*2},{zp}",
+            "-vf", f"scale={w*2}:{h*2}:force_original_aspect_ratio=increase,crop={w*2}:{h*2}:(iw-{w*2})/2:(ih-{h*2})/3,{zp}",
             "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
             "-an",
             str(out),
