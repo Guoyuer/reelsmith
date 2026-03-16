@@ -130,12 +130,22 @@ def _plan_auto(
             ab = [c for c in candidates if c.get("tier") in ("A", "B")]
             c_items = [c for c in candidates if c.get("tier") == "C"][:2]
 
+            # Deduplicate by story_beat — avoid 3 "meal" or "posed" shots in a row
+            seen_beats: set[str] = set()
+            diverse_ab = []
+            for c in ab:
+                beat = c.get("vision", {}).get("story_beat", "other")
+                if beat not in seen_beats or beat in ("candid", "activity", "other"):
+                    diverse_ab.append(c)
+                    seen_beats.add(beat)
+            ab = diverse_ab
+
             # Lead with a scene-setter if available, then family shots
             selected = c_items[:1] + ab + c_items[1:]
 
-            # Cap per chapter: 3-8 items depending on how much budget remains
-            budget_items = max(3, int((target_duration - total_dur) / base_dur))
-            selected = selected[:min(8, budget_items)]
+            # Cap per chapter: 2-5 items (tighter to avoid repetition)
+            budget_items = max(2, int((target_duration - total_dur) / base_dur))
+            selected = selected[:min(5, budget_items)]
 
             if not selected:
                 continue
