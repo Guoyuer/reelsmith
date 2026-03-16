@@ -85,9 +85,11 @@ class AnalyzeConfig(dg.Config):
 
 class PlanConfig(dg.Config):
     planner: str = "algo"  # "algo" (algorithmic) or "api" (Claude API)
+    trip_type: str = "family"  # family, solo, food, adventure, architecture, general
     style: str = "upbeat"
     target_duration: int = 180
-    focus: str = "happiness with family"
+    focus: str = ""  # empty = derive from trip_type
+    music_file: str = ""  # path to background music (mp3/m4a/wav)
 
 
 class AssembleConfig(dg.Config):
@@ -368,6 +370,8 @@ def plan(
         target_duration=config.target_duration,
         focus=config.focus,
         planner=config.planner,
+        trip_type=config.trip_type,
+        music_file=config.music_file or None,
         log_fn=context.log.info,
     )
     context.log.info(

@@ -35,6 +35,7 @@ class Segment(BaseModel):
     items: list[EditItem]
     transition: Literal["crossfade", "cut", "fade_black", "wipe_left"] = "crossfade"
     transition_duration: float = 0.8  # seconds
+    mode: Literal["narrative", "montage"] = "narrative"  # montage = quick-cut burst
 
 
 class MusicTrack(BaseModel):
@@ -51,6 +52,9 @@ class EDL(BaseModel):
     fps: int = 60
     segments: list[Segment]
     music: MusicTrack | None = None
+    intro_style: Literal["title_card", "highlight_montage", "none"] = "title_card"
+    outro_style: Literal["fade_title", "last_hero", "none"] = "fade_title"
+    date_range: str = ""  # e.g. "June 13-16, 2025" for title card
 
     def all_items(self) -> list[EditItem]:
         return [item for seg in self.segments for item in seg.items]
@@ -62,4 +66,11 @@ class EDL(BaseModel):
             for seg in self.segments
             if seg.transition != "cut"
         )
+        # Add intro/outro time estimates
+        if self.intro_style == "title_card":
+            total += 3.0
+        elif self.intro_style == "highlight_montage":
+            total += 5.0
+        if self.outro_style in ("fade_title", "last_hero"):
+            total += 3.0
         return total - transitions
