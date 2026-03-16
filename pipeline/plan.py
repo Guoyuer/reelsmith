@@ -127,60 +127,72 @@ def _plan_auto(
     seg_td = params["td"]
     effect_cycle = itertools.cycle(EFFECTS)
 
-    # Phase 1: Collect the best candidates from each day, family-first
+    # Phase 1: Collect all eligible candidates, then select globally
     days = preprocessed["timeline"]
-    n_days = len(days)
     target_items = max(10, int(target_duration / base_dur))
-    items_per_day = max(3, target_items // n_days) if n_days else target_items
 
-    day_selections: list[list[tuple[dict, dict, str]]] = []  # [(analysis, chapter, date)]
-
+    # Gather all candidates across the trip
+    all_candidates: list[tuple[dict, dict, str]] = []  # (analysis, chapter, date)
     for day in days:
         date_str = day["date"]
-        day_candidates = []
-
         for chapter in day["chapters"]:
-            location = chapter["location"]
             for item_id in chapter["item_ids"]:
                 a = analysis_by_id.get(item_id)
                 if not a or not a.get("vision") or a.get("tier") == "D":
                     continue
                 v = a["vision"]
-                # Skip low quality, uninteresting, and dark content
-                if v.get("visual_quality", 5) < 4:
+                if v.get("visual_quality", 5) < 4 or v.get("vlog_worthy") is False:
                     continue
-                if v.get("vlog_worthy") is False:
-                    continue
-                beat = v.get("story_beat", v.get("scene_type", ""))
-                if beat in ("transport",):
+                if v.get("story_beat", v.get("scene_type", "")) == "transport":
                     continue
                 if _is_too_dark(Path(a.get("local_path", ""))):
                     continue
-                day_candidates.append((a, chapter, date_str))
+                all_candidates.append((a, chapter, date_str))
 
-        # Sort: tier A first, then by score
-        day_candidates.sort(key=lambda x: _item_score(x[0]), reverse=True)
+    # Take ALL tier A/B items (they're precious), then fill with best C
+    ab_items = [(a, ch, ds) for a, ch, ds in all_candidates if a.get("tier") in ("A", "B")]
+    c_items = [(a, ch, ds) for a, ch, ds in all_candidates if a.get("tier") == "C"]
+    c_items.sort(key=lambda x: _item_score(x[0]), reverse=True)
 
-        # Pick best items for this day: prioritize family (A/B), limit scenery (C)
-        selected = []
-        seen_descs: list[set[str]] = []
-        c_count = 0
-        for a, ch, ds in day_candidates:
-            if len(selected) >= items_per_day:
-                break
-            # Limit scenery to 1/3 of day's items
-            if a.get("tier") == "C":
-                if c_count >= max(1, items_per_day // 3):
-                    continue
-                c_count += 1
-            # Description dedup
-            desc_words = set(a.get("vision", {}).get("description", "").lower().split())
-            if any(_word_overlap(desc_words, d) > 0.5 for d in seen_descs):
-                continue
-            seen_descs.append(desc_words)
-            selected.append((a, ch, ds))
+    # Dedup A/B by description similarity
+    seen_descs: list[set[str]] = []
+    deduped_ab = []
+    for a, ch, ds in ab_items:
+        desc_words = set(a.get("vision", {}).get("description", "").lower().split())
+        if any(_word_overlap(desc_words, d) > 0.5 for d in seen_descs):
+            continue
+        seen_descs.append(desc_words)
+        deduped_ab.append((a, ch, ds))
 
-        day_selections.append(selected)
+    # Fill remaining budget with best C items (also deduped)
+    remaining = max(0, target_items - len(deduped_ab))
+    c_fill = []
+    for a, ch, ds in c_items:
+        if len(c_fill) >= remaining:
+            break
+        desc_words = set(a.get("vision", {}).get("description", "").lower().split())
+        if any(_word_overlap(desc_words, d) > 0.5 for d in seen_descs):
+            continue
+        seen_descs.append(desc_words)
+        c_fill.append((a, ch, ds))
+
+    selected_all = deduped_ab + c_fill
+    # Sort by time for chronological order
+    selected_all.sort(key=lambda x: x[0].get("takentime", 0))
+
+    # Group by day
+    day_selections: list[list[tuple[dict, dict, str]]] = []
+    current_date = ""
+    current_day: list[tuple[dict, dict, str]] = []
+    for a, ch, ds in selected_all:
+        if ds != current_date:
+            if current_day:
+                day_selections.append(current_day)
+            current_day = []
+            current_date = ds
+        current_day.append((a, ch, ds))
+    if current_day:
+        day_selections.append(current_day)
 
     # Phase 2: Build segments — group by day, merge consecutive same-location
     segments: list[Segment] = []
