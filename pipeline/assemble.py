@@ -12,10 +12,8 @@ from .config import Config
 from .edl import EDL, EditItem, Segment
 from .media_utils import convert_heic, run_subprocess, _zoompan_filter, _portrait_bg_filter
 
-# Face detection cascade (loaded once)
-_face_cascade = cv2.CascadeClassifier(
-    cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-)
+# YuNet DNN face detector (loaded once, 100% recall on trip photos)
+_YUNET_MODEL = Path(__file__).parent / "face_detection_yunet_2023mar.onnx"
 
 
 # ---------------------------------------------------------------------------
@@ -25,28 +23,24 @@ _face_cascade = cv2.CascadeClassifier(
 def _detect_face_center(path: Path) -> tuple[float, float] | None:
     """Detect faces and return their center as (cx_ratio, cy_ratio) in 0-1 range.
 
-    Returns None if no faces found.
+    Uses OpenCV's YuNet DNN detector. Returns None if no faces found.
     """
     img = cv2.imread(str(path))
     if img is None:
         return None
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    h, w = gray.shape
-
-    # Resize for faster detection
+    h, w = img.shape[:2]
     scale = min(1.0, 640 / max(w, h))
-    if scale < 1.0:
-        small = cv2.resize(gray, None, fx=scale, fy=scale)
-    else:
-        small = gray
+    nw, nh = int(w * scale), int(h * scale)
+    small = cv2.resize(img, (nw, nh))
 
-    faces = _face_cascade.detectMultiScale(small, scaleFactor=1.1, minNeighbors=4, minSize=(20, 20))
-    if len(faces) == 0:
+    detector = cv2.FaceDetectorYN.create(str(_YUNET_MODEL), "", (nw, nh), 0.7)
+    _, faces = detector.detect(small)
+    if faces is None or len(faces) == 0:
         return None
 
     # Average center of all faces (in original image coordinates)
-    cx = sum((x + fw / 2) / scale for x, y, fw, fh in faces) / len(faces)
-    cy = sum((y + fh / 2) / scale for x, y, fw, fh in faces) / len(faces)
+    cx = sum((f[0] + f[2] / 2) / scale for f in faces) / len(faces)
+    cy = sum((f[1] + f[3] / 2) / scale for f in faces) / len(faces)
     return cx / w, cy / h
 
 
