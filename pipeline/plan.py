@@ -125,11 +125,14 @@ def _plan_auto(
                 if not a or not a.get("vision") or a.get("tier") == "D":
                     continue
                 v = a["vision"]
-                # Skip low quality, transport shots (highway, bus, toll)
-                if v.get("visual_quality", 5) < 4:
+                # Skip low quality and uninteresting content
+                if v.get("visual_quality", 5) < 5:
                     continue
                 beat = v.get("story_beat", v.get("scene_type", ""))
-                if beat == "transport":
+                if beat in ("transport", "other"):
+                    continue
+                # Skip if vlog_worthy is explicitly false
+                if v.get("vlog_worthy") is False:
                     continue
                 day_candidates.append((a, chapter, date_str))
 
