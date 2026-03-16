@@ -110,6 +110,10 @@ def _plan_auto(
     total_dur = 0.0
     prev_location = None
 
+    # Count total chapters to distribute budget evenly across the trip
+    all_chapters = [(day, ch) for day in preprocessed["timeline"] for ch in day["chapters"]]
+    items_per_chapter = max(2, target_duration // (len(all_chapters) * int(base_dur))) if all_chapters else 3
+
     for day in preprocessed["timeline"]:
         date_str = day["date"]
         is_first_item_of_day = True
@@ -124,6 +128,9 @@ def _plan_auto(
                 if not a or not a.get("vision"):
                     continue
                 if a.get("tier") == "D":
+                    continue
+                # Skip low-quality photos (dark, blurry, etc.)
+                if a["vision"].get("visual_quality", 5) < 4:
                     continue
                 candidates.append(a)
 
@@ -160,9 +167,8 @@ def _plan_auto(
             # Lead with a scene-setter if available, then family shots
             selected = c_items[:1] + ab[:3] + c_items[1:]
 
-            # Cap per chapter: 2-4 items
-            budget_items = max(2, int((target_duration - total_dur) / base_dur))
-            selected = selected[:min(4, budget_items)]
+            # Cap per chapter — distributed evenly across the trip
+            selected = selected[:min(4, items_per_chapter)]
 
             if not selected:
                 continue
@@ -194,7 +200,7 @@ def _plan_auto(
                 total_dur += dur
 
             segments.append(Segment(
-                name=f"{chapter['time_block'].replace('_', ' ').title()} — {location}",
+                name=location if location != "unknown" else date_str,
                 items=items,
                 transition=seg_transition,
                 transition_duration=seg_td,

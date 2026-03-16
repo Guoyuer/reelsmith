@@ -255,13 +255,29 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
                 crop_y = f"(ih-{oh})*{cy:.3f}"
                 scale_filter = f"scale={ow}:{oh}:force_original_aspect_ratio=increase,crop={ow}:{oh}:{crop_x}:{crop_y}"
             else:
-                # No faces — pad to preserve all content (zoompan hides bars)
-                scale_filter = f"scale={ow}:{oh}:force_original_aspect_ratio=decrease,pad={ow}:{oh}:(ow-iw)/2:(oh-ih)/2"
+                # No faces — blurred background + sharp foreground (no black bars)
+                scale_filter = (
+                    f"split[bg][fg];"
+                    f"[bg]scale={ow}:{oh}:force_original_aspect_ratio=increase,"
+                    f"crop={ow}:{oh},gblur=sigma=25[blurred];"
+                    f"[fg]scale={ow}:{oh}:force_original_aspect_ratio=decrease[sharp];"
+                    f"[blurred][sharp]overlay=(W-w)/2:(H-h)/2"
+                )
 
-        cmd = [
-            "ffmpeg", "-y", "-loop", "1", "-i", str(source),
-            "-t", str(item.display_duration),
-            "-vf", f"{scale_filter},{zp}",
+        if "[bg]" in scale_filter:
+            # Complex filter_complex path (blurred background)
+            cmd = [
+                "ffmpeg", "-y", "-loop", "1", "-i", str(source),
+                "-t", str(item.display_duration),
+                "-filter_complex", f"{scale_filter}[comp];[comp]{zp}",
+            ]
+        else:
+            cmd = [
+                "ffmpeg", "-y", "-loop", "1", "-i", str(source),
+                "-t", str(item.display_duration),
+                "-vf", f"{scale_filter},{zp}",
+            ]
+        cmd += [
             "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
             "-an",
             str(out),
