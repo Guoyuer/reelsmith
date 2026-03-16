@@ -2,15 +2,52 @@
 
 from __future__ import annotations
 
-import json
 import shutil
 from pathlib import Path
 
+import cv2
 from tqdm import tqdm
 
 from .config import Config
 from .edl import EDL, EditItem, Segment
 from .media_utils import convert_heic, run_subprocess, _zoompan_filter, _portrait_bg_filter
+
+# Face detection cascade (loaded once)
+_face_cascade = cv2.CascadeClassifier(
+    cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+)
+
+
+# ---------------------------------------------------------------------------
+# Face detection & crop helpers
+# ---------------------------------------------------------------------------
+
+def _detect_face_center(path: Path) -> tuple[float, float] | None:
+    """Detect faces and return their center as (cx_ratio, cy_ratio) in 0-1 range.
+
+    Returns None if no faces found.
+    """
+    img = cv2.imread(str(path))
+    if img is None:
+        return None
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape
+
+    # Resize for faster detection
+    scale = min(1.0, 640 / max(w, h))
+    if scale < 1.0:
+        small = cv2.resize(gray, None, fx=scale, fy=scale)
+    else:
+        small = gray
+
+    faces = _face_cascade.detectMultiScale(small, scaleFactor=1.1, minNeighbors=4, minSize=(20, 20))
+    if len(faces) == 0:
+        return None
+
+    # Average center of all faces (in original image coordinates)
+    cx = sum((x + fw / 2) / scale for x, y, fw, fh in faces) / len(faces)
+    cy = sum((y + fh / 2) / scale for x, y, fw, fh in faces) / len(faces)
+    return cx / w, cy / h
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +233,7 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
             str(out),
         ]
     else:
-        # Landscape: existing Ken Burns zoompan (works well)
+        # Landscape: Ken Burns zoompan with face-aware crop
         direction_map = {
             "ken_burns_in": "in",
             "ken_burns_out": "out",
@@ -207,10 +244,22 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
         direction = direction_map.get(item.effect, "in")
         zp = _zoompan_filter(zoom_rate, frames, w, h, fps, direction=direction)
 
+        # Detect faces to center crop on them
+        ow, oh = w * 2, h * 2
+        face = _detect_face_center(source)
+        if face:
+            cx, cy = face
+            # Crop centered on face position, clamped to image bounds
+            crop_x = f"max(0,min(iw-{ow},{int(cx * src_w * 2)}-{ow//2}))"
+            crop_y = f"max(0,min(ih-{oh},{int(cy * src_h * 2)}-{oh//2}))"
+        else:
+            crop_x = f"(iw-{ow})/2"
+            crop_y = f"(ih-{oh})/2"
+
         cmd = [
             "ffmpeg", "-y", "-loop", "1", "-i", str(source),
             "-t", str(item.display_duration),
-            "-vf", f"scale={w*2}:{h*2}:force_original_aspect_ratio=increase,crop={w*2}:{h*2}:(iw-{w*2})/2:(ih-{h*2})/3,{zp}",
+            "-vf", f"scale={ow}:{oh}:force_original_aspect_ratio=increase,crop={ow}:{oh}:{crop_x}:{crop_y},{zp}",
             "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
             "-an",
             str(out),
