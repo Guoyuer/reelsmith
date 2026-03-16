@@ -101,12 +101,14 @@ def resume(ctx):
 @click.option("--style", default="upbeat", help="Vlog style")
 @click.option("--duration", default=180, type=int, help="Target duration in seconds")
 @click.option("--focus", default="happiness with family", help="What to emphasize")
+@click.option("--planner", default="algo", type=click.Choice(["algo", "api"]),
+              help="Planning backend: auto (algorithmic) or api (Claude API)")
 @click.option("--width", default=3840, type=int, help="Output width (default: 3840)")
 @click.option("--height", default=2160, type=int, help="Output height (default: 2160)")
 @click.option("--fps", default=60, type=int, help="Output FPS (default: 60)")
 @click.pass_context
 def auto(ctx, from_date, to_date, country, first_level, district, person_ids,
-         item_types, style, duration, focus, width, height, fps):
+         item_types, style, duration, focus, planner, width, height, fps):
     """Run the full pipeline end-to-end."""
     person_id_list = [int(x) for x in person_ids.split(",")] if person_ids else None
     type_list = [int(x) for x in item_types.split(",")] if item_types else None
@@ -128,7 +130,7 @@ def auto(ctx, from_date, to_date, country, first_level, district, person_ids,
         config["ops"]["fetch_media"]["config"]["item_types"] = type_list
 
     config["ops"]["plan"] = {"config": {
-        "style": style, "target_duration": duration, "focus": focus,
+        "planner": planner, "style": style, "target_duration": duration, "focus": focus,
     }}
     config["ops"]["assemble"] = {"config": {
         "width": width, "height": height, "fps": fps,
@@ -141,12 +143,14 @@ def auto(ctx, from_date, to_date, country, first_level, district, person_ids,
 @click.option("--style", default="upbeat", help="Vlog style: upbeat, reflective, cinematic")
 @click.option("--duration", default=180, type=int, help="Target duration in seconds")
 @click.option("--focus", default="happiness with family", help="What to emphasize")
+@click.option("--planner", default="algo", type=click.Choice(["algo", "api"]),
+              help="Planning backend: auto (algorithmic) or api (Claude API)")
 @click.pass_context
-def plan(ctx, style, duration, focus):
+def plan(ctx, style, duration, focus, planner):
     """Re-plan + re-assemble (downstream)."""
     _submit("full_pipeline", _run_name(ctx), {
         "ops": {
-            "plan": {"config": {"style": style, "target_duration": duration, "focus": focus}},
+            "plan": {"config": {"planner": planner, "style": style, "target_duration": duration, "focus": focus}},
         },
     })
 

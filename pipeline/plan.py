@@ -1,39 +1,248 @@
-"""Stage 3: Generate EDL using pre-built timeline structure + AI analysis scores."""
+"""Stage 3: Generate EDL — algorithmic or API-based planning.
+
+Two backends:
+  - "algo" (default): deterministic algorithm using analysis scores
+  - "api": Claude API call for narrative-aware planning
+
+Set via PlanConfig.planner or CLI --planner flag.
+"""
 
 from __future__ import annotations
 
+import itertools
 import json
 from pathlib import Path
 
 from .config import Config
-from .edl import EDL
-from .llm import ollama_chat
-from .media_utils import strip_markdown_fences
+from .edl import EDL, EditItem, Segment, TextOverlay
 
-SYSTEM_PROMPT = """\
-You are a travel vlog editor creating a highlight reel of a family trip.
 
-You will receive a pre-organized timeline with chapters (day → time_block → location).
-Each chapter lists candidate photos with scores. Your job is to SELECT the best
-items and arrange them into a vlog EDL.
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
 
-Selection priorities (most to least important):
-1. Family together (tier A, family_count >= 2) — these are the emotional core
-2. High togetherness + genuine_emotion scores — real joy over posed shots
-3. Story beats: arrivals, discoveries, meals, candid moments > posed photos
-4. Visual variety: don't pick 3 similar shots from same cluster
-5. Scene-setting shots (tier C) to establish locations — use 1-2 per chapter max
+def plan(
+    cfg: Config,
+    *,
+    style: str = "upbeat",
+    target_duration: int = 180,
+    focus: str = "happiness with family",
+    planner: str = "algo",
+    log_fn=None,
+) -> tuple[EDL, int]:
+    """Generate an EDL from preprocessed + analysis data.
 
-Pacing rules:
-- Photos: 3-5 seconds each, use varied Ken Burns effects
-- Total duration must match the target
-- Open strong (best landmark or family group), close warm (tender family moment)
-- Each segment = one chapter from the timeline
-- 3-8 items per segment, skip chapters with nothing good
-- Use crossfade within segments, fade_black between segments
-- Text overlays: location name on first item of each new location, date on first item of each day
+    *planner*: "algo" for algorithmic, "api" for Claude API.
+    """
+    _log = log_fn or print
+    preprocessed = json.loads((cfg.workspace / "preprocessed.json").read_text())
+    analysis_items = json.loads((cfg.workspace / "analysis.json").read_text())
+    analysis_by_id: dict[int, dict] = {a["id"]: a for a in analysis_items}
 
-Output ONLY valid JSON matching this EDL schema, no other text:
+    if planner == "api":
+        _log(f"Planning via Claude API (target {target_duration}s, style={style})...")
+        edl = _plan_api(cfg, preprocessed, analysis_by_id, analysis_items,
+                        style=style, target_duration=target_duration, focus=focus, log_fn=_log)
+    else:
+        _log(f"Planning algorithmically (target {target_duration}s, style={style})...")
+        edl = _plan_auto(preprocessed, analysis_by_id,
+                         style=style, target_duration=target_duration)
+
+    # Save versioned EDL and clear clips
+    from .iterate import _find_latest_version, _save_edl
+    version = _find_latest_version(cfg) + 1
+    _save_edl(cfg, edl, version)
+
+    clips_dir = cfg.workspace / "clips"
+    if clips_dir.exists():
+        for f in clips_dir.iterdir():
+            f.unlink(missing_ok=True)
+
+    _log(f"EDL v{version}: {len(edl.segments)} segments, "
+         f"{len(edl.all_items())} items, ~{edl.estimated_duration():.0f}s")
+    return edl, version
+
+
+# ---------------------------------------------------------------------------
+# Backend 1: Algorithmic planner (default)
+# ---------------------------------------------------------------------------
+
+EFFECTS = ["ken_burns_in", "ken_burns_out", "ken_burns_left", "ken_burns_right"]
+
+STYLE_PARAMS = {
+    "upbeat":     {"base_dur": 3.5, "vary": 0.5, "transition": "crossfade", "td": 0.6},
+    "cinematic":  {"base_dur": 5.0, "vary": 1.0, "transition": "fade_black", "td": 1.2},
+    "reflective": {"base_dur": 5.5, "vary": 1.5, "transition": "crossfade", "td": 1.0},
+    "energetic":  {"base_dur": 2.5, "vary": 0.5, "transition": "crossfade", "td": 0.4},
+}
+
+
+def _item_score(a: dict) -> float:
+    """Score an analyzed item for selection priority."""
+    v = a.get("vision", {})
+    tier_bonus = {"A": 20, "B": 10, "C": 0}.get(a.get("tier", "C"), 0)
+    togetherness = v.get("togetherness", 0)
+    emotion = v.get("genuine_emotion", 0)
+    quality = v.get("visual_quality", 5)
+    return tier_bonus + togetherness * 2 + emotion * 1.5 + quality
+
+
+def _plan_auto(
+    preprocessed: dict, analysis_by_id: dict,
+    style: str, target_duration: int,
+) -> EDL:
+    """Deterministic EDL from analysis scores and timeline structure."""
+    params = STYLE_PARAMS.get(style, STYLE_PARAMS["upbeat"])
+    base_dur = params["base_dur"]
+    vary = params["vary"]
+    seg_transition = params["transition"]
+    seg_td = params["td"]
+    effect_cycle = itertools.cycle(EFFECTS)
+
+    segments: list[Segment] = []
+    total_dur = 0.0
+    prev_location = None
+
+    for day in preprocessed["timeline"]:
+        date_str = day["date"]
+        is_first_item_of_day = True
+
+        for chapter in day["chapters"]:
+            location = chapter["location"]
+
+            # Gather scored candidates for this chapter
+            candidates = []
+            for item_id in chapter["item_ids"]:
+                a = analysis_by_id.get(item_id)
+                if not a or not a.get("vision"):
+                    continue
+                if a.get("tier") == "D":
+                    continue
+                candidates.append(a)
+
+            if not candidates:
+                continue
+
+            # Sort by score, pick top items
+            candidates.sort(key=_item_score, reverse=True)
+
+            # Tier A/B first, then best C items for scene-setting
+            ab = [c for c in candidates if c.get("tier") in ("A", "B")]
+            c_items = [c for c in candidates if c.get("tier") == "C"][:2]
+
+            # Lead with a scene-setter if available, then family shots
+            selected = c_items[:1] + ab + c_items[1:]
+
+            # Cap per chapter: 3-8 items depending on how much budget remains
+            budget_items = max(3, int((target_duration - total_dur) / base_dur))
+            selected = selected[:min(8, budget_items)]
+
+            if not selected:
+                continue
+
+            # Vary durations: tier A gets longer, tier C shorter
+            items: list[EditItem] = []
+            for i, a in enumerate(selected):
+                tier = a.get("tier", "C")
+                dur = base_dur + (vary if tier == "A" else -vary if tier == "C" else 0)
+
+                # Text overlay: location on first item of new location, date on first of day
+                overlay = None
+                if location != prev_location:
+                    overlay = TextOverlay(text=location, position="bottom")
+                    prev_location = location
+                if is_first_item_of_day:
+                    overlay = TextOverlay(text=f"{date_str}  {location}", position="bottom")
+                    is_first_item_of_day = False
+
+                items.append(EditItem(
+                    source_file=a["local_path"],
+                    media_type=a.get("media_type", "photo"),
+                    display_duration=round(dur, 1),
+                    effect=next(effect_cycle),
+                    text_overlay=overlay,
+                ))
+                total_dur += dur
+
+            segments.append(Segment(
+                name=f"{chapter['time_block'].replace('_', ' ').title()} — {location}",
+                items=items,
+                transition=seg_transition,
+                transition_duration=seg_td,
+            ))
+
+            if total_dur >= target_duration:
+                break
+        if total_dur >= target_duration:
+            break
+
+    # Ensure strong opening (highest-scored landmark/family) and warm closing
+    if segments and len(segments[0].items) > 1:
+        all_first = segments[0].items
+        best_open = max(range(len(all_first)),
+                        key=lambda i: _item_score(analysis_by_id.get(
+                            _id_from_path(all_first[i].source_file, analysis_by_id), {})))
+        if best_open != 0:
+            all_first[0], all_first[best_open] = all_first[best_open], all_first[0]
+
+    return EDL(
+        title=f"{preprocessed.get('family_names', ['Family'])[0]}'s Trip",
+        target_duration=target_duration,
+        segments=segments,
+    )
+
+
+def _id_from_path(path: str, analysis_by_id: dict) -> int:
+    """Find item ID from a local_path."""
+    for aid, a in analysis_by_id.items():
+        if a.get("local_path") == path:
+            return aid
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Backend 2: Claude API planner
+# ---------------------------------------------------------------------------
+
+API_SYSTEM_PROMPT = """\
+You are a professional travel vlog editor. You create emotionally resonant
+highlight reels from family trip photos by selecting and sequencing the best
+moments into a cinematic narrative.
+
+You will receive scored photo candidates organized by day/time/location.
+Your job: select the best items and arrange them into an EDL (Edit Decision List).
+
+## Narrative principles
+
+1. **Emotional arc**: Build from curiosity (arrival) → joy (discoveries, meals,
+   activities) → warmth (family moments) → nostalgia (departure). Every vlog
+   should feel like a complete story.
+
+2. **Family is the heart**: Tier A items (2+ family members together) are the
+   emotional core. Use their togetherness and genuine_emotion scores to find
+   the most authentic moments — real laughter > posed smiles.
+
+3. **Rhythm and pacing**: Alternate between wide establishing shots (tier C)
+   and intimate family moments (tier A/B). Vary display_duration: shorter for
+   action/movement (3s), longer for emotional beats (5s). Use Ken Burns effects
+   that match the mood — slow zoom-in for intimate moments, pan for landscapes.
+
+4. **Visual storytelling**: Use story_beat and description to create variety —
+   don't follow 3 "meal" shots with another "meal" shot. Each chapter should
+   open with a scene-setter and close with its best moment.
+
+5. **Text overlays**: Add location names when the setting changes and dates
+   at the start of each new day. Keep text minimal — let the visuals speak.
+
+## Technical rules
+
+- display_duration: 3-5s per photo (vary for rhythm)
+- Segments: one per location/chapter, 3-8 items each
+- Transitions: crossfade within segments, fade_black between segments
+- Skip chapters with no good candidates
+- CRITICAL: source_file must be the EXACT local_path value from the input data
+
+Output valid JSON only:
 {
   "title": "string",
   "target_duration": <seconds>,
@@ -44,16 +253,14 @@ Output ONLY valid JSON matching this EDL schema, no other text:
       "name": "Chapter Name",
       "items": [
         {
-          "source_file": "<exact local_path from the data>",
+          "source_file": "<exact local_path>",
           "media_type": "photo",
-          "start_time": null,
-          "end_time": null,
-          "display_duration": <3-5 seconds>,
-          "effect": "ken_burns_in" | "ken_burns_out" | "ken_burns_left" | "ken_burns_right" | "static",
+          "display_duration": 3.0-5.0,
+          "effect": "ken_burns_in|ken_burns_out|ken_burns_left|ken_burns_right|static",
           "text_overlay": null or {"text": "string", "position": "bottom", "font_size": 48}
         }
       ],
-      "transition": "crossfade" | "fade_black",
+      "transition": "crossfade|fade_black",
       "transition_duration": 0.8
     }
   ],
@@ -61,111 +268,51 @@ Output ONLY valid JSON matching this EDL schema, no other text:
 }"""
 
 
-def plan(
-    cfg: Config,
-    *,
-    style: str = "upbeat",
-    target_duration: int = 180,
-    focus: str = "happiness with family",
-    log_fn=None,
-) -> tuple[EDL, int]:
-    """Build structured prompt from timeline + analysis, ask LLM to select and arrange."""
-    preprocessed_path = cfg.workspace / "preprocessed.json"
-    analysis_path = cfg.workspace / "analysis.json"
+def _plan_api(
+    cfg: Config, preprocessed: dict, analysis_by_id: dict,
+    analysis_items: list[dict],
+    style: str, target_duration: int, focus: str, log_fn,
+) -> EDL:
+    """Use Claude API to generate an EDL with narrative awareness."""
+    import anthropic
 
-    preprocessed = json.loads(preprocessed_path.read_text())
-    analysis_items = json.loads(analysis_path.read_text())
-
-    # Index analysis by item ID for quick lookup
-    analysis_by_id: dict[int, dict] = {a["id"]: a for a in analysis_items}
-
-    # Build structured chapter-based prompt
     chapters_text = _build_chapters_prompt(preprocessed, analysis_by_id)
 
+    n_items = target_duration // 4
     user_message = f"""\
 Create a {style} family trip vlog EDL.
-Target duration: {target_duration} seconds (~{target_duration // 60}m{target_duration % 60:02d}s).
-Focus: {focus}.
-Family members: {', '.join(preprocessed['family_names'])}
 
-Timeline with scored candidates:
+**Brief**: {target_duration}s (~{target_duration // 60}m{target_duration % 60:02d}s) highlight reel.
+Focus: {focus}.
+Family: {', '.join(preprocessed['family_names'])}
+Select ~{n_items} items (at ~4s each = {n_items * 4}s).
+
+**Scored candidates by day/location** (use the `path:` values as source_file):
 {chapters_text}
 
-IMPORTANT: You MUST select at least {target_duration // 4} items total (roughly {target_duration // 4} photos at ~4s each).
-A 3-minute vlog needs ~45 items. Do NOT generate fewer than {max(target_duration // 6, 10)} items.
-Pick the warmest, happiest moments."""
+Craft a narrative that tells the story of this trip — not just the best-scored
+photos in order, but a sequence that builds emotion and feels like a journey."""
 
-    _log = log_fn or print
-    _log(f"Planning vlog (target {target_duration}s, model={cfg.planning_model})...")
+    client = anthropic.Anthropic()  # uses ANTHROPIC_API_KEY env var
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=8192,
+        system=API_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_message}],
+    )
 
-    min_items = max(target_duration // 6, 10)
-    min_duration = target_duration * 0.5
+    content = response.content[0].text
+    log_fn(f"API response: {response.usage.input_tokens} in, {response.usage.output_tokens} out")
 
-    # Retry if the model generates a too-short EDL
-    for attempt in range(3):
-        content = ollama_chat(cfg, system=SYSTEM_PROMPT, prompt=user_message, json_mode=True, log_fn=_log)
-        content = strip_markdown_fences(content)
-        edl = EDL.model_validate_json(content)
+    # Strip markdown fences if present
+    from .media_utils import strip_markdown_fences
+    content = strip_markdown_fences(content)
 
-        n_items = len(edl.all_items())
-        est = edl.estimated_duration()
-        if n_items >= min_items and est >= min_duration:
-            break
-        _log(f"EDL too short ({n_items} items, {est:.0f}s) — need ≥{min_items} items, ≥{min_duration:.0f}s. Retrying ({attempt+1}/3)...")
-
-    # Fix hallucinated paths — LLMs often mangle source_file paths.
-    # Build multiple indexes for fuzzy matching: full path, basename, filename,
-    # and filename without ID prefix (e.g. "DJI_20250613.JPG" from "89868_DJI_20250613.JPG")
-    path_index: dict[str, str] = {}
-    for a in analysis_items:
-        lp = a["local_path"]
-        path_index[lp] = lp
-        path_index[a["filename"]] = lp
-        path_index[str(a["id"])] = lp
-        basename = Path(lp).name
-        path_index[basename] = lp
-        # Strip numeric ID prefix: "89868_DJI_xxx.JPG" → "DJI_xxx.JPG"
-        parts = basename.split("_", 1)
-        if len(parts) == 2 and parts[0].isdigit():
-            path_index[parts[1]] = lp
-
-    fixed = 0
-    for item in edl.all_items():
-        if Path(item.source_file).exists():
-            continue
-        basename = Path(item.source_file).name
-        # Try exact basename, then without ID prefix
-        parts = basename.split("_", 1)
-        name_no_id = parts[1] if len(parts) == 2 and parts[0].isdigit() else None
-        match = path_index.get(basename) or path_index.get(name_no_id or "")
-        if match:
-            item.source_file = match
-            fixed += 1
-        else:
-            _log(f"WARNING: no match for {item.source_file}")
-    if fixed:
-        _log(f"Fixed {fixed} hallucinated file paths in EDL")
-
-    from .iterate import _find_latest_version, _save_edl
-    version = _find_latest_version(cfg) + 1
-    edl_path = _save_edl(cfg, edl, version)
-
-    # Clear clips so assemble re-renders (keep old videos for comparison)
-    clips_dir = cfg.workspace / "clips"
-    if clips_dir.exists():
-        for f in clips_dir.iterdir():
-            f.unlink(missing_ok=True)
-
-    _log(f"EDL v{version} saved: {len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s estimated")
-    return edl, version
+    return EDL.model_validate_json(content)
 
 
 def _build_chapters_prompt(preprocessed: dict, analysis_by_id: dict) -> str:
-    """Build a structured text representation of the timeline with scores.
-
-    Only includes tier A+B items fully, and the best 2 tier-C items per chapter
-    to keep prompt size manageable for small LLMs.
-    """
+    """Build a structured text representation of the timeline with scores."""
     lines = []
 
     for day in preprocessed["timeline"]:
@@ -175,7 +322,6 @@ def _build_chapters_prompt(preprocessed: dict, analysis_by_id: dict) -> str:
             loc = chapter["location"]
             block = chapter["time_block"]
 
-            # Collect items for this chapter
             ab_items = []
             c_items = []
             for item_id in chapter["item_ids"]:
@@ -188,13 +334,11 @@ def _build_chapters_prompt(preprocessed: dict, analysis_by_id: dict) -> str:
                 elif tier == "C":
                     c_items.append(a)
 
-            # Skip chapters with nothing good
             if not ab_items and not c_items:
                 continue
 
             lines.append(f"\n  [{block.upper()}] {loc}")
 
-            # All tier A+B items (these are the priority)
             for a in ab_items:
                 v = a["vision"]
                 tog = v.get("togetherness", v.get("happiness_score", "?"))
@@ -207,7 +351,6 @@ def _build_chapters_prompt(preprocessed: dict, analysis_by_id: dict) -> str:
                     f"\n      path: {a['local_path']}"
                 )
 
-            # Best 2 tier-C items per chapter (by visual_quality)
             c_items.sort(key=lambda x: x["vision"].get("visual_quality", 0), reverse=True)
             for a in c_items[:2]:
                 v = a["vision"]
@@ -219,3 +362,5 @@ def _build_chapters_prompt(preprocessed: dict, analysis_by_id: dict) -> str:
                 )
 
     return "\n".join(lines)
+
+

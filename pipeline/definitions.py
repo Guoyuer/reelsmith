@@ -84,6 +84,7 @@ class AnalyzeConfig(dg.Config):
 
 
 class PlanConfig(dg.Config):
+    planner: str = "algo"  # "algo" (algorithmic) or "api" (Claude API)
     style: str = "upbeat"
     target_duration: int = 180
     focus: str = "happiness with family"
@@ -366,6 +367,7 @@ def plan(
         style=config.style,
         target_duration=config.target_duration,
         focus=config.focus,
+        planner=config.planner,
         log_fn=context.log.info,
     )
     context.log.info(
