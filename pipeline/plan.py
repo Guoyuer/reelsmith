@@ -295,7 +295,7 @@ photos in order, but a sequence that builds emotion and feels like a journey."""
 
     client = anthropic.Anthropic()  # uses ANTHROPIC_API_KEY env var
     response = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6-20250514",
         max_tokens=8192,
         system=API_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_message}],
