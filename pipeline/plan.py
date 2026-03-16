@@ -164,17 +164,23 @@ def _plan_auto(
         seen_descs.append(desc_words)
         deduped_ab.append((a, ch, ds))
 
-    # Fill remaining budget with best C items (also deduped)
+    # Fill remaining budget with best C items, spread across locations
     remaining = max(0, target_items - len(deduped_ab))
     c_fill = []
+    loc_counts: dict[str, int] = {}  # limit per location
     for a, ch, ds in c_items:
         if len(c_fill) >= remaining:
             break
+        loc = ch.get("location", "unknown")
+        # Max 3 scenery items per location
+        if loc_counts.get(loc, 0) >= 3:
+            continue
         desc_words = set(a.get("vision", {}).get("description", "").lower().split())
         if any(_word_overlap(desc_words, d) > 0.5 for d in seen_descs):
             continue
         seen_descs.append(desc_words)
         c_fill.append((a, ch, ds))
+        loc_counts[loc] = loc_counts.get(loc, 0) + 1
 
     selected_all = deduped_ab + c_fill
     # Sort by time for chronological order
