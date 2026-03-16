@@ -13,6 +13,11 @@ import itertools
 import json
 from pathlib import Path
 
+import pillow_heif
+from PIL import Image
+
+pillow_heif.register_heif_opener()
+
 from .config import Config
 from .edl import EDL, EditItem, Segment, TextOverlay
 
@@ -87,6 +92,22 @@ def _item_score(a: dict) -> float:
     return tier_bonus + togetherness * 2 + emotion * 1.5 + quality
 
 
+def _is_too_dark(path: Path, threshold: float = 50.0) -> bool:
+    """Check if an image is too dark (mean brightness < threshold)."""
+    try:
+        import cv2
+        img = cv2.imread(str(path))
+        if img is None:
+            # HEIC fallback via PIL
+            import numpy as np
+            pil_img = Image.open(path).convert("L").resize((64, 64))
+            return float(np.mean(list(pil_img.getdata()))) < threshold
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        return float(gray.mean()) < threshold
+    except Exception:
+        return False
+
+
 def _word_overlap(words_a: set[str], words_b: set[str]) -> float:
     """Jaccard similarity between two word sets."""
     if not words_a or not words_b:
@@ -125,14 +146,15 @@ def _plan_auto(
                 if not a or not a.get("vision") or a.get("tier") == "D":
                     continue
                 v = a["vision"]
-                # Skip low quality and uninteresting content
-                if v.get("visual_quality", 5) < 5:
+                # Skip low quality, uninteresting, and dark content
+                if v.get("visual_quality", 5) < 4:
+                    continue
+                if v.get("vlog_worthy") is False:
                     continue
                 beat = v.get("story_beat", v.get("scene_type", ""))
-                if beat in ("transport", "other"):
+                if beat in ("transport",):
                     continue
-                # Skip if vlog_worthy is explicitly false
-                if v.get("vlog_worthy") is False:
+                if _is_too_dark(Path(a.get("local_path", ""))):
                     continue
                 day_candidates.append((a, chapter, date_str))
 

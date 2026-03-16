@@ -339,7 +339,9 @@ def _add_text_overlay(
     y_positions = {"top": "50", "center": "(h-text_h)/2", "bottom": "h-text_h-60"}
     y_expr = y_positions.get(position, y_positions["bottom"])
 
-    # Escape special characters for drawtext
+    # Truncate long text and escape special characters for drawtext
+    if len(text) > 25:
+        text = text[:25]
     safe_text = text.replace("'", "\u2019").replace(":", "\\:")
 
     end_time = min(clip_duration - 0.5, 3.0)
