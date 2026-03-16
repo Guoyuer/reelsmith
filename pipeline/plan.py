@@ -165,14 +165,19 @@ def _plan_auto(
         deduped_ab.append((a, ch, ds))
 
     # Fill remaining budget with best C items, spread across locations
+    # Prefer landmark/nature/food over building/street
+    GOOD_SCENES = {"landmark", "nature", "food", "scenery"}
+    c_items.sort(key=lambda x: (
+        0 if x[0].get("vision", {}).get("scene_type", "") in GOOD_SCENES else 1,
+        -_item_score(x[0]),
+    ))
     remaining = max(0, target_items - len(deduped_ab))
     c_fill = []
-    loc_counts: dict[str, int] = {}  # limit per location
+    loc_counts: dict[str, int] = {}
     for a, ch, ds in c_items:
         if len(c_fill) >= remaining:
             break
         loc = ch.get("location", "unknown")
-        # Max 3 scenery items per location
         if loc_counts.get(loc, 0) >= 3:
             continue
         desc_words = set(a.get("vision", {}).get("description", "").lower().split())
@@ -268,6 +273,25 @@ def _plan_auto(
         if segments and day_idx < len(day_selections) - 1:
             segments[-1].transition = "fade_black"
             segments[-1].transition_duration = 1.0
+
+    # Ensure strong opening (family photo) and warm closing
+    all_items_flat = [item for seg in segments for item in seg.items]
+    if len(all_items_flat) >= 3:
+        # Find best family photo for opening
+        best_open_idx = max(
+            range(len(all_items_flat)),
+            key=lambda i: _item_score(analysis_by_id.get(
+                next((aid for aid, a in analysis_by_id.items()
+                      if a.get("local_path") == all_items_flat[i].source_file), 0), {}))
+        )
+        if best_open_idx != 0:
+            # Swap into first position of first segment
+            first_items = segments[0].items
+            for seg in segments:
+                if all_items_flat[best_open_idx] in seg.items:
+                    seg_idx = seg.items.index(all_items_flat[best_open_idx])
+                    first_items[0], seg.items[seg_idx] = seg.items[seg_idx], first_items[0]
+                    break
 
     return EDL(
         title=f"{preprocessed.get('family_names', ['Family'])[0]}'s Trip",
