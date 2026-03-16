@@ -71,8 +71,9 @@ class TestEstimatedDuration:
         Segment 1: 4 + 3 + 5 = 12s display, crossfade transitions = 0.8 * 2 = 1.6s
         Segment 2: 4 + 3.5 + 6 = 13.5s display, 'cut' transition = 0 overlap
         Total = 25.5 - 1.6 = 23.9s
+        Plus intro (3s) + outro (3s) = 29.9s (default intro/outro)
         """
-        assert sample_edl.estimated_duration() == pytest.approx(23.9)
+        assert sample_edl.estimated_duration() == pytest.approx(29.9)
 
     def test_single_item_no_transitions(self):
         """A segment with one item has no transitions to subtract."""
@@ -87,6 +88,8 @@ class TestEstimatedDuration:
                     transition_duration=1.0,
                 ),
             ],
+            intro_style="none",
+            outro_style="none",
         )
         assert edl.estimated_duration() == 5.0
 

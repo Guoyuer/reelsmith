@@ -9,7 +9,14 @@ from unittest.mock import patch
 import pytest
 
 from pipeline.edl import EDL
-from pipeline.plan import _build_chapters_prompt, _plan_auto, plan
+from pipeline.plan import (
+    _build_chapters_prompt,
+    _default_focus,
+    _item_score,
+    _plan_auto,
+    plan,
+    SCORING_PROFILES,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +69,9 @@ SAMPLE_ANALYSIS = [
         "media_type": "photo",
         "tier": "A",
         "family_count": 2,
+        "cluster_size": 3,
+        "district": "Marina Bay",
+        "country": "Singapore",
         "vision": {
             "description": "Family at Marina Bay Sands",
             "togetherness": 9,
@@ -96,8 +106,8 @@ SAMPLE_ANALYSIS = [
         "family_count": 0,
         "vision": {
             "description": "Chinatown street view",
-            "scene_type": "street",
-            "visual_quality": 6,
+            "scene_type": "landmark",
+            "visual_quality": 8,
             "vlog_worthy": True,
         },
     },
@@ -107,6 +117,55 @@ SAMPLE_ANALYSIS = [
 def _setup_workspace(cfg) -> None:
     (cfg.workspace / "preprocessed.json").write_text(json.dumps(SAMPLE_PREPROCESSED))
     (cfg.workspace / "analysis.json").write_text(json.dumps(SAMPLE_ANALYSIS))
+
+
+# ---------------------------------------------------------------------------
+# Scoring tests
+# ---------------------------------------------------------------------------
+
+class TestItemScore:
+    def test_family_favors_tier_a(self):
+        """Family scoring should give high bonus to tier A items."""
+        a_item = {"tier": "A", "vision": {"togetherness": 5, "genuine_emotion": 5, "visual_quality": 5}}
+        c_item = {"tier": "C", "vision": {"togetherness": 0, "genuine_emotion": 0, "visual_quality": 5}}
+        assert _item_score(a_item, "family") > _item_score(c_item, "family")
+
+    def test_solo_favors_quality_over_togetherness(self):
+        """Solo scoring should ignore togetherness and weight quality."""
+        high_tog = {"tier": "C", "vision": {"togetherness": 10, "genuine_emotion": 3, "visual_quality": 5}}
+        high_qual = {"tier": "C", "vision": {"togetherness": 0, "genuine_emotion": 3, "visual_quality": 10}}
+        assert _item_score(high_qual, "solo") > _item_score(high_tog, "solo")
+
+    def test_food_gives_scene_bonus(self):
+        """Food scoring should boost food/meal scene types."""
+        food_item = {"tier": "C", "vision": {"visual_quality": 5, "scene_type": "food"}}
+        street_item = {"tier": "C", "vision": {"visual_quality": 5, "scene_type": "street"}}
+        assert _item_score(food_item, "food") > _item_score(street_item, "food")
+
+    def test_architecture_favors_tier_c(self):
+        """Architecture scoring should give high bonus to tier C (scenery)."""
+        a_item = {"tier": "A", "vision": {"togetherness": 5, "genuine_emotion": 5, "visual_quality": 5}}
+        c_item = {"tier": "C", "vision": {"togetherness": 0, "genuine_emotion": 0, "visual_quality": 5,
+                                           "scene_type": "landmark"}}
+        # C gets tier_bonus=15 + landmark=8, A gets tier_bonus=3
+        assert _item_score(c_item, "architecture") > _item_score(a_item, "architecture")
+
+    def test_all_trip_types_have_profiles(self):
+        """Every trip type should have a scoring profile."""
+        from pipeline.plan import TRIP_TYPES
+        for tt in TRIP_TYPES:
+            assert tt in SCORING_PROFILES
+
+
+class TestDefaultFocus:
+    def test_family_default(self):
+        assert "family" in _default_focus("family")
+
+    def test_solo_default(self):
+        assert "journey" in _default_focus("solo")
+
+    def test_unknown_falls_back(self):
+        assert _default_focus("unknown_type") == _default_focus("general")
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +221,37 @@ class TestPlanAutoStyles:
         assert edl.segments[0].transition == "crossfade"
 
 
+class TestPlanAutoTripTypes:
+    def test_family_title_uses_name(self):
+        """Family trips should use the first family name in the title."""
+        analysis_by_id = {a["id"]: a for a in SAMPLE_ANALYSIS}
+        edl = _plan_auto(SAMPLE_PREPROCESSED, analysis_by_id,
+                         style="upbeat", target_duration=30, trip_type="family")
+        assert "Alice" in edl.title
+
+    def test_solo_title_differs(self):
+        """Non-family trips should not use family names in the title."""
+        analysis_by_id = {a["id"]: a for a in SAMPLE_ANALYSIS}
+        edl = _plan_auto(SAMPLE_PREPROCESSED, analysis_by_id,
+                         style="upbeat", target_duration=30, trip_type="solo")
+        assert "Alice" not in edl.title
+
+    def test_solo_selects_globally(self):
+        """Solo mode takes top items globally, not A/B first."""
+        analysis_by_id = {a["id"]: a for a in SAMPLE_ANALYSIS}
+        edl = _plan_auto(SAMPLE_PREPROCESSED, analysis_by_id,
+                         style="upbeat", target_duration=60, trip_type="solo")
+        assert isinstance(edl, EDL)
+        assert len(edl.all_items()) >= 1
+
+    def test_food_returns_valid_edl(self):
+        analysis_by_id = {a["id"]: a for a in SAMPLE_ANALYSIS}
+        edl = _plan_auto(SAMPLE_PREPROCESSED, analysis_by_id,
+                         style="upbeat", target_duration=30, trip_type="food")
+        assert isinstance(edl, EDL)
+        assert len(edl.segments) >= 1
+
+
 class TestPlanIntegration:
     def test_plan_writes_versioned_edl(self, tmp_path: Path, mock_config):
         """plan() should write edl_v{N}.json to workspace."""
@@ -173,6 +263,16 @@ class TestPlanIntegration:
         assert isinstance(result, EDL)
         assert version >= 1
         assert (cfg.workspace / f"edl_v{version}.json").exists()
+
+    def test_plan_with_trip_type(self, tmp_path: Path, mock_config):
+        """plan() should accept trip_type parameter."""
+        cfg = mock_config
+        _setup_workspace(cfg)
+
+        result, version = plan(cfg, target_duration=30, trip_type="solo")
+
+        assert isinstance(result, EDL)
+        assert "Alice" not in result.title
 
 
 # ---------------------------------------------------------------------------
@@ -196,3 +296,21 @@ class TestBuildChaptersPrompt:
         assert "[C]" in result
         assert "scene=" in result
         assert "/media/1_IMG_001.jpg" in result
+
+    def test_includes_quality_score(self):
+        """Prompt should include visual quality scores."""
+        analysis_by_id = {a["id"]: a for a in SAMPLE_ANALYSIS}
+        result = _build_chapters_prompt(SAMPLE_PREPROCESSED, analysis_by_id)
+        assert "qual=9" in result
+
+    def test_includes_cluster_size(self):
+        """Prompt should include cluster size when > 1."""
+        analysis_by_id = {a["id"]: a for a in SAMPLE_ANALYSIS}
+        result = _build_chapters_prompt(SAMPLE_PREPROCESSED, analysis_by_id)
+        assert "best of 3" in result
+
+    def test_includes_location_detail(self):
+        """Prompt should include district/country when available."""
+        analysis_by_id = {a["id"]: a for a in SAMPLE_ANALYSIS}
+        result = _build_chapters_prompt(SAMPLE_PREPROCESSED, analysis_by_id)
+        assert "Singapore" in result
