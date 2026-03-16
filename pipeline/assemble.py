@@ -177,6 +177,33 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     if not all_clips:
         raise RuntimeError("No clips rendered — check source files in EDL")
 
+    # Phase 1b: Render intro/outro clips
+    if edl.intro_style == "title_card" and edl.title:
+        intro_path = clips_dir / "intro_title.mp4"
+        if not intro_path.exists():
+            _render_title_card(edl.title, edl.date_range, intro_path, w, h, fps, duration=3.0)
+        if intro_path.exists():
+            # Intro is the first clip — its transition is "into" itself (not used).
+            # The *next* clip's transition controls the fade from intro to content.
+            all_clips.insert(0, {
+                "path": intro_path, "duration": 3.0,
+                "transition": "cut", "transition_duration": 0.0,
+            })
+            # Set the first content clip to fade from intro
+            if len(all_clips) > 1:
+                all_clips[1]["transition"] = "fade_black"
+                all_clips[1]["transition_duration"] = 1.0
+
+    if edl.outro_style == "fade_title" and edl.title:
+        outro_path = clips_dir / "outro_title.mp4"
+        if not outro_path.exists():
+            _render_title_card(edl.title, "", outro_path, w, h, fps, duration=3.0)
+        if outro_path.exists():
+            all_clips.append({
+                "path": outro_path, "duration": 3.0,
+                "transition": "fade_black", "transition_duration": 1.0,
+            })
+
     # Phase 2: Concatenate with transitions
     print(f"Concatenating {len(all_clips)} clips...")
     no_music_path = output_dir / f"vlog_v{version}_nomix.mp4"
@@ -193,6 +220,44 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     duration = _probe_duration(output_path)
     print(f"Done: {output_path} ({duration:.1f}s)")
     return output_path
+
+
+def _render_title_card(
+    title: str, subtitle: str, out: Path, w: int, h: int, fps: int,
+    duration: float = 3.0,
+) -> None:
+    """Render a title card — dark background with centered text, fade in/out."""
+    frames = int(duration * fps)
+    safe_title = title.replace("'", "\u2019").replace(":", "\\:")
+    font = "/System/Library/Fonts/STHeiti Medium.ttc"
+
+    drawtext = (
+        f"drawtext=text='{safe_title}':fontfile='{font}'"
+        f":fontsize={int(h * 0.08)}:fontcolor=white"
+        f":x=(w-text_w)/2:y=(h-text_h)/2-{int(h*0.03)}"
+        f":enable='between(t,0,{duration})'"
+    )
+    if subtitle:
+        safe_sub = subtitle.replace("'", "\u2019").replace(":", "\\:")
+        drawtext += (
+            f",drawtext=text='{safe_sub}':fontfile='{font}'"
+            f":fontsize={int(h * 0.04)}:fontcolor=white@0.7"
+            f":x=(w-text_w)/2:y=(h)/2+{int(h*0.05)}"
+            f":enable='between(t,0,{duration})'"
+        )
+
+    # Fade in for first 1s, fade out for last 1s
+    fade = f",fade=t=in:d=1,fade=t=out:st={duration - 1.0}:d=1"
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", f"color=c=0x1a1a2e:s={w}x{h}:d={duration}:r={fps}",
+        "-vf", drawtext + fade,
+        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+        "-an",
+        str(out),
+    ]
+    run_subprocess(cmd, capture_output=True, text=True)
 
 
 def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
