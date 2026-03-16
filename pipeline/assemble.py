@@ -238,24 +238,30 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
         direction = direction_map.get(item.effect, "in")
         zp = _zoompan_filter(zoom_rate, frames, w, h, fps, direction=direction)
 
-        # Detect faces to center crop on them
+        # Choose scaling strategy based on aspect ratio and face detection
         ow, oh = w * 2, h * 2
-        face = _detect_face_center(source)
-        if face and src_w > 0 and src_h > 0:
-            cx, cy = face
-            # Compute crop offset as ratio — applied after scale
-            # After scale with increase, one dimension equals ow/oh, the other is larger
-            # Use the face center ratio to position the crop
-            crop_x = f"(iw-{ow})*{cx:.3f}"
-            crop_y = f"(ih-{oh})*{cy:.3f}"
+        src_ratio = src_w / src_h if src_h > 0 else 1.0
+        out_ratio = ow / oh
+
+        if abs(src_ratio - out_ratio) / out_ratio < 0.05:
+            # Aspect ratio close enough — just scale, no crop or pad
+            scale_filter = f"scale={ow}:{oh}"
         else:
-            crop_x = f"(iw-{ow})/2"
-            crop_y = f"(ih-{oh})/2"
+            face = _detect_face_center(source)
+            if face:
+                # Faces found — scale to fill, crop centered on faces
+                cx, cy = face
+                crop_x = f"(iw-{ow})*{cx:.3f}"
+                crop_y = f"(ih-{oh})*{cy:.3f}"
+                scale_filter = f"scale={ow}:{oh}:force_original_aspect_ratio=increase,crop={ow}:{oh}:{crop_x}:{crop_y}"
+            else:
+                # No faces — pad to preserve all content (zoompan hides bars)
+                scale_filter = f"scale={ow}:{oh}:force_original_aspect_ratio=decrease,pad={ow}:{oh}:(ow-iw)/2:(oh-ih)/2"
 
         cmd = [
             "ffmpeg", "-y", "-loop", "1", "-i", str(source),
             "-t", str(item.display_duration),
-            "-vf", f"scale={ow}:{oh}:force_original_aspect_ratio=increase,crop={ow}:{oh}:{crop_x}:{crop_y},{zp}",
+            "-vf", f"{scale_filter},{zp}",
             "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
             "-an",
             str(out),
