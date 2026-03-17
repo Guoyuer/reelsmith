@@ -66,7 +66,7 @@ def _manage_pid(workspace: Path) -> None:
             if old_pid != os.getpid():
                 os.kill(old_pid, signal.SIGTERM)
                 print(f"Stopped previous analyze (PID {old_pid})")
-        except (ProcessLookupError, ValueError, PermissionError):
+        except (ProcessLookupError, ValueError, PermissionError, OSError):
             pass
     pid_path.write_text(str(os.getpid()))
 
@@ -249,16 +249,24 @@ def _transcribe(video_path: Path, cfg: Config) -> str | None:
         )
         transcript = result.get("text", "").strip()
     except ImportError:
+        # Try openai-whisper (cross-platform, GPU or CPU)
         try:
-            result = run_subprocess(
-                ["whisper-cpp", "-m", f"models/ggml-{cfg.whisper_model}.bin",
-                 "-f", str(audio_path), "--no-timestamps"],
-                capture_output=True, text=True,
-            )
-            if result.returncode == 0:
-                transcript = result.stdout.strip()
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
+            import whisper as openai_whisper
+            model = openai_whisper.load_model(cfg.whisper_model)
+            result = model.transcribe(str(audio_path))
+            transcript = result.get("text", "").strip()
+        except ImportError:
+            # Try whisper-cpp CLI (requires manual build)
+            try:
+                result = run_subprocess(
+                    ["whisper-cpp", "-m", f"models/ggml-{cfg.whisper_model}.bin",
+                     "-f", str(audio_path), "--no-timestamps"],
+                    capture_output=True, text=True,
+                )
+                if result.returncode == 0:
+                    transcript = result.stdout.strip()
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
     except Exception as e:
         print(f"    Transcription failed: {e}")
 

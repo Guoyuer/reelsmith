@@ -230,16 +230,12 @@ class TestAnalyzeScenePromptForTierC:
         assert prompt_used == VISION_PROMPT_SCENE
 
 
-class TestAnalyzeHeicConvertsViaSips:
-    def test_analyze_heic_converts_via_sips(self, tmp_path: Path, mock_config):
-        """A .heic file should trigger a sips subprocess call inside _analyze_image."""
+class TestAnalyzeHeicConverts:
+    def test_analyze_heic_triggers_conversion(self, tmp_path: Path, mock_config):
+        """A .heic file should be converted to JPEG before vision analysis."""
         cfg = mock_config
 
-        # Create a fake .heic file (we will mock _analyze_image but check sips
-        # is called by NOT patching _analyze_image — instead patch the lower
-        # level subprocess.run and httpx.post)
         heic_path = cfg.media_dir / "108_photo.heic"
-        # Write a minimal JPEG as the file content (sips will be mocked anyway)
         img = Image.new("RGB", (160, 90), color=(50, 50, 50))
         img.save(heic_path, "JPEG")  # save as JPEG bytes but with .heic extension
 
@@ -248,29 +244,22 @@ class TestAnalyzeHeicConvertsViaSips:
         ]
         _write_preprocessed(cfg, items)
 
-        sips_calls = []
+        convert_calls = []
+        original_convert = None
 
-        def mock_subprocess_run(cmd, **kwargs):
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = ""
-            result.stderr = ""
-            if cmd[0] == "sips":
-                sips_calls.append(cmd)
-                # Create the output jpeg
-                out_path = Path(cmd[-1])
-                jpeg_img = Image.new("RGB", (160, 90), color=(50, 50, 50))
-                jpeg_img.save(out_path, "JPEG")
-            return result
+        def mock_convert_heic(source, dest_dir=None):
+            convert_calls.append(source)
+            # Create the output jpeg
+            dest = (dest_dir or source.parent) / f"_converted_{source.stem}.jpg"
+            jpeg_img = Image.new("RGB", (160, 90), color=(50, 50, 50))
+            jpeg_img.save(dest, "JPEG")
+            return dest
 
-        with patch("pipeline.analyze.run_subprocess", side_effect=mock_subprocess_run), \
-             patch("pipeline.media_utils.run_subprocess", side_effect=mock_subprocess_run), \
+        with patch("pipeline.analyze.convert_heic", side_effect=mock_convert_heic), \
              patch("pipeline.analyze.ollama_json", return_value=FAKE_VISION):
             analyze(cfg)
 
-        assert len(sips_calls) >= 1
-        assert sips_calls[0][0] == "sips"
-        assert sips_calls[0][3] == "jpeg"
+        assert len(convert_calls) >= 1, "convert_heic should be called for .heic files"
 
 
 class TestAnalyzeProgressCallback:
