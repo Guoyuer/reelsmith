@@ -20,6 +20,55 @@ _YUNET_MODEL = Path(__file__).parent / "face_detection_yunet_2023mar.onnx"
 
 
 # ---------------------------------------------------------------------------
+# GPU-accelerated encoding (NVENC on NVIDIA, VideoToolbox on macOS)
+# ---------------------------------------------------------------------------
+
+def _detect_hw_encoder() -> list[str]:
+    """Detect hardware encoder and return FFmpeg args.
+
+    Returns ["-c:v", "h264_nvenc", ...] on NVIDIA,
+    ["-c:v", "h264_videotoolbox", ...] on macOS,
+    or ["-c:v", "libx264", "-preset", "fast"] as fallback.
+    """
+    import sys
+    if sys.platform == "darwin":
+        # macOS VideoToolbox — always available
+        return ["-c:v", "h264_videotoolbox", "-q:v", "65"]
+
+    # Check for NVIDIA NVENC
+    try:
+        result = run_subprocess(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            capture_output=True, text=True,
+        )
+        if "h264_nvenc" in (result.stdout or ""):
+            # Verify it actually works (driver may not support it)
+            test = run_subprocess(
+                ["ffmpeg", "-y", "-f", "lavfi", "-i", "nullsrc=s=640x360:d=0.1:r=15",
+                 "-c:v", "h264_nvenc", "-f", "null", "-"],
+                capture_output=True, text=True,
+            )
+            if test.returncode == 0:
+                return ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr"]
+    except Exception:
+        pass
+
+    return ["-c:v", "libx264", "-preset", "fast"]
+
+
+# Cache the result so we only detect once
+_HW_ENCODER: list[str] | None = None
+
+
+def _get_encoder() -> list[str]:
+    """Get cached hardware encoder args."""
+    global _HW_ENCODER
+    if _HW_ENCODER is None:
+        _HW_ENCODER = _detect_hw_encoder()
+    return _HW_ENCODER
+
+
+# ---------------------------------------------------------------------------
 # Face detection & crop helpers
 # ---------------------------------------------------------------------------
 
@@ -298,7 +347,7 @@ def _render_title_card(
         "ffmpeg", "-y",
         "-f", "lavfi", "-i", f"color=c=0x1a1a2e:s={w}x{h}:d={duration}:r={fps}",
         "-vf", drawtext + fade,
-        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+        *_get_encoder(), "-pix_fmt", "yuv420p",
         "-an",
         str(out),
     ]
@@ -332,7 +381,7 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
             "ffmpeg", "-y", "-loop", "1", "-i", str(source),
             "-t", str(item.display_duration),
             "-filter_complex", fc,
-            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            *_get_encoder(), "-pix_fmt", "yuv420p",
             "-an",
             str(out),
         ]
@@ -388,7 +437,7 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
                 "-vf", f"{scale_filter},{zp}",
             ]
         cmd += [
-            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            *_get_encoder(), "-pix_fmt", "yuv420p",
             "-an",
             str(out),
         ]
@@ -419,7 +468,7 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
         fc = _portrait_bg_filter(w, h)
         cmd += [
             "-filter_complex", fc,
-            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            *_get_encoder(), "-pix_fmt", "yuv420p",
             "-r", str(fps),
             "-an",
             str(out),
@@ -429,7 +478,7 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
         cmd += [
             "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
                    f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
-            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            *_get_encoder(), "-pix_fmt", "yuv420p",
             "-r", str(fps),
             "-an",
             str(out),
@@ -467,7 +516,7 @@ def _add_text_overlay(
     cmd = [
         "ffmpeg", "-y", "-i", str(input_path),
         "-vf", vf,
-        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+        *_get_encoder(), "-pix_fmt", "yuv420p",
         "-c:a", "copy",
         str(output_path),
     ]
@@ -498,7 +547,7 @@ def _concat_demuxer(clips: list[dict], output_path: Path) -> None:
     cmd = [
         "ffmpeg", "-y", "-f", "concat", "-safe", "0",
         "-i", str(list_path),
-        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+        *_get_encoder(), "-pix_fmt", "yuv420p",
         str(output_path),
     ]
     run_subprocess(cmd, capture_output=True)
@@ -560,7 +609,7 @@ def _concat_xfade(clips: list[dict], output_path: Path) -> None:
     cmd = ["ffmpeg", "-y"] + inputs + [
         "-filter_complex", filter_complex,
         "-map", "[vout]",
-        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+        *_get_encoder(), "-pix_fmt", "yuv420p",
         str(output_path),
     ]
     result = run_subprocess(cmd, capture_output=True, text=True)
