@@ -52,6 +52,9 @@ class EDL(BaseModel):
     fps: int = 60
     segments: list[Segment]
     music: MusicTrack | None = None
+    music_mode: Literal["none", "auto", "file"] = "none"  # auto = generate in assemble
+    trip_type: str = "family"  # used by assemble for music generation prompt
+    style: str = "upbeat"  # used by assemble for music generation prompt
     intro_style: Literal["title_card", "highlight_montage", "none"] = "title_card"
     outro_style: Literal["fade_title", "last_hero", "none"] = "fade_title"
     date_range: str = ""  # e.g. "June 13-16, 2025" for title card

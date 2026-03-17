@@ -1,6 +1,6 @@
 """Auto-generate background music for vlogs using MusicGen (Meta).
 
-Uses facebook/musicgen-small (300M params) via HuggingFace transformers.
+Uses facebook/musicgen-medium (300M params) via HuggingFace transformers.
 Generates instrumental background music from text prompts.
 No API keys needed — runs fully locally.
 
@@ -72,9 +72,9 @@ def fetch_music(
     """
     _log = log_fn or print
 
-    # Check cache
+    # Check cache — keyed by trip_type, style, AND duration
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_key = f"{trip_type}_{style}"
+    cache_key = f"{trip_type}_{style}_{target_duration}s"
     cache_meta = cache_dir / f"{cache_key}.json"
     if cache_meta.exists():
         meta = json.loads(cache_meta.read_text())
@@ -84,8 +84,7 @@ def fetch_music(
             return cached_path
 
     prompt = _get_prompt(trip_type, style)
-    # Cap generation at 30s — MusicGen small quality degrades beyond that
-    gen_duration = min(target_duration, 30)
+    gen_duration = target_duration
     _log(f"Generating {gen_duration}s music via MusicGen: '{prompt}'...")
 
     try:
@@ -97,8 +96,8 @@ def fetch_music(
         # Fix transformers bug: config_class should be MusicgenConfig, not MusicgenDecoderConfig
         MusicgenForConditionalGeneration.config_class = MusicgenConfig
 
-        processor = AutoProcessor.from_pretrained("facebook/musicgen-small")
-        model = MusicgenForConditionalGeneration.from_pretrained("facebook/musicgen-small")
+        processor = AutoProcessor.from_pretrained("facebook/musicgen-medium")
+        model = MusicgenForConditionalGeneration.from_pretrained("facebook/musicgen-medium")
         sr = model.config.audio_encoder.sampling_rate
 
         # ~50 tokens per second of audio
@@ -120,7 +119,7 @@ def fetch_music(
             "duration": round(dur, 1),
             "trip_type": trip_type,
             "style": style,
-            "model": "facebook/musicgen-small",
+            "model": "facebook/musicgen-medium",
         }))
 
         _log(f"Music saved: {out_path.name} ({out_path.stat().st_size // 1024}KB)")

@@ -209,7 +209,22 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     no_music_path = output_dir / f"vlog_v{version}_nomix.mp4"
     _concatenate(all_clips, no_music_path)
 
-    # Phase 3: Add music if specified
+    # Phase 3: Generate music if auto, then mix
+    if edl.music_mode == "auto" and not (edl.music and Path(edl.music.file).exists()):
+        from .music import fetch_music
+        ws = cfg.workspace
+        music_cache = ws.parent.parent / "music" if ws.parent.name == "runs" else ws / "music"
+        video_dur = _probe_duration(no_music_path)
+        print(f"Generating {video_dur:.0f}s background music via MusicGen...")
+        track_path = fetch_music(
+            trip_type=edl.trip_type, style=edl.style,
+            target_duration=int(video_dur),
+            cache_dir=music_cache,
+        )
+        if track_path:
+            from .edl import MusicTrack
+            edl.music = MusicTrack(file=str(track_path))
+
     if edl.music and Path(edl.music.file).exists():
         print("Mixing music...")
         _add_music(no_music_path, edl.music, output_path)

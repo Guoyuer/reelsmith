@@ -273,20 +273,23 @@ def plan(
                          style=style, target_duration=target_duration,
                          trip_type=trip_type)
 
-    # music_file: path = use that file, "auto" = generate via MusicGen, "" or None = skip
+    # Set metadata fields (API planner doesn't set these)
+    edl.trip_type = trip_type
+    edl.style = style
+    edl.intro_style = edl.intro_style or "title_card"
+    edl.outro_style = edl.outro_style or "fade_title"
+    if not edl.date_range:
+        all_dates = sorted({d["date"] for d in preprocessed.get("timeline", [])})
+        edl.date_range = _format_date_range(all_dates) if all_dates else ""
+
+    # Store music intent — actual generation happens in assemble
     if music_file and music_file != "auto" and Path(music_file).exists():
-        _log(f"Attaching music: {music_file}")
+        _log(f"Attaching music file: {music_file}")
         edl.music = MusicTrack(file=music_file)
+        edl.music_mode = "file"
     elif music_file == "auto":
-        from .music import fetch_music
-        music_cache = cfg.workspace.parent.parent / "music" if cfg.workspace.parent.name == "runs" else cfg.workspace / "music"
-        track_path = fetch_music(
-            trip_type=trip_type, style=style,
-            target_duration=target_duration,
-            cache_dir=music_cache, log_fn=_log,
-        )
-        if track_path:
-            edl.music = MusicTrack(file=str(track_path))
+        edl.music_mode = "auto"
+        _log("Music mode: auto (will generate in assemble step)")
 
     from .iterate import _find_latest_version, _save_edl
     version = _find_latest_version(cfg) + 1
@@ -572,6 +575,8 @@ def _plan_auto(
         title=title,
         target_duration=target_duration,
         segments=segments,
+        trip_type=trip_type,
+        style=style,
         intro_style="title_card",
         outro_style="fade_title",
         date_range=_format_date_range(all_dates) if all_dates else "",
