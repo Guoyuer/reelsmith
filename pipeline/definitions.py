@@ -491,6 +491,7 @@ def variations_job() -> None:
 full_pipeline = dg.define_asset_job(
     name="full_pipeline",
     selection=dg.AssetSelection.groups("vlog"),
+    executor_def=dg.in_process_executor,
 )
 
 defs = dg.Definitions(

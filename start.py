@@ -338,7 +338,16 @@ def setup() -> bool:
         ])
 
     # --- Step 5: Ollama models ---
-    print("\n[6/6] Pulling Ollama models (if needed)...")
+    # Read VISION_MODEL from .env to ensure we pull the right model
+    vision_model = "llava:7b"
+    env_path = SCRIPT_DIR / ".env"
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            if line.startswith("VISION_MODEL="):
+                vision_model = line.split("=", 1)[1].strip()
+    required_models = [vision_model, "llama3:8b"]
+
+    print(f"\n[6/6] Pulling Ollama models: {', '.join(required_models)}...")
     ollama_cmd = ollama or shutil.which("ollama") or "ollama"
     try:
         # Start Ollama if not running
@@ -352,7 +361,7 @@ def setup() -> bool:
 
         check = subprocess.run([ollama_cmd, "list"], capture_output=True, text=True)
         models_output = check.stdout or ""
-        for model in ["llava:7b", "llama3:8b"]:
+        for model in required_models:
             if model not in models_output:
                 print(f"  Pulling {model} (this may take a while)...")
                 subprocess.run([ollama_cmd, "pull", model])

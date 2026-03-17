@@ -80,6 +80,33 @@ def _load_existing_analysis(path: Path) -> dict[int, dict]:
     return existing
 
 
+def _check_ollama_model(cfg: Config, log_fn) -> None:
+    """Verify the Ollama vision model is available. Logs clear error if not."""
+    import httpx
+    try:
+        resp = httpx.post(
+            f"{cfg.ollama_base}/api/show",
+            json={"name": cfg.vision_model},
+            timeout=10,
+        )
+        if resp.status_code == 404:
+            log_fn(
+                f"ERROR: Ollama model '{cfg.vision_model}' not found! "
+                f"Run: ollama pull {cfg.vision_model}"
+            )
+            raise RuntimeError(
+                f"Ollama model '{cfg.vision_model}' not found. "
+                f"Pull it with: ollama pull {cfg.vision_model}"
+            )
+        resp.raise_for_status()
+        log_fn(f"Vision model: {cfg.vision_model} (OK)")
+    except httpx.ConnectError:
+        log_fn(
+            f"WARNING: Cannot connect to Ollama at {cfg.ollama_base}. "
+            f"Vision analysis will be skipped."
+        )
+
+
 def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
     """Analyze items from preprocessed.json — tier A+B with full prompt, tier C quick scan."""
     _log = log_fn or print
@@ -88,6 +115,7 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
     analysis_path = cfg.workspace / "analysis.json"
 
     _manage_pid(cfg.workspace)
+    _check_ollama_model(cfg, _log)
 
     preprocessed = json.loads(preprocessed_path.read_text())
     items = preprocessed["items"]
