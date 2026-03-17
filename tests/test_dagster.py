@@ -126,6 +126,7 @@ class TestAnalyzeProgressCallback:
         assert len(callback_calls) >= 1
 
 
+@pytest.mark.integration
 class TestAssembleProgressCallback:
     def test_callback_invoked(self, tmp_path):
         """assemble() should invoke progress_callback when provided."""

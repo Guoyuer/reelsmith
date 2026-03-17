@@ -104,24 +104,25 @@ class TestProbeDimensions:
 
 
 class TestHeicConversion:
-    def test_heic_conversion_uses_sips(self, tmp_path: Path):
-        """HEIC files should be converted via sips, not ffmpeg directly."""
+    def test_heic_conversion_called_for_heic(self, tmp_path: Path):
+        """HEIC files should be converted to JPEG before rendering."""
         heic_file = tmp_path / "photo.heic"
         heic_file.write_bytes(b"\x00" * 100)
         out_file = tmp_path / "clip.mp4"
 
-        calls = []
+        convert_calls = []
+
+        def mock_convert(source, dest_dir=None):
+            convert_calls.append(source)
+            jpeg = (dest_dir or source.parent) / f"_converted_{source.stem}.jpg"
+            jpeg.write_bytes(b"\xff\xd8" + b"\x00" * 98)
+            return jpeg
 
         def mock_run(cmd, **kwargs):
-            calls.append(cmd)
             result = MagicMock()
             result.returncode = 0
-            result.stdout = "0x0\n"  # probe will return 0,0
+            result.stdout = "0x0\n"
             result.stderr = ""
-            # Simulate sips creating the jpeg
-            if cmd[0] == "sips":
-                jpeg_path = Path(cmd[-1])
-                jpeg_path.write_bytes(b"\xff\xd8" + b"\x00" * 98)
             return result
 
         item = EditItem(
@@ -130,13 +131,11 @@ class TestHeicConversion:
             display_duration=3.0,
         )
 
-        with patch("pipeline.assemble.run_subprocess", side_effect=mock_run), \
-             patch("pipeline.media_utils.run_subprocess", side_effect=mock_run):
+        with patch("pipeline.assemble.convert_heic", side_effect=mock_convert), \
+             patch("pipeline.assemble.run_subprocess", side_effect=mock_run):
             _render_photo(item, out_file, 3840, 2160, 60)
 
-        sips_calls = [c for c in calls if c[0] == "sips"]
-        assert len(sips_calls) == 1, "sips should be called exactly once for HEIC conversion"
-        assert sips_calls[0][3] == "jpeg"
+        assert len(convert_calls) == 1, "convert_heic should be called for HEIC files"
 
 
 # -----------------------------------------------------------------------

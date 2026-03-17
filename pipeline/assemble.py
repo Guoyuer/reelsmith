@@ -5,7 +5,10 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-import cv2
+try:
+    import cv2
+except ImportError:
+    cv2 = None  # Face detection disabled; falls back to center crop
 from tqdm import tqdm
 
 from .config import Config
@@ -23,8 +26,11 @@ _YUNET_MODEL = Path(__file__).parent / "face_detection_yunet_2023mar.onnx"
 def _detect_face_center(path: Path) -> tuple[float, float] | None:
     """Detect faces and return their center as (cx_ratio, cy_ratio) in 0-1 range.
 
-    Uses OpenCV's YuNet DNN detector. Returns None if no faces found.
+    Uses OpenCV's YuNet DNN detector. Returns None if no faces found or cv2
+    is not installed.
     """
+    if cv2 is None:
+        return None
     img = cv2.imread(str(path))
     if img is None:
         return None

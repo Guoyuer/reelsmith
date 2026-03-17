@@ -50,7 +50,10 @@ def strip_markdown_fences(text: str) -> str:
 
 
 def convert_heic(source: Path, dest_dir: Path | None = None) -> Path:
-    """Convert a HEIC/HEIF image to JPEG via macOS sips.
+    """Convert a HEIC/HEIF image to JPEG.
+
+    Tries backends in order: pillow-heif (cross-platform), macOS sips,
+    ImageMagick. At least one must be available.
 
     Parameters
     ----------
@@ -68,22 +71,48 @@ def convert_heic(source: Path, dest_dir: Path | None = None) -> Path:
     Raises
     ------
     RuntimeError
-        If sips fails and no JPEG is produced.
+        If no backend succeeds.
     """
+    import shutil
+
     dest_dir = dest_dir or source.parent
     jpeg_path = dest_dir / f"_converted_{source.stem}.jpg"
     if jpeg_path.exists():
         return jpeg_path
 
-    run_subprocess(
-        ["sips", "-s", "format", "jpeg",
-         str(source), "--out", str(jpeg_path)],
-        capture_output=True,
-    )
+    # Try 1: pillow-heif + Pillow (cross-platform, pip install pillow-heif)
+    try:
+        import pillow_heif
+        pillow_heif.register_heif_opener()
+        from PIL import Image
+        img = Image.open(source)
+        img.save(jpeg_path, "JPEG", quality=92)
+        if jpeg_path.exists():
+            return jpeg_path
+    except ImportError:
+        pass
 
-    if not jpeg_path.exists():
-        raise RuntimeError(f"HEIC conversion failed for {source}")
-    return jpeg_path
+    # Try 2: macOS sips (no extra deps needed on Mac)
+    if shutil.which("sips"):
+        run_subprocess(
+            ["sips", "-s", "format", "jpeg",
+             str(source), "--out", str(jpeg_path)],
+            capture_output=True,
+        )
+        if jpeg_path.exists():
+            return jpeg_path
+
+    # Try 3: ImageMagick (cross-platform, if installed)
+    magick = shutil.which("magick") or shutil.which("convert")
+    if magick:
+        run_subprocess([magick, str(source), str(jpeg_path)], capture_output=True)
+        if jpeg_path.exists():
+            return jpeg_path
+
+    raise RuntimeError(
+        f"HEIC conversion failed for {source}. "
+        "Install pillow-heif (`pip install pillow-heif`) or ImageMagick."
+    )
 
 
 def extract_frames(

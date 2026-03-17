@@ -41,7 +41,7 @@ class TestStripFencesPlain:
 
 class TestConvertHeicCallsSips:
     def test_convert_heic_calls_sips(self, tmp_path: Path):
-        """convert_heic should invoke sips to produce a JPEG."""
+        """convert_heic should fall back to sips when pillow-heif is missing."""
         heic_file = tmp_path / "photo.heic"
         heic_file.write_bytes(b"\x00" * 100)
 
@@ -51,13 +51,14 @@ class TestConvertHeicCallsSips:
             calls.append(cmd)
             result = MagicMock()
             result.returncode = 0
-            # Simulate sips creating the output jpeg
             if cmd[0] == "sips":
                 out_path = Path(cmd[-1])
                 out_path.write_bytes(b"\xff\xd8" + b"\x00" * 50)
             return result
 
-        with patch("pipeline.media_utils.run_subprocess", side_effect=mock_run):
+        with patch("shutil.which", side_effect=lambda x: "/usr/bin/sips" if x == "sips" else None), \
+             patch("pipeline.media_utils.run_subprocess", side_effect=mock_run), \
+             patch.dict("sys.modules", {"pillow_heif": None}):
             jpeg = convert_heic(heic_file)
 
         sips_calls = [c for c in calls if c[0] == "sips"]

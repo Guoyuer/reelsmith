@@ -14,10 +14,13 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-import pillow_heif
 from PIL import Image
 
-pillow_heif.register_heif_opener()
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except ImportError:
+    pass  # HEIC support unavailable; handled by convert_heic fallback chain
 
 from .config import Config
 from .edl import EDL, EditItem, MusicTrack, Segment, TextOverlay

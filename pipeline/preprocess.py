@@ -7,12 +7,15 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pillow_heif
 from PIL import Image
 
-from .config import Config
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except ImportError:
+    pass  # HEIC support unavailable; handled by convert_heic fallback chain
 
-pillow_heif.register_heif_opener()
+from .config import Config
 
 SGT = timezone(timedelta(hours=8))
 
@@ -192,8 +195,13 @@ def _cluster_items(items: list[dict], log_fn) -> list[list[dict]]:
     Two-pass approach:
     1. Group by time proximity (120s) + same location (when available)
     2. Within each time group, merge items with high visual similarity (HSV histogram)
+
+    Falls back to time-only grouping if OpenCV is not installed.
     """
-    import cv2
+    try:
+        import cv2 as _cv2
+    except ImportError:
+        _cv2 = None
 
     # Pass 1: time-based pre-grouping (fast, reduces O(n²) comparisons)
     sorted_items = sorted(items, key=lambda x: x.get("takentime") or 0)
@@ -215,6 +223,11 @@ def _cluster_items(items: list[dict], log_fn) -> list[list[dict]]:
     clusters: list[list[dict]] = []
     for group in time_groups:
         if len(group) <= 1:
+            clusters.append(group)
+            continue
+
+        if _cv2 is None:
+            # No OpenCV — treat entire time group as one cluster
             clusters.append(group)
             continue
 
@@ -240,7 +253,7 @@ def _cluster_items(items: list[dict], log_fn) -> list[list[dict]]:
             for j in range(i + 1, n):
                 if hists[j] is None:
                     continue
-                sim = cv2.compareHist(hists[i], hists[j], cv2.HISTCMP_CORREL)
+                sim = _cv2.compareHist(hists[i], hists[j], _cv2.HISTCMP_CORREL)
                 if sim > 0.75:
                     pi, pj = find(i), find(j)
                     if pi != pj:
@@ -258,7 +271,10 @@ def _cluster_items(items: list[dict], log_fn) -> list[list[dict]]:
 
 def _compute_hist(path: Path):
     """Compute HSV color histogram for an image. Returns None on failure."""
-    import cv2
+    try:
+        import cv2
+    except ImportError:
+        return None
     try:
         # Try OpenCV first (fast, handles JPG/PNG)
         img = cv2.imread(str(path))
