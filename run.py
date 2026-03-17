@@ -157,7 +157,7 @@ def full(ctx, from_date, to_date, country, first_level, district, person_ids,
         plan_config["music_file"] = music
     config["ops"]["plan"] = {"config": plan_config}
     config["ops"]["assemble"] = {"config": {
-        "width": width, "height": height, "fps": fps,
+        "width": width, "height": height, "fps": fps, "skip_broken": True,
     }}
 
     _submit("full_pipeline", _run_name(ctx), config)
