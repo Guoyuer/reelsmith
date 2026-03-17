@@ -421,7 +421,7 @@ def assemble(
 
     io = context.resources.io_manager
     cfg = io.config
-    version = config.version if config.version > 0 else _find_latest_version(cfg) + 1
+    version = config.version if config.version > 0 else _find_latest_version(cfg)
 
     t0 = time.monotonic()
     output_path = do_assemble(
