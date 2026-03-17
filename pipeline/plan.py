@@ -273,9 +273,20 @@ def plan(
                          style=style, target_duration=target_duration,
                          trip_type=trip_type)
 
-    if music_file and Path(music_file).exists():
+    # music_file: path = use that file, "auto" = generate via MusicGen, "" or None = skip
+    if music_file and music_file != "auto" and Path(music_file).exists():
         _log(f"Attaching music: {music_file}")
         edl.music = MusicTrack(file=music_file)
+    elif music_file == "auto":
+        from .music import fetch_music
+        music_cache = cfg.workspace.parent.parent / "music" if cfg.workspace.parent.name == "runs" else cfg.workspace / "music"
+        track_path = fetch_music(
+            trip_type=trip_type, style=style,
+            target_duration=target_duration,
+            cache_dir=music_cache, log_fn=_log,
+        )
+        if track_path:
+            edl.music = MusicTrack(file=str(track_path))
 
     from .iterate import _find_latest_version, _save_edl
     version = _find_latest_version(cfg) + 1

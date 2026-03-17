@@ -106,8 +106,8 @@ def resume(ctx):
 @click.option("--trip-type", default="family",
               type=click.Choice(["family", "solo", "food", "adventure", "architecture", "general"]),
               help="Trip type for scoring and narrative style")
-@click.option("--music", default=None, type=click.Path(exists=True),
-              help="Background music file (mp3/m4a/wav)")
+@click.option("--music", default=None,
+              help="Background music: 'auto' to generate via MusicGen, or path to mp3/wav file")
 @click.option("--width", default=3840, type=int, help="Output width (default: 3840)")
 @click.option("--height", default=2160, type=int, help="Output height (default: 2160)")
 @click.option("--fps", default=60, type=int, help="Output FPS (default: 60)")
