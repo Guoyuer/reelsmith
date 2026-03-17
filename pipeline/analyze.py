@@ -13,7 +13,10 @@ from tqdm import tqdm
 
 from .config import Config
 from .llm import ollama_json
-from .media_utils import convert_heic, extract_frames, run_subprocess
+from .media_utils import (
+    convert_heic, extract_frames, run_subprocess,
+    detect_scenes, extract_scene_keyframe, classify_motion,
+)
 
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
@@ -50,6 +53,19 @@ Scoring guide for visual_quality:
   9-10: great framing, sharp focus, good lighting, interesting angle
   5-8: decent photo, clear subject, acceptable lighting
   1-4: blurry, dark, overexposed, bad framing, obstructed by finger/object"""
+
+VISION_PROMPT_VIDEO_SCENE = """\
+This is a keyframe from a travel video clip. Describe what's happening for a vlog editor. Respond in JSON only:
+{
+  "description": "2-3 sentences: what's visible in this moment, the setting, any action or movement implied, what makes this worth including in a vlog",
+  "setting": "specific place or setting visible",
+  "mood": "emotional tone or visual atmosphere",
+  "activity": "what's happening — any visible action, movement, or activity",
+  "scene_type": "<landmark, nature, food, street, building, activity, people, transport, nightscape, beach, market, other>",
+  "visual_quality": <1-10>,
+  "vlog_worthy": <true or false>,
+  "issues": "any problems: blurry, too dark, overexposed, obstructed, or empty string if none"
+}"""
 
 VISION_PROMPT_SCENE = """\
 This is a travel/scenery photo. Describe it in detail for a vlog editor. Respond in JSON only:
@@ -147,7 +163,7 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
 
     results = []
     # Phase 1: Collect entries, check caches, identify items needing vision
-    needs_vision: list[tuple[int, dict, Path, str]] = []  # (index, entry, target, prompt)
+    needs_vision: list[tuple[int, dict, Path, str, dict | None]] = []  # (index, entry, target, prompt, scene_entry)
 
     for i, item in enumerate(to_analyze, 1):
         item_id = item["id"]
@@ -191,22 +207,52 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
             except (json.JSONDecodeError, KeyError):
                 pass
 
-        # For video, extract keyframes
+        # For video, detect scenes and extract per-scene keyframes
         if is_video:
-            kf_paths = extract_frames(local_path, cfg.keyframes_dir, prefix=str(item_id), count=5)
-            entry["keyframe_paths"] = [str(p) for p in kf_paths]
-            vision_target = kf_paths[0] if kf_paths else None
+            _log(f"[{i}/{len(to_analyze)}] {item['filename']} — detecting scenes...")
+            scenes = detect_scenes(local_path)
+            entry["scenes"] = []
             transcript = _transcribe(local_path, cfg)
             if transcript:
                 entry["transcript"] = transcript
+
+            # Also keep legacy keyframes for backward compat
+            kf_paths = extract_frames(local_path, cfg.keyframes_dir, prefix=str(item_id), count=5)
+            entry["keyframe_paths"] = [str(p) for p in kf_paths]
+
+            # Per-scene analysis
+            for scene in scenes:
+                kf = extract_scene_keyframe(local_path, scene, cfg.keyframes_dir, str(item_id))
+                motion = classify_motion(local_path, scene["start"], min(scene["duration"], 5))
+                scene_entry = {
+                    "scene_index": scene["scene_index"],
+                    "start": scene["start"],
+                    "end": scene["end"],
+                    "duration": scene["duration"],
+                    "motion": motion,
+                    "keyframe": str(kf) if kf else None,
+                }
+                entry["scenes"].append(scene_entry)
+                # Queue scene keyframe for vision analysis
+                if kf and kf.exists():
+                    prompt = VISION_PROMPT_FAMILY if item["tier"] in ("A", "B") else VISION_PROMPT_VIDEO_SCENE
+                    needs_vision.append((i, entry, kf, prompt, scene_entry))
+
+            if not entry["scenes"]:
+                # Fallback: use first keyframe like before
+                vision_target = kf_paths[0] if kf_paths else None
+                prompt = VISION_PROMPT_FAMILY if item["tier"] in ("A", "B") else VISION_PROMPT_SCENE
+                if vision_target and vision_target.exists():
+                    needs_vision.append((i, entry, vision_target, prompt, None))
+                else:
+                    results.append(entry)
         else:
             vision_target = local_path
-
-        prompt = VISION_PROMPT_FAMILY if item["tier"] in ("A", "B") else VISION_PROMPT_SCENE
-        if vision_target and vision_target.exists():
-            needs_vision.append((i, entry, vision_target, prompt))
-        else:
-            results.append(entry)
+            prompt = VISION_PROMPT_FAMILY if item["tier"] in ("A", "B") else VISION_PROMPT_SCENE
+            if vision_target and vision_target.exists():
+                needs_vision.append((i, entry, vision_target, prompt, None))
+            else:
+                results.append(entry)
 
     _log(f"Cache resolved: {len(results)} cached, {len(needs_vision)} need vision analysis")
 
@@ -215,28 +261,47 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
     n_workers = min(4, len(needs_vision)) if needs_vision else 1
     done_count = 0
     lock = threading.Lock()
+    # Disable tqdm when stderr is not a TTY (e.g. inside Dagster compute logs)
+    # — tqdm's status_printer flushes stderr which causes BrokenPipeError
+    import sys
+    use_tqdm = hasattr(sys.stderr, "fileno") and sys.stderr.isatty()
     pbar = tqdm(total=len(needs_vision), desc="Analyzing", unit="item",
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
+                disable=not use_tqdm)
 
     def _process_item(args):
-        idx, entry, target, prompt = args
+        idx, entry, target, prompt, scene_entry = args
         vision = _analyze_image(target, cfg, prompt)
         if vision:
-            entry["vision"] = vision
+            if scene_entry is not None:
+                # Per-scene vision — attach to the scene entry
+                scene_entry["vision"] = vision
+            else:
+                # Photo or fallback video — attach to the main entry
+                entry["vision"] = vision
         # Save to shared per-file cache
         cache_entry = {k: v for k, v in entry.items()
-                       if k in ("vision", "keyframe_paths", "transcript")}
+                       if k in ("vision", "keyframe_paths", "transcript", "scenes")}
         if cache_entry:
             cf = cache_dir / f"{entry['id']}.json"
             cf.write_text(json.dumps(cache_entry, indent=2))
         return idx, entry
 
+    seen_ids: set[int] = {r["id"] for r in results}  # track which entries already in results
+
     with ThreadPoolExecutor(max_workers=n_workers) as executor:
         futures = {executor.submit(_process_item, args): args for args in needs_vision}
         for future in as_completed(futures):
             idx, entry = future.result()
-            results.append(entry)
-            status = "analyzed" if entry.get("vision") else "no vision"
+            # Only add entry once (videos may have multiple scene vision tasks)
+            if entry["id"] not in seen_ids:
+                results.append(entry)
+                seen_ids.add(entry["id"])
+            scene_info = future.result  # already unpacked above
+            has_vision = entry.get("vision") or any(
+                s.get("vision") for s in entry.get("scenes", [])
+            )
+            status = "analyzed" if has_vision else "pending scenes"
             _log(f"[{idx}/{len(to_analyze)}] {entry['filename']} — {status}")
             with lock:
                 done_count += 1
@@ -248,6 +313,18 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
                     analysis_path.write_text(json.dumps(results, indent=2))
 
     pbar.close()
+
+    # For videos with per-scene vision, set top-level vision from best scene
+    for entry in results:
+        if entry.get("scenes") and not entry.get("vision"):
+            best_scene = max(
+                (s for s in entry["scenes"] if s.get("vision")),
+                key=lambda s: s["vision"].get("visual_quality", 0),
+                default=None,
+            )
+            if best_scene:
+                entry["vision"] = best_scene["vision"]
+
     # Final save
     analysis_path.write_text(json.dumps(results, indent=2))
     (cfg.workspace / "analyze.pid").unlink(missing_ok=True)

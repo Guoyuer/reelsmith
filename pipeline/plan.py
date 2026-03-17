@@ -640,7 +640,20 @@ highlight reels from trip photos by selecting and sequencing the best
 moments into a cinematic narrative.
 
 You will receive scored photo/video candidates organized by day/time/location.
+Each item includes rich metadata: description, setting, mood, activity, quality
+scores, time gaps between shots, and any issues (blurry, finger blocking, etc.).
 Your job: select the best items and arrange them into an EDL (Edit Decision List).
+
+## Understanding the input data
+
+- **Tiers**: A = 2+ family members, B = 1 family member, C = scenery/no family
+- **Scores**: togetherness (1-10), genuine_emotion (1-10), visual_quality (1-10)
+- **Time gaps** like [+3m] or [+2h05m] show how much time passed since the
+  previous photo — use these to feel the rhythm of the day and identify
+  distinct moments vs burst shots
+- **ISSUES field**: skip items with issues like "finger blocking", "eyes closed"
+- **setting/mood/activity**: use these to craft narrative flow and avoid
+  repetitive sequences (e.g., don't place 3 "posing at landmark" shots in a row)
 
 ## Narrative principles
 
@@ -651,23 +664,41 @@ Your job: select the best items and arrange them into an EDL (Edit Decision List
 {guidance}
 
 3. **Rhythm and pacing**: Alternate between wide establishing shots and intimate
-   moments. Vary display_duration: shorter for action/movement (3s), longer for
-   emotional beats (5s). Use Ken Burns effects that match the mood — slow
-   zoom-in for intimate moments, pan for landscapes.
+   moments. Use time gaps to identify natural scene breaks — a 2-hour gap means
+   a completely different moment. Vary display_duration: shorter for action (3s),
+   longer for emotional beats (5-6s). Match Ken Burns effects to content — slow
+   zoom-in for intimate family moments, pan for landscapes and landmarks.
 
-4. **Visual storytelling**: Use story_beat and description to create variety —
-   don't follow 3 similar shots with another of the same type. Each chapter
-   should open with a scene-setter and close with its best moment.
+4. **Visual storytelling**: Use setting and mood fields to create visual variety.
+   Don't follow 3 similar shots with another of the same type. Each segment
+   should open with a scene-setter and close with its best moment. Prefer
+   items where the mood field suggests strong atmosphere.
 
-5. **Text overlays**: Add location names when the setting changes and dates
-   at the start of each new day. Keep text minimal — let the visuals speak.
+5. **Text overlays**: Add location names when the setting changes and day labels
+   at the start of each new day. Use the setting field for more specific overlay
+   text when appropriate (e.g., "Marina Bay at Golden Hour" vs just "Marina Bay").
+   Keep text minimal — let the visuals speak.
+
+6. **Smart selection**: You have access to ALL candidates. Be selective — skip
+   mediocre items even if a chapter has few options. A shorter, tighter vlog
+   beats one padded with weak shots. Skip items with ISSUES flags.
+
+7. **Video moments**: Videos include per-scene breakdowns with timestamps,
+   motion type, and descriptions. Select the best scene within a video using
+   start_time and end_time. Motion types guide editing: "static" works for
+   establishing shots, "smooth_motion"/"pan" for transitions, "handheld" for
+   action energy. Don't use the whole video — pick the best moment.
+
+8. **People**: When person names are listed, use them to reason about who
+   appears where. Prioritize variety — show different family members, not
+   the same person in every shot.
 
 ## Technical rules
 
-- display_duration: 3-5s per photo, up to 8s for video clips (vary for rhythm)
-- Segments: one per location/chapter, 3-8 items each
-- Transitions: crossfade within segments, fade_black between segments
-- Skip chapters with no good candidates
+- display_duration: 3-6s per photo, 4-10s for video clips (vary for rhythm)
+- For video items: set start_time and end_time to select the best scene
+- Segments: group by location or narrative beat, no fixed size limit
+- Transitions: crossfade within segments, fade_black between major location/time changes
 - CRITICAL: source_file must be the EXACT local_path value from the input data
 
 Output valid JSON only:
@@ -679,12 +710,15 @@ Output valid JSON only:
   "segments": [
     {{
       "name": "Chapter Name",
+      "narrative_rationale": "Why these items were chosen and what story beat this segment serves",
       "items": [
         {{
           "source_file": "<exact local_path>",
-          "media_type": "photo",
-          "display_duration": 3.0-5.0,
-          "effect": "ken_burns_in|ken_burns_out|ken_burns_left|ken_burns_right|static",
+          "media_type": "photo|video",
+          "display_duration": 3.0-10.0,
+          "start_time": null or <seconds for video trim start>,
+          "end_time": null or <seconds for video trim end>,
+          "effect": "ken_burns_in|ken_burns_out|ken_burns_left|ken_burns_right|static|none",
           "text_overlay": null or {{"text": "string", "position": "bottom", "font_size": 48}}
         }}
       ],
@@ -696,16 +730,52 @@ Output valid JSON only:
 }}"""
 
 
+def _claude_call(client, system: str, user: str, log_fn, label: str = ""):
+    """Make a Claude API call with extended thinking. Returns (thinking, content, usage)."""
+    _log = log_fn or print
+    _log(f"Calling Claude API ({label}, extended thinking enabled)...")
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=16000,
+        temperature=1,  # required for extended thinking
+        thinking={
+            "type": "enabled",
+            "budget_tokens": 10000,
+        },
+        system=system,
+        messages=[{"role": "user", "content": user}],
+    )
+
+    thinking_text = ""
+    content = ""
+    for block in response.content:
+        if block.type == "thinking":
+            thinking_text = block.thinking
+        elif block.type == "text":
+            content = block.text
+
+    _log(f"API response ({label}): {response.usage.input_tokens} in, "
+         f"{response.usage.output_tokens} out, stop={response.stop_reason}")
+    if thinking_text:
+        _log(f"=== THINKING ({label}, {len(thinking_text)} chars) ===")
+        _log(thinking_text)
+        _log("=== END THINKING ===")
+
+    return thinking_text, content, response.usage
+
+
 def _plan_api(
     cfg: Config, preprocessed: dict, analysis_by_id: dict,
     analysis_items: list[dict],
     style: str, target_duration: int, focus: str,
     trip_type: str = "family", log_fn=None,
 ) -> EDL:
-    """Use Claude API to generate an EDL with narrative awareness."""
+    """Multi-pass Claude API planning: narrative arc → shot selection → self-review."""
     import anthropic
 
     _log = log_fn or print
+    client = anthropic.Anthropic()
 
     _log("Building chapters prompt from preprocessed + analysis data...")
     chapters_text = _build_chapters_prompt(preprocessed, analysis_by_id)
@@ -715,25 +785,132 @@ def _plan_api(
     days = preprocessed.get("timeline", [])
     locations: list[str] = []
     n_candidates = 0
+    n_videos = 0
     for day in days:
         for ch in day.get("chapters", []):
             loc = ch.get("location", "")
             if loc and loc != "unknown" and loc not in locations:
                 locations.append(loc)
-            n_candidates += ch.get("count", len(ch.get("item_ids", [])))
+            for item_id in ch.get("item_ids", []):
+                n_candidates += 1
+                a = analysis_by_id.get(item_id)
+                if a and a.get("media_type") == "video":
+                    n_videos += 1
 
     trip_summary = (
         f"Trip overview: {len(days)} day{'s' if len(days) != 1 else ''}, "
-        f"{len(locations)} locations, {n_candidates} candidate items.\n"
+        f"{len(locations)} locations, {n_candidates} candidate items"
+        f" ({n_videos} videos).\n"
         f"Locations visited: {', '.join(locations)}"
     )
-    _log(f"Trip summary: {len(days)} days, {len(locations)} locations, {n_candidates} candidates")
+    _log(f"Trip summary: {len(days)} days, {len(locations)} locations, "
+         f"{n_candidates} candidates ({n_videos} videos)")
 
     n_items = target_duration // 4
     trip_label = f"{trip_type} trip" if trip_type != "general" else "trip"
     family_line = ""
     if trip_type == "family" and preprocessed.get("family_names"):
         family_line = f"\nFamily: {', '.join(preprocessed['family_names'])}"
+
+    # ------------------------------------------------------------------
+    # Pass 1: Narrative architect — design the story arc
+    # ------------------------------------------------------------------
+    _log("=== PASS 1: Narrative Arc Design ===")
+
+    arc_system = f"""\
+You are a professional travel vlog narrative designer. Given a trip's structure
+(days, locations, photo/video counts, moods), design the emotional arc and
+chapter structure for a {style} highlight reel.
+
+Output JSON only:
+{{
+  "title": "vlog title",
+  "arc_description": "1-2 sentences describing the overall narrative arc",
+  "chapters": [
+    {{
+      "name": "Chapter Name",
+      "theme": "emotional theme (e.g. 'excited arrival', 'peaceful morning', 'joyful discovery')",
+      "target_items": <how many items to select>,
+      "pacing": "fast|medium|slow",
+      "transition_to_next": "how to transition to the next chapter"
+    }}
+  ]
+}}"""
+
+    # Build a lightweight summary for the arc pass (no full descriptions)
+    arc_summary_lines = []
+    for day in preprocessed["timeline"]:
+        arc_summary_lines.append(f"\n=== {day['day_name']} {day['date']} ===")
+        for chapter in day["chapters"]:
+            loc = chapter["location"]
+            block = chapter["time_block"]
+            item_count = len(chapter.get("item_ids", []))
+            # Gather mood summary
+            moods = set()
+            activities = set()
+            for item_id in chapter["item_ids"]:
+                a = analysis_by_id.get(item_id)
+                if a and a.get("vision"):
+                    m = a["vision"].get("mood", "")
+                    if m:
+                        moods.add(m)
+                    act = a["vision"].get("activity", "")
+                    if act:
+                        activities.add(act)
+            mood_str = ", ".join(list(moods)[:3]) if moods else "unknown"
+            act_str = ", ".join(list(activities)[:3]) if activities else ""
+            line = f"  [{block.upper()}] {loc} — {item_count} items, moods: {mood_str}"
+            if act_str:
+                line += f", activities: {act_str}"
+            arc_summary_lines.append(line)
+
+    arc_user = f"""\
+Design the narrative arc for a {style} {trip_label} vlog.
+
+{trip_summary}
+{family_line}
+
+**Brief**: {target_duration}s (~{target_duration // 60}m{target_duration % 60:02d}s) highlight reel.
+Focus: {focus}.
+Target ~{n_items} items total.
+
+**Trip structure:**
+{"".join(arc_summary_lines)}
+
+Design chapters that build from curiosity → joy → warmth → nostalgia."""
+
+    _, arc_content, _ = _claude_call(client, arc_system, arc_user, _log, "pass 1: arc")
+    _log(f"=== ARC RESPONSE ===\n{arc_content}\n=== END ARC ===")
+
+    from .media_utils import strip_markdown_fences
+    arc_content = strip_markdown_fences(arc_content)
+    try:
+        narrative_arc = json.loads(arc_content)
+    except json.JSONDecodeError:
+        _log("Failed to parse narrative arc, proceeding with single-pass fallback")
+        narrative_arc = None
+
+    # ------------------------------------------------------------------
+    # Pass 2: Shot selection — pick items using the narrative arc
+    # ------------------------------------------------------------------
+    _log("=== PASS 2: Shot Selection ===")
+
+    system_prompt = _api_system_prompt(trip_type)
+
+    arc_guidance = ""
+    if narrative_arc:
+        arc_guidance = f"""
+**Narrative arc** (designed in previous pass — follow this structure):
+Title: {narrative_arc.get('title', '')}
+Arc: {narrative_arc.get('arc_description', '')}
+Chapters:
+"""
+        for ch in narrative_arc.get("chapters", []):
+            arc_guidance += (
+                f"  - {ch.get('name', '?')}: theme={ch.get('theme', '?')}, "
+                f"items={ch.get('target_items', '?')}, pacing={ch.get('pacing', '?')}, "
+                f"transition={ch.get('transition_to_next', '?')}\n"
+            )
 
     user_message = f"""\
 Create a {style} {trip_label} vlog EDL.
@@ -743,14 +920,13 @@ Create a {style} {trip_label} vlog EDL.
 **Brief**: {target_duration}s (~{target_duration // 60}m{target_duration % 60:02d}s) highlight reel.
 Focus: {focus}.{family_line}
 Select ~{n_items} items (at ~4s each = {n_items * 4}s).
-
+{arc_guidance}
 **Scored candidates by day/location** (use the `path:` values as source_file):
 {chapters_text}
 
+For videos with scenes listed, select the best scene using start_time/end_time.
 Craft a narrative that tells the story of this trip — not just the best-scored
 photos in order, but a sequence that builds emotion and feels like a journey."""
-
-    system_prompt = _api_system_prompt(trip_type)
 
     _log(f"=== SYSTEM PROMPT ({len(system_prompt)} chars) ===")
     _log(system_prompt)
@@ -758,49 +934,106 @@ photos in order, but a sequence that builds emotion and feels like a journey."""
     _log(user_message)
     _log("=== END PROMPTS ===")
 
-    _log("Calling Claude API (model=claude-sonnet-4-20250514, max_tokens=8192)...")
-    client = anthropic.Anthropic()
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=8192,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_message}],
-    )
+    _, edl_content, _ = _claude_call(client, system_prompt, user_message, _log, "pass 2: selection")
 
-    content = response.content[0].text
-    _log(f"API response: {response.usage.input_tokens} in, {response.usage.output_tokens} out, "
-         f"stop_reason={response.stop_reason}")
-
-    _log(f"=== RAW API RESPONSE ({len(content)} chars) ===")
-    _log(content)
+    _log(f"=== RAW EDL RESPONSE ({len(edl_content)} chars) ===")
+    _log(edl_content)
     _log("=== END RESPONSE ===")
 
-    from .media_utils import strip_markdown_fences
-    content = strip_markdown_fences(content)
+    edl_content = strip_markdown_fences(edl_content)
 
     _log("Parsing EDL from API response...")
-    edl = EDL.model_validate_json(content)
+    edl = EDL.model_validate_json(edl_content)
     _log(f"Parsed EDL: {len(edl.segments)} segments, {len(edl.all_items())} items, "
          f"~{edl.estimated_duration():.0f}s estimated")
-    return edl
+
+    for seg in edl.segments:
+        if seg.narrative_rationale:
+            _log(f"  [{seg.name}] ({len(seg.items)} items): {seg.narrative_rationale}")
+
+    # ------------------------------------------------------------------
+    # Pass 3: Self-review — critique and refine
+    # ------------------------------------------------------------------
+    _log("=== PASS 3: Self-Review ===")
+
+    review_system = """\
+You are reviewing a vlog EDL that was just created. Critique it and output
+an improved version. Check for:
+
+1. **Redundancy**: Are there similar consecutive shots? Remove duplicates.
+2. **Pacing**: Does duration vary enough? Fast moments should be 3s, emotional beats 5-6s.
+3. **Story arc**: Does it build emotionally? Is the opening strong? Does the ending feel complete?
+4. **Transitions**: Are fade_black transitions used between major scene changes?
+5. **Text overlays**: Are day labels and location names placed at natural transition points?
+6. **Video trim points**: Are start_time/end_time set for video items to select the best moment?
+7. **Total duration**: Is it close to the target?
+
+Output the improved EDL as valid JSON (same schema). Keep narrative_rationale updated."""
+
+    review_user = f"""\
+Review and improve this {style} {trip_label} vlog EDL.
+
+Target duration: {target_duration}s. Focus: {focus}.{family_line}
+
+Current EDL:
+{edl.model_dump_json(indent=2)}
+
+Improve pacing, remove redundancy, strengthen the narrative arc. Output improved JSON only."""
+
+    _, review_content, _ = _claude_call(client, review_system, review_user, _log, "pass 3: review")
+
+    _log(f"=== REVIEW RESPONSE ({len(review_content)} chars) ===")
+    _log(review_content)
+    _log("=== END REVIEW ===")
+
+    review_content = strip_markdown_fences(review_content)
+    try:
+        reviewed_edl = EDL.model_validate_json(review_content)
+        _log(f"Reviewed EDL: {len(reviewed_edl.segments)} segments, "
+             f"{len(reviewed_edl.all_items())} items, "
+             f"~{reviewed_edl.estimated_duration():.0f}s estimated")
+        for seg in reviewed_edl.segments:
+            if seg.narrative_rationale:
+                _log(f"  [{seg.name}] ({len(seg.items)} items): {seg.narrative_rationale}")
+        return reviewed_edl
+    except Exception as e:
+        _log(f"Review parse failed ({e}), using pass 2 EDL")
+        return edl
 
 
 # ---------------------------------------------------------------------------
 # Prompt builder for API planner
 # ---------------------------------------------------------------------------
 
-def _format_item_line(a: dict, tier_prefix: str) -> str:
+def _format_time_gap(seconds: int) -> str:
+    """Format seconds as a human-readable gap string."""
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m"
+    return f"{seconds // 3600}h{(seconds % 3600) // 60:02d}m"
+
+
+def _format_item_line(a: dict, tier_prefix: str, prev_time: int | None = None) -> str:
     """Format a single analysis item as a prompt line with metadata."""
     v = a["vision"]
-    desc = v.get("description", "")[:200]
+    desc = v.get("description", "")
     media = a.get("media_type", "photo")
     cluster = a.get("cluster_size", 1)
+    taken = a.get("takentime", 0)
 
     line = tier_prefix
     if media == "video":
-        line += " (video)"
+        dur_ms = a.get("duration_ms")
+        if dur_ms:
+            line += f" (video {dur_ms / 1000:.0f}s)"
+        else:
+            line += " (video)"
     if cluster > 1:
         line += f" (best of {cluster})"
+    if prev_time and taken and taken > prev_time:
+        gap = taken - prev_time
+        line += f" [+{_format_time_gap(gap)}]"
     line += f" | {desc}"
 
     loc_detail = _location_detail(a)
@@ -808,9 +1041,35 @@ def _format_item_line(a: dict, tier_prefix: str) -> str:
         line += f"\n      location: {loc_detail}"
     line += f"\n      path: {a['local_path']}"
 
+    # Include time for Claude to reason about chronology
+    taken_iso = a.get("taken_iso", "")
+    if taken_iso:
+        line += f"\n      time: {taken_iso}"
+
+    # Person names for narrative context
+    persons = a.get("persons", [])
+    if persons:
+        line += f"\n      people: {', '.join(persons)}"
+
     transcript = a.get("transcript", "")
     if transcript:
-        line += f"\n      transcript: {transcript[:100]}"
+        line += f"\n      transcript: {transcript}"
+
+    # Video scenes — show available moments for trim point selection
+    scenes = a.get("scenes", [])
+    if scenes and media == "video":
+        scene_lines = []
+        for s in scenes:
+            sv = s.get("vision", {})
+            s_desc = sv.get("description", "")[:120] if sv else ""
+            motion = s.get("motion", "?")
+            s_qual = sv.get("visual_quality", "?") if sv else "?"
+            scene_lines.append(
+                f"        scene {s['scene_index']}: {s['start']:.1f}-{s['end']:.1f}s "
+                f"({s['duration']:.1f}s) motion={motion} qual={s_qual}"
+                + (f" | {s_desc}" if s_desc else "")
+            )
+        line += "\n      scenes:\n" + "\n".join(scene_lines)
 
     return line
 
@@ -841,19 +1100,34 @@ def _build_chapters_prompt(preprocessed: dict, analysis_by_id: dict) -> str:
             if not ab_items and not c_items:
                 continue
 
+            # Sort all items by time for gap calculation
+            all_chapter = ab_items + c_items
+            all_chapter.sort(key=lambda x: x.get("takentime", 0))
+            prev_time = None
+
             lines.append(f"\n  [{block.upper()}] {loc}")
 
-            for a in ab_items:
+            # Emit all items in chronological order so Claude sees natural flow
+            all_sorted = sorted(all_chapter, key=lambda x: x.get("takentime", 0))
+            for a in all_sorted:
                 v = a["vision"]
-                tog = v.get("togetherness", v.get("happiness_score", "?"))
-                emo = v.get("genuine_emotion", "?")
-                beat = v.get("story_beat", v.get("scene_type", "?"))
-                qual = v.get("visual_quality", "?")
+                tier = a.get("tier", "?")
                 issues = v.get("issues", "")
-                prefix = (
-                    f"    [{a.get('tier','?')}] fam={a.get('family_count',0)} "
-                    f"tog={tog} emo={emo} qual={qual} beat={beat}"
-                )
+
+                if tier in ("A", "B", "?"):
+                    tog = v.get("togetherness", v.get("happiness_score", "?"))
+                    emo = v.get("genuine_emotion", "?")
+                    beat = v.get("story_beat", v.get("scene_type", "?"))
+                    qual = v.get("visual_quality", "?")
+                    prefix = (
+                        f"    [{tier}] fam={a.get('family_count',0)} "
+                        f"tog={tog} emo={emo} qual={qual} beat={beat}"
+                    )
+                else:
+                    scene = v.get("scene_type", "?")
+                    qual = v.get("visual_quality", "?")
+                    prefix = f"    [C] scene={scene} qual={qual}"
+
                 if issues:
                     prefix += f" ISSUES={issues}"
                 # Include rich description fields for Claude
@@ -866,22 +1140,8 @@ def _build_chapters_prompt(preprocessed: dict, analysis_by_id: dict) -> str:
                     extra_parts.append(f"activity={v['activity']}")
                 if extra_parts:
                     prefix += " | " + ", ".join(extra_parts)
-                lines.append(_format_item_line(a, prefix))
-
-            c_items.sort(key=lambda x: x["vision"].get("visual_quality", 0), reverse=True)
-            for a in c_items[:2]:
-                v = a["vision"]
-                scene = v.get("scene_type", "?")
-                qual = v.get("visual_quality", "?")
-                issues = v.get("issues", "")
-                prefix = f"    [C] scene={scene} qual={qual}"
-                if issues:
-                    prefix += f" ISSUES={issues}"
-                if v.get("setting"):
-                    prefix += f" | setting={v['setting']}"
-                if v.get("mood"):
-                    prefix += f", mood={v['mood']}"
-                lines.append(_format_item_line(a, prefix))
+                lines.append(_format_item_line(a, prefix, prev_time))
+                prev_time = a.get("takentime")
 
     return "\n".join(lines)
 

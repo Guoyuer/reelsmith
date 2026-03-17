@@ -1,4 +1,4 @@
-"""Stage 5: Self-critique, variations, and human-feedback iteration (all via Ollama)."""
+"""Stage 5: Self-critique, variations, and human-feedback iteration (via Claude API)."""
 
 from __future__ import annotations
 
@@ -11,47 +11,39 @@ from .edl import EDL
 from .llm import ollama_chat
 from .media_utils import extract_frames, strip_markdown_fences
 
-CRITIQUE_PROMPT = """\
-You are reviewing a vlog you edited. Here are evenly-spaced frames from the
-rendered video. Critique the vlog and suggest improvements. Consider:
 
-1. Pacing — are any clips too long or too short?
-2. Story flow — does the sequence make narrative sense?
-3. Variety — is there enough visual variety, or too many similar shots?
-4. Opening/closing — do they feel strong?
-5. Overall mood — does it feel {style}?
+CRITIQUE_SYSTEM = """\
+You are a professional vlog editor reviewing your own work. You will receive the
+current EDL (Edit Decision List) for a travel vlog. Critique it and output an
+improved version.
 
-Current EDL:
-{edl_json}
+Evaluate:
+1. **Pacing** — does duration vary enough? Fast moments 3s, emotional beats 5-6s.
+2. **Story flow** — does the sequence build emotionally? Is there a clear arc?
+3. **Variety** — too many similar consecutive shots? Mix wide/close, people/scenery.
+4. **Opening** — does it grab attention? The first 2-3 items set the tone.
+5. **Closing** — does it feel complete? End with warmth or nostalgia, not a random shot.
+6. **Transitions** — fade_black between major scene changes, crossfade within.
+7. **Text overlays** — are day/location labels at natural transition points?
+8. **Video trim points** — are start_time/end_time set to select the best moments?
+9. **Redundancy** — remove duplicate or near-duplicate shots.
 
-Based on your critique, output an improved EDL as JSON (same schema).
-Only output the JSON, no other text."""
+Output the improved EDL as valid JSON (same schema). Update narrative_rationale
+to explain your changes. Only output JSON, no other text."""
 
-FEEDBACK_PROMPT = """\
-You previously created this vlog EDL:
+FEEDBACK_SYSTEM = """\
+You are a professional vlog editor revising your work based on viewer feedback.
+You will receive the current EDL and specific feedback. Make targeted changes
+to address the feedback while preserving what works.
 
-{edl_json}
+Output the revised EDL as valid JSON (same schema). Only output JSON, no other text."""
 
-The viewer gave this feedback:
-"{feedback}"
+VARIATION_SYSTEM = """\
+You are a professional vlog editor creating a style variation of an existing vlog.
+You will receive the original EDL and available media items. Create a new EDL
+with a different editorial approach while using the same media pool.
 
-Revise the EDL to address the feedback. Keep the same JSON schema.
-Only output the JSON, no other text."""
-
-VARIATION_PROMPT = """\
-You previously created this vlog EDL:
-
-{edl_json}
-
-Available media items:
-{media_summary}
-
-Create a variation with style: {variation_style}
-- "energetic": faster pacing, shorter clips (2-4s), more cuts, upbeat feel
-- "reflective": slower pacing, longer clips (4-8s), more crossfades, warm feel
-- "cinematic": dramatic pacing, varied shot lengths, fade_black transitions, epic feel
-
-Only output the JSON EDL, no other text."""
+Output the variation EDL as valid JSON (same schema). Only output JSON, no other text."""
 
 
 # ---------------------------------------------------------------------------
@@ -90,9 +82,54 @@ def _load_latest_edl(cfg: Config) -> tuple[EDL, int]:
     return EDL.model_validate_json(path.read_text()), version
 
 
-def _revise_and_render(cfg: Config, edl: EDL, prompt: str, **chat_kwargs) -> EDL:
-    """Call LLM, parse revised EDL, save version, clear clips, and re-render."""
-    content = strip_markdown_fences(ollama_chat(cfg, prompt=prompt, json_mode=True, **chat_kwargs))
+def _claude_revise(system: str, user: str, log_fn=None) -> str:
+    """Call Claude API to revise an EDL. Returns raw response text."""
+    import anthropic
+    _log = log_fn or print
+
+    client = anthropic.Anthropic()
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=16000,
+        temperature=1,
+        thinking={
+            "type": "enabled",
+            "budget_tokens": 8000,
+        },
+        system=system,
+        messages=[{"role": "user", "content": user}],
+    )
+
+    thinking_text = ""
+    content = ""
+    for block in response.content:
+        if block.type == "thinking":
+            thinking_text = block.thinking
+        elif block.type == "text":
+            content = block.text
+
+    _log(f"Claude API: {response.usage.input_tokens} in, "
+         f"{response.usage.output_tokens} out")
+    if thinking_text:
+        _log(f"Thinking: {thinking_text[:500]}...")
+
+    return content
+
+
+def _revise_and_render(cfg: Config, edl: EDL, system: str, user: str,
+                       log_fn=None, use_claude: bool = True) -> EDL:
+    """Call Claude API (or Ollama fallback), parse revised EDL, save and re-render."""
+    _log = log_fn or print
+
+    if use_claude:
+        content = strip_markdown_fences(_claude_revise(system, user, log_fn=_log))
+    else:
+        # Ollama fallback (for when API is unavailable)
+        prompt = f"{system}\n\n{user}"
+        content = strip_markdown_fences(
+            ollama_chat(cfg, prompt=prompt, json_mode=True)
+        )
+
     new_edl = EDL.model_validate_json(content)
 
     version = _find_latest_version(cfg) + 1
@@ -105,7 +142,8 @@ def _revise_and_render(cfg: Config, edl: EDL, prompt: str, **chat_kwargs) -> EDL
             f.unlink(missing_ok=True)
 
     assemble(cfg, version=version)
-    print(f"  Rendered v{version}")
+    _log(f"  Rendered v{version}: {len(new_edl.segments)} segments, "
+         f"{len(new_edl.all_items())} items, ~{new_edl.estimated_duration():.0f}s")
     return new_edl
 
 
@@ -113,46 +151,56 @@ def _revise_and_render(cfg: Config, edl: EDL, prompt: str, **chat_kwargs) -> EDL
 # Public API
 # ---------------------------------------------------------------------------
 
-def self_critique(cfg: Config, *, style: str = "upbeat", max_rounds: int = 2) -> EDL:
-    """Extract frames from the rendered vlog, send to vision model for critique, regenerate EDL."""
+def self_critique(cfg: Config, *, style: str = "upbeat", max_rounds: int = 2,
+                  log_fn=None) -> EDL:
+    """Use Claude API to critique and improve the current vlog EDL."""
+    _log = log_fn or print
     edl, current_version = _load_latest_edl(cfg)
 
     for round_num in range(1, max_rounds + 1):
-        print(f"Self-critique round {round_num}/{max_rounds}...")
+        _log(f"Self-critique round {round_num}/{max_rounds} (Claude API)...")
 
-        current_video = cfg.workspace / "output" / f"vlog_v{current_version}.mp4"
-        if not current_video.exists():
-            assemble(cfg, version=current_version)
+        user = f"""\
+Critique and improve this {style} travel vlog EDL (round {round_num}/{max_rounds}).
 
-        # Extract review frames (clean old ones first)
-        review_dir = cfg.workspace / "review_frames"
-        review_dir.mkdir(parents=True, exist_ok=True)
-        for f in review_dir.glob("frame_*.jpg"):
-            f.unlink()
-        frames = extract_frames(current_video, review_dir, prefix="frame", count=8)
+Current EDL (v{current_version}):
+{edl.model_dump_json(indent=2)}
 
-        prompt = CRITIQUE_PROMPT.format(style=style, edl_json=edl.model_dump_json(indent=2))
+Make it feel more {style}. Tighten pacing, strengthen the arc, remove weak shots."""
 
         try:
-            edl = _revise_and_render(cfg, edl, prompt, model=cfg.vision_model, images=frames)
+            edl = _revise_and_render(cfg, edl, CRITIQUE_SYSTEM, user, log_fn=_log)
             current_version = _find_latest_version(cfg)
         except Exception as e:
-            print(f"  Failed to parse critique EDL: {e}")
+            _log(f"  Critique round {round_num} failed: {e}")
             break
 
     return edl
 
 
-def apply_feedback(cfg: Config, feedback: str) -> EDL:
-    """Apply human feedback to the current EDL and re-render."""
+def apply_feedback(cfg: Config, feedback: str, log_fn=None) -> EDL:
+    """Apply human feedback to the current EDL via Claude API and re-render."""
+    _log = log_fn or print
     edl, _ = _load_latest_edl(cfg)
-    print(f"Applying feedback: {feedback[:80]}...")
-    prompt = FEEDBACK_PROMPT.format(edl_json=edl.model_dump_json(indent=2), feedback=feedback)
-    return _revise_and_render(cfg, edl, prompt)
+    _log(f"Applying feedback via Claude API: {feedback[:80]}...")
+
+    user = f"""\
+Revise this vlog EDL based on viewer feedback.
+
+Current EDL:
+{edl.model_dump_json(indent=2)}
+
+Viewer feedback: "{feedback}"
+
+Address the feedback while preserving what works. Output improved JSON only."""
+
+    return _revise_and_render(cfg, edl, FEEDBACK_SYSTEM, user, log_fn=_log)
 
 
-def generate_variations(cfg: Config, styles: list[str] | None = None) -> list[Path]:
-    """Generate multiple vlog variations with different styles."""
+def generate_variations(cfg: Config, styles: list[str] | None = None,
+                        log_fn=None) -> list[Path]:
+    """Generate multiple vlog variations with different styles via Claude API."""
+    _log = log_fn or print
     styles = styles or ["energetic", "reflective", "cinematic"]
 
     original_edl, _ = _load_latest_edl(cfg)
@@ -162,28 +210,42 @@ def generate_variations(cfg: Config, styles: list[str] | None = None) -> list[Pa
         [{"local_path": a["local_path"], "media_type": a["media_type"],
           "duration_sec": round(a["duration_ms"]/1000, 1) if a.get("duration_ms") else None,
           "description": a.get("vision", {}).get("description"),
-          "happiness": a.get("vision", {}).get("happiness_score")}
-         for a in analysis],
+          "setting": a.get("vision", {}).get("setting"),
+          "mood": a.get("vision", {}).get("mood"),
+          "quality": a.get("vision", {}).get("visual_quality")}
+         for a in analysis if a.get("vision")],
         indent=2,
     )
 
     outputs = []
     for variation_style in styles:
-        print(f"Generating {variation_style} variation...")
-        prompt = VARIATION_PROMPT.format(
-            edl_json=original_edl.model_dump_json(indent=2),
-            media_summary=media_summary,
-            variation_style=variation_style,
-        )
+        _log(f"Generating {variation_style} variation via Claude API...")
+
+        user = f"""\
+Create a {variation_style} variation of this vlog.
+
+Original EDL:
+{original_edl.model_dump_json(indent=2)}
+
+Available media:
+{media_summary}
+
+Style guidelines:
+- "energetic": faster pacing, shorter clips (2-4s), more cuts, upbeat feel
+- "reflective": slower pacing, longer clips (4-8s), more crossfades, warm feel
+- "cinematic": dramatic pacing, varied shot lengths, fade_black transitions, epic feel
+
+Create a fresh take that feels distinctly {variation_style}. Output JSON only."""
+
         try:
-            _revise_and_render(cfg, original_edl, prompt)
+            _revise_and_render(cfg, original_edl, VARIATION_SYSTEM, user, log_fn=_log)
             video = max(
                 (cfg.workspace / "output").glob("vlog_v*.mp4"),
                 key=lambda p: p.stat().st_mtime,
             )
             outputs.append(video)
-            print(f"  → {video}")
+            _log(f"  → {video}")
         except Exception as e:
-            print(f"  Failed: {e}")
+            _log(f"  Failed: {e}")
 
     return outputs

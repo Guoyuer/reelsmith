@@ -310,7 +310,6 @@ def preprocess(
 @dg.asset(
     group_name="vlog",
     retry_policy=dg.RetryPolicy(max_retries=1, delay=10),
-    op_tags={"dagster/concurrency_key": "ollama"},
 )
 def analyze(
     context: dg.AssetExecutionContext,
@@ -365,7 +364,6 @@ def analyze(
 @dg.asset(
     group_name="vlog",
     retry_policy=dg.RetryPolicy(max_retries=2, delay=15),
-    op_tags={"dagster/concurrency_key": "ollama"},
 )
 def plan(
     context: dg.AssetExecutionContext,
@@ -447,17 +445,17 @@ def assemble(
 
 @dg.op(
     retry_policy=dg.RetryPolicy(max_retries=1, delay=15),
-    tags={"dagster/concurrency_key": "ollama"},
 )
-def iterate_op(config: IterateConfig) -> None:
-    """Self-critique or apply feedback, then re-render."""
+def iterate_op(context: dg.OpExecutionContext, config: IterateConfig) -> None:
+    """Self-critique or apply feedback via Claude API, then re-render."""
     from .iterate import apply_feedback, self_critique
 
     cfg = Config.load(config.workspace)
     if config.feedback:
-        apply_feedback(cfg, config.feedback)
+        apply_feedback(cfg, config.feedback, log_fn=context.log.info)
     else:
-        self_critique(cfg, style=config.style, max_rounds=config.max_rounds)
+        self_critique(cfg, style=config.style, max_rounds=config.max_rounds,
+                      log_fn=context.log.info)
 
 
 @dg.job(name="iterate")
@@ -467,16 +465,16 @@ def iterate_job() -> None:
 
 @dg.op(
     retry_policy=dg.RetryPolicy(max_retries=1, delay=15),
-    tags={"dagster/concurrency_key": "ollama"},
 )
-def variations_op(config: VariationsConfig) -> None:
-    """Generate multiple vlog variations with different styles."""
+def variations_op(context: dg.OpExecutionContext, config: VariationsConfig) -> None:
+    """Generate multiple vlog variations with different styles via Claude API."""
     from .iterate import generate_variations
 
     cfg = Config.load(config.workspace)
-    outputs = generate_variations(cfg, styles=[s.strip() for s in config.styles.split(",")])
+    outputs = generate_variations(cfg, styles=[s.strip() for s in config.styles.split(",")],
+                                  log_fn=context.log.info)
     for path in outputs:
-        print(f"  {path}")
+        context.log.info(f"  {path}")
 
 
 @dg.job(name="variations")

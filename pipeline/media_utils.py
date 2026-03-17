@@ -181,6 +181,149 @@ def extract_frames(
     return sorted(output_dir.glob(f"{prefix}_*.jpg"))
 
 
+def detect_scenes(
+    video_path: Path,
+    threshold: float = 0.3,
+    min_scene_duration: float = 2.0,
+) -> list[dict]:
+    """Detect scene boundaries in a video using FFmpeg's scene filter.
+
+    Returns a list of scene dicts with start/end times.
+    Falls back to evenly-spaced segments if scene detection fails.
+    """
+    probe = run_subprocess(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", str(video_path)],
+        capture_output=True, text=True,
+    )
+    try:
+        total_duration = float(probe.stdout.strip())
+    except (ValueError, AttributeError):
+        total_duration = 10.0
+
+    # Use FFmpeg scene filter to find scene changes
+    result = run_subprocess(
+        ["ffmpeg", "-i", str(video_path),
+         "-vf", f"select='gt(scene,{threshold})',showinfo",
+         "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+
+    # Parse scene change timestamps from stderr
+    import re
+    timestamps = [0.0]  # always start at 0
+    for line in (result.stderr or "").split("\n"):
+        match = re.search(r"pts_time:(\d+\.?\d*)", line)
+        if match:
+            t = float(match.group(1))
+            # Skip if too close to previous timestamp
+            if t - timestamps[-1] >= min_scene_duration:
+                timestamps.append(t)
+    timestamps.append(total_duration)
+
+    # If scene detection found nothing useful, split evenly
+    if len(timestamps) <= 2 and total_duration > 6:
+        n_segments = min(max(int(total_duration / 5), 2), 8)
+        interval = total_duration / n_segments
+        timestamps = [i * interval for i in range(n_segments)] + [total_duration]
+
+    # Build scene list
+    scenes = []
+    for i in range(len(timestamps) - 1):
+        start = round(timestamps[i], 2)
+        end = round(timestamps[i + 1], 2)
+        if end - start < 0.5:
+            continue
+        scenes.append({
+            "scene_index": len(scenes),
+            "start": start,
+            "end": end,
+            "duration": round(end - start, 2),
+        })
+
+    return scenes
+
+
+def extract_scene_keyframe(
+    video_path: Path,
+    scene: dict,
+    output_dir: Path,
+    prefix: str,
+) -> Path | None:
+    """Extract a representative keyframe from the middle of a scene."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    mid_time = (scene["start"] + scene["end"]) / 2
+    out_path = output_dir / f"{prefix}_scene_{scene['scene_index']:02d}.jpg"
+    if out_path.exists():
+        return out_path
+    run_subprocess(
+        ["ffmpeg", "-y", "-ss", str(mid_time), "-i", str(video_path),
+         "-frames:v", "1", "-vf", "scale=1024:-1", "-q:v", "3",
+         str(out_path)],
+        capture_output=True,
+    )
+    return out_path if out_path.exists() else None
+
+
+def classify_motion(video_path: Path, start: float = 0, duration: float = 5) -> str:
+    """Classify camera motion in a video segment using frame difference analysis.
+
+    Returns one of: static, pan, handheld, smooth_motion, unknown
+    """
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return "unknown"
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        return "unknown"
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    cap.set(cv2.CAP_PROP_POS_MSEC, start * 1000)
+
+    frames_to_sample = min(int(duration * fps), 90)  # cap at 90 frames
+    sample_interval = max(1, frames_to_sample // 30)  # sample ~30 frames
+
+    prev_gray = None
+    diffs = []
+    frame_count = 0
+
+    while frame_count < frames_to_sample:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame_count += 1
+        if frame_count % sample_interval != 0:
+            continue
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray = cv2.resize(gray, (160, 90))  # small for speed
+
+        if prev_gray is not None:
+            diff = cv2.absdiff(prev_gray, gray)
+            diffs.append(float(np.mean(diff)))
+        prev_gray = gray
+
+    cap.release()
+
+    if not diffs:
+        return "unknown"
+
+    mean_diff = np.mean(diffs)
+    std_diff = np.std(diffs)
+
+    if mean_diff < 3:
+        return "static"
+    elif mean_diff < 8 and std_diff < 3:
+        return "smooth_motion"  # steady pan or drone
+    elif std_diff > 6:
+        return "handheld"  # shaky/action
+    else:
+        return "pan"
+
+
 # ---------------------------------------------------------------------------
 # FFmpeg filter-string helpers (used by assemble.py)
 # ---------------------------------------------------------------------------

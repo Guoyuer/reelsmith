@@ -37,13 +37,24 @@ def _submit(job_name: str, run_name: str, run_config: dict | None = None):
         client = DagsterGraphQLClient(DAGSTER_HOST, port_number=DAGSTER_PORT)
         # Reload code so the webserver always uses the latest definitions
         try:
+            click.echo("Reloading code location...")
             client.reload_repository_location("pipeline.definitions")
-        except Exception:
-            pass  # best-effort; may fail if location name differs
-        run_id = client.submit_job_execution(
-            job_name=job_name,
-            run_config=config,
-        )
+        except Exception as reload_err:
+            click.echo(f"Code reload warning: {reload_err}", err=True)
+
+        # Retry submission — webserver may need a moment after reload
+        run_id = None
+        for attempt in range(10):
+            try:
+                run_id = client.submit_job_execution(
+                    job_name=job_name, run_config=config,
+                )
+                break
+            except Exception as submit_err:
+                if "JobNotFoundError" in str(submit_err) and attempt < 9:
+                    time.sleep(1)
+                    continue
+                raise
     except Exception as e:
         click.echo(
             f"Failed to submit to Dagster webserver at {DAGSTER_HOST}:{DAGSTER_PORT}\n"
@@ -126,9 +137,11 @@ def resume(ctx):
 @click.option("--width", default=3840, type=int, help="Output width (default: 3840)")
 @click.option("--height", default=2160, type=int, help="Output height (default: 2160)")
 @click.option("--fps", default=60, type=int, help="Output FPS (default: 60)")
+@click.option("--force-analyze", is_flag=True, help="Force re-run vision analysis (ignore cached analysis.json)")
 @click.pass_context
 def full(ctx, from_date, to_date, country, first_level, district, person_ids,
-         item_types, style, duration, focus, planner, trip_type, music, width, height, fps):
+         item_types, style, duration, focus, planner, trip_type, music, width, height, fps,
+         force_analyze):
     """Run the full pipeline end-to-end."""
     person_id_list = [int(x) for x in person_ids.split(",")] if person_ids else None
     type_list = _parse_item_types(item_types) if item_types else None
@@ -138,6 +151,7 @@ def full(ctx, from_date, to_date, country, first_level, district, person_ids,
         "from_date": from_date, "to_date": to_date,
         "force": True,
     }}
+    config["ops"]["analyze"] = {"config": {"force": force_analyze}}
     if country:
         config["ops"]["fetch_media"]["config"]["country"] = country
     if first_level:
