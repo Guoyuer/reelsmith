@@ -202,6 +202,32 @@ def _setup_env_file(filepath: Path, fields: list[tuple[str, str, str]]) -> None:
     print(f"  Saved {filepath}")
 
 
+def _auto_install(name: str, win_cmd: list[str], mac_cmd: list[str], linux_cmd: list[str]) -> bool:
+    """Offer to auto-install a tool. Returns True if installed or skipped."""
+    cmds = {
+        "win32": (win_cmd, "winget"),
+        "darwin": (mac_cmd, "brew"),
+        "linux": (linux_cmd, "package manager"),
+    }
+    cmd, mgr = cmds.get(sys.platform, (linux_cmd, "package manager"))
+    if not cmd:
+        print(f"  No auto-install available for {sys.platform}.")
+        return False
+
+    ans = _ask(f"Install {name} automatically via {mgr}? (Y/n)", "y")
+    if ans.lower() != "y" and ans != "":
+        return False
+
+    print(f"  Installing {name}...")
+    result = subprocess.run(cmd, capture_output=False)
+    if result.returncode == 0:
+        print(f"  {name} installed successfully.")
+        return True
+    else:
+        print(f"  Installation failed (exit code {result.returncode}).")
+        return False
+
+
 def setup() -> bool:
     """Run full setup. Returns True if setup succeeded."""
     print()
@@ -209,69 +235,85 @@ def setup() -> bool:
     print("  Vlog Pipeline — First-Time Setup")
     print("=" * 60)
 
-    # --- Python venvs ---
-    print("\n[1/5] Setting up Python environments...")
+    # --- Step 0: Clone synology-photos-project if missing ---
+    print("\n[1/6] Checking synology-photos-project...")
+    if SYNOLOGY_DIR.exists():
+        print(f"  Found at {SYNOLOGY_DIR}")
+    else:
+        print(f"  Not found at {SYNOLOGY_DIR}")
+        ans = _ask("Clone synology-photos-project from GitHub? (Y/n)", "y")
+        if ans.lower() != "y" and ans != "":
+            print("  Skipping. Fetch stage will not work without the Synology API.")
+        else:
+            repo_url = _ask("Git repo URL", "https://github.com/Guoyuer/synology-photos-project.git")
+            result = subprocess.run(
+                ["git", "clone", repo_url, str(SYNOLOGY_DIR)],
+                capture_output=False,
+            )
+            if result.returncode != 0:
+                print("  Clone failed. You can clone it manually later.")
+
+    # --- Step 1: FFmpeg ---
+    print("\n[2/6] Checking FFmpeg...")
+    if shutil.which("ffprobe") and shutil.which("ffmpeg"):
+        print(f"  FFmpeg found: {shutil.which('ffmpeg')}")
+    else:
+        print("  FFmpeg NOT found.")
+        installed = _auto_install(
+            "FFmpeg",
+            win_cmd=["winget", "install", "Gyan.FFmpeg", "--accept-source-agreements", "--accept-package-agreements"],
+            mac_cmd=["brew", "install", "ffmpeg"],
+            linux_cmd=["sudo", "apt", "install", "-y", "ffmpeg"],
+        )
+        if not installed:
+            ans = _ask("Continue without FFmpeg? Video rendering will fail (y/N)", "n")
+            if ans.lower() != "y":
+                return False
+
+    # --- Step 2: Ollama ---
+    print("\n[3/6] Checking Ollama...")
+    ollama = shutil.which("ollama")
+    # Check common Windows install locations not on PATH
+    if not ollama and sys.platform == "win32":
+        for candidate in [
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe",
+            Path("C:/Program Files/Ollama/ollama.exe"),
+        ]:
+            if candidate.exists():
+                ollama = str(candidate)
+                break
+
+    if ollama:
+        print(f"  Ollama found: {ollama}")
+    else:
+        print("  Ollama NOT found.")
+        installed = _auto_install(
+            "Ollama",
+            win_cmd=["winget", "install", "Ollama.Ollama", "--accept-source-agreements", "--accept-package-agreements"],
+            mac_cmd=["brew", "install", "ollama"],
+            linux_cmd=["sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh"],
+        )
+        if installed:
+            # Re-check after install
+            ollama = shutil.which("ollama")
+            if not ollama and sys.platform == "win32":
+                candidate = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"
+                if candidate.exists():
+                    ollama = str(candidate)
+        if not ollama:
+            ans = _ask("Continue without Ollama? Vision analysis will be skipped (y/N)", "n")
+            if ans.lower() != "y":
+                return False
+
+    # --- Step 3: Python venvs ---
+    print("\n[4/6] Setting up Python environments...")
     _setup_venv(SCRIPT_DIR, extras="test")
     if SYNOLOGY_DIR.exists():
         _setup_venv(SYNOLOGY_DIR)
         _setup_synology_deps()
-    else:
-        print(f"  WARNING: synology-photos-project not found at {SYNOLOGY_DIR}")
-        print(f"  Clone it:  git clone <repo-url> {SYNOLOGY_DIR}")
 
-    # --- FFmpeg ---
-    print("\n[2/5] Checking FFmpeg...")
-    ffprobe = shutil.which("ffprobe")
-    ffmpeg = shutil.which("ffmpeg")
-    if ffprobe and ffmpeg:
-        print(f"  FFmpeg found: {ffmpeg}")
-    else:
-        print("  FFmpeg/ffprobe NOT found on PATH!")
-        if sys.platform == "win32":
-            print("  Install: winget install Gyan.FFmpeg")
-            print("  Then restart this terminal (or add to PATH).")
-        elif sys.platform == "darwin":
-            print("  Install: brew install ffmpeg")
-        else:
-            print("  Install: sudo apt install ffmpeg  (or your package manager)")
-        print()
-        ans = _ask("Continue without FFmpeg? Video rendering will fail (y/N)", "n")
-        if ans.lower() != "y":
-            return False
-
-    # --- Ollama ---
-    print("\n[3/5] Checking Ollama...")
-    ollama = shutil.which("ollama")
-    if ollama:
-        print(f"  Ollama found: {ollama}")
-    else:
-        # Check common install locations on Windows
-        if sys.platform == "win32":
-            for candidate in [
-                Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe",
-                Path("C:/Program Files/Ollama/ollama.exe"),
-            ]:
-                if candidate.exists():
-                    ollama = str(candidate)
-                    print(f"  Ollama found: {ollama}")
-                    break
-
-    if not ollama:
-        print("  Ollama NOT found!")
-        if sys.platform == "win32":
-            print("  Install: winget install Ollama.Ollama")
-        elif sys.platform == "darwin":
-            print("  Install: brew install ollama")
-        else:
-            print("  Install: curl -fsSL https://ollama.com/install.sh | sh")
-        print("  Then restart this terminal.")
-        print()
-        ans = _ask("Continue without Ollama? Vision analysis will be skipped (y/N)", "n")
-        if ans.lower() != "y":
-            return False
-
-    # --- .env files ---
-    print("\n[4/5] Configuring environment...")
+    # --- Step 4: .env files ---
+    print("\n[5/6] Configuring environment...")
 
     _setup_env_file(SCRIPT_DIR / ".env", [
         ("SYNOLOGY_API_BASE", "Synology Photos API URL", "http://localhost:8000"),
@@ -295,10 +337,19 @@ def setup() -> bool:
             ("NAS_OTP_CODE", "2FA code (leave blank if not enabled)", ""),
         ])
 
-    # --- Ollama models ---
-    print("\n[5/5] Pulling Ollama models (if needed)...")
-    ollama_cmd = ollama or "ollama"
+    # --- Step 5: Ollama models ---
+    print("\n[6/6] Pulling Ollama models (if needed)...")
+    ollama_cmd = ollama or shutil.which("ollama") or "ollama"
     try:
+        # Start Ollama if not running
+        if not _is_port_open(11434):
+            print("  Starting Ollama server...")
+            _popen_detached([ollama_cmd, "serve"])
+            for _ in range(15):
+                if _is_port_open(11434):
+                    break
+                time.sleep(1)
+
         check = subprocess.run([ollama_cmd, "list"], capture_output=True, text=True)
         models_output = check.stdout or ""
         for model in ["llava:7b", "llama3:8b"]:
@@ -311,7 +362,9 @@ def setup() -> bool:
         print("  Skipped (Ollama not installed)")
 
     print()
-    print("Setup complete!")
+    print("=" * 60)
+    print("  Setup complete!")
+    print("=" * 60)
     return True
 
 
