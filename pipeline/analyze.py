@@ -18,16 +18,20 @@ from .media_utils import convert_heic, extract_frames, run_subprocess
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
-# Prompt tuned for family trip happiness — concrete anchoring for a 7B model
+# Rich prompts for vision analysis — detailed descriptions feed into Claude API planner
 VISION_PROMPT_FAMILY = """\
-This is a family vacation photo. Analyze it and respond in JSON only, no other text:
+This is a family travel photo. Describe it in detail for a vlog editor. Respond in JSON only:
 {
-  "description": "one sentence describing the scene",
+  "description": "2-3 sentences: what's happening, who's visible, their expressions and body language, the background/setting, what makes this moment special or memorable",
+  "setting": "specific place or setting, e.g. 'Marina Bay waterfront promenade at golden hour'",
+  "mood": "emotional tone, e.g. 'joyful and playful', 'peaceful and reflective', 'excited discovery'",
+  "activity": "what people are doing, e.g. 'posing together in front of the skyline', 'sharing a meal at a hawker stall'",
   "togetherness": <1-10 integer>,
   "genuine_emotion": <1-10 integer>,
   "story_beat": "<one of: arrival, discovery, meal, activity, landmark, candid, posed, scenery, selfie, other>",
   "visual_quality": <1-10 integer>,
-  "vlog_worthy": <true or false>
+  "vlog_worthy": <true or false>,
+  "issues": "any problems: finger blocking lens, blurry, too dark, overexposed, bad framing, eyes closed/semi-closed, or empty string if none"
 }
 
 Scoring guide for togetherness:
@@ -42,18 +46,21 @@ Scoring guide for genuine_emotion:
   3-5: polite smiles, neutral, looking at camera
   1-2: no faces visible, backs turned, or negative expressions
 
-Scoring guide for composition:
+Scoring guide for visual_quality:
   9-10: great framing, sharp focus, good lighting, interesting angle
   5-8: decent photo, clear subject, acceptable lighting
-  1-4: blurry, dark, overexposed, bad framing, obstructed"""
+  1-4: blurry, dark, overexposed, bad framing, obstructed by finger/object"""
 
 VISION_PROMPT_SCENE = """\
-This is a travel photo. Analyze it briefly. Respond in JSON only:
+This is a travel/scenery photo. Describe it in detail for a vlog editor. Respond in JSON only:
 {
-  "description": "one sentence",
-  "scene_type": "<landmark, nature, food, street, building, transport, other>",
+  "description": "2-3 sentences: what place or scene is shown, time of day, lighting, atmosphere, notable landmarks or features visible",
+  "setting": "specific place or setting, e.g. 'Gardens by the Bay Supertree Grove at night with light show'",
+  "scene_type": "<landmark, nature, food, street, building, transport, nightscape, beach, market, other>",
+  "mood": "visual atmosphere, e.g. 'dramatic golden hour', 'bustling and vibrant', 'serene and peaceful'",
   "visual_quality": <1-10>,
-  "vlog_worthy": <true or false>
+  "vlog_worthy": <true or false>,
+  "issues": "any problems: finger blocking lens, blurry, too dark, overexposed, or empty string if none"
 }"""
 
 

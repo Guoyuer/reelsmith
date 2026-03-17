@@ -330,6 +330,10 @@ def _gather_candidates(
                 v = a["vision"]
                 if v.get("visual_quality", 5) < 5 or v.get("vlog_worthy") is False:
                     continue
+                # Skip photos with known issues (finger blocking, blurry, etc.)
+                issues = v.get("issues", "")
+                if issues and any(w in issues.lower() for w in ["finger", "blocked", "obstructed", "eyes closed"]):
+                    continue
                 if v.get("story_beat", v.get("scene_type", "")) == "transport":
                     continue
                 if _is_too_dark(Path(a.get("local_path", ""))):
@@ -788,7 +792,7 @@ photos in order, but a sequence that builds emotion and feels like a journey."""
 def _format_item_line(a: dict, tier_prefix: str) -> str:
     """Format a single analysis item as a prompt line with metadata."""
     v = a["vision"]
-    desc = v.get("description", "")[:80]
+    desc = v.get("description", "")[:200]
     media = a.get("media_type", "photo")
     cluster = a.get("cluster_size", 1)
 
@@ -845,10 +849,23 @@ def _build_chapters_prompt(preprocessed: dict, analysis_by_id: dict) -> str:
                 emo = v.get("genuine_emotion", "?")
                 beat = v.get("story_beat", v.get("scene_type", "?"))
                 qual = v.get("visual_quality", "?")
+                issues = v.get("issues", "")
                 prefix = (
                     f"    [{a.get('tier','?')}] fam={a.get('family_count',0)} "
                     f"tog={tog} emo={emo} qual={qual} beat={beat}"
                 )
+                if issues:
+                    prefix += f" ISSUES={issues}"
+                # Include rich description fields for Claude
+                extra_parts = []
+                if v.get("setting"):
+                    extra_parts.append(f"setting={v['setting']}")
+                if v.get("mood"):
+                    extra_parts.append(f"mood={v['mood']}")
+                if v.get("activity"):
+                    extra_parts.append(f"activity={v['activity']}")
+                if extra_parts:
+                    prefix += " | " + ", ".join(extra_parts)
                 lines.append(_format_item_line(a, prefix))
 
             c_items.sort(key=lambda x: x["vision"].get("visual_quality", 0), reverse=True)
@@ -856,7 +873,14 @@ def _build_chapters_prompt(preprocessed: dict, analysis_by_id: dict) -> str:
                 v = a["vision"]
                 scene = v.get("scene_type", "?")
                 qual = v.get("visual_quality", "?")
+                issues = v.get("issues", "")
                 prefix = f"    [C] scene={scene} qual={qual}"
+                if issues:
+                    prefix += f" ISSUES={issues}"
+                if v.get("setting"):
+                    prefix += f" | setting={v['setting']}"
+                if v.get("mood"):
+                    prefix += f", mood={v['mood']}"
                 lines.append(_format_item_line(a, prefix))
 
     return "\n".join(lines)
