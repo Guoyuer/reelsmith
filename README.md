@@ -38,13 +38,10 @@ flowchart LR
 ## Quick Start
 
 ```bash
-# Start all services (Ollama, Synology API, Dagster)
-./start.sh
+# One command: creates venvs, installs deps, walks you through config, starts services
+python start.py
 
-# Open Dagster UI
-open http://localhost:3000
-
-# Run pipeline from CLI (also visible in UI)
+# Run pipeline
 python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 \
   --trip-type family --planner api --style upbeat --duration 180 \
   --music auto --item-types photo
@@ -56,8 +53,17 @@ python run.py -n sg-test full -f 2025-06-13 -t 2025-06-16 \
   --width 640 --height 360 --fps 15
 
 # Stop all services
-./start.sh stop
+python start.py stop
 ```
+
+On first run, `start.py` will:
+1. Create Python venvs and install all dependencies
+2. Check for FFmpeg and Ollama (with install instructions if missing)
+3. Walk you through `.env` configuration (NAS credentials, API keys)
+4. Pull required Ollama models (llava:7b, llama3:8b)
+5. Start Ollama, Synology Photos API, and Dagster
+
+Subsequent runs skip setup and just start services. Run `python start.py setup` to re-run setup.
 
 ## Workspace Structure
 
@@ -183,18 +189,30 @@ Music generation takes ~20 minutes for 60s of audio on an M-series Mac. The trac
 ## Requirements
 
 - **Python 3.11+** with venv
-- **FFmpeg** — video processing (`brew install ffmpeg`)
-- **Ollama** — local vision model (`brew install ollama`)
+- **FFmpeg** — video processing
+- **Ollama** — local vision model
   - `ollama pull llava:13b` — vision analysis
   - `ollama pull llama3:8b` — narrative planning (fallback)
 - **Synology Photos API** — the [synology-photos-project](../synology-photos-project) backend running on `:8000`
 - **Dagster** — workflow orchestration (installed via `pip install -e .`)
 - **Anthropic API key** — for Claude API planner (`ANTHROPIC_API_KEY` in `.env`)
 
-Optional:
-- **PyTorch + transformers** — for MusicGen music generation (`pip install torch transformers scipy`)
+Optional (installed with `pip install -e ".[all]"`):
+- **openai-whisper** — speech-to-text for video transcription
+- **pillow-heif** — HEIC/HEIF photo support (cross-platform)
+- **PyTorch + transformers + scipy** — MusicGen background music generation
 
-All services start with `./start.sh` (Ollama, Synology API, Dagster).
+All services start with `python start.py` (Ollama, Synology API, Dagster).
+
+### Platform Notes
+
+| Feature | macOS | Windows | Linux |
+|---------|-------|---------|-------|
+| HEIC photos | Built-in (sips) | `pip install pillow-heif` | `pip install pillow-heif` |
+| Whisper | mlx-whisper (Apple Silicon) | openai-whisper | openai-whisper |
+| MusicGen | Works | Works | Works |
+| FFmpeg | `brew install ffmpeg` | [ffmpeg.org/download](https://ffmpeg.org/download.html) | `apt install ffmpeg` |
+| Ollama | `brew install ollama` | [ollama.com/download](https://ollama.com/download) | `curl -fsSL https://ollama.com/install.sh \| sh` |
 
 ### 24GB MacBook resource usage
 
@@ -227,4 +245,4 @@ python -m pytest tests/ -m "not integration"  # unit/mocked tests only
 - **Interruptible everything** — all subprocess calls use `Popen` with signal forwarding. All Ollama calls use streaming.
 - **EDL is the central artifact** — a JSON file that flows between plan/assemble/iterate. Changing the edit never re-analyzes media.
 - **Content-aware rendering** — hero shots get longer duration and slow zoom-in. Landscapes get horizontal pan. High-quality scenery gets static display. Portraits get blurred background overlay.
-- **HEIC via sips** — Apple HEIC photos are converted using macOS `sips` (not FFmpeg).
+- **HEIC conversion** — Apple HEIC photos are converted via pillow-heif (cross-platform), macOS sips, or ImageMagick, whichever is available.

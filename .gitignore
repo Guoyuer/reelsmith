@@ -27,3 +27,6 @@ Thumbs.db
 .dagster_home/
 .pids/
 .tmp_dagster_home_*/
+
+# Claude Code
+.claude/
