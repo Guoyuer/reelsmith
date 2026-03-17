@@ -93,9 +93,9 @@ def _kill_pid(name: str) -> None:
         return
     try:
         if sys.platform == "win32":
-            # On Windows, use taskkill for reliable process termination
+            # /T kills the process tree (important for dagster which spawns children)
             subprocess.run(
-                ["taskkill", "/F", "/PID", str(pid)],
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
                 capture_output=True,
             )
         else:
@@ -110,6 +110,23 @@ def _kill_pid(name: str) -> None:
         pass
     pid_file = PID_DIR / f"{name}.pid"
     pid_file.unlink(missing_ok=True)
+
+
+def _popen_detached(cmd: list[str], **kwargs) -> subprocess.Popen:
+    """Start a detached background process that survives parent exit.
+
+    On Windows, uses CREATE_NEW_PROCESS_GROUP + CREATE_NO_WINDOW to properly
+    daemonize. On Unix, uses start_new_session=True.
+    """
+    if sys.platform == "win32":
+        CREATE_NEW_PROCESS_GROUP = 0x00000200
+        CREATE_NO_WINDOW = 0x08000000
+        kwargs["creationflags"] = CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
+    else:
+        kwargs["start_new_session"] = True
+    kwargs.setdefault("stdout", subprocess.DEVNULL)
+    kwargs.setdefault("stderr", subprocess.DEVNULL)
+    return subprocess.Popen(cmd, **kwargs)
 
 
 def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -329,8 +346,6 @@ def start_all() -> None:
     print("=== Starting Vlog Pipeline Services ===")
     print()
 
-    devnull = subprocess.DEVNULL
-
     # 1. Ollama
     print("[1/3] Ensuring Ollama is running...")
     ollama_cmd = shutil.which("ollama")
@@ -342,10 +357,7 @@ def start_all() -> None:
     if not _is_port_open(11434):
         if ollama_cmd:
             try:
-                proc = subprocess.Popen(
-                    [ollama_cmd, "serve"],
-                    stdout=devnull, stderr=devnull,
-                )
+                proc = _popen_detached([ollama_cmd, "serve"])
                 _write_pid("ollama", proc.pid)
                 for _ in range(15):
                     if _is_port_open(11434):
@@ -363,28 +375,37 @@ def start_all() -> None:
     print(f"[2/3] Starting Synology Photos API on :{API_PORT}...")
     if SYNOLOGY_DIR.exists() and (SYNOLOGY_DIR / "venv").exists():
         api_python = _find_python(SYNOLOGY_DIR / "venv")
-        proc = subprocess.Popen(
+        proc = _popen_detached(
             [api_python, "-m", "uvicorn", "web.api.main:app",
              "--host", "0.0.0.0", "--port", str(API_PORT)],
             cwd=str(SYNOLOGY_DIR),
-            stdout=devnull, stderr=devnull,
         )
         _write_pid("synology_api", proc.pid)
     else:
         print(f"  WARNING: Synology API not found or not set up at {SYNOLOGY_DIR}")
 
-    # 3. Dagster
+    # 3. Dagster (webserver + daemon + code server)
     print(f"[3/3] Starting Dagster on :{DAGSTER_PORT}...")
     dagster_home = SCRIPT_DIR / ".dagster_home"
     dagster_home.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "DAGSTER_HOME": str(dagster_home)}
     vlog_python = _find_python(SCRIPT_DIR / "venv")
-    proc = subprocess.Popen(
+
+    # Write a dagster.yaml if missing (avoids warnings)
+    dagster_yaml = dagster_home / "dagster.yaml"
+    if not dagster_yaml.exists():
+        dagster_yaml.write_text("")
+
+    # Use dagster dev with stderr/stdout to a log file for debugging
+    dagster_log = dagster_home / "dagster_dev.log"
+    dagster_log_fh = open(dagster_log, "w")
+    proc = _popen_detached(
         [vlog_python, "-m", "dagster", "dev",
          "-m", "pipeline.definitions", "-p", str(DAGSTER_PORT)],
         cwd=str(SCRIPT_DIR),
         env=env,
-        stdout=devnull, stderr=devnull,
+        stdout=dagster_log_fh,
+        stderr=dagster_log_fh,
     )
     _write_pid("dagster", proc.pid)
 
