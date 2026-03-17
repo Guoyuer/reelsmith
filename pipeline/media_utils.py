@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
+import os
 import signal
 import subprocess
+import sys
 from pathlib import Path
+
+# On Windows, ensure common tool install locations are on PATH.
+# WinGet installs FFmpeg/Ollama to dirs not always on PATH.
+if sys.platform == "win32":
+    for _p in [
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Links"),
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama"),
+    ]:
+        if os.path.isdir(_p) and _p not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = _p + os.pathsep + os.environ.get("PATH", "")
 
 
 def run_subprocess(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
