@@ -74,6 +74,21 @@ def _submit(job_name: str, run_name: str, run_config: dict | None = None):
     click.echo(f"Run completed successfully.")
 
 
+ITEM_TYPE_NAMES = {"photo": 0, "video": 1, "live": 3, "motion": 6}
+
+
+def _parse_item_types(value: str) -> list[int]:
+    """Parse 'photo,video' or '0,1' into [0, 1]."""
+    result = []
+    for part in value.split(","):
+        part = part.strip().lower()
+        if part in ITEM_TYPE_NAMES:
+            result.append(ITEM_TYPE_NAMES[part])
+        else:
+            result.append(int(part))
+    return result
+
+
 @click.group()
 @click.option("--run-name", "-n", default=None, help="Run name (subdirectory under workspace/, default: 'default')")
 @click.pass_context
@@ -97,7 +112,7 @@ def resume(ctx):
 @click.option("--first-level", default=None, help="Filter by state/province")
 @click.option("--district", default=None, help="Filter by district/city")
 @click.option("--person-ids", default=None, help="Comma-separated person IDs")
-@click.option("--item-types", default=None, help="Comma-separated item types (0=photo,1=video,3=live,6=motion)")
+@click.option("--item-types", default=None, help="Comma-separated: photo,video,live,motion (or 0,1,3,6)")
 @click.option("--style", default="upbeat", help="Vlog style")
 @click.option("--duration", default=180, type=int, help="Target duration in seconds")
 @click.option("--focus", default="", help="What to emphasize (default: derived from trip-type)")
@@ -116,7 +131,7 @@ def full(ctx, from_date, to_date, country, first_level, district, person_ids,
          item_types, style, duration, focus, planner, trip_type, music, width, height, fps):
     """Run the full pipeline end-to-end."""
     person_id_list = [int(x) for x in person_ids.split(",")] if person_ids else None
-    type_list = [int(x) for x in item_types.split(",")] if item_types else None
+    type_list = _parse_item_types(item_types) if item_types else None
 
     config: dict = {"ops": {}}
     config["ops"]["fetch_media"] = {"config": {
