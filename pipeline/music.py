@@ -85,9 +85,15 @@ def fetch_music(
 
     prompt = _get_prompt(trip_type, style)
     gen_duration = target_duration
-    _log(f"Generating {gen_duration}s music via MusicGen: '{prompt}'...")
+    model_name = "facebook/musicgen-medium"
+    _log(f"=== Music Generation ===")
+    _log(f"Model: {model_name}")
+    _log(f"Prompt: '{prompt}'")
+    _log(f"Target duration: {gen_duration}s")
+    _log(f"Cache key: {cache_key}")
 
     try:
+        import time
         import scipy.io.wavfile
         import torch
         from transformers import AutoProcessor, MusicgenForConditionalGeneration
@@ -96,20 +102,30 @@ def fetch_music(
         # Fix transformers bug: config_class should be MusicgenConfig, not MusicgenDecoderConfig
         MusicgenForConditionalGeneration.config_class = MusicgenConfig
 
-        processor = AutoProcessor.from_pretrained("facebook/musicgen-medium")
-        model = MusicgenForConditionalGeneration.from_pretrained("facebook/musicgen-medium")
+        _log("Loading MusicGen model (this may download ~6GB on first run)...")
+        t0 = time.time()
+        processor = AutoProcessor.from_pretrained(model_name)
+        model = MusicgenForConditionalGeneration.from_pretrained(model_name)
         sr = model.config.audio_encoder.sampling_rate
+        params_m = sum(p.numel() for p in model.parameters()) / 1e6
+        _log(f"Model loaded in {time.time()-t0:.0f}s ({params_m:.0f}M params, sr={sr}Hz)")
 
         # ~50 tokens per second of audio
         max_tokens = int(gen_duration * 50)
+        _log(f"Generating {gen_duration}s audio ({max_tokens} tokens)... "
+             f"Estimated time: ~{gen_duration * 20 // 60}min")
         inputs = processor(text=[prompt], padding=True, return_tensors="pt")
+        t0 = time.time()
         with torch.no_grad():
             audio = model.generate(**inputs, max_new_tokens=max_tokens)
+        gen_time = time.time() - t0
 
         dur = audio.shape[-1] / sr
-        _log(f"Generated {dur:.1f}s of audio")
+        _log(f"Generated {dur:.1f}s of audio in {gen_time:.0f}s "
+             f"({gen_time/dur:.1f}x realtime)")
 
         out_path = cache_dir / f"{cache_key}.wav"
+        _log(f"Saving to {out_path}...")
         audio_np = audio[0, 0].cpu().numpy()
         scipy.io.wavfile.write(str(out_path), sr, audio_np)
 
@@ -119,7 +135,8 @@ def fetch_music(
             "duration": round(dur, 1),
             "trip_type": trip_type,
             "style": style,
-            "model": "facebook/musicgen-medium",
+            "model": model_name,
+            "gen_time_s": round(gen_time, 1),
         }))
 
         _log(f"Music saved: {out_path.name} ({out_path.stat().st_size // 1024}KB)")

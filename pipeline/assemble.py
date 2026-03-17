@@ -215,18 +215,24 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
         ws = cfg.workspace
         music_cache = ws.parent.parent / "music" if ws.parent.name == "runs" else ws / "music"
         video_dur = _probe_duration(no_music_path)
-        print(f"Generating {video_dur:.0f}s background music via MusicGen...")
+        print(f"Music mode: auto | video={video_dur:.0f}s | trip_type={edl.trip_type} | style={edl.style}")
         track_path = fetch_music(
             trip_type=edl.trip_type, style=edl.style,
             target_duration=int(video_dur),
-            cache_dir=music_cache,
+            cache_dir=music_cache, log_fn=print,
         )
         if track_path:
             from .edl import MusicTrack
             edl.music = MusicTrack(file=str(track_path))
+            print(f"Music track ready: {track_path}")
+        else:
+            print("Music generation failed or unavailable — continuing without music")
 
     if edl.music and Path(edl.music.file).exists():
-        print("Mixing music...")
+        music_dur = _probe_duration(Path(edl.music.file))
+        video_dur = _probe_duration(no_music_path)
+        print(f"Mixing music: video={video_dur:.1f}s, music={music_dur:.1f}s, "
+              f"volume={edl.music.volume}, fade_in={edl.music.fade_in}s, fade_out={edl.music.fade_out}s")
         _add_music(no_music_path, edl.music, output_path)
         no_music_path.unlink(missing_ok=True)
     else:
