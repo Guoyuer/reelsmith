@@ -146,5 +146,7 @@ def fetch_music(
         return out_path
 
     except Exception as e:
+        import traceback
         _log(f"Music generation failed: {e}")
+        _log(traceback.format_exc())
         return None
