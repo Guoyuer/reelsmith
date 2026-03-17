@@ -249,6 +249,23 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     return output_path
 
 
+def _find_font() -> str:
+    """Find a suitable font for title cards (cross-platform)."""
+    candidates = [
+        "/System/Library/Fonts/STHeiti Medium.ttc",          # macOS
+        "/System/Library/Fonts/Helvetica.ttc",                # macOS fallback
+        "C\\:/Windows/Fonts/segoeui.ttf",                     # Windows
+        "C\\:/Windows/Fonts/arial.ttf",                       # Windows fallback
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",   # Linux
+    ]
+    for f in candidates:
+        # Unescape for Path check
+        check_path = f.replace("\\:", ":")
+        if Path(check_path).exists():
+            return f
+    return ""  # FFmpeg will use its built-in default
+
+
 def _render_title_card(
     title: str, subtitle: str, out: Path, w: int, h: int, fps: int,
     duration: float = 3.0,
@@ -256,10 +273,11 @@ def _render_title_card(
     """Render a title card — dark background with centered text, fade in/out."""
     frames = int(duration * fps)
     safe_title = title.replace("'", "\u2019").replace(":", "\\:")
-    font = "/System/Library/Fonts/STHeiti Medium.ttc"
+    font = _find_font()
 
+    font_arg = f":fontfile='{font}'" if font else ""
     drawtext = (
-        f"drawtext=text='{safe_title}':fontfile='{font}'"
+        f"drawtext=text='{safe_title}'{font_arg}"
         f":fontsize={int(h * 0.08)}:fontcolor=white"
         f":x=(w-text_w)/2:y=(h-text_h)/2-{int(h*0.03)}"
         f":enable='between(t,0,{duration})'"
@@ -267,7 +285,7 @@ def _render_title_card(
     if subtitle:
         safe_sub = subtitle.replace("'", "\u2019").replace(":", "\\:")
         drawtext += (
-            f",drawtext=text='{safe_sub}':fontfile='{font}'"
+            f",drawtext=text='{safe_sub}'{font_arg}"
             f":fontsize={int(h * 0.04)}:fontcolor=white@0.7"
             f":x=(w-text_w)/2:y=(h)/2+{int(h*0.05)}"
             f":enable='between(t,0,{duration})'"
@@ -437,10 +455,10 @@ def _add_text_overlay(
     safe_text = text.replace("'", "\u2019").replace(":", "\\:")
 
     end_time = min(clip_duration - 0.5, 3.0)
-    # Use CJK-capable font for proper Chinese/Japanese/Korean rendering
-    font = "/System/Library/Fonts/STHeiti Medium.ttc"
+    font = _find_font()
+    font_arg = f":fontfile='{font}'" if font else ""
     vf = (
-        f"drawtext=text='{safe_text}':fontfile='{font}'"
+        f"drawtext=text='{safe_text}'{font_arg}"
         f":fontsize={font_size}:fontcolor=white"
         f":borderw=2:bordercolor=black"
         f":x=(w-text_w)/2:y={y_expr}"

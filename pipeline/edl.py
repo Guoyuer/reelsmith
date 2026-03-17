@@ -34,7 +34,7 @@ class Segment(BaseModel):
     name: str  # e.g. "Opening", "Marina Bay", "Hawker Food"
     items: list[EditItem]
     transition: Literal["crossfade", "cut", "fade_black", "wipe_left"] = "crossfade"
-    transition_duration: float = 0.8  # seconds
+    transition_duration: float = 0.4  # seconds
     mode: Literal["narrative", "montage"] = "narrative"  # montage = quick-cut burst
 
 

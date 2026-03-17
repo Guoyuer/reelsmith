@@ -42,9 +42,9 @@ class TestSegmentDefaults:
         assert seg.transition == "crossfade"
 
     def test_default_transition_duration(self):
-        """Segment default transition_duration is 0.8s."""
+        """Segment default transition_duration is 0.4s."""
         seg = Segment(name="test", items=[])
-        assert seg.transition_duration == 0.8
+        assert seg.transition_duration == 0.4
 
 
 class TestAllItems:
