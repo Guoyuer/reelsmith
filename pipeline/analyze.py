@@ -142,27 +142,23 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
     # Per-file analysis cache (shared across runs)
     cache_dir = cfg.cache_dir
 
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import threading
+
     results = []
-    # Count how many need actual work (not cached)
-    to_do = sum(1 for item in to_analyze
-                if item["id"] not in existing or not existing[item["id"]].get("vision"))
-    pbar = tqdm(total=to_do, desc="Analyzing", unit="item",
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
+    # Phase 1: Collect entries, check caches, identify items needing vision
+    needs_vision: list[tuple[int, dict, Path, str]] = []  # (index, entry, target, prompt)
 
     for i, item in enumerate(to_analyze, 1):
         item_id = item["id"]
 
-        # Resume: skip if already analyzed WITH vision results (run-level cache)
         if item_id in existing and existing[item_id].get("vision"):
             results.append(existing[item_id])
-            _log(f"[{i}/{len(to_analyze)}] {item['filename']} — run cache hit")
             continue
 
         local_path = Path(item["local_path"])
         suffix = local_path.suffix.lower()
         is_video = suffix in VIDEO_EXTENSIONS
-
-        pbar.set_postfix_str(f"{item['tier']} {item['filename']}", refresh=True)
 
         entry = {
             "id": item_id,
@@ -183,7 +179,7 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
             "cluster_size": item.get("cluster_size", 1),
         }
 
-        # Check shared per-file analysis cache
+        # Check shared per-file cache
         cache_file = cache_dir / f"{item_id}.json"
         if cache_file.exists():
             try:
@@ -191,49 +187,69 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
                 entry.update(cached)
                 results.append(entry)
                 _log(f"[{i}/{len(to_analyze)}] {item['filename']} — shared cache hit")
-                pbar.update(1)
-                if progress_callback:
-                    progress_callback(pbar.n, to_do, item.get("filename", ""))
-                analysis_path.write_text(json.dumps(results, indent=2))
                 continue
             except (json.JSONDecodeError, KeyError):
-                pass  # corrupted cache entry, re-analyze
+                pass
 
         # For video, extract keyframes
         if is_video:
             kf_paths = extract_frames(local_path, cfg.keyframes_dir, prefix=str(item_id), count=5)
             entry["keyframe_paths"] = [str(p) for p in kf_paths]
             vision_target = kf_paths[0] if kf_paths else None
-
             transcript = _transcribe(local_path, cfg)
             if transcript:
                 entry["transcript"] = transcript
         else:
             vision_target = local_path
 
-        # Vision analysis — use family prompt for A+B, scene prompt for C
+        prompt = VISION_PROMPT_FAMILY if item["tier"] in ("A", "B") else VISION_PROMPT_SCENE
         if vision_target and vision_target.exists():
-            prompt = VISION_PROMPT_FAMILY if item["tier"] in ("A", "B") else VISION_PROMPT_SCENE
-            vision = _analyze_image(vision_target, cfg, prompt)
-            if vision:
-                entry["vision"] = vision
+            needs_vision.append((i, entry, vision_target, prompt))
+        else:
+            results.append(entry)
 
+    _log(f"Cache resolved: {len(results)} cached, {len(needs_vision)} need vision analysis")
+
+    # Phase 2: Run vision analysis with concurrent requests (2-4 workers)
+    # This keeps the GPU busy — while one request waits for HTTP, another is doing inference
+    n_workers = min(4, len(needs_vision)) if needs_vision else 1
+    done_count = 0
+    lock = threading.Lock()
+    pbar = tqdm(total=len(needs_vision), desc="Analyzing", unit="item",
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
+
+    def _process_item(args):
+        idx, entry, target, prompt = args
+        vision = _analyze_image(target, cfg, prompt)
+        if vision:
+            entry["vision"] = vision
         # Save to shared per-file cache
         cache_entry = {k: v for k, v in entry.items()
                        if k in ("vision", "keyframe_paths", "transcript")}
         if cache_entry:
-            cache_file.write_text(json.dumps(cache_entry, indent=2))
+            cf = cache_dir / f"{entry['id']}.json"
+            cf.write_text(json.dumps(cache_entry, indent=2))
+        return idx, entry
 
-        results.append(entry)
-        status = "analyzed" if entry.get("vision") else "no vision"
-        _log(f"[{i}/{len(to_analyze)}] {item['filename']} — {status}")
-        pbar.update(1)
-        if progress_callback:
-            progress_callback(pbar.n, to_do, item.get("filename", ""))
-        # Save incrementally
-        analysis_path.write_text(json.dumps(results, indent=2))
+    with ThreadPoolExecutor(max_workers=n_workers) as executor:
+        futures = {executor.submit(_process_item, args): args for args in needs_vision}
+        for future in as_completed(futures):
+            idx, entry = future.result()
+            results.append(entry)
+            status = "analyzed" if entry.get("vision") else "no vision"
+            _log(f"[{idx}/{len(to_analyze)}] {entry['filename']} — {status}")
+            with lock:
+                done_count += 1
+                pbar.update(1)
+                if progress_callback:
+                    progress_callback(done_count, len(needs_vision), entry.get("filename", ""))
+                # Save incrementally every 5 items
+                if done_count % 5 == 0 or done_count == len(needs_vision):
+                    analysis_path.write_text(json.dumps(results, indent=2))
 
     pbar.close()
+    # Final save
+    analysis_path.write_text(json.dumps(results, indent=2))
     (cfg.workspace / "analyze.pid").unlink(missing_ok=True)
 
     ok = sum(1 for r in results if r.get("vision"))
