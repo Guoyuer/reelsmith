@@ -113,8 +113,13 @@ def fetch_music(
         params_m = sum(p.numel() for p in model.parameters()) / 1e6
         _log(f"Model loaded in {time.time()-t0:.0f}s ({params_m:.0f}M params, sr={sr}Hz)")
 
-        # ~50 tokens per second of audio
-        max_tokens = int(gen_duration * 50)
+        # ~50 tokens per second of audio, capped at model's max_position_embeddings
+        max_positions = model.config.decoder.max_position_embeddings
+        max_tokens = min(int(gen_duration * 50), max_positions - 10)
+        actual_dur = max_tokens / 50
+        if actual_dur < gen_duration:
+            _log(f"Model max position limit: capping at {actual_dur:.0f}s "
+                 f"(requested {gen_duration}s, max_positions={max_positions})")
         _log(f"Generating {gen_duration}s audio ({max_tokens} tokens)... "
              f"Estimated time: ~{gen_duration * 20 // 60}min")
         inputs = processor(text=[prompt], padding=True, return_tensors="pt")

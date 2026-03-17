@@ -546,12 +546,19 @@ def _concat_xfade(clips: list[dict], output_path: Path) -> None:
 
 
 def _add_music(video_path: Path, music, output_path: Path) -> None:
-    """Mix background music under the video."""
+    """Mix background music under the video, looping if needed."""
     total_dur = _probe_duration(video_path)
+    music_dur = _probe_duration(Path(music.file))
     fade_out_start = max(0, total_dur - music.fade_out)
 
+    # Loop music if shorter than video, then trim to video length
+    loop_filter = ""
+    if music_dur > 0 and music_dur < total_dur - 1:
+        loops = int(total_dur / music_dur) + 1
+        loop_filter = f"aloop=loop={loops}:size={int(music_dur * 32000)},atrim=0:{total_dur},"
+
     audio_filter = (
-        f"[1:a]volume={music.volume},"
+        f"[1:a]{loop_filter}volume={music.volume},"
         f"afade=t=in:d={music.fade_in},"
         f"afade=t=out:st={fade_out_start}:d={music.fade_out}[a]"
     )
