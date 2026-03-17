@@ -117,7 +117,10 @@ def _item_score(a: dict, trip_type: str = "family") -> float:
     emotion = v.get("genuine_emotion", 0) * profile["emotion_w"]
     quality = v.get("visual_quality", 5) * profile["quality_w"]
     scene = v.get("scene_type", v.get("story_beat", ""))
-    scene_bonus = profile["scene_bonus"].get(scene, 0)
+    if isinstance(scene, list):
+        scene_bonus = max((profile["scene_bonus"].get(s, 0) for s in scene), default=0)
+    else:
+        scene_bonus = profile["scene_bonus"].get(scene, 0)
 
     score = tier_bonus + togetherness + emotion + quality + scene_bonus
     if _is_portrait_file(a):
@@ -356,8 +359,13 @@ def _select_items(
 
         # Fill with best C items, spread across locations
         good_scenes = {"landmark", "nature", "food", "scenery"}
+        def _scene_match(item):
+            st = item.get("vision", {}).get("scene_type", "")
+            if isinstance(st, list):
+                return any(s in good_scenes for s in st)
+            return st in good_scenes
         c_items.sort(key=lambda x: (
-            0 if x[0].get("vision", {}).get("scene_type", "") in good_scenes else 1,
+            0 if _scene_match(x[0]) else 1,
             -_item_score(x[0], trip_type),
         ))
         remaining = max(0, target_items - len(deduped_ab))
