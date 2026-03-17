@@ -250,6 +250,15 @@ def fetch_media(
         context.log.info(f"Fetched {len(items)} items ({newly_fetched} new, {len(items) - newly_fetched} cached)")
 
     sample = [it.get("filename", "?") for it in items[:10]]
+
+    # Compute shared media disk usage
+    media_dir = io.config.media_dir
+    media_mb = 0.0
+    media_files = 0
+    if media_dir.exists():
+        media_files = sum(1 for f in media_dir.iterdir() if f.is_file())
+        media_mb = sum(f.stat().st_size for f in media_dir.iterdir() if f.is_file()) / 1024 / 1024
+
     return dg.MaterializeResult(
         metadata={
             "items": dg.MetadataValue.int(len(items)),
@@ -257,6 +266,8 @@ def fetch_media(
             "from_cache": dg.MetadataValue.int(len(items) - newly_fetched),
             "manifest": dg.MetadataValue.path(str(out)),
             "sample_files": dg.MetadataValue.md("\n".join(f"- {f}" for f in sample)),
+            "media_disk_mb": dg.MetadataValue.float(round(media_mb, 1)),
+            "media_total_files": dg.MetadataValue.int(media_files),
         }
     )
 

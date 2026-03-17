@@ -238,5 +238,90 @@ def variations(ctx, styles):
     })
 
 
+@cli.command()
+@click.option("--clean", type=click.Choice(["media", "cache", "runs", "all"]),
+              default=None, help="Delete shared data: media, cache, runs, or all")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+def workspace(clean, yes):
+    """Show workspace disk usage and optionally clean up."""
+    from pathlib import Path
+
+    ws = Path("./workspace")
+    if not ws.exists():
+        click.echo("No workspace directory found.")
+        return
+
+    # Gather stats
+    sections = {
+        "media": ("Shared media (photos/videos from NAS)", ws / "media"),
+        "cache": ("Shared analysis cache", ws / "analysis_cache"),
+        "keyframes": ("Shared video keyframes", ws / "keyframes"),
+        "music": ("Shared generated music", ws / "music"),
+        "runs": ("Per-run data (EDLs, clips, output)", ws / "runs"),
+    }
+
+    click.echo()
+    click.echo("=== Workspace Disk Usage ===")
+    click.echo()
+    total = 0
+    for key, (label, path) in sections.items():
+        if path.exists():
+            size = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+            count = sum(1 for f in path.rglob("*") if f.is_file())
+        else:
+            size, count = 0, 0
+        total += size
+        mb = size / 1024 / 1024
+        click.echo(f"  {mb:8.1f} MB  {count:5d} files  {label}")
+        if key == "runs" and path.exists():
+            for run_dir in sorted(path.iterdir()):
+                if run_dir.is_dir():
+                    rs = sum(f.stat().st_size for f in run_dir.rglob("*") if f.is_file())
+                    rc = sum(1 for f in run_dir.rglob("*") if f.is_file())
+                    click.echo(f"  {rs/1024/1024:8.1f} MB  {rc:5d} files    └─ {run_dir.name}")
+
+    click.echo(f"  {'─' * 8}──")
+    click.echo(f"  {total/1024/1024:8.1f} MB  total")
+    click.echo()
+
+    if clean is None:
+        return
+
+    # Clean
+    import shutil
+    targets = []
+    if clean == "media" or clean == "all":
+        targets.append(("media", ws / "media"))
+    if clean == "cache" or clean == "all":
+        targets.append(("analysis_cache", ws / "analysis_cache"))
+        targets.append(("keyframes", ws / "keyframes"))
+        targets.append(("music", ws / "music"))
+    if clean == "runs" or clean == "all":
+        targets.append(("runs", ws / "runs"))
+
+    sizes = []
+    for name, path in targets:
+        if path.exists():
+            s = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+            sizes.append((name, path, s))
+
+    if not sizes:
+        click.echo("Nothing to clean.")
+        return
+
+    total_clean = sum(s for _, _, s in sizes)
+    click.echo(f"Will delete {total_clean/1024/1024:.1f} MB:")
+    for name, path, s in sizes:
+        click.echo(f"  {s/1024/1024:.1f} MB  {path}")
+
+    if not yes:
+        click.confirm("Proceed?", abort=True)
+
+    for name, path, _ in sizes:
+        shutil.rmtree(path, ignore_errors=True)
+        click.echo(f"  Deleted {path}")
+    click.echo("Done.")
+
+
 if __name__ == "__main__":
     cli()
