@@ -96,16 +96,19 @@ def fetch_music(
         import time
         import scipy.io.wavfile
         import torch
-        from transformers import AutoProcessor, MusicgenForConditionalGeneration
-        from transformers.models.musicgen.configuration_musicgen import MusicgenConfig
-
-        # Fix transformers bug: config_class should be MusicgenConfig, not MusicgenDecoderConfig
-        MusicgenForConditionalGeneration.config_class = MusicgenConfig
+        from transformers import AutoProcessor, AutoConfig
 
         _log("Loading MusicGen model (this may download ~6GB on first run)...")
         t0 = time.time()
         processor = AutoProcessor.from_pretrained(model_name)
-        model = MusicgenForConditionalGeneration.from_pretrained(model_name)
+
+        # Load config first, then model with explicit config to avoid
+        # transformers bug where config_class=MusicgenDecoderConfig
+        config = AutoConfig.from_pretrained(model_name)
+        from transformers import MusicgenForConditionalGeneration
+        from transformers.models.musicgen.configuration_musicgen import MusicgenConfig
+        MusicgenForConditionalGeneration.config_class = MusicgenConfig
+        model = MusicgenForConditionalGeneration.from_pretrained(model_name, config=config)
         sr = model.config.audio_encoder.sampling_rate
         params_m = sum(p.numel() for p in model.parameters()) / 1e6
         _log(f"Model loaded in {time.time()-t0:.0f}s ({params_m:.0f}M params, sr={sr}Hz)")
