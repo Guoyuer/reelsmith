@@ -838,11 +838,8 @@ def _plan_api(
     style: str, target_duration: int, focus: str,
     trip_type: str = "family", log_fn=None,
 ) -> EDL:
-    """Multi-pass Claude API planning: narrative arc → shot selection → self-review."""
-    import anthropic
-
+    """Multi-pass Gemini planning from text descriptions: arc → selection → review."""
     _log = log_fn or print
-    client = anthropic.Anthropic()
 
     _log("Building chapters prompt from preprocessed + analysis data...")
     chapters_text = _build_chapters_prompt(preprocessed, analysis_by_id)
@@ -946,7 +943,7 @@ Target ~{n_items} items total.
 
 Design chapters that build from curiosity → joy → warmth → nostalgia."""
 
-    _, arc_content, _ = _claude_call(client, arc_system, arc_user, _log, "pass 1: arc")
+    arc_content = _gemini_call(arc_system, [arc_user], _log, "pass 1: arc", model="gemini-3-flash-preview")
     _log(f"=== ARC RESPONSE ===\n{arc_content}\n=== END ARC ===")
 
     from .media_utils import strip_markdown_fences
@@ -1001,7 +998,7 @@ photos in order, but a sequence that builds emotion and feels like a journey."""
     _log(user_message)
     _log("=== END PROMPTS ===")
 
-    _, edl_content, _ = _claude_call(client, system_prompt, user_message, _log, "pass 2: selection")
+    edl_content = _gemini_call(system_prompt, [user_message], _log, "pass 2: selection", model="gemini-3-flash-preview")
 
     _log(f"=== RAW EDL RESPONSE ({len(edl_content)} chars) ===")
     _log(edl_content)
@@ -1047,7 +1044,7 @@ Current EDL:
 
 Improve pacing, remove redundancy, strengthen the narrative arc. Output improved JSON only."""
 
-    _, review_content, _ = _claude_call(client, review_system, review_user, _log, "pass 3: review")
+    review_content = _gemini_call(review_system, [review_user], _log, "pass 3: review", model="gemini-3-flash-preview")
 
     _log(f"=== REVIEW RESPONSE ({len(review_content)} chars) ===")
     _log(review_content)
@@ -1494,7 +1491,7 @@ Trip structure:
 {"".join(arc_lines)}"""
 
     arc_content = _gemini_call(arc_system, [arc_user], _log,
-                               label="visual pass 1: arc", model="gemini-3-pro-preview")
+                               label="visual pass 1: arc", model="gemini-3-flash-preview")
     _log(f"Arc response:\n{arc_content[:500]}")
 
     from .media_utils import strip_markdown_fences
@@ -1575,7 +1572,7 @@ and music_mood if you change anything."""
 
     review_parts = _build_review_blocks(edl, cfg)
     review_content = _gemini_call(review_system, review_parts, _log,
-                                   label="visual pass 3: review", model="gemini-3-pro-preview")
+                                   label="visual pass 3: review", model="gemini-3-flash-preview")
 
     review_content = strip_markdown_fences(review_content)
     try:

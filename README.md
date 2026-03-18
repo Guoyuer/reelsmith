@@ -1,6 +1,6 @@
 # vlog
 
-Automated vlog generation from Synology Photos. Downloads trip photos, analyzes them with local AI, plans a narrative with Claude API, generates background music with MusicGen, and renders a highlight reel — all locally. Orchestrated by [Dagster](https://dagster.io) with a web UI for monitoring, resume, and re-materialization.
+Automated vlog generation from Synology Photos. Downloads trip photos/videos, plans a narrative with AI (Gemini or Claude), generates background music with MusicGen, and renders a highlight reel. Three planning modes: **visual** (Gemini sees actual photos — fastest), **api** (Claude plans from text descriptions), **algo** (deterministic scoring). Orchestrated by [Dagster](https://dagster.io) with a web UI.
 
 ## Architecture
 
@@ -41,15 +41,17 @@ flowchart LR
 # One command: creates venvs, installs deps, walks you through config, starts services
 python start.py
 
-# Run pipeline
+# Visual planner (fastest — Gemini sees photos directly, no local vision model)
 python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 \
-  --trip-type family --planner api --style upbeat --duration 180 \
-  --music auto --item-types photo
+  --trip-type family --planner visual --duration 180
+
+# API planner (Claude plans from local vision model descriptions)
+python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 \
+  --trip-type family --planner api --duration 180
 
 # Quick test (low res, fast)
 python run.py -n sg-test full -f 2025-06-13 -t 2025-06-16 \
-  --trip-type family --planner api --duration 60 \
-  --focus "happiness with family" --item-types photo \
+  --planner visual --duration 60 --item-types photo \
   --width 640 --height 360 --fps 15
 
 # Stop all services
@@ -122,7 +124,8 @@ python run.py -n singapore variations
 | Flag | Values | Description |
 |------|--------|-------------|
 | `--trip-type` | family, solo, food, adventure, architecture, general | Scoring profile and narrative style |
-| `--planner` | api, algo | Claude API (recommended) or algorithmic |
+| `--planner` | visual, api, algo | Gemini visual (recommended), Claude API text, or algorithmic |
+| `--force-analyze` | flag | Force re-run vision analysis (ignore cached analysis.json) |
 | `--music` | auto, /path/to/file | Generate via MusicGen or use custom file |
 | `--style` | upbeat, cinematic, reflective, energetic | Pacing and transitions |
 | `--duration` | seconds | Target vlog length |
@@ -157,12 +160,13 @@ Assigns tiers based on family member presence (from Synology face detection), cl
 Vision analysis via Ollama (llava:13b). Tier A/B items get a family-tuned prompt (togetherness, emotion, story_beat, visual_quality). Tier C gets a scene-only prompt (scene_type, visual_quality). Results are cached per-file.
 
 ### 4. plan
-Two backends:
+Three backends:
 
-- **API planner (recommended)**: Sends scored candidates to Claude API with trip-type-specific narrative guidance. Claude selects items and arranges them into a cinematic EDL.
+- **Visual planner (recommended)**: Gemini sees actual photos via contact sheets + video filmstrips. 3-pass planning: (1) narrative arc design with Gemini Pro, (2) visual selection with Gemini Flash, (3) review with Gemini Pro. Skips local vision model entirely. Outputs EDL with `music_mood` per segment and `narrative_rationale`. Supports video trim points (`start_time`/`end_time`).
+- **API planner**: 3-pass Claude Sonnet planning from text descriptions. Requires local vision model to have run first. Extended thinking available.
 - **Algo planner**: Deterministic selection using scoring profiles per trip_type, with hero shot identification, content-aware Ken Burns effects, time-proximity dedup, and portrait penalty.
 
-Both planners produce an EDL (Edit Decision List) with title card, segments, transitions, and text overlays.
+All planners produce an EDL (Edit Decision List) with segments, transitions, and text overlays. Video items can include trim points for scene selection.
 
 ### 5. assemble
 Renders each item as a video clip (Ken Burns effects, face-aware cropping, portrait handling), adds text overlays, concatenates with crossfade/fade_black transitions, renders intro/outro title cards, generates background music via MusicGen if `--music auto`, and mixes the final output.
@@ -195,7 +199,7 @@ Music generation takes ~20 minutes for 60s of audio on an M-series Mac. The trac
   - `ollama pull llama3:8b` — narrative planning (fallback)
 - **Synology Photos API** — the [synology-photos-project](../synology-photos-project) backend running on `:8000`
 - **Dagster** — workflow orchestration (installed via `pip install -e .`)
-- **Anthropic API key** — for Claude API planner (`ANTHROPIC_API_KEY` in `.env`)
+- **Gemini API key** — for visual and API planners (`GEMINI_API_KEY` in `.env`)
 
 Optional (installed with `pip install -e ".[all]"`):
 - **openai-whisper** — speech-to-text for video transcription
@@ -219,7 +223,7 @@ All services start with `python start.py` (Ollama, Synology API, Dagster).
 | Component | Model | RAM |
 |-----------|-------|-----|
 | Vision | llava:13b | ~8GB |
-| Planning | Claude API (remote) | — |
+| Planning | Gemini API (remote) | — |
 | Music | MusicGen medium | ~6GB |
 | Whisper | mlx-whisper medium | ~1.5GB |
 
@@ -238,7 +242,7 @@ python -m pytest tests/ -m "not integration"  # unit/mocked tests only
 
 - **Dagster asset model** — each stage is a Dagster asset that produces a file. Auto-skips when output exists. Re-materialize from the UI to force re-run + downstream cascade.
 - **Trip-type generalization** — scoring profiles, narrative prompts, and music prompts all adapt to trip type. The same pipeline handles family trips, solo adventures, food tours, etc.
-- **Claude API for planning** — the API planner produces significantly better narrative than algorithmic selection. It receives enriched candidate data (quality scores, cluster sizes, location details, transcripts) and trip-type-specific guidance.
+- **Gemini API for planning** — the visual planner uses Gemini 3 Flash to see actual photos via contact sheets, producing better narrative than text-only planning. The API planner also uses Gemini Flash for text-based planning from local vision model descriptions. Both use 3-pass planning: arc design → shot selection → self-review.
 - **Music in assemble, not plan** — music generation happens during rendering, using the actual video duration. Plan just declares intent (`music_mode=auto`).
 - **Shared media + analysis cache** — raw files and per-file vision results are shared across runs. Only plan + assemble re-run.
 - **Per-run isolation** — each run gets its own directory for manifest, EDL, clips, and output.

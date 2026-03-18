@@ -82,49 +82,42 @@ def _load_latest_edl(cfg: Config) -> tuple[EDL, int]:
     return EDL.model_validate_json(path.read_text()), version
 
 
-def _claude_revise(system: str, user: str, log_fn=None) -> str:
-    """Call Claude API to revise an EDL. Returns raw response text."""
-    import anthropic
-    _log = log_fn or print
+def _gemini_revise(system: str, user: str, log_fn=None) -> str:
+    """Call Gemini API to revise an EDL. Returns raw response text."""
+    import os
 
-    client = anthropic.Anthropic()
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=16000,
-        temperature=1,
-        thinking={
-            "type": "enabled",
-            "budget_tokens": 8000,
-        },
-        system=system,
-        messages=[{"role": "user", "content": user}],
+    from google import genai
+    from google.genai import types
+
+    _log = log_fn or print
+    _log("Calling Gemini API (iterate)...")
+
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
+    response = client.models.generate_content(
+        model="gemini-3-flash-preview",
+        contents=[types.Content(parts=[types.Part(text=user)])],
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=16000,
+            temperature=0.7,
+        ),
     )
 
-    thinking_text = ""
-    content = ""
-    for block in response.content:
-        if block.type == "thinking":
-            thinking_text = block.thinking
-        elif block.type == "text":
-            content = block.text
-
-    _log(f"Claude API: {response.usage.input_tokens} in, "
-         f"{response.usage.output_tokens} out")
-    if thinking_text:
-        _log(f"Thinking: {thinking_text[:500]}...")
-
+    content = response.text or ""
+    usage = response.usage_metadata
+    _log(f"Gemini API: {usage.prompt_token_count} in, {usage.candidates_token_count} out")
     return content
 
 
 def _revise_and_render(cfg: Config, edl: EDL, system: str, user: str,
-                       log_fn=None, use_claude: bool = True) -> EDL:
-    """Call Claude API (or Ollama fallback), parse revised EDL, save and re-render."""
+                       log_fn=None) -> EDL:
+    """Call Gemini API (or Ollama fallback), parse revised EDL, save and re-render."""
     _log = log_fn or print
 
-    if use_claude:
-        content = strip_markdown_fences(_claude_revise(system, user, log_fn=_log))
-    else:
-        # Ollama fallback (for when API is unavailable)
+    try:
+        content = strip_markdown_fences(_gemini_revise(system, user, log_fn=_log))
+    except Exception as e:
+        _log(f"Gemini failed ({e}), falling back to Ollama")
         prompt = f"{system}\n\n{user}"
         content = strip_markdown_fences(
             ollama_chat(cfg, prompt=prompt, json_mode=True)
