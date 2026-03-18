@@ -33,6 +33,7 @@ class EditItem(BaseModel):
 class Segment(BaseModel):
     name: str  # e.g. "Opening", "Marina Bay", "Hawker Food"
     narrative_rationale: str = ""  # why these items, what story beat this segment serves
+    music_mood: str = ""  # e.g. "warm acoustic guitar, uplifting" → MusicGen
     items: list[EditItem]
     transition: Literal["crossfade", "cut", "fade_black", "wipe_left"] = "crossfade"
     transition_duration: float = 0.4  # seconds

@@ -127,8 +127,8 @@ def resume(ctx):
 @click.option("--style", default="upbeat", help="Vlog style")
 @click.option("--duration", default=180, type=int, help="Target duration in seconds")
 @click.option("--focus", default="", help="What to emphasize (default: derived from trip-type)")
-@click.option("--planner", default="algo", type=click.Choice(["algo", "api"]),
-              help="Planning backend: auto (algorithmic) or api (Claude API)")
+@click.option("--planner", default="algo", type=click.Choice(["algo", "api", "visual"]),
+              help="Planning backend: algo, api (text), or visual (Claude sees photos)")
 @click.option("--trip-type", default="family",
               type=click.Choice(["family", "solo", "food", "adventure", "architecture", "general"]),
               help="Trip type for scoring and narrative style")
@@ -151,7 +151,10 @@ def full(ctx, from_date, to_date, country, first_level, district, person_ids,
         "from_date": from_date, "to_date": to_date,
         "force": True,
     }}
-    config["ops"]["analyze"] = {"config": {"force": force_analyze}}
+    config["ops"]["analyze"] = {"config": {
+        "force": force_analyze,
+        "skip_vision": planner == "visual",
+    }}
     if country:
         config["ops"]["fetch_media"]["config"]["country"] = country
     if first_level:
@@ -181,8 +184,8 @@ def full(ctx, from_date, to_date, country, first_level, district, person_ids,
 @click.option("--style", default="upbeat", help="Vlog style: upbeat, reflective, cinematic")
 @click.option("--duration", default=180, type=int, help="Target duration in seconds")
 @click.option("--focus", default="", help="What to emphasize (default: derived from trip-type)")
-@click.option("--planner", default="algo", type=click.Choice(["algo", "api"]),
-              help="Planning backend: auto (algorithmic) or api (Claude API)")
+@click.option("--planner", default="algo", type=click.Choice(["algo", "api", "visual"]),
+              help="Planning backend: algo, api (text), or visual (Claude sees photos)")
 @click.option("--trip-type", default="family",
               type=click.Choice(["family", "solo", "food", "adventure", "architecture", "general"]),
               help="Trip type for scoring and narrative style")

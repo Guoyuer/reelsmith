@@ -1,14 +1,16 @@
 """Stage 3: Generate EDL — algorithmic or API-based planning.
 
-Two backends:
+Three backends:
   - "algo" (default): deterministic algorithm using analysis scores
-  - "api": Claude API call for narrative-aware planning
+  - "api": Claude API call for narrative-aware planning (text-only)
+  - "visual": Claude API with photos — sees contact sheets, skips local vision model
 
 Set via PlanConfig.planner or CLI --planner flag.
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from datetime import datetime
@@ -735,25 +737,27 @@ Output valid JSON only:
 }}"""
 
 
-def _claude_call(client, system: str, user: str | list[dict], log_fn, label: str = ""):
-    """Make a Claude API call with extended thinking. Returns (thinking, content, usage).
+def _claude_call(client, system: str, user: str | list[dict], log_fn,
+                  label: str = "", thinking: bool = False):
+    """Make a Claude API call. Returns (thinking_text, content, usage).
 
     *user* can be a plain string or a list of content blocks (for multimodal).
+    *thinking*: enable extended thinking (adds cost but improves reasoning).
     """
     _log = log_fn or print
-    _log(f"Calling Claude API ({label}, extended thinking enabled)...")
+    _log(f"Calling Claude API ({label}{', thinking=on' if thinking else ''})...")
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=16000,
-        temperature=1,  # required for extended thinking
-        thinking={
-            "type": "enabled",
-            "budget_tokens": 10000,
-        },
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
+    kwargs: dict = {
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 16000,
+        "system": system,
+        "messages": [{"role": "user", "content": user}],
+    }
+    if thinking:
+        kwargs["temperature"] = 1  # required for extended thinking
+        kwargs["thinking"] = {"type": "enabled", "budget_tokens": 10000}
+
+    response = client.messages.create(**kwargs)
 
     thinking_text = ""
     content = ""
@@ -1080,6 +1084,440 @@ def _format_item_line(a: dict, tier_prefix: str, prev_time: int | None = None) -
         line += "\n      scenes:\n" + "\n".join(scene_lines)
 
     return line
+
+
+# ---------------------------------------------------------------------------
+# Backend 3: Visual planner — Claude sees photos directly
+# ---------------------------------------------------------------------------
+
+def _visual_system_prompt(trip_type: str) -> str:
+    """System prompt for visual planner — Claude sees contact sheets and filmstrips."""
+    guidance = _NARRATIVE_GUIDANCE.get(trip_type, _NARRATIVE_GUIDANCE["general"])
+    return f"""\
+You are a professional travel vlog editor. You will see the actual photos and
+video filmstrips from a trip, organized as numbered contact sheets by day/location.
+
+Your job: select the best items and arrange them into an EDL (Edit Decision List)
+that tells a compelling story.
+
+## How to read the input
+
+- **Contact sheets**: Grid images with numbered cells (#01, #02, ...). Numbers match
+  the text metadata below each sheet. Judge the VISUAL content — composition, emotion,
+  lighting, quality — not just the metadata.
+- **Video filmstrips**: Horizontal strips showing scene keyframes with timestamps.
+  Select the best scene using start_time/end_time.
+- **Metadata per item**: tier (A=family together, B=one family member, C=scenery),
+  person names, location, time.
+
+## Narrative principles
+
+1. **Emotional arc**: Build from curiosity → joy → warmth → nostalgia.
+
+{guidance}
+
+3. **Video-first**: Prefer video clips over photos when both cover the same moment.
+   Videos bring motion, atmosphere, and sound — they make a vlog feel alive, not like
+   a slideshow. Aim for 40-60% video content by screen time. Videos with speech or
+   reactions (see transcript) are especially valuable.
+
+4. **Rhythm**: Alternate photos (3-5s, Ken Burns) with video clips (5-10s, real motion).
+   Vary pacing — fast cuts for energy, lingering shots for emotion.
+
+5. **Visual judgment**: Use what you SEE in the photos. A photo with genuine laughter
+   beats a posed shot with higher "tier" score. Trust your eyes over metadata.
+
+6. **Text overlays**: Day labels and location names at natural transitions. Keep minimal.
+
+7. **Music mood**: For each segment, suggest a music_mood — a natural language description
+   of the background music tone (e.g., "warm acoustic guitar, uplifting",
+   "gentle piano, reflective and slow", "upbeat tropical percussion").
+
+## Technical rules
+
+- display_duration: 3-5s per photo, 5-10s for video clips
+- For videos: set start_time and end_time to select the best scene
+- effect: ken_burns_in/out/left/right for photos, "none" for video clips
+- Transitions: crossfade within segments, fade_black between major changes
+- CRITICAL: source_file must be the EXACT path value from the text metadata
+
+Output valid JSON only:
+{{
+  "title": "string",
+  "target_duration": <seconds>,
+  "resolution": [3840, 2160],
+  "fps": 60,
+  "segments": [
+    {{
+      "name": "Chapter Name",
+      "narrative_rationale": "Why these items, what story beat this serves",
+      "music_mood": "natural language music description for this segment",
+      "items": [
+        {{
+          "source_file": "<exact path from metadata>",
+          "media_type": "photo|video",
+          "display_duration": 3.0-10.0,
+          "start_time": null or <seconds for video trim start>,
+          "end_time": null or <seconds for video trim end>,
+          "effect": "ken_burns_in|ken_burns_out|ken_burns_left|ken_burns_right|static|none",
+          "text_overlay": null or {{"text": "string", "position": "bottom", "font_size": 48}}
+        }}
+      ],
+      "transition": "crossfade|fade_black",
+      "transition_duration": 0.8
+    }}
+  ],
+  "music": null
+}}"""
+
+
+def _build_visual_chapter_text(
+    chapter: dict, day: dict, analysis_by_id: dict, start_idx: int,
+) -> tuple[str, list[Path], list[dict]]:
+    """Build text metadata for a chapter and collect image paths.
+
+    Returns (text, photo_paths, video_items) where:
+    - text: metadata lines with numbered items
+    - photo_paths: ordered list of photo paths for contact sheet
+    - video_items: list of video analysis dicts for filmstrips
+    """
+    lines = []
+    photo_paths = []
+    video_items = []
+    idx = start_idx
+
+    for item_id in chapter.get("item_ids", []):
+        a = analysis_by_id.get(item_id)
+        if not a or a.get("tier") == "D":
+            continue
+
+        local_path = a.get("local_path", "")
+        media = a.get("media_type", "photo")
+        tier = a.get("tier", "?")
+        persons = a.get("persons", [])
+        taken_iso = a.get("taken_iso", "")
+        time_str = taken_iso[11:16] if taken_iso and len(taken_iso) >= 16 else ""
+
+        label = f"#{idx:02d}"
+        parts = [f"{label}: tier={tier}"]
+        if a.get("family_count", 0):
+            parts.append(f"fam={a['family_count']}")
+        if persons:
+            parts.append(f"people={','.join(persons[:3])}")
+        if time_str:
+            parts.append(f"time={time_str}")
+
+        if media == "video":
+            dur_ms = a.get("duration_ms")
+            dur_s = f"{dur_ms / 1000:.0f}s" if dur_ms else "?"
+            n_scenes = len(a.get("scenes", []))
+            parts.append(f"video={dur_s} scenes={n_scenes}")
+            transcript = a.get("transcript", "")
+            if transcript:
+                parts.append(f'transcript="{transcript[:100]}"')
+            video_items.append(a)
+        else:
+            photo_paths.append(Path(local_path))
+
+        parts.append(f"path={local_path}")
+        lines.append(" ".join(parts))
+        idx += 1
+
+    loc = chapter.get("location", "unknown")
+    block = chapter.get("time_block", "")
+    header = f"\n=== {day['day_name']} {day['date']} [{block.upper()}] {loc} ==="
+    text = header + "\n" + "\n".join(lines)
+    return text, photo_paths, video_items
+
+
+def _build_visual_content_blocks(
+    preprocessed: dict, analysis_by_id: dict, cfg: Config, log_fn=None,
+) -> list[dict]:
+    """Build multimodal content blocks: interleaved text + contact sheets + filmstrips."""
+    from .media_utils import make_contact_sheet, make_filmstrip
+
+    _log = log_fn or print
+    blocks: list[dict] = []
+    sheets_dir = cfg.workspace / "contact_sheets"
+    sheets_dir.mkdir(parents=True, exist_ok=True)
+
+    global_idx = 1  # continuous numbering across chapters
+
+    for day in preprocessed["timeline"]:
+        for chapter in day["chapters"]:
+            text, photo_paths, video_items = _build_visual_chapter_text(
+                chapter, day, analysis_by_id, global_idx,
+            )
+            n_items = len(photo_paths) + len(video_items)
+            if n_items == 0:
+                continue
+
+            blocks.append({"type": "text", "text": text})
+
+            # Contact sheet for photos
+            if photo_paths:
+                # Use thumbnail paths if available, otherwise original
+                thumb_paths = []
+                for p in photo_paths:
+                    thumb = cfg.workspace / "thumbnails" / f"{p.stem}_thumb.jpg"
+                    thumb_paths.append(thumb if thumb.exists() else p)
+
+                loc_safe = chapter.get("location", "x").replace("/", "_")[:30]
+                sheet_name = f"{day['date']}_{chapter.get('time_block', 'x')}_{loc_safe}.jpg"
+                sheet_path = sheets_dir / sheet_name
+                labels = [f"#{global_idx + i:02d}" for i in range(len(thumb_paths))]
+
+                make_contact_sheet(thumb_paths, sheet_path, cell_size=256, columns=4, labels=labels)
+                _log(f"Contact sheet: {sheet_name} ({len(thumb_paths)} photos)")
+
+                b64 = base64.b64encode(sheet_path.read_bytes()).decode()
+                blocks.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
+                })
+
+            # Filmstrips for videos
+            for vi in video_items:
+                scenes = vi.get("scenes", [])
+                kf_paths = [Path(s["keyframe"]) for s in scenes if s.get("keyframe")]
+                if not kf_paths:
+                    continue
+
+                vid_id = vi["id"]
+                strip_path = sheets_dir / f"filmstrip_{vid_id}.jpg"
+                time_labels = [f"{s['start']:.0f}-{s['end']:.0f}s" for s in scenes if s.get("keyframe")]
+                make_filmstrip(kf_paths, strip_path, cell_height=320, labels=time_labels)
+
+                blocks.append({"type": "text", "text": f"Video filmstrip for #{global_idx + len(photo_paths) + video_items.index(vi):02d}:"})
+                b64 = base64.b64encode(strip_path.read_bytes()).decode()
+                blocks.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
+                })
+
+            global_idx += n_items
+
+    return blocks
+
+
+def _build_review_blocks(edl: EDL, cfg: Config) -> list[dict]:
+    """Build review content blocks: selected items at higher resolution."""
+    from .media_utils import generate_thumbnail
+
+    blocks: list[dict] = [
+        {"type": "text", "text": f"Review this EDL. Current version:\n{edl.model_dump_json(indent=2)}"},
+    ]
+    review_dir = cfg.workspace / "review_thumbs"
+    review_dir.mkdir(parents=True, exist_ok=True)
+
+    for seg in edl.segments:
+        blocks.append({"type": "text", "text": f"\n--- {seg.name} ({len(seg.items)} items) ---"})
+        for item in seg.items:
+            src = Path(item.source_file)
+            if item.media_type == "video":
+                # Use best scene keyframe for review
+                kf_dir = cfg.workspace.parent.parent / "keyframes" if cfg.workspace.parent.name == "runs" else cfg.workspace / "keyframes"
+                kf_pattern = f"{src.stem}_scene_*.jpg"
+                kfs = sorted(kf_dir.glob(kf_pattern)) if kf_dir.exists() else []
+                if kfs:
+                    thumb = generate_thumbnail(kfs[0], review_dir, size=768)
+                else:
+                    continue
+            else:
+                thumb = generate_thumbnail(src, review_dir, size=768)
+
+            if thumb.exists():
+                b64 = base64.b64encode(thumb.read_bytes()).decode()
+                blocks.append({"type": "text", "text": f"{item.source_file} ({item.display_duration}s)"})
+                blocks.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
+                })
+
+    return blocks
+
+
+def _plan_visual(
+    cfg: Config, preprocessed: dict, analysis_by_id: dict,
+    analysis_items: list[dict],
+    style: str, target_duration: int, focus: str,
+    trip_type: str = "family", log_fn=None,
+) -> EDL:
+    """Multi-pass Claude API planning with visual input — Claude sees actual photos."""
+    import anthropic
+
+    _log = log_fn or print
+    client = anthropic.Anthropic()
+
+    # Trip-level summary
+    days = preprocessed.get("timeline", [])
+    locations: list[str] = []
+    n_candidates = 0
+    n_videos = 0
+    for day in days:
+        for ch in day.get("chapters", []):
+            loc = ch.get("location", "")
+            if loc and loc != "unknown" and loc not in locations:
+                locations.append(loc)
+            for item_id in ch.get("item_ids", []):
+                a = analysis_by_id.get(item_id)
+                if a and a.get("tier") != "D":
+                    n_candidates += 1
+                    if a.get("media_type") == "video":
+                        n_videos += 1
+
+    trip_summary = (
+        f"Trip overview: {len(days)} day{'s' if len(days) != 1 else ''}, "
+        f"{len(locations)} locations, {n_candidates} candidates "
+        f"({n_videos} videos, {n_candidates - n_videos} photos)."
+    )
+
+    n_items = target_duration // 4
+    trip_label = f"{trip_type} trip" if trip_type != "general" else "trip"
+    family_line = ""
+    if trip_type == "family" and preprocessed.get("family_names"):
+        family_line = f"\nFamily: {', '.join(preprocessed['family_names'])}"
+
+    # ------------------------------------------------------------------
+    # Pass 1: Narrative arc (text-only, lightweight)
+    # ------------------------------------------------------------------
+    _log("=== VISUAL PASS 1: Narrative Arc ===")
+
+    arc_lines = []
+    for day in preprocessed["timeline"]:
+        arc_lines.append(f"\n=== {day['day_name']} {day['date']} ===")
+        for ch in day["chapters"]:
+            loc = ch["location"]
+            block = ch["time_block"]
+            count = len(ch.get("item_ids", []))
+            n_vid = sum(1 for iid in ch["item_ids"]
+                        if analysis_by_id.get(iid, {}).get("media_type") == "video")
+            line = f"  [{block.upper()}] {loc} — {count} items"
+            if n_vid:
+                line += f" ({n_vid} videos)"
+            arc_lines.append(line)
+
+    arc_system = f"""\
+You are a professional travel vlog narrative designer. Design the emotional arc
+and chapter structure for a {style} highlight reel.
+
+Output JSON only:
+{{
+  "title": "vlog title",
+  "arc_description": "1-2 sentences describing the overall narrative arc",
+  "chapters": [
+    {{
+      "name": "Chapter Name",
+      "theme": "emotional theme",
+      "target_items": <count>,
+      "pacing": "fast|medium|slow",
+      "prefer_video": <true if video clips would enhance this chapter>
+    }}
+  ]
+}}"""
+
+    arc_user = f"""\
+Design the narrative arc for a {style} {trip_label} vlog.
+
+{trip_summary}{family_line}
+Target: {target_duration}s (~{n_items} items).
+Focus: {focus}.
+
+Trip structure:
+{"".join(arc_lines)}"""
+
+    _, arc_content, _ = _claude_call(client, arc_system, arc_user, _log, "visual pass 1: arc")
+    _log(f"Arc response:\n{arc_content[:500]}")
+
+    from .media_utils import strip_markdown_fences
+    arc_content = strip_markdown_fences(arc_content)
+    try:
+        narrative_arc = json.loads(arc_content)
+    except json.JSONDecodeError:
+        _log("Failed to parse arc, continuing without it")
+        narrative_arc = None
+
+    # ------------------------------------------------------------------
+    # Pass 2: Visual selection — Claude sees contact sheets + filmstrips
+    # ------------------------------------------------------------------
+    _log("=== VISUAL PASS 2: Visual Selection ===")
+
+    _log("Building contact sheets and filmstrips...")
+    content_blocks = _build_visual_content_blocks(preprocessed, analysis_by_id, cfg, _log)
+
+    arc_guidance = ""
+    if narrative_arc:
+        arc_guidance = f"\n**Narrative arc** (follow this structure):\nTitle: {narrative_arc.get('title', '')}\nArc: {narrative_arc.get('arc_description', '')}\nChapters:\n"
+        for ch in narrative_arc.get("chapters", []):
+            arc_guidance += (
+                f"  - {ch.get('name', '?')}: {ch.get('theme', '?')}, "
+                f"~{ch.get('target_items', '?')} items, pacing={ch.get('pacing', '?')}"
+                f"{', prefer video' if ch.get('prefer_video') else ''}\n"
+            )
+
+    intro_text = f"""\
+Create a {style} {trip_label} vlog EDL from the photos and videos shown below.
+
+{trip_summary}{family_line}
+Target: {target_duration}s (~{n_items} items). Focus: {focus}.
+{arc_guidance}
+Look at each contact sheet carefully. Select the best photos and video scenes.
+For videos, specify start_time/end_time to pick the best scene.
+Use the exact path values from the metadata as source_file.
+
+Candidates by day/location:"""
+
+    # Prepend intro text before the content blocks
+    visual_message: list[dict] = [{"type": "text", "text": intro_text}] + content_blocks
+
+    system_prompt = _visual_system_prompt(trip_type)
+    _log(f"Visual message: {len(visual_message)} content blocks")
+
+    _, edl_content, _ = _claude_call(client, system_prompt, visual_message, _log, "visual pass 2: select")
+
+    _log(f"=== VISUAL EDL RESPONSE ({len(edl_content)} chars) ===")
+    _log(edl_content[:1000])
+    _log("=== END ===")
+
+    edl_content = strip_markdown_fences(edl_content)
+    edl = EDL.model_validate_json(edl_content)
+    _log(f"Parsed EDL: {len(edl.segments)} segments, {len(edl.all_items())} items, "
+         f"~{edl.estimated_duration():.0f}s")
+    for seg in edl.segments:
+        _log(f"  [{seg.name}] ({len(seg.items)} items) music={seg.music_mood} | {seg.narrative_rationale}")
+
+    # ------------------------------------------------------------------
+    # Pass 3: Visual review — Claude reviews selected items at higher res
+    # ------------------------------------------------------------------
+    _log("=== VISUAL PASS 3: Visual Review ===")
+
+    review_system = """\
+You are reviewing a vlog EDL you just created. You can see each selected photo/video
+at higher resolution. Check:
+1. Does the sequence flow visually? Adjacent shots shouldn't look too similar.
+2. Video/photo balance — enough video clips for energy? Not all slideshows?
+3. Pacing — duration varies enough? Emotional beats get more time?
+4. Are the music_mood values specific and evocative (not generic)?
+5. Do text overlays appear at natural transitions?
+6. Video trim points — are start_time/end_time selecting the best moment?
+
+Output the improved EDL as valid JSON (same schema). Update narrative_rationale
+and music_mood if you change anything."""
+
+    review_blocks = _build_review_blocks(edl, cfg)
+    _, review_content, _ = _claude_call(client, review_system, review_blocks, _log, "visual pass 3: review")
+
+    review_content = strip_markdown_fences(review_content)
+    try:
+        reviewed = EDL.model_validate_json(review_content)
+        _log(f"Reviewed EDL: {len(reviewed.segments)} segments, {len(reviewed.all_items())} items, "
+             f"~{reviewed.estimated_duration():.0f}s")
+        for seg in reviewed.segments:
+            _log(f"  [{seg.name}] ({len(seg.items)} items) music={seg.music_mood}")
+        return reviewed
+    except Exception as e:
+        _log(f"Review parse failed ({e}), using pass 2 EDL")
+        return edl
 
 
 def _build_chapters_prompt(preprocessed: dict, analysis_by_id: dict) -> str:
