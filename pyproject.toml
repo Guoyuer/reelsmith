@@ -12,6 +12,7 @@ dependencies = [
     "tqdm>=4.60",
     "dagster>=1.9",
     "dagster-webserver>=1.9",
+    "dagster-graphql>=1.9",
     "google-genai>=1.0",
 ]
 

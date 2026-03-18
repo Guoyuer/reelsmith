@@ -322,7 +322,7 @@ def setup() -> bool:
         ("PLANNING_MODEL", "Planning model", "qwen2.5-coder:7b"),
         ("WHISPER_MODEL", "Whisper model size (tiny/base/small/medium)", "small"),
         ("WORKSPACE", "Workspace directory", "./workspace"),
-        ("ANTHROPIC_API_KEY", "Anthropic API key (for Claude planner, optional)", ""),
+        ("GEMINI_API_KEY", "Gemini API key (for visual/api planner — get from ai.google.dev)", ""),
     ])
 
     if SYNOLOGY_DIR.exists():
