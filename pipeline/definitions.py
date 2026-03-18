@@ -99,6 +99,7 @@ class AssembleConfig(dg.Config):
     height: int = 2160
     fps: int = 60
     skip_broken: bool = False
+    auto_review: bool = True  # auto-review rendered vlog with Gemini and re-plan if needed
 
 
 class IterateConfig(dg.Config):
@@ -432,10 +433,30 @@ def assemble(
     )
     context.log.info(f"Assembled: {output_path}")
 
+    # Auto-review: extract frames from rendered vlog, send to Gemini for critique
+    if config.auto_review and output_path.exists():
+        context.log.info("Auto-review: sending rendered frames to Gemini for quality check...")
+        try:
+            from .iterate import self_critique
+            self_critique(cfg, style="upbeat", max_rounds=1, log_fn=context.log.info)
+            # Re-assemble with the improved EDL
+            new_version = _find_latest_version(cfg)
+            if new_version > version:
+                context.log.info(f"Re-assembling with improved EDL v{new_version}...")
+                output_path = do_assemble(
+                    cfg, version=new_version,
+                    resolution=(config.width, config.height), fps=config.fps,
+                    skip_broken=config.skip_broken,
+                )
+                version = new_version
+                context.log.info(f"Re-assembled: {output_path}")
+        except Exception as e:
+            context.log.info(f"Auto-review skipped: {e}")
+
     return dg.MaterializeResult(
         metadata={
             "output": dg.MetadataValue.path(str(output_path)),
-            "version": dg.MetadataValue.int(config.version),
+            "version": dg.MetadataValue.int(version),
             "render_time_min": dg.MetadataValue.float(round((time.monotonic() - t0) / 60, 1)),
         }
     )

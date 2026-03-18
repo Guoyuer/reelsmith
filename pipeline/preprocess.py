@@ -44,13 +44,16 @@ def preprocess(cfg: Config, *, family_names: list[str] | None = None, log_fn=Non
         fname_lower = item["filename"].lower()
         is_skip = any(fname_lower.startswith(p) for p in SKIP_PREFIXES)
 
+        is_video = item.get("item_type") in (1, 3, 6)  # video, live, motion
+
         if is_skip:
             item["tier"] = "D"
         elif len(family_in_photo) >= 2:
             item["tier"] = "A"
         elif len(family_in_photo) == 1:
             item["tier"] = "B"
-        elif item.get("district") or item.get("first_level") or item.get("country"):
+        elif is_video or item.get("district") or item.get("first_level") or item.get("country"):
+            # Videos are always at least tier C (valuable B-roll)
             item["tier"] = "C"
         else:
             item["tier"] = "D"
