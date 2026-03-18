@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -271,8 +272,13 @@ def plan(
     analysis_items = json.loads((cfg.workspace / "analysis.json").read_text())
     analysis_by_id: dict[int, dict] = {a["id"]: a for a in analysis_items}
 
+    if planner == "visual" and not os.getenv("GEMINI_API_KEY", ""):
+        _log("GEMINI_API_KEY not set — falling back to algo planner. "
+             "Add GEMINI_API_KEY to .env for visual planning.")
+        planner = "algo"
+
     if planner == "visual":
-        _log(f"Planning via Claude API with visual input (target {target_duration}s, style={style}, trip_type={trip_type})...")
+        _log(f"Planning via Gemini with visual input (target {target_duration}s, style={style}, trip_type={trip_type})...")
         edl = _plan_visual(cfg, preprocessed, analysis_by_id, analysis_items,
                            style=style, target_duration=target_duration,
                            focus=effective_focus, trip_type=trip_type, log_fn=_log)
@@ -758,6 +764,11 @@ def _gemini_call(
     _log = log_fn or print
 
     api_key = os.getenv("GEMINI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError(
+            "GEMINI_API_KEY not set. Add it to .env to use the visual/API planner. "
+            "Get a key at https://ai.google.dev/gemini-api/docs/api-key"
+        )
     client = genai.Client(api_key=api_key)
 
     # Build content parts and count them for logging

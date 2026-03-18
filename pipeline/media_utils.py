@@ -8,14 +8,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-# On Windows, ensure common tool install locations are on PATH.
-# WinGet installs FFmpeg/Ollama to dirs not always on PATH.
+# On Windows, ensure WinGet tool locations take priority on PATH.
+# Other tools (e.g. ImageMagick) may bundle outdated FFmpeg copies.
 if sys.platform == "win32":
     for _p in [
         os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Links"),
         os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama"),
     ]:
-        if os.path.isdir(_p) and _p not in os.environ.get("PATH", ""):
+        if os.path.isdir(_p):
             os.environ["PATH"] = _p + os.pathsep + os.environ.get("PATH", "")
 
 
