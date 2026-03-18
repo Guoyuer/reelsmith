@@ -219,15 +219,10 @@ def analyze(cfg: Config, *, skip_vision: bool = False, progress_callback=None, l
         # For video, extract keyframes and optionally detect scenes
         if is_video:
             if skip_vision:
-                # Visual mode: fast path — evenly-spaced keyframes, skip scene detection
-                # and motion classification. Gemini judges visually from the filmstrip.
-                _log(f"[{i}/{len(to_analyze)}] {item['filename']} — extracting keyframes (fast)...")
-                kf_paths = extract_frames(local_path, cfg.keyframes_dir, prefix=str(item_id), count=5)
-                entry["keyframe_paths"] = [str(p) for p in kf_paths]
-
-                # Get video duration for scene timestamps
-                from .media_utils import run_subprocess as _run_sub
-                probe = _run_sub(
+                # Visual mode: extract 5 keyframes in ONE FFmpeg call + transcript.
+                # Gemini sees filmstrip for scene selection, gets trim points from duration.
+                _log(f"[{i}/{len(to_analyze)}] {item['filename']} — video keyframes...")
+                probe = run_subprocess(
                     ["ffprobe", "-v", "error", "-show_entries", "format=duration",
                      "-of", "csv=p=0", str(local_path)],
                     capture_output=True, text=True,
@@ -237,8 +232,27 @@ def analyze(cfg: Config, *, skip_vision: bool = False, progress_callback=None, l
                 except (ValueError, AttributeError):
                     total_dur = 10.0
 
-                # Build simple evenly-spaced scene entries from keyframes
-                interval = total_dur / max(len(kf_paths), 1)
+                # Extract 5 keyframes in a single FFmpeg pass
+                kf_dir = cfg.keyframes_dir
+                kf_dir.mkdir(parents=True, exist_ok=True)
+                kf_pattern = kf_dir / f"{item_id}_%02d.jpg"
+                fps_val = 5.0 / max(total_dur, 1.0)
+                existing_kfs = sorted(kf_dir.glob(f"{item_id}_*.jpg"))
+                if len(existing_kfs) < 3:
+                    run_subprocess(
+                        ["ffmpeg", "-y", "-i", str(local_path),
+                         "-vf", f"fps={fps_val:.6f},scale=512:-1",
+                         "-frames:v", "5", "-q:v", "3",
+                         str(kf_pattern)],
+                        capture_output=True,
+                    )
+                    existing_kfs = sorted(kf_dir.glob(f"{item_id}_*.jpg"))
+
+                entry["keyframe_paths"] = [str(p) for p in existing_kfs]
+                entry["video_duration"] = round(total_dur, 1)
+
+                # Build scene entries from keyframes for filmstrip
+                interval = total_dur / max(len(existing_kfs), 1)
                 entry["scenes"] = [
                     {
                         "scene_index": idx,
@@ -248,15 +262,15 @@ def analyze(cfg: Config, *, skip_vision: bool = False, progress_callback=None, l
                         "motion": "unknown",
                         "keyframe": str(kf),
                     }
-                    for idx, kf in enumerate(kf_paths)
+                    for idx, kf in enumerate(existing_kfs)
                 ]
 
-                # Transcribe audio (still useful for Gemini)
                 transcript = _transcribe(local_path, cfg)
                 if transcript:
                     entry["transcript"] = transcript
 
                 results.append(entry)
+                _log(f"[{i}/{len(to_analyze)}] {item['filename']} — {len(existing_kfs)} keyframes ({total_dur:.0f}s)")
             else:
                 # Local vision mode: full scene detection + motion classification
                 _log(f"[{i}/{len(to_analyze)}] {item['filename']} — detecting scenes...")
