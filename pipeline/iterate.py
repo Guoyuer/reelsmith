@@ -14,22 +14,31 @@ from .media_utils import extract_frames, strip_markdown_fences
 
 CRITIQUE_SYSTEM = """\
 You are a professional vlog editor reviewing your own work. You will receive the
-current EDL (Edit Decision List) for a travel vlog. Critique it and output an
-improved version.
+current EDL (Edit Decision List) for a travel vlog.
 
-Evaluate:
+First, evaluate honestly:
 1. **Pacing** — does duration vary enough? Fast moments 3s, emotional beats 5-6s.
 2. **Story flow** — does the sequence build emotionally? Is there a clear arc?
 3. **Variety** — too many similar consecutive shots? Mix wide/close, people/scenery.
 4. **Opening** — does it grab attention? The first 2-3 items set the tone.
 5. **Closing** — does it feel complete? End with warmth or nostalgia, not a random shot.
 6. **Transitions** — fade_black between major scene changes, crossfade within.
-7. **Text overlays** — are day/location labels at natural transition points?
-8. **Video trim points** — are start_time/end_time set to select the best moments?
-9. **Redundancy** — remove duplicate or near-duplicate shots.
+7. **Video trim points** — are start_time/end_time set to select the best moments?
+8. **Redundancy** — remove duplicate or near-duplicate shots.
 
-Output the improved EDL as valid JSON (same schema). Update narrative_rationale
-to explain your changes. Only output JSON, no other text."""
+Then decide: are changes actually worth making? Minor tweaks that don't meaningfully
+improve the viewer experience are NOT worth a re-render.
+
+Output JSON:
+{
+  "needs_changes": true or false,
+  "confidence": <1-10, how confident you are changes will improve quality>,
+  "critique": "what's wrong and what you'd change (be specific)",
+  "edl": { ... improved EDL if needs_changes is true, or the original EDL unchanged ... }
+}
+
+IMPORTANT: If the EDL is already good (7+/10), set needs_changes to false and
+return the original EDL. Don't change things just because you can."""
 
 FEEDBACK_SYSTEM = """\
 You are a professional vlog editor revising your work based on viewer feedback.
@@ -123,8 +132,13 @@ def _gemini_revise(system: str, user: str, log_fn=None, label: str = "iterate") 
 
 
 def _revise_and_render(cfg: Config, edl: EDL, system: str, user: str,
-                       log_fn=None) -> EDL:
-    """Call Gemini API (or Ollama fallback), parse revised EDL, save and re-render."""
+                       log_fn=None) -> EDL | None:
+    """Call Gemini API, parse response, skip re-render if no meaningful changes.
+
+    Returns the new EDL if changes were made, or None if skipped.
+    """
+    import json as _json
+
     _log = log_fn or print
 
     try:
@@ -136,7 +150,29 @@ def _revise_and_render(cfg: Config, edl: EDL, system: str, user: str,
             ollama_chat(cfg, prompt=prompt, json_mode=True)
         )
 
-    new_edl = EDL.model_validate_json(content)
+    # Parse the critique response
+    try:
+        data = _json.loads(content)
+    except _json.JSONDecodeError:
+        _log(f"  Failed to parse critique response, skipping")
+        return None
+
+    # Check if Gemini thinks changes are worth making
+    needs_changes = data.get("needs_changes", True)
+    confidence = data.get("confidence", 5)
+    critique = data.get("critique", "")
+
+    _log(f"  Critique: needs_changes={needs_changes}, confidence={confidence}/10")
+    if critique:
+        _log(f"  {critique}")
+
+    if not needs_changes or confidence < 5:
+        _log(f"  Skipping re-render (changes not worth it)")
+        return None
+
+    # Parse the EDL from the response
+    edl_data = data.get("edl", data)
+    new_edl = EDL.model_validate(edl_data)
 
     version = _find_latest_version(cfg) + 1
     _save_edl(cfg, new_edl, version)
@@ -202,7 +238,11 @@ Current EDL (v{current_version}):
 Make it feel more {style}. Tighten pacing, strengthen the arc, remove weak shots."""
 
         try:
-            edl = _revise_and_render(cfg, edl, CRITIQUE_SYSTEM, user, log_fn=_log)
+            result = _revise_and_render(cfg, edl, CRITIQUE_SYSTEM, user, log_fn=_log)
+            if result is None:
+                _log(f"=== Critique Round {round_num}: No changes needed ===")
+                break
+            edl = result
             current_version = _find_latest_version(cfg)
             _log(f"=== End Critique Round {round_num} → v{current_version} ===")
         except Exception as e:

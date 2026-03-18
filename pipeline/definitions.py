@@ -446,7 +446,7 @@ def assemble(
         ))
         try:
             from .iterate import self_critique
-            self_critique(cfg, style="upbeat", max_rounds=1, log_fn=context.log.info)
+            result = self_critique(cfg, style="upbeat", max_rounds=1, log_fn=context.log.info)
             new_version = _find_latest_version(cfg)
             if new_version > version:
                 context.log.info("=" * 60)
@@ -462,6 +462,12 @@ def assemble(
                 context.log_event(dg.AssetObservation(
                     asset_key=context.asset_key,
                     metadata={"phase": dg.MetadataValue.text(f"auto-review done, re-rendered v{version}")},
+                ))
+            else:
+                context.log.info("AUTO-REVIEW: No changes needed — skipping re-render")
+                context.log_event(dg.AssetObservation(
+                    asset_key=context.asset_key,
+                    metadata={"phase": dg.MetadataValue.text("auto-review: no changes needed")},
                 ))
         except Exception as e:
             context.log.info(f"AUTO-REVIEW: Skipped ({e})")
