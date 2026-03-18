@@ -96,9 +96,9 @@ Media files, analysis results, and music tracks are shared across runs. A second
 All CLI commands submit to the Dagster webserver — runs appear in the UI.
 
 ```bash
-# Full pipeline
+# Full pipeline (visual planner — recommended)
 python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 \
-  --trip-type family --planner api --duration 180 --music auto
+  --trip-type family --planner visual --duration 180 --music auto
 
 # Resume from where you stopped (auto-skips completed stages)
 python run.py -n singapore resume
@@ -124,7 +124,7 @@ python run.py -n singapore variations
 | Flag | Values | Description |
 |------|--------|-------------|
 | `--trip-type` | family, solo, food, adventure, architecture, general | Scoring profile and narrative style |
-| `--planner` | visual, api, algo | Gemini visual (recommended), Claude API text, or algorithmic |
+| `--planner` | visual, api, algo | Gemini visual (recommended), Gemini text-only, or algorithmic |
 | `--force-analyze` | flag | Force re-run vision analysis (ignore cached analysis.json) |
 | `--music` | auto, /path/to/file | Generate via MusicGen or use custom file |
 | `--style` | upbeat, cinematic, reflective, energetic | Pacing and transitions |
@@ -157,7 +157,10 @@ Assigns tiers based on family member presence (from Synology face detection), cl
 | D | Screenshots, no location | Skipped |
 
 ### 3. analyze
-Vision analysis via Ollama (llava:13b). Tier A/B items get a family-tuned prompt (togetherness, emotion, story_beat, visual_quality). Tier C gets a scene-only prompt (scene_type, visual_quality). Results are cached per-file.
+Two modes depending on planner:
+
+- **Visual mode** (`--planner visual`): Generates thumbnails for photos and keyframes for videos (single FFmpeg pass per video). No local vision model — Gemini sees the actual images in the plan stage. Fast (~1-2min for 300 items). All results cached.
+- **Local mode** (`--planner api/algo`): Vision analysis via Ollama (llava:13b). Tier A/B items get a family-tuned prompt, Tier C gets a scene prompt. Slow (~2hrs for 300 items). Results cached per-file.
 
 ### 4. plan
 Three backends:
@@ -169,7 +172,7 @@ Three backends:
 All planners produce an EDL (Edit Decision List) with segments, transitions, and text overlays. Video items can include trim points for scene selection.
 
 ### 5. assemble
-Renders each item as a video clip (Ken Burns effects, face-aware cropping, portrait handling), adds text overlays, concatenates with crossfade/fade_black transitions, renders intro/outro title cards, generates background music via MusicGen if `--music auto`, and mixes the final output.
+Renders each item as a video clip (Ken Burns effects for photos, trimmed clips for videos with `start_time`/`end_time`), adds text overlays, concatenates with crossfade/fade_black transitions, renders intro/outro title cards. Generates background music via MusicGen if `--music auto` — uses `music_mood` from the EDL segments as the generation prompt. After rendering, auto-reviews the output with Gemini: extracts frames, sends for critique, re-plans and re-renders if improvements found.
 
 ## Trip Types & Scoring
 
@@ -194,12 +197,11 @@ Music generation takes ~20 minutes for 60s of audio on an M-series Mac. The trac
 
 - **Python 3.11+** with venv
 - **FFmpeg** — video processing
-- **Ollama** — local vision model
+- **Ollama** — local vision model (only for `--planner api/algo`, not needed for visual mode)
   - `ollama pull llava:13b` — vision analysis
-  - `ollama pull llama3:8b` — narrative planning (fallback)
 - **Synology Photos API** — the [synology-photos-project](../synology-photos-project) backend running on `:8000`
 - **Dagster** — workflow orchestration (installed via `pip install -e .`)
-- **Gemini API key** — for visual and API planners (`GEMINI_API_KEY` in `.env`)
+- **Gemini API key** — for all planners and iterate/feedback (`GEMINI_API_KEY` in `.env`)
 
 Optional (installed with `pip install -e ".[all]"`):
 - **openai-whisper** — speech-to-text for video transcription
