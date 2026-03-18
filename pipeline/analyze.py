@@ -211,48 +211,82 @@ def analyze(cfg: Config, *, skip_vision: bool = False, progress_callback=None, l
             except (json.JSONDecodeError, KeyError):
                 pass
 
-        # For video, detect scenes and extract per-scene keyframes
+        # For video, extract keyframes and optionally detect scenes
         if is_video:
-            _log(f"[{i}/{len(to_analyze)}] {item['filename']} — detecting scenes...")
-            scenes = detect_scenes(local_path)
-            entry["scenes"] = []
-            transcript = _transcribe(local_path, cfg)
-            if transcript:
-                entry["transcript"] = transcript
-
-            # Also keep legacy keyframes for backward compat
-            kf_paths = extract_frames(local_path, cfg.keyframes_dir, prefix=str(item_id), count=5)
-            entry["keyframe_paths"] = [str(p) for p in kf_paths]
-
-            # Per-scene analysis
-            for scene in scenes:
-                kf = extract_scene_keyframe(local_path, scene, cfg.keyframes_dir, str(item_id))
-                motion = classify_motion(local_path, scene["start"], min(scene["duration"], 5))
-                scene_entry = {
-                    "scene_index": scene["scene_index"],
-                    "start": scene["start"],
-                    "end": scene["end"],
-                    "duration": scene["duration"],
-                    "motion": motion,
-                    "keyframe": str(kf) if kf else None,
-                }
-                entry["scenes"].append(scene_entry)
-                # Queue scene keyframe for vision analysis (only when using local model)
-                if not skip_vision and kf and kf.exists():
-                    prompt = VISION_PROMPT_FAMILY if item["tier"] in ("A", "B") else VISION_PROMPT_VIDEO_SCENE
-                    needs_vision.append((i, entry, kf, prompt, scene_entry))
-
             if skip_vision:
-                # Visual mode: video fully processed (scenes, keyframes, transcript), no vision
+                # Visual mode: fast path — evenly-spaced keyframes, skip scene detection
+                # and motion classification. Gemini judges visually from the filmstrip.
+                _log(f"[{i}/{len(to_analyze)}] {item['filename']} — extracting keyframes (fast)...")
+                kf_paths = extract_frames(local_path, cfg.keyframes_dir, prefix=str(item_id), count=5)
+                entry["keyframe_paths"] = [str(p) for p in kf_paths]
+
+                # Get video duration for scene timestamps
+                from .media_utils import run_subprocess as _run_sub
+                probe = _run_sub(
+                    ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                     "-of", "csv=p=0", str(local_path)],
+                    capture_output=True, text=True,
+                )
+                try:
+                    total_dur = float(probe.stdout.strip())
+                except (ValueError, AttributeError):
+                    total_dur = 10.0
+
+                # Build simple evenly-spaced scene entries from keyframes
+                interval = total_dur / max(len(kf_paths), 1)
+                entry["scenes"] = [
+                    {
+                        "scene_index": idx,
+                        "start": round(idx * interval, 1),
+                        "end": round((idx + 1) * interval, 1),
+                        "duration": round(interval, 1),
+                        "motion": "unknown",
+                        "keyframe": str(kf),
+                    }
+                    for idx, kf in enumerate(kf_paths)
+                ]
+
+                # Transcribe audio (still useful for Gemini)
+                transcript = _transcribe(local_path, cfg)
+                if transcript:
+                    entry["transcript"] = transcript
+
                 results.append(entry)
-            elif not entry["scenes"]:
-                # Fallback: use first keyframe like before
-                vision_target = kf_paths[0] if kf_paths else None
-                prompt = VISION_PROMPT_FAMILY if item["tier"] in ("A", "B") else VISION_PROMPT_SCENE
-                if vision_target and vision_target.exists():
-                    needs_vision.append((i, entry, vision_target, prompt, None))
-                else:
-                    results.append(entry)
+            else:
+                # Local vision mode: full scene detection + motion classification
+                _log(f"[{i}/{len(to_analyze)}] {item['filename']} — detecting scenes...")
+                scenes = detect_scenes(local_path)
+                entry["scenes"] = []
+                transcript = _transcribe(local_path, cfg)
+                if transcript:
+                    entry["transcript"] = transcript
+
+                kf_paths = extract_frames(local_path, cfg.keyframes_dir, prefix=str(item_id), count=5)
+                entry["keyframe_paths"] = [str(p) for p in kf_paths]
+
+                for scene in scenes:
+                    kf = extract_scene_keyframe(local_path, scene, cfg.keyframes_dir, str(item_id))
+                    motion = classify_motion(local_path, scene["start"], min(scene["duration"], 5))
+                    scene_entry = {
+                        "scene_index": scene["scene_index"],
+                        "start": scene["start"],
+                        "end": scene["end"],
+                        "duration": scene["duration"],
+                        "motion": motion,
+                        "keyframe": str(kf) if kf else None,
+                    }
+                    entry["scenes"].append(scene_entry)
+                    if kf and kf.exists():
+                        prompt = VISION_PROMPT_FAMILY if item["tier"] in ("A", "B") else VISION_PROMPT_VIDEO_SCENE
+                        needs_vision.append((i, entry, kf, prompt, scene_entry))
+                if not entry["scenes"]:
+                    # Fallback: use first keyframe like before
+                    vision_target = kf_paths[0] if kf_paths else None
+                    prompt = VISION_PROMPT_FAMILY if item["tier"] in ("A", "B") else VISION_PROMPT_SCENE
+                    if vision_target and vision_target.exists():
+                        needs_vision.append((i, entry, vision_target, prompt, None))
+                    else:
+                        results.append(entry)
         else:
             if skip_vision:
                 # Visual mode: generate thumbnail, no vision model
