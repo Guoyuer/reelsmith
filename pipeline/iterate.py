@@ -1,4 +1,4 @@
-"""Stage 5: Self-critique, variations, and human-feedback iteration (via Claude API)."""
+"""Stage 5: Self-critique, variations, and human-feedback iteration (via Gemini API)."""
 
 from __future__ import annotations
 

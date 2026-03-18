@@ -12,7 +12,6 @@ dependencies = [
     "tqdm>=4.60",
     "dagster>=1.9",
     "dagster-webserver>=1.9",
-    "anthropic>=0.40",
     "google-genai>=1.0",
 ]
 

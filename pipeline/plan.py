@@ -1,16 +1,15 @@
-"""Stage 3: Generate EDL — algorithmic or API-based planning.
+"""Stage 3: Generate EDL — select photos/videos and arrange into a narrative.
 
-Three backends:
-  - "algo" (default): deterministic algorithm using analysis scores
-  - "api": Claude API call for narrative-aware planning (text-only)
-  - "visual": Claude API with photos — sees contact sheets, skips local vision model
+Three backends (all use Gemini 3 Flash):
+  - "visual" (default): Gemini sees actual photos via contact sheets + filmstrips
+  - "api": Gemini plans from local vision model text descriptions
+  - "algo": deterministic algorithm using analysis scores, no API
 
 Set via PlanConfig.planner or CLI --planner flag.
 """
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 from datetime import datetime
@@ -228,6 +227,8 @@ def _choose_effect(a: dict, trip_type: str, hero_files: set[str]) -> str:
     """Choose Ken Burns effect based on content, not round-robin."""
     v = a.get("vision", {})
     scene = v.get("scene_type", v.get("story_beat", ""))
+    # scene_type can be a list or string — normalize to set for membership checks
+    scene_set = set(scene) if isinstance(scene, list) else {scene}
     tier = a.get("tier", "C")
     path = a.get("local_path", "")
 
@@ -235,9 +236,9 @@ def _choose_effect(a: dict, trip_type: str, hero_files: set[str]) -> str:
         return "ken_burns_in"
     if tier == "C" and v.get("visual_quality", 0) >= 7:
         return "static"
-    if scene in ("landmark", "nature", "scenery", "building"):
+    if scene_set & {"landmark", "nature", "scenery", "building"}:
         return _deterministic_choice(path, ["ken_burns_left", "ken_burns_right"])
-    if tier in ("A", "B") or scene in ("posed", "candid", "group"):
+    if tier in ("A", "B") or scene_set & {"posed", "candid", "group"}:
         return "ken_burns_in"
     return _deterministic_choice(path, [
         "ken_burns_in", "ken_burns_out", "ken_burns_left", "ken_burns_right", "static",
@@ -736,45 +737,6 @@ Output valid JSON only:
   "music": null
 }}"""
 
-
-def _claude_call(client, system: str, user: str | list[dict], log_fn,
-                  label: str = "", thinking: bool = False):
-    """Make a Claude API call. Returns (thinking_text, content, usage).
-
-    *user* can be a plain string or a list of content blocks (for multimodal).
-    *thinking*: enable extended thinking (adds cost but improves reasoning).
-    """
-    _log = log_fn or print
-    _log(f"Calling Claude API ({label}{', thinking=on' if thinking else ''})...")
-
-    kwargs: dict = {
-        "model": "claude-sonnet-4-20250514",
-        "max_tokens": 16000,
-        "system": system,
-        "messages": [{"role": "user", "content": user}],
-    }
-    if thinking:
-        kwargs["temperature"] = 1  # required for extended thinking
-        kwargs["thinking"] = {"type": "enabled", "budget_tokens": 10000}
-
-    response = client.messages.create(**kwargs)
-
-    thinking_text = ""
-    content = ""
-    for block in response.content:
-        if block.type == "thinking":
-            thinking_text = block.thinking
-        elif block.type == "text":
-            content = block.text
-
-    _log(f"API response ({label}): {response.usage.input_tokens} in, "
-         f"{response.usage.output_tokens} out, stop={response.stop_reason}")
-    if thinking_text:
-        _log(f"=== THINKING ({label}, {len(thinking_text)} chars) ===")
-        _log(thinking_text)
-        _log("=== END THINKING ===")
-
-    return thinking_text, content, response.usage
 
 
 def _gemini_call(

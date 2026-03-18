@@ -89,7 +89,7 @@ def _manage_pid(workspace: Path) -> None:
             old_pid = int(pid_path.read_text().strip())
             if old_pid != os.getpid():
                 os.kill(old_pid, signal.SIGTERM)
-                print(f"Stopped previous analyze (PID {old_pid})")
+                pass  # killed previous analyze process
         except (ProcessLookupError, ValueError, PermissionError, OSError):
             pass
     pid_path.write_text(str(os.getpid()))
@@ -132,7 +132,11 @@ def _check_ollama_model(cfg: Config, log_fn) -> None:
 
 
 def analyze(cfg: Config, *, skip_vision: bool = False, progress_callback=None, log_fn=None) -> list[dict]:
-    """Analyze items from preprocessed.json — tier A+B with full prompt, tier C quick scan."""
+    """Analyze items: generate thumbnails/keyframes, optionally run local vision model.
+
+    When skip_vision=True (visual mode): thumbnails for photos, keyframes for videos.
+    When skip_vision=False: full vision model analysis via Ollama (llava).
+    """
     _log = log_fn or print
     cfg.ensure_dirs()
     preprocessed_path = cfg.workspace / "preprocessed.json"
@@ -373,7 +377,6 @@ def analyze(cfg: Config, *, skip_vision: bool = False, progress_callback=None, l
             if entry["id"] not in seen_ids:
                 results.append(entry)
                 seen_ids.add(entry["id"])
-            scene_info = future.result  # already unpacked above
             has_vision = entry.get("vision") or any(
                 s.get("vision") for s in entry.get("scenes", [])
             )
@@ -428,7 +431,7 @@ def _analyze_image(image_path: Path, cfg: Config, prompt: str) -> dict | None:
 
         return ollama_json(cfg, model=cfg.vision_model, prompt=prompt, images=[image_path])
     except Exception as e:
-        print(f"    Vision failed: {e}")
+        pass  # vision failed, entry will have no vision data
         return None
 
 
@@ -472,7 +475,7 @@ def _transcribe(video_path: Path, cfg: Config) -> str | None:
             except (FileNotFoundError, subprocess.TimeoutExpired):
                 pass
     except Exception as e:
-        print(f"    Transcription failed: {e}")
+        pass  # transcription failed
 
     audio_path.unlink(missing_ok=True)
     return transcript if transcript else None
