@@ -81,6 +81,7 @@ class PreprocessConfig(dg.Config):
 
 class AnalyzeConfig(dg.Config):
     force: bool = False
+    skip_vision: bool = False  # skip local vision model (for --planner visual)
 
 
 class PlanConfig(dg.Config):
@@ -342,6 +343,7 @@ def analyze(
     t0 = time.monotonic()
     results = do_analyze(
         io.config,
+        skip_vision=config.skip_vision,
         progress_callback=_progress_cb(context, t0, granularity=20),
         log_fn=context.log.info,
     )

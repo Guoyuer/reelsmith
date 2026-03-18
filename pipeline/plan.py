@@ -268,7 +268,12 @@ def plan(
     analysis_items = json.loads((cfg.workspace / "analysis.json").read_text())
     analysis_by_id: dict[int, dict] = {a["id"]: a for a in analysis_items}
 
-    if planner == "api":
+    if planner == "visual":
+        _log(f"Planning via Claude API with visual input (target {target_duration}s, style={style}, trip_type={trip_type})...")
+        edl = _plan_visual(cfg, preprocessed, analysis_by_id, analysis_items,
+                           style=style, target_duration=target_duration,
+                           focus=effective_focus, trip_type=trip_type, log_fn=_log)
+    elif planner == "api":
         _log(f"Planning via Claude API (target {target_duration}s, style={style}, trip_type={trip_type})...")
         edl = _plan_api(cfg, preprocessed, analysis_by_id, analysis_items,
                         style=style, target_duration=target_duration,
@@ -730,8 +735,11 @@ Output valid JSON only:
 }}"""
 
 
-def _claude_call(client, system: str, user: str, log_fn, label: str = ""):
-    """Make a Claude API call with extended thinking. Returns (thinking, content, usage)."""
+def _claude_call(client, system: str, user: str | list[dict], log_fn, label: str = ""):
+    """Make a Claude API call with extended thinking. Returns (thinking, content, usage).
+
+    *user* can be a plain string or a list of content blocks (for multimodal).
+    """
     _log = log_fn or print
     _log(f"Calling Claude API ({label}, extended thinking enabled)...")
 

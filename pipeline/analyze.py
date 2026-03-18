@@ -16,6 +16,7 @@ from .llm import ollama_json
 from .media_utils import (
     convert_heic, extract_frames, run_subprocess,
     detect_scenes, extract_scene_keyframe, classify_motion,
+    generate_thumbnail,
 )
 
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
@@ -130,7 +131,7 @@ def _check_ollama_model(cfg: Config, log_fn) -> None:
         )
 
 
-def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
+def analyze(cfg: Config, *, skip_vision: bool = False, progress_callback=None, log_fn=None) -> list[dict]:
     """Analyze items from preprocessed.json — tier A+B with full prompt, tier C quick scan."""
     _log = log_fn or print
     cfg.ensure_dirs()
@@ -138,7 +139,10 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
     analysis_path = cfg.workspace / "analysis.json"
 
     _manage_pid(cfg.workspace)
-    _check_ollama_model(cfg, _log)
+    if skip_vision:
+        _log("Visual planner mode — skipping local vision model, generating thumbnails only")
+    else:
+        _check_ollama_model(cfg, _log)
 
     preprocessed = json.loads(preprocessed_path.read_text())
     items = preprocessed["items"]
@@ -233,12 +237,15 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
                     "keyframe": str(kf) if kf else None,
                 }
                 entry["scenes"].append(scene_entry)
-                # Queue scene keyframe for vision analysis
-                if kf and kf.exists():
+                # Queue scene keyframe for vision analysis (only when using local model)
+                if not skip_vision and kf and kf.exists():
                     prompt = VISION_PROMPT_FAMILY if item["tier"] in ("A", "B") else VISION_PROMPT_VIDEO_SCENE
                     needs_vision.append((i, entry, kf, prompt, scene_entry))
 
-            if not entry["scenes"]:
+            if skip_vision:
+                # Visual mode: video fully processed (scenes, keyframes, transcript), no vision
+                results.append(entry)
+            elif not entry["scenes"]:
                 # Fallback: use first keyframe like before
                 vision_target = kf_paths[0] if kf_paths else None
                 prompt = VISION_PROMPT_FAMILY if item["tier"] in ("A", "B") else VISION_PROMPT_SCENE
@@ -247,12 +254,20 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
                 else:
                     results.append(entry)
         else:
-            vision_target = local_path
-            prompt = VISION_PROMPT_FAMILY if item["tier"] in ("A", "B") else VISION_PROMPT_SCENE
-            if vision_target and vision_target.exists():
-                needs_vision.append((i, entry, vision_target, prompt, None))
-            else:
+            if skip_vision:
+                # Visual mode: generate thumbnail, no vision model
+                thumb_dir = cfg.workspace / "thumbnails"
+                thumb = generate_thumbnail(local_path, thumb_dir, size=512)
+                entry["thumbnail_path"] = str(thumb)
                 results.append(entry)
+                _log(f"[{i}/{len(to_analyze)}] {item['filename']} — thumbnail generated")
+            else:
+                vision_target = local_path
+                prompt = VISION_PROMPT_FAMILY if item["tier"] in ("A", "B") else VISION_PROMPT_SCENE
+                if vision_target and vision_target.exists():
+                    needs_vision.append((i, entry, vision_target, prompt, None))
+                else:
+                    results.append(entry)
 
     _log(f"Cache resolved: {len(results)} cached, {len(needs_vision)} need vision analysis")
 
@@ -281,7 +296,7 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None) -> list[dict]:
                 entry["vision"] = vision
         # Save to shared per-file cache
         cache_entry = {k: v for k, v in entry.items()
-                       if k in ("vision", "keyframe_paths", "transcript", "scenes")}
+                       if k in ("vision", "keyframe_paths", "transcript", "scenes", "thumbnail_path")}
         if cache_entry:
             cf = cache_dir / f"{entry['id']}.json"
             cf.write_text(json.dumps(cache_entry, indent=2))

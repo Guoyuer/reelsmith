@@ -324,6 +324,122 @@ def classify_motion(video_path: Path, start: float = 0, duration: float = 5) -> 
         return "pan"
 
 
+def generate_thumbnail(
+    source: Path,
+    output_dir: Path,
+    size: int = 512,
+) -> Path:
+    """Generate a thumbnail JPEG for an image file. Cached — skips if exists."""
+    from PIL import Image
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / f"{source.stem}_thumb.jpg"
+    if out_path.exists():
+        return out_path
+
+    try:
+        if source.suffix.lower() in {".heic", ".heif"}:
+            source = convert_heic(source)
+        img = Image.open(source)
+        img.thumbnail((size, size))
+        img.save(out_path, "JPEG", quality=85)
+    except Exception:
+        # Create a gray placeholder for unreadable images
+        img = Image.new("RGB", (size, size), (60, 60, 60))
+        img.save(out_path, "JPEG", quality=85)
+
+    return out_path
+
+
+def make_contact_sheet(
+    image_paths: list[Path],
+    output_path: Path,
+    cell_size: int = 256,
+    columns: int = 4,
+    labels: list[str] | None = None,
+) -> Path:
+    """Arrange images into a numbered grid contact sheet."""
+    from math import ceil
+
+    from PIL import Image, ImageDraw
+
+    if not image_paths:
+        return output_path
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    labels = labels or [f"#{i + 1:02d}" for i in range(len(image_paths))]
+    rows = ceil(len(image_paths) / columns)
+    sheet = Image.new("RGB", (columns * cell_size, rows * cell_size), (30, 30, 30))
+    draw = ImageDraw.Draw(sheet)
+
+    for idx, img_path in enumerate(image_paths):
+        row, col = divmod(idx, columns)
+        x, y = col * cell_size, row * cell_size
+
+        try:
+            if img_path.suffix.lower() in {".heic", ".heif"}:
+                img_path = convert_heic(img_path)
+            img = Image.open(img_path)
+            img.thumbnail((cell_size - 4, cell_size - 4))
+            # Center in cell
+            ox = x + (cell_size - img.width) // 2
+            oy = y + (cell_size - img.height) // 2
+            sheet.paste(img, (ox, oy))
+        except Exception:
+            pass  # leave dark cell
+
+        # Draw label
+        label = labels[idx] if idx < len(labels) else ""
+        if label:
+            draw.rectangle([x, y + cell_size - 20, x + 40, y + cell_size], fill=(0, 0, 0, 180))
+            draw.text((x + 4, y + cell_size - 18), label, fill="white")
+
+    sheet.save(output_path, "JPEG", quality=88)
+    return output_path
+
+
+def make_filmstrip(
+    keyframe_paths: list[Path],
+    output_path: Path,
+    cell_height: int = 256,
+    labels: list[str] | None = None,
+) -> Path:
+    """Stitch keyframes into a horizontal filmstrip image."""
+    from PIL import Image, ImageDraw
+
+    if not keyframe_paths:
+        return output_path
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Load and resize keyframes
+    frames = []
+    for kf in keyframe_paths:
+        try:
+            img = Image.open(kf)
+            ratio = cell_height / img.height
+            new_w = int(img.width * ratio)
+            img = img.resize((new_w, cell_height))
+            frames.append(img)
+        except Exception:
+            frames.append(Image.new("RGB", (int(cell_height * 16 / 9), cell_height), (60, 60, 60)))
+
+    total_w = sum(f.width for f in frames)
+    strip = Image.new("RGB", (total_w, cell_height), (30, 30, 30))
+    draw = ImageDraw.Draw(strip)
+
+    x = 0
+    for idx, frame in enumerate(frames):
+        strip.paste(frame, (x, 0))
+        if labels and idx < len(labels):
+            draw.rectangle([x, cell_height - 20, x + 70, cell_height], fill=(0, 0, 0, 180))
+            draw.text((x + 4, cell_height - 18), labels[idx], fill="white")
+        x += frame.width
+
+    strip.save(output_path, "JPEG", quality=88)
+    return output_path
+
+
 # ---------------------------------------------------------------------------
 # FFmpeg filter-string helpers (used by assemble.py)
 # ---------------------------------------------------------------------------
