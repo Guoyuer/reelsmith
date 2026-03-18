@@ -1146,11 +1146,19 @@ def _visual_system_prompt(trip_type: str) -> str:
     """System prompt for visual planner — Claude sees contact sheets and filmstrips."""
     guidance = _NARRATIVE_GUIDANCE.get(trip_type, _NARRATIVE_GUIDANCE["general"])
     return f"""\
-You are a professional travel vlog editor. You will see the actual photos and
-video filmstrips from a trip, organized as numbered contact sheets by day/location.
+You are a professional travel vlog editor with full creative control. You will
+see the actual photos and video filmstrips from a trip, organized as numbered
+contact sheets by day/location.
 
-Your job: select the best items and arrange them into an EDL (Edit Decision List)
-that tells a compelling story.
+Your job: select the best items, create your OWN chapter structure (ignore the
+input groupings — they are just organizational), and arrange everything into an
+EDL (Edit Decision List) that tells a compelling story.
+
+You have complete autonomy over:
+- Which items to include (ignore tier labels — judge quality with your own eyes)
+- How to group items into segments (create narrative chapters, not location buckets)
+- Pacing, duration, effects, transitions
+- Text overlay content (write evocative titles, not just location names)
 
 ## How to read the input
 
@@ -1240,7 +1248,7 @@ def _build_visual_chapter_text(
 
     for item_id in chapter.get("item_ids", []):
         a = analysis_by_id.get(item_id)
-        if not a or a.get("tier") == "D":
+        if not a:
             continue
 
         local_path = a.get("local_path", "")
@@ -1425,7 +1433,7 @@ def _plan_visual(
                 locations.append(loc)
             for item_id in ch.get("item_ids", []):
                 a = analysis_by_id.get(item_id)
-                if a and a.get("tier") != "D":
+                if a:
                     n_candidates += 1
                     if a.get("media_type") == "video":
                         n_videos += 1
@@ -1462,8 +1470,12 @@ def _plan_visual(
             arc_lines.append(line)
 
     arc_system = f"""\
-You are a professional travel vlog narrative designer. Design the emotional arc
-and chapter structure for a {style} highlight reel.
+You are a professional travel vlog narrative designer with full creative control.
+Design the emotional arc and chapter structure for a {style} highlight reel.
+
+IMPORTANT: Create narrative chapters based on STORY BEATS, not locations or times.
+For example, "Discovery & Wonder" is a chapter theme, not "Morning at Marina Bay".
+Group moments by emotion and narrative purpose, not by when/where they happened.
 
 Output JSON only:
 {{
@@ -1471,11 +1483,12 @@ Output JSON only:
   "arc_description": "1-2 sentences describing the overall narrative arc",
   "chapters": [
     {{
-      "name": "Chapter Name",
+      "name": "Chapter Name (narrative, not location)",
       "theme": "emotional theme",
       "target_items": <count>,
       "pacing": "fast|medium|slow",
-      "prefer_video": <true if video clips would enhance this chapter>
+      "prefer_video": <true if video clips would enhance this chapter>,
+      "music_mood": "describe the ideal background music for this chapter"
     }}
   ]
 }}"""

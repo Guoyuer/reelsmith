@@ -152,9 +152,14 @@ def analyze(cfg: Config, *, skip_vision: bool = False, progress_callback=None, l
     tier_b = [x for x in items if x["tier"] == "B"]
     tier_c = [x for x in items if x["tier"] == "C"]
     tier_d = [x for x in items if x["tier"] == "D"]
-    to_analyze = tier_a + tier_b + tier_c
-    _log(f"Analyzing: {len(tier_a)} tier-A + {len(tier_b)} tier-B + {len(tier_c)} tier-C "
-         f"= {len(to_analyze)} items (skipping {len(tier_d)} tier-D)")
+    if skip_vision:
+        # Visual mode: include all items — let Gemini decide what's worth including
+        to_analyze = tier_a + tier_b + tier_c + tier_d
+        _log(f"Analyzing (visual mode): {len(to_analyze)} items (all tiers, Gemini decides)")
+    else:
+        to_analyze = tier_a + tier_b + tier_c
+        _log(f"Analyzing: {len(tier_a)} tier-A + {len(tier_b)} tier-B + {len(tier_c)} tier-C "
+             f"= {len(to_analyze)} items (skipping {len(tier_d)} tier-D)")
 
     # Load existing analysis to support resuming (run-level)
     existing = _load_existing_analysis(analysis_path)

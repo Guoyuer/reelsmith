@@ -63,6 +63,7 @@ def fetch_music(
     style: str,
     target_duration: int,
     cache_dir: Path,
+    mood: str = "",
     log_fn=None,
 ) -> Path | None:
     """Generate background music via MusicGen (local).
@@ -83,7 +84,8 @@ def fetch_music(
             _log(f"Using cached music: {cached_path.name}")
             return cached_path
 
-    prompt = _get_prompt(trip_type, style)
+    # Use Gemini's music_mood if available, otherwise fall back to template
+    prompt = mood if mood else _get_prompt(trip_type, style)
     gen_duration = target_duration
     model_name = "facebook/musicgen-medium"
     _log(f"=== Music Generation ===")

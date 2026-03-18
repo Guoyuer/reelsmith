@@ -270,11 +270,19 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
         ws = cfg.workspace
         music_cache = ws.parent.parent / "music" if ws.parent.name == "runs" else ws / "music"
         video_dur = _probe_duration(no_music_path)
-        print(f"Music mode: auto | video={video_dur:.0f}s | trip_type={edl.trip_type} | style={edl.style}")
+        # Combine segment music_moods into a single prompt for MusicGen
+        segment_moods = [s.music_mood for s in edl.segments if s.music_mood]
+        if segment_moods:
+            # Use the overall mood from all segments
+            combined_mood = f"travel vlog background music: {'; then '.join(segment_moods)}"
+            print(f"Music mode: auto (from segment moods) | video={video_dur:.0f}s")
+        else:
+            combined_mood = ""
+            print(f"Music mode: auto | video={video_dur:.0f}s | trip_type={edl.trip_type} | style={edl.style}")
         track_path = fetch_music(
             trip_type=edl.trip_type, style=edl.style,
             target_duration=int(video_dur),
-            cache_dir=music_cache, log_fn=print,
+            cache_dir=music_cache, mood=combined_mood, log_fn=print,
         )
         if track_path:
             from .edl import MusicTrack
