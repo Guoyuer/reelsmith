@@ -1259,11 +1259,16 @@ def _build_visual_chapter_text(
         time_str = taken_iso[11:16] if taken_iso and len(taken_iso) >= 16 else ""
 
         label = f"#{idx:02d}"
-        parts = [f"{label}: tier={tier}"]
-        if a.get("family_count", 0):
-            parts.append(f"fam={a['family_count']}")
-        if persons:
-            parts.append(f"people={','.join(persons[:3])}")
+        # Describe who's in the photo instead of abstract tiers
+        if a.get("family_count", 0) >= 2:
+            who = f"family together ({','.join(persons[:3])})" if persons else "family together"
+        elif a.get("family_count", 0) == 1:
+            who = f"{persons[0]}" if persons else "one family member"
+        elif persons:
+            who = f"people: {','.join(persons[:3])}"
+        else:
+            who = "scenery/no people"
+        parts = [f"{label}: {who}"]
         if time_str:
             parts.append(f"time={time_str}")
 
@@ -1285,7 +1290,11 @@ def _build_visual_chapter_text(
 
     loc = chapter.get("location", "unknown")
     block = chapter.get("time_block", "")
-    header = f"\n=== {day['day_name']} {day['date']} [{block.upper()}] {loc} ==="
+    # Present as context, not prescriptive chapters — Gemini creates its own narrative structure
+    n_photos = len(photo_paths)
+    n_vids = len(video_items)
+    media_note = f"{n_photos} photos" + (f", {n_vids} videos" if n_vids else "")
+    header = f"\n--- {day['day_name']} {day['date']}, {block} near {loc} ({media_note}) ---"
     text = header + "\n" + "\n".join(lines)
     return text, photo_paths, video_items
 
