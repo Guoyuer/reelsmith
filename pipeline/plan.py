@@ -1265,16 +1265,23 @@ def _build_visual_content_blocks(
                 loc_safe = chapter.get("location", "x").replace("/", "_")[:30]
                 sheet_name = f"{day['date']}_{chapter.get('time_block', 'x')}_{loc_safe}.jpg"
                 sheet_path = sheets_dir / sheet_name
-                labels = [f"#{global_idx + i:02d}" for i in range(len(thumb_paths))]
 
-                make_contact_sheet(thumb_paths, sheet_path, cell_size=256, columns=4, labels=labels)
-                _log(f"Contact sheet: {sheet_name} ({len(thumb_paths)} photos)")
+                # Split large chapters into multiple sheets (max 2000px height limit)
+                max_per_sheet = 28  # 7 rows × 4 cols = 1792px height, under 2000px
+                sheet_idx = 0
+                for chunk_start in range(0, len(thumb_paths), max_per_sheet):
+                    chunk = thumb_paths[chunk_start:chunk_start + max_per_sheet]
+                    chunk_labels = [f"#{global_idx + chunk_start + i:02d}" for i in range(len(chunk))]
+                    s_path = sheets_dir / f"{sheet_name.replace('.jpg', '')}_{sheet_idx}.jpg" if len(thumb_paths) > max_per_sheet else sheet_path
+                    make_contact_sheet(chunk, s_path, cell_size=256, columns=4, labels=chunk_labels)
+                    _log(f"Contact sheet: {s_path.name} ({len(chunk)} photos)")
 
-                b64 = base64.b64encode(sheet_path.read_bytes()).decode()
-                blocks.append({
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
-                })
+                    b64 = base64.b64encode(s_path.read_bytes()).decode()
+                    blocks.append({
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
+                    })
+                    sheet_idx += 1
 
             # Filmstrips for videos
             for vi in video_items:
@@ -1286,7 +1293,10 @@ def _build_visual_content_blocks(
                 vid_id = vi["id"]
                 strip_path = sheets_dir / f"filmstrip_{vid_id}.jpg"
                 time_labels = [f"{s['start']:.0f}-{s['end']:.0f}s" for s in scenes if s.get("keyframe")]
-                make_filmstrip(kf_paths, strip_path, cell_height=320, labels=time_labels)
+                # Limit to 5 scene keyframes to keep filmstrip under 2000px width
+                kf_paths = kf_paths[:5]
+                time_labels = time_labels[:5]
+                make_filmstrip(kf_paths, strip_path, cell_height=256, labels=time_labels)
 
                 blocks.append({"type": "text", "text": f"Video filmstrip for #{global_idx + len(photo_paths) + video_items.index(vi):02d}:"})
                 b64 = base64.b64encode(strip_path.read_bytes()).decode()
