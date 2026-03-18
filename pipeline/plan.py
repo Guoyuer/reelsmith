@@ -1053,7 +1053,11 @@ an improved version. Check for:
 6. **Video trim points**: Are start_time/end_time set for video items to select the best moment?
 7. **Total duration**: Is it close to the target?
 
-Output the improved EDL as valid JSON (same schema). Keep narrative_rationale updated."""
+Output JSON with TWO top-level fields:
+{{
+  "review_notes": "What you changed and why",
+  "edl": {{ ... the improved EDL ... }}
+}}"""
 
     review_user = f"""\
 Review and improve this {style} {trip_label} vlog EDL.
@@ -1063,17 +1067,20 @@ Target duration: {target_duration}s. Focus: {focus}.{family_line}
 Current EDL:
 {edl.model_dump_json(indent=2)}
 
-Improve pacing, remove redundancy, strengthen the narrative arc. Output improved JSON only."""
+Improve pacing, remove redundancy, strengthen the narrative arc."""
 
     review_content = _gemini_call(review_system, [review_user], _log, "pass 3: review", model="gemini-3-flash-preview")
 
-    _log(f"=== REVIEW RESPONSE ({len(review_content)} chars) ===")
-    _log(review_content)
-    _log("=== END REVIEW ===")
-
     review_content = strip_markdown_fences(review_content)
     try:
-        reviewed_edl = EDL.model_validate_json(review_content)
+        review_data = json.loads(review_content)
+        if "review_notes" in review_data and "edl" in review_data:
+            _log(f"=== Review Notes ===")
+            _log(review_data["review_notes"])
+            _log(f"=== End Review Notes ===")
+            reviewed_edl = EDL.model_validate(review_data["edl"])
+        else:
+            reviewed_edl = EDL.model_validate(review_data)
         _log(f"Reviewed EDL: {len(reviewed_edl.segments)} segments, "
              f"{len(reviewed_edl.all_items())} items, "
              f"~{reviewed_edl.estimated_duration():.0f}s estimated")
@@ -1620,8 +1627,11 @@ at higher resolution. Check:
 5. Do text overlays appear at natural transitions?
 6. Video trim points — are start_time/end_time selecting the best moment?
 
-Output the improved EDL as valid JSON (same schema). Update narrative_rationale
-and music_mood if you change anything."""
+Output JSON with TWO top-level fields:
+{
+  "review_notes": "What you changed and why — be specific (e.g., 'removed #03 because too similar to #02, swapped order of segments 2 and 3 for better arc')",
+  "edl": { ... the improved EDL (same schema as input) ... }
+}"""
 
     review_parts = _build_review_blocks(edl, cfg)
     review_content = _gemini_call(review_system, review_parts, _log,
@@ -1629,7 +1639,19 @@ and music_mood if you change anything."""
 
     review_content = strip_markdown_fences(review_content)
     try:
-        reviewed = EDL.model_validate_json(review_content)
+        review_data = json.loads(review_content)
+        # Extract review notes and EDL from wrapper
+        if "review_notes" in review_data and "edl" in review_data:
+            review_notes = review_data["review_notes"]
+            _log(f"=== Review Notes ===")
+            _log(review_notes)
+            _log(f"=== End Review Notes ===")
+            reviewed = EDL.model_validate(review_data["edl"])
+        else:
+            # Fallback: Gemini output the EDL directly without wrapper
+            _log("(No review_notes wrapper — Gemini output EDL directly)")
+            reviewed = EDL.model_validate(review_data)
+
         n_vid = sum(1 for i in reviewed.all_items() if i.media_type == "video")
         n_photo = sum(1 for i in reviewed.all_items() if i.media_type == "photo")
         _log(f"Reviewed EDL: {len(reviewed.segments)} segments, {n_photo} photos + {n_vid} videos, "
