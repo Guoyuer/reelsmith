@@ -82,19 +82,26 @@ def _load_latest_edl(cfg: Config) -> tuple[EDL, int]:
     return EDL.model_validate_json(path.read_text()), version
 
 
-def _gemini_revise(system: str, user: str, log_fn=None) -> str:
+def _gemini_revise(system: str, user: str, log_fn=None, label: str = "iterate") -> str:
     """Call Gemini API to revise an EDL. Returns raw response text."""
     import os
+    import time as _time
 
     from google import genai
     from google.genai import types
 
     _log = log_fn or print
-    _log("Calling Gemini API (iterate)...")
+    model = "gemini-3-flash-preview"
 
+    _log(f"=== Gemini API Call: {label} ===")
+    _log(f"  Model: {model}")
+    _log(f"  System prompt: {len(system)} chars")
+    _log(f"  User message: {len(user)} chars")
+
+    t0 = _time.monotonic()
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
     response = client.models.generate_content(
-        model="gemini-3-flash-preview",
+        model=model,
         contents=[types.Content(parts=[types.Part(text=user)])],
         config=types.GenerateContentConfig(
             system_instruction=system,
@@ -103,9 +110,15 @@ def _gemini_revise(system: str, user: str, log_fn=None) -> str:
         ),
     )
 
+    elapsed = _time.monotonic() - t0
     content = response.text or ""
     usage = response.usage_metadata
-    _log(f"Gemini API: {usage.prompt_token_count} in, {usage.candidates_token_count} out")
+    _log(f"  Response: {usage.prompt_token_count} input tokens, "
+         f"{usage.candidates_token_count} output tokens, {elapsed:.1f}s")
+    _log(f"  Output: {len(content)} chars")
+    preview = content[:300].replace("\n", " ")
+    _log(f"  Preview: {preview}...")
+    _log(f"=== End {label} ===")
     return content
 
 
@@ -115,7 +128,7 @@ def _revise_and_render(cfg: Config, edl: EDL, system: str, user: str,
     _log = log_fn or print
 
     try:
-        content = strip_markdown_fences(_gemini_revise(system, user, log_fn=_log))
+        content = strip_markdown_fences(_gemini_revise(system, user, log_fn=_log, label="revise EDL"))
     except Exception as e:
         _log(f"Gemini failed ({e}), falling back to Ollama")
         prompt = f"{system}\n\n{user}"

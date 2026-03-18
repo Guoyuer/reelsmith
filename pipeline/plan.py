@@ -794,16 +794,21 @@ def _gemini_call(
     from google.genai import types
 
     _log = log_fn or print
-    _log(f"Calling Gemini API ({model}, {label})...")
 
     api_key = os.getenv("GEMINI_API_KEY", "")
     client = genai.Client(api_key=api_key)
 
-    # Build content parts
+    # Build content parts and count them for logging
     parts = []
+    n_text = 0
+    n_images = 0
+    text_chars = 0
+    image_bytes_total = 0
     for p in user_parts:
         if isinstance(p, str):
             parts.append(types.Part(text=p))
+            n_text += 1
+            text_chars += len(p)
         elif isinstance(p, dict) and p.get("type") == "image_bytes":
             parts.append(types.Part(
                 inline_data=types.Blob(
@@ -811,8 +816,18 @@ def _gemini_call(
                     data=p["data"],  # raw bytes
                 ),
             ))
+            n_images += 1
+            image_bytes_total += len(p["data"])
         elif isinstance(p, types.Part):
             parts.append(p)
+
+    _log(f"=== Gemini API Call: {label} ===")
+    _log(f"  Model: {model}")
+    _log(f"  Input: {n_text} text parts ({text_chars} chars), {n_images} images ({image_bytes_total // 1024}KB)")
+    _log(f"  System prompt: {len(system)} chars")
+
+    import time as _time
+    t0 = _time.monotonic()
 
     response = client.models.generate_content(
         model=model,
@@ -824,10 +839,16 @@ def _gemini_call(
         ),
     )
 
+    elapsed = _time.monotonic() - t0
     content = response.text or ""
     usage = response.usage_metadata
-    _log(f"Gemini response ({label}): {usage.prompt_token_count} in, "
-         f"{usage.candidates_token_count} out")
+    _log(f"  Response: {usage.prompt_token_count} input tokens, "
+         f"{usage.candidates_token_count} output tokens, {elapsed:.1f}s")
+    _log(f"  Output: {len(content)} chars")
+    # Log first 300 chars of response for debugging
+    preview = content[:300].replace("\n", " ")
+    _log(f"  Preview: {preview}...")
+    _log(f"=== End {label} ===")
 
     return content
 
@@ -1529,8 +1550,11 @@ Trip structure:
     # ------------------------------------------------------------------
     _log("=== VISUAL PASS 2: Visual Selection ===")
 
-    _log("Building contact sheets and filmstrips...")
+    _log("Building contact sheets and filmstrips from cached thumbnails...")
     content_blocks = _build_visual_content_blocks(preprocessed, analysis_by_id, cfg, _log)
+    n_img_blocks = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "image_bytes")
+    n_text_blocks = sum(1 for b in content_blocks if isinstance(b, str))
+    _log(f"Visual content: {n_text_blocks} text blocks, {n_img_blocks} images (contact sheets + filmstrips)")
 
     arc_guidance = ""
     if narrative_arc:
@@ -1569,13 +1593,20 @@ Candidates by day/location:"""
 
     edl_content = strip_markdown_fences(edl_content)
     edl = EDL.model_validate_json(edl_content)
-    _log(f"Parsed EDL: {len(edl.segments)} segments, {len(edl.all_items())} items, "
-         f"~{edl.estimated_duration():.0f}s")
+    n_vid = sum(1 for i in edl.all_items() if i.media_type == "video")
+    n_photo = sum(1 for i in edl.all_items() if i.media_type == "photo")
+    _log(f"Parsed EDL: {len(edl.segments)} segments, {n_photo} photos + {n_vid} videos = "
+         f"{len(edl.all_items())} items, ~{edl.estimated_duration():.0f}s")
     for seg in edl.segments:
-        _log(f"  [{seg.name}] ({len(seg.items)} items) music={seg.music_mood} | {seg.narrative_rationale}")
+        _log(f"  [{seg.name}] ({len(seg.items)} items)")
+        _log(f"    Music: {seg.music_mood}")
+        _log(f"    Rationale: {seg.narrative_rationale[:150]}")
+        for item in seg.items:
+            trim = f" trim={item.start_time:.0f}-{item.end_time:.0f}s" if item.start_time is not None else ""
+            _log(f"    - {item.media_type:5s} {item.display_duration}s {item.source_file.split('/')[-1][:40]}{trim}")
 
     # ------------------------------------------------------------------
-    # Pass 3: Visual review — Claude reviews selected items at higher res
+    # Pass 3: Visual review — Gemini reviews selected items at higher res
     # ------------------------------------------------------------------
     _log("=== VISUAL PASS 3: Visual Review ===")
 
@@ -1599,10 +1630,16 @@ and music_mood if you change anything."""
     review_content = strip_markdown_fences(review_content)
     try:
         reviewed = EDL.model_validate_json(review_content)
-        _log(f"Reviewed EDL: {len(reviewed.segments)} segments, {len(reviewed.all_items())} items, "
+        n_vid = sum(1 for i in reviewed.all_items() if i.media_type == "video")
+        n_photo = sum(1 for i in reviewed.all_items() if i.media_type == "photo")
+        _log(f"Reviewed EDL: {len(reviewed.segments)} segments, {n_photo} photos + {n_vid} videos, "
              f"~{reviewed.estimated_duration():.0f}s")
         for seg in reviewed.segments:
-            _log(f"  [{seg.name}] ({len(seg.items)} items) music={seg.music_mood}")
+            _log(f"  [{seg.name}] ({len(seg.items)} items)")
+            _log(f"    Music: {seg.music_mood}")
+            for item in seg.items:
+                trim = f" trim={item.start_time:.0f}-{item.end_time:.0f}s" if item.start_time is not None else ""
+                _log(f"    - {item.media_type:5s} {item.display_duration}s {item.source_file.split('/')[-1][:40]}{trim}")
         return reviewed
     except Exception as e:
         _log(f"Review parse failed ({e}), using pass 2 EDL")
