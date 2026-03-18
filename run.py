@@ -133,9 +133,11 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
 @click.option("--country", default=None, help="Filter by country")
 @click.option("--district", default=None, help="Filter by district/city")
 @click.option("--force-analyze", is_flag=True, help="Force re-analyze (ignore cached)")
+@click.option("--auto-review", is_flag=True, help="Auto-review: Gemini critiques rendered vlog and re-edits")
 @click.pass_context
 def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
-         item_types, music, width, height, fps, country, district, force_analyze):
+         item_types, music, width, height, fps, country, district, force_analyze,
+         auto_review):
     """Run the full pipeline end-to-end."""
     type_list = _parse_item_types(item_types) if item_types else None
 
@@ -174,6 +176,7 @@ def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
     # Assemble
     config["ops"]["assemble"] = {"config": {
         "width": width, "height": height, "fps": fps, "skip_broken": True,
+        "auto_review": auto_review,
     }}
 
     _submit("full_pipeline", _run_name(ctx), config)

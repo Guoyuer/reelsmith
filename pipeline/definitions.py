@@ -100,7 +100,7 @@ class AssembleConfig(dg.Config):
     height: int = 2160
     fps: int = 60
     skip_broken: bool = False
-    auto_review: bool = True  # auto-review rendered vlog with Gemini and re-plan if needed
+    auto_review: bool = False  # auto-review rendered vlog with Gemini (adds 1 extra render)
 
 
 class IterateConfig(dg.Config):
@@ -437,23 +437,34 @@ def assemble(
 
     # Auto-review: extract frames from rendered vlog, send to Gemini for critique
     if config.auto_review and output_path.exists():
-        context.log.info("Auto-review: sending rendered frames to Gemini for quality check...")
+        context.log.info("=" * 60)
+        context.log.info("AUTO-REVIEW: Sending rendered vlog to Gemini for critique...")
+        context.log.info("=" * 60)
+        context.log_event(dg.AssetObservation(
+            asset_key=context.asset_key,
+            metadata={"phase": dg.MetadataValue.text("auto-review started")},
+        ))
         try:
             from .iterate import self_critique
             self_critique(cfg, style="upbeat", max_rounds=1, log_fn=context.log.info)
-            # Re-assemble with the improved EDL
             new_version = _find_latest_version(cfg)
             if new_version > version:
-                context.log.info(f"Re-assembling with improved EDL v{new_version}...")
+                context.log.info("=" * 60)
+                context.log.info(f"AUTO-REVIEW: Re-rendering with improved EDL v{new_version}...")
+                context.log.info("=" * 60)
                 output_path = do_assemble(
                     cfg, version=new_version,
                     resolution=(config.width, config.height), fps=config.fps,
                     skip_broken=config.skip_broken,
                 )
                 version = new_version
-                context.log.info(f"Re-assembled: {output_path}")
+                context.log.info(f"AUTO-REVIEW: Complete → {output_path}")
+                context.log_event(dg.AssetObservation(
+                    asset_key=context.asset_key,
+                    metadata={"phase": dg.MetadataValue.text(f"auto-review done, re-rendered v{version}")},
+                ))
         except Exception as e:
-            context.log.info(f"Auto-review skipped: {e}")
+            context.log.info(f"AUTO-REVIEW: Skipped ({e})")
 
     return dg.MaterializeResult(
         metadata={

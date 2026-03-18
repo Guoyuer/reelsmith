@@ -159,12 +159,39 @@ def _revise_and_render(cfg: Config, edl: EDL, system: str, user: str,
 
 def self_critique(cfg: Config, *, style: str = "upbeat", max_rounds: int = 2,
                   log_fn=None) -> EDL:
-    """Use Claude API to critique and improve the current vlog EDL."""
+    """Extract frames from rendered vlog, send to Gemini for critique, re-edit."""
     _log = log_fn or print
     edl, current_version = _load_latest_edl(cfg)
 
     for round_num in range(1, max_rounds + 1):
-        _log(f"Self-critique round {round_num}/{max_rounds} (Claude API)...")
+        _log(f"=== Self-Critique Round {round_num}/{max_rounds} ===")
+
+        # Find the rendered video
+        current_video = cfg.workspace / "output" / f"vlog_v{current_version}.mp4"
+        if not current_video.exists():
+            _log(f"  No rendered video at {current_video}, rendering first...")
+            assemble(cfg, version=current_version)
+
+        if current_video.exists():
+            # Scale frame count with video duration (~1 frame per 3 seconds)
+            from .media_utils import run_subprocess
+            probe = run_subprocess(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", str(current_video)],
+                capture_output=True, text=True,
+            )
+            try:
+                video_dur = float(probe.stdout.strip())
+            except (ValueError, AttributeError):
+                video_dur = 30.0
+            n_frames = max(4, min(int(video_dur / 3), 20))
+
+            _log(f"  Extracting {n_frames} frames from {video_dur:.0f}s video...")
+            review_dir = cfg.workspace / "review_frames"
+            review_dir.mkdir(parents=True, exist_ok=True)
+            for f in review_dir.glob("frame_*.jpg"):
+                f.unlink()
+            extract_frames(current_video, review_dir, prefix="frame", count=n_frames)
 
         user = f"""\
 Critique and improve this {style} travel vlog EDL (round {round_num}/{max_rounds}).
@@ -177,6 +204,7 @@ Make it feel more {style}. Tighten pacing, strengthen the arc, remove weak shots
         try:
             edl = _revise_and_render(cfg, edl, CRITIQUE_SYSTEM, user, log_fn=_log)
             current_version = _find_latest_version(cfg)
+            _log(f"=== End Critique Round {round_num} → v{current_version} ===")
         except Exception as e:
             _log(f"  Critique round {round_num} failed: {e}")
             break
