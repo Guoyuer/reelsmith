@@ -777,6 +777,61 @@ def _claude_call(client, system: str, user: str | list[dict], log_fn,
     return thinking_text, content, response.usage
 
 
+def _gemini_call(
+    system: str,
+    user_parts: list,
+    log_fn,
+    label: str = "",
+    model: str = "gemini-3-flash",
+) -> str:
+    """Make a Gemini API call with multimodal content. Returns response text.
+
+    *user_parts*: list of strings and/or Part objects (text + images).
+    """
+    import os
+
+    from google import genai
+    from google.genai import types
+
+    _log = log_fn or print
+    _log(f"Calling Gemini API ({model}, {label})...")
+
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    client = genai.Client(api_key=api_key)
+
+    # Build content parts
+    parts = []
+    for p in user_parts:
+        if isinstance(p, str):
+            parts.append(types.Part(text=p))
+        elif isinstance(p, dict) and p.get("type") == "image_bytes":
+            parts.append(types.Part(
+                inline_data=types.Blob(
+                    mime_type=p.get("mime_type", "image/jpeg"),
+                    data=p["data"],  # raw bytes
+                ),
+            ))
+        elif isinstance(p, types.Part):
+            parts.append(p)
+
+    response = client.models.generate_content(
+        model=model,
+        contents=[types.Content(parts=parts)],
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=16000,
+            temperature=0.7,
+        ),
+    )
+
+    content = response.text or ""
+    usage = response.usage_metadata
+    _log(f"Gemini response ({label}): {usage.prompt_token_count} in, "
+         f"{usage.candidates_token_count} out")
+
+    return content
+
+
 def _plan_api(
     cfg: Config, preprocessed: dict, analysis_by_id: dict,
     analysis_items: list[dict],
@@ -1232,12 +1287,15 @@ def _build_visual_chapter_text(
 
 def _build_visual_content_blocks(
     preprocessed: dict, analysis_by_id: dict, cfg: Config, log_fn=None,
-) -> list[dict]:
-    """Build multimodal content blocks: interleaved text + contact sheets + filmstrips."""
+) -> list:
+    """Build multimodal parts: interleaved text + contact sheets + filmstrips.
+
+    Returns list of str and image dicts suitable for _gemini_call().
+    """
     from .media_utils import make_contact_sheet, make_filmstrip
 
     _log = log_fn or print
-    blocks: list[dict] = []
+    blocks: list = []
     sheets_dir = cfg.workspace / "contact_sheets"
     sheets_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1252,7 +1310,7 @@ def _build_visual_content_blocks(
             if n_items == 0:
                 continue
 
-            blocks.append({"type": "text", "text": text})
+            blocks.append(text)
 
             # Contact sheet for photos
             if photo_paths:
@@ -1276,10 +1334,10 @@ def _build_visual_content_blocks(
                     make_contact_sheet(chunk, s_path, cell_size=256, columns=4, labels=chunk_labels)
                     _log(f"Contact sheet: {s_path.name} ({len(chunk)} photos)")
 
-                    b64 = base64.b64encode(s_path.read_bytes()).decode()
                     blocks.append({
-                        "type": "image",
-                        "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
+                        "type": "image_bytes",
+                        "mime_type": "image/jpeg",
+                        "data": s_path.read_bytes(),
                     })
                     sheet_idx += 1
 
@@ -1298,11 +1356,11 @@ def _build_visual_content_blocks(
                 time_labels = time_labels[:5]
                 make_filmstrip(kf_paths, strip_path, cell_height=256, labels=time_labels)
 
-                blocks.append({"type": "text", "text": f"Video filmstrip for #{global_idx + len(photo_paths) + video_items.index(vi):02d}:"})
-                b64 = base64.b64encode(strip_path.read_bytes()).decode()
+                blocks.append(f"Video filmstrip for #{global_idx + len(photo_paths) + video_items.index(vi):02d}:")
                 blocks.append({
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
+                    "type": "image_bytes",
+                    "mime_type": "image/jpeg",
+                    "data": strip_path.read_bytes(),
                 })
 
             global_idx += n_items
@@ -1310,22 +1368,21 @@ def _build_visual_content_blocks(
     return blocks
 
 
-def _build_review_blocks(edl: EDL, cfg: Config) -> list[dict]:
-    """Build review content blocks: selected items at higher resolution."""
+def _build_review_blocks(edl: EDL, cfg: Config) -> list:
+    """Build review parts: selected items at higher resolution for Gemini."""
     from .media_utils import generate_thumbnail
 
-    blocks: list[dict] = [
-        {"type": "text", "text": f"Review this EDL. Current version:\n{edl.model_dump_json(indent=2)}"},
+    blocks: list = [
+        f"Review this EDL. Current version:\n{edl.model_dump_json(indent=2)}",
     ]
     review_dir = cfg.workspace / "review_thumbs"
     review_dir.mkdir(parents=True, exist_ok=True)
 
     for seg in edl.segments:
-        blocks.append({"type": "text", "text": f"\n--- {seg.name} ({len(seg.items)} items) ---"})
+        blocks.append(f"\n--- {seg.name} ({len(seg.items)} items) ---")
         for item in seg.items:
             src = Path(item.source_file)
             if item.media_type == "video":
-                # Use best scene keyframe for review
                 kf_dir = cfg.workspace.parent.parent / "keyframes" if cfg.workspace.parent.name == "runs" else cfg.workspace / "keyframes"
                 kf_pattern = f"{src.stem}_scene_*.jpg"
                 kfs = sorted(kf_dir.glob(kf_pattern)) if kf_dir.exists() else []
@@ -1337,11 +1394,11 @@ def _build_review_blocks(edl: EDL, cfg: Config) -> list[dict]:
                 thumb = generate_thumbnail(src, review_dir, size=768)
 
             if thumb.exists():
-                b64 = base64.b64encode(thumb.read_bytes()).decode()
-                blocks.append({"type": "text", "text": f"{item.source_file} ({item.display_duration}s)"})
+                blocks.append(f"{item.source_file} ({item.display_duration}s)")
                 blocks.append({
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
+                    "type": "image_bytes",
+                    "mime_type": "image/jpeg",
+                    "data": thumb.read_bytes(),
                 })
 
     return blocks
@@ -1353,11 +1410,11 @@ def _plan_visual(
     style: str, target_duration: int, focus: str,
     trip_type: str = "family", log_fn=None,
 ) -> EDL:
-    """Multi-pass Claude API planning with visual input — Claude sees actual photos."""
-    import anthropic
+    """Multi-pass Gemini planning with visual input — sees actual photos.
 
+    Uses Gemini Pro for text-only passes, Gemini Flash for token-heavy visual pass.
+    """
     _log = log_fn or print
-    client = anthropic.Anthropic()
 
     # Trip-level summary
     days = preprocessed.get("timeline", [])
@@ -1436,7 +1493,8 @@ Focus: {focus}.
 Trip structure:
 {"".join(arc_lines)}"""
 
-    _, arc_content, _ = _claude_call(client, arc_system, arc_user, _log, "visual pass 1: arc")
+    arc_content = _gemini_call(arc_system, [arc_user], _log,
+                               label="visual pass 1: arc", model="gemini-3-pro-preview")
     _log(f"Arc response:\n{arc_content[:500]}")
 
     from .media_utils import strip_markdown_fences
@@ -1478,12 +1536,13 @@ Use the exact path values from the metadata as source_file.
 Candidates by day/location:"""
 
     # Prepend intro text before the content blocks
-    visual_message: list[dict] = [{"type": "text", "text": intro_text}] + content_blocks
+    visual_parts: list = [intro_text] + content_blocks
 
     system_prompt = _visual_system_prompt(trip_type)
-    _log(f"Visual message: {len(visual_message)} content blocks")
+    _log(f"Visual message: {len(visual_parts)} parts")
 
-    _, edl_content, _ = _claude_call(client, system_prompt, visual_message, _log, "visual pass 2: select")
+    edl_content = _gemini_call(system_prompt, visual_parts, _log,
+                               label="visual pass 2: select", model="gemini-3-flash-preview")
 
     _log(f"=== VISUAL EDL RESPONSE ({len(edl_content)} chars) ===")
     _log(edl_content[:1000])
@@ -1514,8 +1573,9 @@ at higher resolution. Check:
 Output the improved EDL as valid JSON (same schema). Update narrative_rationale
 and music_mood if you change anything."""
 
-    review_blocks = _build_review_blocks(edl, cfg)
-    _, review_content, _ = _claude_call(client, review_system, review_blocks, _log, "visual pass 3: review")
+    review_parts = _build_review_blocks(edl, cfg)
+    review_content = _gemini_call(review_system, review_parts, _log,
+                                   label="visual pass 3: review", model="gemini-3-pro-preview")
 
     review_content = strip_markdown_fences(review_content)
     try:
