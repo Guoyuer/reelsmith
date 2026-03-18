@@ -85,7 +85,7 @@ class AnalyzeConfig(dg.Config):
 
 
 class PlanConfig(dg.Config):
-    planner: str = "algo"  # "algo" (algorithmic) or "api" (Claude API)
+    planner: str = "visual"  # "visual" (Gemini sees photos), "api" (text-only), "algo" (deterministic)
     trip_type: str = "family"  # family, solo, food, adventure, architecture, general
     style: str = "upbeat"
     target_duration: int = 180

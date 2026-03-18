@@ -1,8 +1,7 @@
 """CLI entry point for the vlog pipeline (Dagster-orchestrated).
 
-All commands submit runs to the Dagster webserver (localhost:3000) so they
-appear in the UI. Start the webserver first:
-    dagster-webserver -m pipeline.definitions -p 3000
+All commands submit runs to the Dagster webserver. Start services first:
+    dagster dev -m pipeline.definitions -p 3000
 """
 
 from __future__ import annotations
@@ -26,7 +25,6 @@ def _submit(job_name: str, run_name: str, run_config: dict | None = None):
     """Submit a job to the Dagster webserver and stream status."""
     from dagster_graphql import DagsterGraphQLClient
 
-    # Build run config with resource override for run_name
     config = run_config or {}
     config.setdefault("resources", {})
     config["resources"]["io_manager"] = {
@@ -35,7 +33,6 @@ def _submit(job_name: str, run_name: str, run_config: dict | None = None):
 
     try:
         client = DagsterGraphQLClient(DAGSTER_HOST, port_number=DAGSTER_PORT)
-        # Reload code so the webserver always uses the latest definitions
         try:
             click.echo("Reloading code location...")
             client.reload_repository_location("pipeline.definitions")
@@ -57,8 +54,8 @@ def _submit(job_name: str, run_name: str, run_config: dict | None = None):
                 raise
     except Exception as e:
         click.echo(
-            f"Failed to submit to Dagster webserver at {DAGSTER_HOST}:{DAGSTER_PORT}\n"
-            f"Is it running? Start with: dagster-webserver -m pipeline.definitions -p {DAGSTER_PORT}\n"
+            f"Failed to submit to Dagster at {DAGSTER_HOST}:{DAGSTER_PORT}\n"
+            f"Is it running? Start with: dagster dev -m pipeline.definitions -p {DAGSTER_PORT}\n"
             f"Error: {e}",
             err=True,
         )
@@ -101,12 +98,80 @@ def _parse_item_types(value: str) -> list[int]:
 
 
 @click.group()
-@click.option("--run-name", "-n", default=None, help="Run name (subdirectory under workspace/, default: 'default')")
+@click.option("--run-name", "-n", default=None,
+              help="Run name (subdirectory under workspace/runs/)")
 @click.pass_context
 def cli(ctx: click.Context, run_name: str | None) -> None:
-    """Automated vlog pipeline: fetch -> preprocess -> analyze -> plan -> assemble -> iterate."""
+    """Automated vlog pipeline: fetch → preprocess → analyze → plan → assemble."""
     ctx.ensure_object(dict)
     ctx.obj["run_name"] = run_name
+
+
+# ---------------------------------------------------------------------------
+# Main commands
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.option("-f", "--from-date", required=True, help="Start date (YYYY-MM-DD)")
+@click.option("-t", "--to-date", required=True, help="End date (YYYY-MM-DD)")
+@click.option("--planner", default="visual",
+              type=click.Choice(["visual", "api", "algo"]),
+              help="visual=Gemini sees photos (fast), api=Gemini text-only, algo=deterministic")
+@click.option("--duration", default=60, type=int, help="Target vlog length in seconds")
+@click.option("--trip-type", default="family",
+              type=click.Choice(["family", "solo", "food", "adventure", "architecture", "general"]))
+@click.option("--style", default="upbeat",
+              type=click.Choice(["upbeat", "cinematic", "reflective", "energetic"]))
+@click.option("--focus", default="", help="What to emphasize (default: derived from trip-type)")
+@click.option("--item-types", default=None,
+              help="Media types: photo,video,live,motion (default: all)")
+@click.option("--music", default=None,
+              help="'auto' to generate via MusicGen, or path to audio file")
+@click.option("--width", default=3840, type=int, help="Output width")
+@click.option("--height", default=2160, type=int, help="Output height")
+@click.option("--fps", default=60, type=int, help="Output FPS")
+@click.option("--country", default=None, help="Filter by country")
+@click.option("--district", default=None, help="Filter by district/city")
+@click.option("--force-analyze", is_flag=True, help="Force re-analyze (ignore cached)")
+@click.pass_context
+def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
+         item_types, music, width, height, fps, country, district, force_analyze):
+    """Run the full pipeline end-to-end."""
+    type_list = _parse_item_types(item_types) if item_types else None
+
+    config: dict = {"ops": {}}
+
+    # Fetch
+    fetch_cfg: dict = {"from_date": from_date, "to_date": to_date, "force": True}
+    if country:
+        fetch_cfg["country"] = country
+    if district:
+        fetch_cfg["district"] = district
+    if type_list:
+        fetch_cfg["item_types"] = type_list
+    config["ops"]["fetch_media"] = {"config": fetch_cfg}
+
+    # Analyze
+    config["ops"]["analyze"] = {"config": {
+        "force": force_analyze,
+        "skip_vision": planner == "visual",
+    }}
+
+    # Plan
+    plan_cfg: dict = {
+        "planner": planner, "style": style, "target_duration": duration,
+        "focus": focus, "trip_type": trip_type,
+    }
+    if music:
+        plan_cfg["music_file"] = music
+    config["ops"]["plan"] = {"config": plan_cfg}
+
+    # Assemble
+    config["ops"]["assemble"] = {"config": {
+        "width": width, "height": height, "fps": fps, "skip_broken": True,
+    }}
+
+    _submit("full_pipeline", _run_name(ctx), config)
 
 
 @cli.command()
@@ -117,81 +182,17 @@ def resume(ctx):
 
 
 @cli.command()
-@click.option("--from-date", "-f", required=True, help="Start date (YYYY-MM-DD)")
-@click.option("--to-date", "-t", required=True, help="End date (YYYY-MM-DD)")
-@click.option("--country", default=None, help="Filter by country")
-@click.option("--first-level", default=None, help="Filter by state/province")
-@click.option("--district", default=None, help="Filter by district/city")
-@click.option("--person-ids", default=None, help="Comma-separated person IDs")
-@click.option("--item-types", default=None, help="Comma-separated: photo,video,live,motion (or 0,1,3,6)")
-@click.option("--style", default="upbeat", help="Vlog style")
-@click.option("--duration", default=180, type=int, help="Target duration in seconds")
-@click.option("--focus", default="", help="What to emphasize (default: derived from trip-type)")
-@click.option("--planner", default="algo", type=click.Choice(["algo", "api", "visual"]),
-              help="Planning backend: algo, api (text), or visual (Claude sees photos)")
+@click.option("--planner", default="visual",
+              type=click.Choice(["visual", "api", "algo"]))
+@click.option("--duration", default=60, type=int, help="Target vlog length in seconds")
 @click.option("--trip-type", default="family",
-              type=click.Choice(["family", "solo", "food", "adventure", "architecture", "general"]),
-              help="Trip type for scoring and narrative style")
-@click.option("--music", default=None,
-              help="Background music: 'auto' to generate via MusicGen, or path to mp3/wav file")
-@click.option("--width", default=3840, type=int, help="Output width (default: 3840)")
-@click.option("--height", default=2160, type=int, help="Output height (default: 2160)")
-@click.option("--fps", default=60, type=int, help="Output FPS (default: 60)")
-@click.option("--force-analyze", is_flag=True, help="Force re-run vision analysis (ignore cached analysis.json)")
+              type=click.Choice(["family", "solo", "food", "adventure", "architecture", "general"]))
+@click.option("--style", default="upbeat",
+              type=click.Choice(["upbeat", "cinematic", "reflective", "energetic"]))
+@click.option("--focus", default="", help="What to emphasize")
 @click.pass_context
-def full(ctx, from_date, to_date, country, first_level, district, person_ids,
-         item_types, style, duration, focus, planner, trip_type, music, width, height, fps,
-         force_analyze):
-    """Run the full pipeline end-to-end."""
-    person_id_list = [int(x) for x in person_ids.split(",")] if person_ids else None
-    type_list = _parse_item_types(item_types) if item_types else None
-
-    config: dict = {"ops": {}}
-    config["ops"]["fetch_media"] = {"config": {
-        "from_date": from_date, "to_date": to_date,
-        "force": True,
-    }}
-    config["ops"]["analyze"] = {"config": {
-        "force": force_analyze,
-        "skip_vision": planner == "visual",
-    }}
-    if country:
-        config["ops"]["fetch_media"]["config"]["country"] = country
-    if first_level:
-        config["ops"]["fetch_media"]["config"]["first_level"] = first_level
-    if district:
-        config["ops"]["fetch_media"]["config"]["district"] = district
-    if person_id_list:
-        config["ops"]["fetch_media"]["config"]["person_ids"] = person_id_list
-    if type_list:
-        config["ops"]["fetch_media"]["config"]["item_types"] = type_list
-
-    plan_config: dict = {
-        "planner": planner, "style": style, "target_duration": duration,
-        "focus": focus, "trip_type": trip_type,
-    }
-    if music:
-        plan_config["music_file"] = music
-    config["ops"]["plan"] = {"config": plan_config}
-    config["ops"]["assemble"] = {"config": {
-        "width": width, "height": height, "fps": fps, "skip_broken": True,
-    }}
-
-    _submit("full_pipeline", _run_name(ctx), config)
-
-
-@cli.command()
-@click.option("--style", default="upbeat", help="Vlog style: upbeat, reflective, cinematic")
-@click.option("--duration", default=180, type=int, help="Target duration in seconds")
-@click.option("--focus", default="", help="What to emphasize (default: derived from trip-type)")
-@click.option("--planner", default="algo", type=click.Choice(["algo", "api", "visual"]),
-              help="Planning backend: algo, api (text), or visual (Claude sees photos)")
-@click.option("--trip-type", default="family",
-              type=click.Choice(["family", "solo", "food", "adventure", "architecture", "general"]),
-              help="Trip type for scoring and narrative style")
-@click.pass_context
-def plan(ctx, style, duration, focus, planner, trip_type):
-    """Re-plan + re-assemble (downstream)."""
+def plan(ctx, planner, duration, trip_type, style, focus):
+    """Re-plan and re-assemble (uses cached media + analysis)."""
     _submit("full_pipeline", _run_name(ctx), {
         "ops": {
             "plan": {"config": {
@@ -203,10 +204,10 @@ def plan(ctx, style, duration, focus, planner, trip_type):
 
 
 @cli.command()
-@click.option("--version", "-v", default=None, type=int, help="Version number")
+@click.option("-v", "--version", default=None, type=int, help="EDL version to render")
 @click.pass_context
 def assemble(ctx, version):
-    """Force re-assemble the vlog from current EDL."""
+    """Re-render the vlog from current or specified EDL version."""
     from pipeline.config import Config as PipelineConfig
     from pipeline.iterate import _find_latest_version
 
@@ -217,19 +218,21 @@ def assemble(ctx, version):
         version = _find_latest_version(cfg) + 1
 
     _submit("full_pipeline", rn, {
-        "ops": {
-            "assemble": {"config": {"version": version}},
-        },
+        "ops": {"assemble": {"config": {"version": version}}},
     })
 
 
+# ---------------------------------------------------------------------------
+# Iterate commands
+# ---------------------------------------------------------------------------
+
 @cli.command()
 @click.option("--feedback", default=None, help="Natural language feedback to apply")
-@click.option("--rounds", default=2, type=int, help="Self-critique rounds (if no feedback given)")
-@click.option("--style", default="upbeat", help="Style for self-critique")
+@click.option("--rounds", default=2, type=int, help="Self-critique rounds (if no feedback)")
+@click.option("--style", default="upbeat")
 @click.pass_context
 def iterate(ctx, feedback, rounds, style):
-    """Improve the vlog via self-critique or human feedback."""
+    """Improve the vlog via Gemini self-critique or human feedback."""
     from pipeline.config import Config as PipelineConfig
 
     ws = PipelineConfig.run_workspace(run_name=_run_name(ctx))
@@ -243,7 +246,8 @@ def iterate(ctx, feedback, rounds, style):
 
 
 @cli.command()
-@click.option("--styles", default="energetic,reflective,cinematic", help="Comma-separated variation styles")
+@click.option("--styles", default="energetic,reflective,cinematic",
+              help="Comma-separated variation styles")
 @click.pass_context
 def variations(ctx, styles):
     """Generate multiple vlog variations with different styles."""
@@ -255,10 +259,14 @@ def variations(ctx, styles):
     })
 
 
+# ---------------------------------------------------------------------------
+# Workspace management
+# ---------------------------------------------------------------------------
+
 @cli.command()
 @click.option("--clean", type=click.Choice(["media", "cache", "runs", "all"]),
-              default=None, help="Delete shared data: media, cache, runs, or all")
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+              default=None, help="Delete shared data")
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation")
 def workspace(clean, yes):
     """Show workspace disk usage and optionally clean up."""
     from pathlib import Path
@@ -268,18 +276,16 @@ def workspace(clean, yes):
         click.echo("No workspace directory found.")
         return
 
-    # Gather stats
     sections = {
-        "media": ("Shared media (photos/videos from NAS)", ws / "media"),
-        "cache": ("Shared analysis cache", ws / "analysis_cache"),
-        "keyframes": ("Shared video keyframes", ws / "keyframes"),
-        "music": ("Shared generated music", ws / "music"),
+        "media": ("Shared media (photos/videos)", ws / "media"),
+        "cache": ("Analysis cache", ws / "analysis_cache"),
+        "thumbs": ("Thumbnails", ws / "thumbnails"),
+        "keyframes": ("Video keyframes", ws / "keyframes"),
+        "music": ("Generated music", ws / "music"),
         "runs": ("Per-run data (EDLs, clips, output)", ws / "runs"),
     }
 
-    click.echo()
-    click.echo("=== Workspace Disk Usage ===")
-    click.echo()
+    click.echo("\n=== Workspace Disk Usage ===\n")
     total = 0
     for key, (label, path) in sections.items():
         if path.exists():
@@ -298,29 +304,25 @@ def workspace(clean, yes):
                     click.echo(f"  {rs/1024/1024:8.1f} MB  {rc:5d} files    └─ {run_dir.name}")
 
     click.echo(f"  {'─' * 8}──")
-    click.echo(f"  {total/1024/1024:8.1f} MB  total")
-    click.echo()
+    click.echo(f"  {total/1024/1024:8.1f} MB  total\n")
 
     if clean is None:
         return
 
-    # Clean
     import shutil
     targets = []
-    if clean == "media" or clean == "all":
+    if clean in ("media", "all"):
         targets.append(("media", ws / "media"))
-    if clean == "cache" or clean == "all":
-        targets.append(("analysis_cache", ws / "analysis_cache"))
-        targets.append(("keyframes", ws / "keyframes"))
-        targets.append(("music", ws / "music"))
-    if clean == "runs" or clean == "all":
+    if clean in ("cache", "all"):
+        targets += [("analysis_cache", ws / "analysis_cache"),
+                    ("thumbnails", ws / "thumbnails"),
+                    ("keyframes", ws / "keyframes"),
+                    ("music", ws / "music")]
+    if clean in ("runs", "all"):
         targets.append(("runs", ws / "runs"))
 
-    sizes = []
-    for name, path in targets:
-        if path.exists():
-            s = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
-            sizes.append((name, path, s))
+    sizes = [(n, p, sum(f.stat().st_size for f in p.rglob("*") if f.is_file()))
+             for n, p in targets if p.exists()]
 
     if not sizes:
         click.echo("Nothing to clean.")
