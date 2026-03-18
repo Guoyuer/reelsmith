@@ -269,6 +269,12 @@ def analyze(cfg: Config, *, skip_vision: bool = False, progress_callback=None, l
                 if transcript:
                     entry["transcript"] = transcript
 
+                # Save to shared cache so re-runs skip this video
+                cache_entry = {k: v for k, v in entry.items()
+                               if k in ("keyframe_paths", "transcript", "scenes", "video_duration", "thumbnail_path")}
+                cache_file = cache_dir / f"{item_id}.json"
+                cache_file.write_text(json.dumps(cache_entry, indent=2))
+
                 results.append(entry)
                 _log(f"[{i}/{len(to_analyze)}] {item['filename']} — {len(existing_kfs)} keyframes ({total_dur:.0f}s)")
             else:
@@ -312,8 +318,10 @@ def analyze(cfg: Config, *, skip_vision: bool = False, progress_callback=None, l
                 thumb_dir = cfg.workspace / "thumbnails"
                 thumb = generate_thumbnail(local_path, thumb_dir, size=512)
                 entry["thumbnail_path"] = str(thumb)
+                # Cache so re-runs are instant
+                cache_file = cache_dir / f"{item_id}.json"
+                cache_file.write_text(json.dumps({"thumbnail_path": str(thumb)}, indent=2))
                 results.append(entry)
-                _log(f"[{i}/{len(to_analyze)}] {item['filename']} — thumbnail generated")
             else:
                 vision_target = local_path
                 prompt = VISION_PROMPT_FAMILY if item["tier"] in ("A", "B") else VISION_PROMPT_SCENE
