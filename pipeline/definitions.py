@@ -77,6 +77,7 @@ class FetchConfig(dg.Config):
 class PreprocessConfig(dg.Config):
     family_names: list[str] | None = None
     force: bool = False
+    skip_clustering: bool = False  # skip dedup (for --planner visual, Gemini dedupes visually)
 
 
 class AnalyzeConfig(dg.Config):
@@ -301,7 +302,8 @@ def preprocess(
             })
         )
 
-    result = do_preprocess(io.config, family_names=config.family_names, log_fn=context.log.info)
+    result = do_preprocess(io.config, family_names=config.family_names,
+                           skip_clustering=config.skip_clustering, log_fn=context.log.info)
     context.log.info(
         f"Preprocessed: {result['selected_items']}/{result['total_items']} items, "
         f"tiers: {result['tier_counts']}"

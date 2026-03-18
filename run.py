@@ -151,6 +151,11 @@ def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
         fetch_cfg["item_types"] = type_list
     config["ops"]["fetch_media"] = {"config": fetch_cfg}
 
+    # Preprocess
+    config["ops"]["preprocess"] = {"config": {
+        "skip_clustering": planner == "visual",
+    }}
+
     # Analyze
     config["ops"]["analyze"] = {"config": {
         "force": force_analyze,

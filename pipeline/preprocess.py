@@ -22,7 +22,8 @@ SGT = timezone(timedelta(hours=8))
 SKIP_PREFIXES = ("screenshot", "screen_", "pano_")
 
 
-def preprocess(cfg: Config, *, family_names: list[str] | None = None, log_fn=None) -> dict:
+def preprocess(cfg: Config, *, family_names: list[str] | None = None,
+               skip_clustering: bool = False, log_fn=None) -> dict:
     """Read manifest, assign tiers, cluster duplicates, build timeline."""
     _log = log_fn or print
     cfg.ensure_dirs()
@@ -60,24 +61,31 @@ def preprocess(cfg: Config, *, family_names: list[str] | None = None, log_fn=Non
 
         _log(f"[tier] {item['filename']}: {item['tier']} (family: {len(family_in_photo)})")
 
-    # Cluster near-duplicates using time+location and visual similarity.
-    _log("Clustering near-duplicates...")
-    clusters = _cluster_items(manifest, _log)
+    if skip_clustering:
+        # Visual mode: send everything to Gemini, let it handle dedup visually
+        _log("Skipping clustering (visual mode — Gemini deduplicates visually)")
+        selected = manifest
+        for item in selected:
+            item["cluster_size"] = 1
+    else:
+        # Cluster near-duplicates using time+location and visual similarity
+        _log("Clustering near-duplicates...")
+        clusters = _cluster_items(manifest, _log)
 
-    # Pick best representative from each cluster
-    tier_rank = {"A": 0, "B": 1, "C": 2, "D": 3}
-    selected = []
-    for cluster in clusters:
-        cluster.sort(key=lambda x: (
-            tier_rank.get(x["tier"], 9),
-            -x["family_count"],
-            -(x.get("filesize") or 0),
-        ))
-        best = cluster[0]
-        best["cluster_size"] = len(cluster)
-        if len(cluster) > 1:
-            best["cluster_alt_ids"] = [c["id"] for c in cluster[1:]]
-        selected.append(best)
+        # Pick best representative from each cluster
+        tier_rank = {"A": 0, "B": 1, "C": 2, "D": 3}
+        selected = []
+        for cluster in clusters:
+            cluster.sort(key=lambda x: (
+                tier_rank.get(x["tier"], 9),
+                -x["family_count"],
+                -(x.get("filesize") or 0),
+            ))
+            best = cluster[0]
+            best["cluster_size"] = len(cluster)
+            if len(cluster) > 1:
+                best["cluster_alt_ids"] = [c["id"] for c in cluster[1:]]
+            selected.append(best)
 
     # Build timeline
     timeline = _build_timeline(selected)
