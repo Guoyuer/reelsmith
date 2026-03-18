@@ -100,7 +100,14 @@ class AssembleConfig(dg.Config):
     height: int = 2160
     fps: int = 60
     skip_broken: bool = False
-    auto_review: bool = False  # auto-review rendered vlog with Gemini (adds 1 extra render)
+
+
+class ReviewConfig(dg.Config):
+    enabled: bool = False  # --auto-review flag enables this
+    style: str = "upbeat"
+    width: int = 3840
+    height: int = 2160
+    fps: int = 60
 
 
 class IterateConfig(dg.Config):
@@ -435,43 +442,6 @@ def assemble(
     )
     context.log.info(f"Assembled: {output_path}")
 
-    # Auto-review: extract frames from rendered vlog, send to Gemini for critique
-    if config.auto_review and output_path.exists():
-        context.log.info("=" * 60)
-        context.log.info("AUTO-REVIEW: Sending rendered vlog to Gemini for critique...")
-        context.log.info("=" * 60)
-        context.log_event(dg.AssetObservation(
-            asset_key=context.asset_key,
-            metadata={"phase": dg.MetadataValue.text("auto-review started")},
-        ))
-        try:
-            from .iterate import self_critique
-            result = self_critique(cfg, style="upbeat", max_rounds=1, log_fn=context.log.info)
-            new_version = _find_latest_version(cfg)
-            if new_version > version:
-                context.log.info("=" * 60)
-                context.log.info(f"AUTO-REVIEW: Re-rendering with improved EDL v{new_version}...")
-                context.log.info("=" * 60)
-                output_path = do_assemble(
-                    cfg, version=new_version,
-                    resolution=(config.width, config.height), fps=config.fps,
-                    skip_broken=config.skip_broken,
-                )
-                version = new_version
-                context.log.info(f"AUTO-REVIEW: Complete → {output_path}")
-                context.log_event(dg.AssetObservation(
-                    asset_key=context.asset_key,
-                    metadata={"phase": dg.MetadataValue.text(f"auto-review done, re-rendered v{version}")},
-                ))
-            else:
-                context.log.info("AUTO-REVIEW: No changes needed — skipping re-render")
-                context.log_event(dg.AssetObservation(
-                    asset_key=context.asset_key,
-                    metadata={"phase": dg.MetadataValue.text("auto-review: no changes needed")},
-                ))
-        except Exception as e:
-            context.log.info(f"AUTO-REVIEW: Skipped ({e})")
-
     return dg.MaterializeResult(
         metadata={
             "output": dg.MetadataValue.path(str(output_path)),
@@ -479,6 +449,63 @@ def assemble(
             "render_time_min": dg.MetadataValue.float(round((time.monotonic() - t0) / 60, 1)),
         }
     )
+
+
+@dg.asset(
+    group_name="vlog",
+)
+def review(
+    context: dg.AssetExecutionContext,
+    assemble,
+    config: ReviewConfig,
+) -> dg.MaterializeResult:
+    """Auto-review: Gemini critiques the rendered vlog and re-edits if needed."""
+    from .iterate import _find_latest_version, self_critique
+
+    io = context.resources.io_manager
+    cfg = io.config
+    version = _find_latest_version(cfg)
+
+    if not config.enabled:
+        context.log.info("Review: skipped (not enabled, use --auto-review to enable)")
+        return dg.MaterializeResult(
+            metadata={
+                "status": dg.MetadataValue.text("skipped"),
+                "version": dg.MetadataValue.int(version),
+            }
+        )
+
+    context.log.info("=" * 60)
+    context.log.info("REVIEW: Sending rendered vlog to Gemini for critique...")
+    context.log.info("=" * 60)
+
+    t0 = time.monotonic()
+    edl = self_critique(cfg, style=config.style, max_rounds=1, log_fn=context.log.info)
+    new_version = _find_latest_version(cfg)
+
+    if new_version > version:
+        context.log.info(f"REVIEW: Gemini improved EDL → v{new_version}, re-rendering...")
+        output_path = do_assemble(
+            cfg, version=new_version,
+            resolution=(config.width, config.height), fps=config.fps,
+            skip_broken=True,
+        )
+        context.log.info(f"REVIEW: Complete → {output_path}")
+        return dg.MaterializeResult(
+            metadata={
+                "status": dg.MetadataValue.text(f"improved → v{new_version}"),
+                "version": dg.MetadataValue.int(new_version),
+                "review_time_min": dg.MetadataValue.float(round((time.monotonic() - t0) / 60, 1)),
+            }
+        )
+    else:
+        context.log.info("REVIEW: No changes needed — vlog is good as-is")
+        return dg.MaterializeResult(
+            metadata={
+                "status": dg.MetadataValue.text("no changes needed"),
+                "version": dg.MetadataValue.int(version),
+            }
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -535,7 +562,7 @@ full_pipeline = dg.define_asset_job(
 )
 
 defs = dg.Definitions(
-    assets=[fetch_media, preprocess, analyze, plan, assemble],
+    assets=[fetch_media, preprocess, analyze, plan, assemble, review],
     jobs=[full_pipeline, iterate_job, variations_job],
     resources={
         "io_manager": WorkspaceIOManager(base_dir="./workspace", run_name="default"),

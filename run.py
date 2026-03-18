@@ -176,7 +176,12 @@ def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
     # Assemble
     config["ops"]["assemble"] = {"config": {
         "width": width, "height": height, "fps": fps, "skip_broken": True,
-        "auto_review": auto_review,
+    }}
+
+    # Review
+    config["ops"]["review"] = {"config": {
+        "enabled": auto_review,
+        "width": width, "height": height, "fps": fps,
     }}
 
     _submit("full_pipeline", _run_name(ctx), config)
