@@ -126,7 +126,10 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
 @click.option("--item-types", default=None,
               help="Media types: photo,video,live,motion (default: all)")
 @click.option("--music", default=None,
-              help="'auto' to generate via MusicGen, or path to audio file")
+              help="'auto' to generate music, or path to audio file")
+@click.option("--music-backend", default="local",
+              type=click.Choice(["local", "gemini"]),
+              help="Music backend: local (MusicGen) or gemini (Lyria RealTime API)")
 @click.option("--width", default=3840, type=int, help="Output width")
 @click.option("--height", default=2160, type=int, help="Output height")
 @click.option("--fps", default=60, type=int, help="Output FPS")
@@ -135,7 +138,7 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
 @click.option("--force-analyze", is_flag=True, help="Force re-analyze (ignore cached)")
 @click.pass_context
 def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
-         item_types, music, width, height, fps, country, district, force_analyze):
+         item_types, music, music_backend, width, height, fps, country, district, force_analyze):
     """Run the full pipeline end-to-end."""
     type_list = _parse_item_types(item_types) if item_types else None
 
@@ -174,6 +177,7 @@ def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
     # Assemble
     config["ops"]["assemble"] = {"config": {
         "width": width, "height": height, "fps": fps, "skip_broken": True,
+        "music_backend": music_backend,
     }}
 
     _submit("full_pipeline", _run_name(ctx), config)
@@ -210,8 +214,11 @@ def plan(ctx, planner, duration, trip_type, style, focus):
 
 @cli.command()
 @click.option("-v", "--version", default=None, type=int, help="EDL version to render")
+@click.option("--music-backend", default="local",
+              type=click.Choice(["local", "gemini"]),
+              help="Music backend: local (MusicGen) or gemini (Lyria RealTime API)")
 @click.pass_context
-def assemble(ctx, version):
+def assemble(ctx, version, music_backend):
     """Re-render the vlog from current or specified EDL version."""
     from pipeline.config import Config as PipelineConfig
     from pipeline.iterate import _find_latest_version
@@ -223,7 +230,7 @@ def assemble(ctx, version):
         version = _find_latest_version(cfg) + 1
 
     _submit("full_pipeline", rn, {
-        "ops": {"assemble": {"config": {"version": version}}},
+        "ops": {"assemble": {"config": {"version": version, "music_backend": music_backend}}},
     })
 
 

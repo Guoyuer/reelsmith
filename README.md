@@ -1,6 +1,6 @@
 # vlog
 
-Automated vlog generation from Synology Photos. Downloads trip photos/videos, plans a narrative with AI (Gemini or Claude), generates background music with MusicGen, and renders a highlight reel. Three planning modes: **visual** (Gemini sees actual photos — fastest), **api** (Claude plans from text descriptions), **algo** (deterministic scoring). Orchestrated by [Dagster](https://dagster.io) with a web UI.
+Automated vlog generation from Synology Photos. Downloads trip photos/videos, plans a narrative with AI (Gemini), generates background music (locally via MusicGen or via Gemini Lyria RealTime API), and renders a highlight reel. Three planning modes: **visual** (Gemini sees actual photos — fastest), **api** (Gemini text-only), **algo** (deterministic scoring). Orchestrated by [Dagster](https://dagster.io) with a web UI.
 
 ## Architecture
 
@@ -37,35 +37,93 @@ flowchart LR
 
 ## Quick Start
 
+### Prerequisites
+
+- **Python 3.11+** — [python.org/downloads](https://www.python.org/downloads/)
+- **Git** — for cloning repos
+- **Synology NAS** with Photos enabled (for the media source)
+- **Gemini API key** — free, get one at [ai.google.dev](https://ai.google.dev/) → "Get API key"
+
+FFmpeg and Ollama are also needed but `start.py` will offer to install them for you.
+
+### 1. Clone and setup
+
 ```bash
-# One command: creates venvs, installs deps, walks you through config, starts services
+git clone <this-repo-url>
+cd vlog
+
+# First run: creates venvs, installs all deps, walks you through .env config, starts services
 python start.py
+```
 
-# Visual planner (fastest — Gemini sees photos directly, no local vision model)
-python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 \
-  --trip-type family --planner visual --duration 180
+The setup wizard will prompt you for:
+- Synology NAS IP, port, and credentials
+- Gemini API key (paste the key from ai.google.dev)
+- Other settings with sensible defaults — just press Enter
 
-# API planner (Claude plans from local vision model descriptions)
+On first run, `start.py` will:
+1. Clone [synology-photos-project](../synology-photos-project) if missing
+2. Check for FFmpeg and Ollama (offers to auto-install via winget/brew/apt)
+3. Create Python venvs and install all dependencies (Dagster, google-genai, etc.)
+4. Walk you through `.env` configuration
+5. Pull required Ollama models
+6. Start Ollama, Synology Photos API, and Dagster
+
+Subsequent runs (`python start.py`) skip setup and just start services:
+```
+=== Services Ready ===
+  Ollama:               http://localhost:11434
+  Synology Photos API:  http://localhost:8000
+  Dagster UI:           http://localhost:3000
+```
+
+### 2. Activate the venv
+
+`start.py` installs all dependencies into a local `venv/`, not system Python. **Always activate it before running `run.py`:**
+
+```bash
+# Windows
+venv\Scripts\activate
+
+# macOS / Linux
+source venv/bin/activate
+```
+
+Your prompt should now show `(venv)`. All `python run.py` commands below assume the venv is activated.
+
+### 3. Run the pipeline
+
+```bash
+# Full AI-driven pipeline (visual planner + Gemini music, recommended)
 python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 \
-  --trip-type family --planner api --duration 180
+  --trip-type family --planner visual --duration 180 \
+  --music auto --music-backend gemini \
+  --focus "happiness of family trip; exotic scenes of Singapore"
+```
+
+### 4. Monitor in Dagster UI
+
+Open **http://localhost:3000** — the CLI prints a direct link to each run:
+```
+Run submitted: 94f28746-9f4d-4399-90bf-2da7d485fbf0
+View at: http://localhost:3000/runs/94f28746-...
+```
+
+### More examples
+
+```bash
+# Local MusicGen instead of Gemini (no API, but ~20min for 60s of audio)
+python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 \
+  --trip-type family --planner visual --duration 180 --music auto
 
 # Quick test (low res, fast)
 python run.py -n sg-test full -f 2025-06-13 -t 2025-06-16 \
   --planner visual --duration 60 --item-types photo \
   --width 640 --height 360 --fps 15
 
-# Stop all services
+# Stop all services when done
 python start.py stop
 ```
-
-On first run, `start.py` will:
-1. Create Python venvs and install all dependencies
-2. Check for FFmpeg and Ollama (with install instructions if missing)
-3. Walk you through `.env` configuration (NAS credentials, API keys)
-4. Pull required Ollama models (llava:7b, llama3:8b)
-5. Start Ollama, Synology Photos API, and Dagster
-
-Subsequent runs skip setup and just start services. Run `python start.py setup` to re-run setup.
 
 ## Workspace Structure
 
@@ -126,14 +184,15 @@ python run.py -n singapore variations
 | `--trip-type` | family, solo, food, adventure, architecture, general | Scoring profile and narrative style |
 | `--planner` | visual, api, algo | Gemini visual (recommended), Gemini text-only, or algorithmic |
 | `--force-analyze` | flag | Force re-run vision analysis (ignore cached analysis.json) |
-| `--music` | auto, /path/to/file | Generate via MusicGen or use custom file |
+| `--music` | auto, /path/to/file | Generate music or use custom file |
+| `--music-backend` | local, gemini | local = MusicGen (slow, free), gemini = Lyria RealTime API (fast, free during experimental) |
 | `--style` | upbeat, cinematic, reflective, energetic | Pacing and transitions |
 | `--duration` | seconds | Target vlog length |
 | `--item-types` | photo, video, live, motion | Media types to include |
 
 ### Web UI (Dagster)
 
-After `./start.sh`, open **http://localhost:3000**.
+After `python start.py`, open **http://localhost:3000**.
 
 **Run the full pipeline:** Jobs → full_pipeline → Launchpad → paste config.
 
@@ -172,7 +231,7 @@ Three backends:
 All planners produce an EDL (Edit Decision List) with segments, transitions, and text overlays. Video items can include trim points for scene selection.
 
 ### 5. assemble
-Renders each item as a video clip (Ken Burns effects for photos, trimmed clips for videos with `start_time`/`end_time`), adds text overlays, concatenates with crossfade/fade_black transitions, renders intro/outro title cards. Generates background music via MusicGen if `--music auto` — uses `music_mood` from the EDL segments as the generation prompt. After rendering, auto-reviews the output with Gemini: extracts frames, sends for critique, re-plans and re-renders if improvements found.
+Renders each item as a video clip (Ken Burns effects for photos, trimmed clips for videos with `start_time`/`end_time`), adds text overlays, concatenates with crossfade/fade_black transitions, renders intro/outro title cards. Generates background music if `--music auto` — uses `music_mood` from the EDL segments as the generation prompt (see [Music Generation](#music-generation) for backend options). After rendering, auto-reviews the output with Gemini: extracts frames, sends for critique, re-plans and re-renders if improvements found.
 
 ## Trip Types & Scoring
 
@@ -189,9 +248,30 @@ Each trip type has a different scoring profile that affects photo selection:
 
 ## Music Generation
 
-When `--music auto` is passed, the assemble step generates background music using Meta's MusicGen (facebook/musicgen-medium, 1.5B params) running locally. The prompt is derived from trip_type + style. Generated tracks are cached in `workspace/music/` — subsequent runs reuse them instantly.
+When `--music auto` is passed, the assemble step generates background music. Two backends are available:
 
-Music generation takes ~20 minutes for 60s of audio on an M-series Mac. The track is mixed into the final video with fade-in/fade-out.
+| | `--music-backend local` (default) | `--music-backend gemini` |
+|---|---|---|
+| **Model** | MusicGen (facebook/musicgen-medium, 300M params) | Lyria RealTime (Google, experimental) |
+| **Runs where** | Locally (PyTorch) | Gemini API (WebSocket streaming) |
+| **Speed** | ~20 min for 60s of audio | ~8s for 60s of audio |
+| **Quality** | 32kHz mono | 48kHz stereo |
+| **Cost** | Free (local GPU/CPU) | Free during experimental period |
+| **Setup** | `pip install -e ".[music]"` + ~6GB model download | `GEMINI_API_KEY` in `.env` (same key used for planning) |
+| **Requires** | PyTorch, transformers, scipy | google-genai (already a core dependency) |
+
+```bash
+# Gemini Lyria RealTime (recommended — fast, high quality, no local model)
+python run.py -n sg full ... --music auto --music-backend gemini
+
+# Local MusicGen (no API key needed, but slow)
+python run.py -n sg full ... --music auto --music-backend local
+
+# Custom music file (skip generation entirely)
+python run.py -n sg full ... --music /path/to/soundtrack.mp3
+```
+
+Both backends use the `music_mood` from EDL segments (set by Gemini during planning) as the generation prompt, with fallback templates per trip_type + style. Generated tracks are cached in `workspace/music/` — subsequent runs with the same parameters reuse them instantly.
 
 ## Requirements
 
@@ -200,15 +280,17 @@ Music generation takes ~20 minutes for 60s of audio on an M-series Mac. The trac
 - **Ollama** — local vision model (only for `--planner api/algo`, not needed for visual mode)
   - `ollama pull llava:13b` — vision analysis
 - **Synology Photos API** — the [synology-photos-project](../synology-photos-project) backend running on `:8000`
-- **Dagster** — workflow orchestration (installed via `pip install -e .`)
-- **Gemini API key** — for all planners and iterate/feedback (`GEMINI_API_KEY` in `.env`)
+- **Gemini API key** — for planning, iterate/feedback, and Gemini music (`GEMINI_API_KEY` in `.env`)
 
-Optional (installed with `pip install -e ".[all]"`):
-- **openai-whisper** — speech-to-text for video transcription
-- **pillow-heif** — HEIC/HEIF photo support (cross-platform)
-- **PyTorch + transformers + scipy** — MusicGen background music generation
+All of the above (venvs, deps, Dagster, services) are handled by `python start.py`. You do not need to pip install manually.
 
-All services start with `python start.py` (Ollama, Synology API, Dagster).
+Optional (installed with `pip install -e ".[music]"` inside the venv):
+- **PyTorch + transformers + scipy** — local MusicGen music generation (`--music-backend local`)
+
+Other optional extras:
+- **openai-whisper** — speech-to-text for video transcription (`pip install -e ".[whisper]"`)
+- **pillow-heif** — HEIC/HEIF photo support (`pip install -e ".[heic]"`)
+- **opencv-python-headless** — face-aware crop in assemble (`pip install -e ".[cv]"`)
 
 ### Platform Notes
 
@@ -220,32 +302,37 @@ All services start with `python start.py` (Ollama, Synology API, Dagster).
 | FFmpeg | `brew install ffmpeg` | [ffmpeg.org/download](https://ffmpeg.org/download.html) | `apt install ffmpeg` |
 | Ollama | `brew install ollama` | [ollama.com/download](https://ollama.com/download) | `curl -fsSL https://ollama.com/install.sh \| sh` |
 
-### 24GB MacBook resource usage
+### Resource usage
 
-| Component | Model | RAM |
-|-----------|-------|-----|
-| Vision | llava:13b | ~8GB |
-| Planning | Gemini API (remote) | — |
-| Music | MusicGen medium | ~6GB |
-| Whisper | mlx-whisper medium | ~1.5GB |
+| Component | Model | RAM | Notes |
+|-----------|-------|-----|-------|
+| Vision | llava:13b | ~8GB | Only for `--planner api/algo` |
+| Planning | Gemini API (remote) | — | All planners use Gemini |
+| Music (local) | MusicGen medium | ~6GB | `--music-backend local` |
+| Music (gemini) | Lyria RealTime (remote) | — | `--music-backend gemini` (recommended) |
+| Whisper | mlx-whisper medium | ~1.5GB | Optional, for transcription |
 
-Only one Ollama model loaded at a time. Dagster uses `concurrency_key` to prevent contention.
+With `--planner visual --music-backend gemini`, no local AI models are needed — everything runs via API. Only one Ollama model loaded at a time. Dagster uses `concurrency_key` to prevent contention.
 
 ## Testing
 
 ```bash
+# Activate venv first (Windows: venv\Scripts\activate)
 source venv/bin/activate
-python -m pytest tests/ -v                    # all 119 tests (~1s)
-python -m pytest tests/ -m integration -v     # integration tests only (requires FFmpeg)
-python -m pytest tests/ -m "not integration"  # unit/mocked tests only
+
+python -m pytest tests/ -v -m "not integration"  # unit/mocked tests (~1s)
+python -m pytest tests/ -v -m integration         # integration tests (requires FFmpeg + GEMINI_API_KEY)
+python -m pytest tests/ -v                         # all tests
 ```
+
+Integration tests for Gemini music generation (`tests/test_music.py::TestFetchMusicGeminiE2E`) require `GEMINI_API_KEY` in `.env` and make real API calls.
 
 ## Key design decisions
 
 - **Dagster asset model** — each stage is a Dagster asset that produces a file. Auto-skips when output exists. Re-materialize from the UI to force re-run + downstream cascade.
 - **Trip-type generalization** — scoring profiles, narrative prompts, and music prompts all adapt to trip type. The same pipeline handles family trips, solo adventures, food tours, etc.
 - **Gemini API for planning** — the visual planner uses Gemini 3 Flash to see actual photos via contact sheets, producing better narrative than text-only planning. The API planner also uses Gemini Flash for text-based planning from local vision model descriptions. Both use 3-pass planning: arc design → shot selection → self-review.
-- **Music in assemble, not plan** — music generation happens during rendering, using the actual video duration. Plan just declares intent (`music_mode=auto`).
+- **Music in assemble, not plan** — music generation happens during rendering, using the actual video duration. Plan declares intent (`music_mode=auto`) and mood; assemble picks the backend (`local` or `gemini`).
 - **Shared media + analysis cache** — raw files and per-file vision results are shared across runs. Only plan + assemble re-run.
 - **Per-run isolation** — each run gets its own directory for manifest, EDL, clips, and output.
 - **Interruptible everything** — all subprocess calls use `Popen` with signal forwarding. All Ollama calls use streaming.

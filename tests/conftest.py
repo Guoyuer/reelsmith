@@ -5,7 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from dotenv import load_dotenv
 from PIL import Image
+
+load_dotenv()
 
 from pipeline.config import Config
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment

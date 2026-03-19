@@ -157,3 +157,28 @@ def fetch_music(
         _log(f"Music generation failed: {e}")
         _log(traceback.format_exc())
         return None
+
+
+def generate_music(
+    trip_type: str,
+    style: str,
+    target_duration: int,
+    cache_dir: Path,
+    mood: str = "",
+    backend: str = "local",
+    log_fn=None,
+) -> Path | None:
+    """Generate background music using the specified backend.
+
+    backend: "local" (MusicGen) or "gemini" (Lyria RealTime API)
+    """
+    if backend == "gemini":
+        from .music_gemini import fetch_music_gemini
+        return fetch_music_gemini(
+            trip_type=trip_type, style=style, target_duration=target_duration,
+            cache_dir=cache_dir, mood=mood, log_fn=log_fn,
+        )
+    return fetch_music(
+        trip_type=trip_type, style=style, target_duration=target_duration,
+        cache_dir=cache_dir, mood=mood, log_fn=log_fn,
+    )

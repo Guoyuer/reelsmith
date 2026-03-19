@@ -100,6 +100,7 @@ class AssembleConfig(dg.Config):
     height: int = 2160
     fps: int = 60
     skip_broken: bool = False
+    music_backend: str = "local"  # "local" (MusicGen) or "gemini" (Lyria RealTime)
 
 
 class IterateConfig(dg.Config):
@@ -431,6 +432,7 @@ def assemble(
         resolution=(config.width, config.height), fps=config.fps,
         progress_callback=_progress_cb(context, t0),
         skip_broken=config.skip_broken,
+        music_backend=config.music_backend,
     )
     context.log.info(f"Assembled: {output_path}")
 

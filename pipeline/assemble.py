@@ -148,7 +148,8 @@ def _build_portrait_photo_filter(
 # ---------------------------------------------------------------------------
 
 def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_broken: bool = False,
-             resolution: tuple[int, int] | None = None, fps: int | None = None) -> Path:
+             resolution: tuple[int, int] | None = None, fps: int | None = None,
+             music_backend: str = "local") -> Path:
     """Read latest edl_v{N}.json and render the vlog video."""
     cfg.ensure_dirs()
     from .iterate import _load_latest_edl
@@ -266,23 +267,23 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
     # Phase 3: Generate music if auto, then mix
     if edl.music_mode == "auto" and not (edl.music and Path(edl.music.file).exists()):
-        from .music import fetch_music
+        from .music import generate_music
         ws = cfg.workspace
         music_cache = ws.parent.parent / "music" if ws.parent.name == "runs" else ws / "music"
         video_dur = _probe_duration(no_music_path)
-        # Combine segment music_moods into a single prompt for MusicGen
+        # Combine segment music_moods into a single prompt
         segment_moods = [s.music_mood for s in edl.segments if s.music_mood]
         if segment_moods:
-            # Use the overall mood from all segments
             combined_mood = f"travel vlog background music: {'; then '.join(segment_moods)}"
-            print(f"Music mode: auto (from segment moods) | video={video_dur:.0f}s")
+            print(f"Music mode: auto ({music_backend}) (from segment moods) | video={video_dur:.0f}s")
         else:
             combined_mood = ""
-            print(f"Music mode: auto | video={video_dur:.0f}s | trip_type={edl.trip_type} | style={edl.style}")
-        track_path = fetch_music(
+            print(f"Music mode: auto ({music_backend}) | video={video_dur:.0f}s | trip_type={edl.trip_type} | style={edl.style}")
+        track_path = generate_music(
             trip_type=edl.trip_type, style=edl.style,
             target_duration=int(video_dur),
-            cache_dir=music_cache, mood=combined_mood, log_fn=print,
+            cache_dir=music_cache, mood=combined_mood,
+            backend=music_backend, log_fn=print,
         )
         if track_path:
             from .edl import MusicTrack
