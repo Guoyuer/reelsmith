@@ -18,7 +18,8 @@ flowchart LR
         FM[fetch_media] --> PP[preprocess]
         PP --> AN[analyze]
         AN --> PL[plan]
-        PL --> AS[assemble]
+        PL --> GM[generate_music]
+        GM --> AS[assemble]
     end
 
     subgraph "Jobs"
@@ -32,6 +33,7 @@ flowchart LR
     style PP fill:#66BB6A,color:#fff
     style AN fill:#FFA726,color:#fff
     style PL fill:#AB47BC,color:#fff
+    style GM fill:#EC407A,color:#fff
     style AS fill:#EF5350,color:#fff
 ```
 
@@ -94,10 +96,9 @@ Your prompt should now show `(venv)`. All `python run.py` commands below assume 
 ### 3. Run the pipeline
 
 ```bash
-# Full AI-driven pipeline (visual planner + Gemini music, recommended)
+# Defaults handle the rest: visual planner, Gemini music, 4K 60fps
 python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 \
-  --trip-type family --planner visual --duration 180 \
-  --music auto --music-backend gemini \
+  --duration 180 --style cinematic \
   --focus "happiness of family trip; exotic scenes of Singapore"
 ```
 
@@ -112,14 +113,12 @@ View at: http://localhost:3000/runs/94f28746-...
 ### More examples
 
 ```bash
-# Local MusicGen instead of Gemini (no API, but ~20min for 60s of audio)
-python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 \
-  --trip-type family --planner visual --duration 180 --music auto
-
-# Quick test (low res, fast)
+# Quick preview (low res, draft quality)
 python run.py -n sg-test full -f 2025-06-13 -t 2025-06-16 \
-  --planner visual --duration 60 --item-types photo \
-  --width 640 --height 360 --fps 15
+  --duration 60 --width 640 --height 360 --fps 15 --quality 0.5
+
+# Local MusicGen instead of Gemini API (no API key needed, but slow)
+python run.py -n sg full ... --music local
 
 # Stop all services when done
 python start.py stop
@@ -330,7 +329,7 @@ Three backends:
 All planners produce an EDL (Edit Decision List) with segments, transitions, and text overlays. Video items can include trim points for scene selection.
 
 ### 5. generate_music
-When `--music auto`, generates background music using the EDL's `music_mood` descriptions and `estimated_duration()`. See [Music Generation](#music-generation) for backend options. Saves the music file path back into the EDL. Skipped when `--music` is a file path or omitted.
+When `--music auto` or `--music local`, generates background music using the EDL's `music_mood` descriptions and `estimated_duration()`. See [Music Generation](#music-generation) for backend options. Saves the music file path back into the EDL. Skipped when `--music none` or a custom file path.
 
 ### 6. assemble
 Renders each item as a video clip (Ken Burns effects for photos, trimmed clips for videos with `start_time`/`end_time`), adds text overlays, concatenates with crossfade/fade_black transitions, renders intro/outro title cards. Mixes in the music track from `generate_music` (if available). After rendering, auto-reviews the output with Gemini: extracts frames, sends for critique, re-plans and re-renders if improvements found.
@@ -350,17 +349,14 @@ Each trip type has a different scoring profile that affects photo selection:
 
 ## Music Generation
 
-When `--music auto` is passed, the `generate_music` pipeline step generates background music before assembly. Two backends are available:
+The `generate_music` pipeline step creates background music before assembly. Controlled by the `--music` flag:
 
-| | `--music-backend local` (default) | `--music-backend gemini` |
-|---|---|---|
-| **Model** | MusicGen (facebook/musicgen-medium, 300M params) | Lyria RealTime (Google, experimental) |
-| **Runs where** | Locally (PyTorch) | Gemini API (WebSocket streaming) |
-| **Speed** | ~20 min for 60s of audio | ~8s for 60s of audio |
-| **Quality** | 32kHz mono | 48kHz stereo |
-| **Cost** | Free (local GPU/CPU) | Free during experimental period |
-| **Setup** | `pip install -e ".[music]"` + ~6GB model download | `GEMINI_API_KEY` in `.env` (same key used for planning) |
-| **Requires** | PyTorch, transformers, scipy | google-genai (already a core dependency) |
+| `--music` | Backend | Speed | Quality | Setup |
+|-----------|---------|-------|---------|-------|
+| `auto` (default) | Gemini Lyria RealTime | ~8s for 60s | 48kHz stereo | `GEMINI_API_KEY` (same key used for planning) |
+| `local` | MusicGen (facebook/musicgen-medium) | ~20 min for 60s | 32kHz mono | `pip install -e ".[music]"` + ~6GB model |
+| `/path/to/file` | Custom file | instant | — | — |
+| `none` | No music | — | — | — |
 
 ```bash
 # Gemini Lyria RealTime (default — fast, high quality)
@@ -390,7 +386,7 @@ Both backends use the `music_mood` from EDL segments (set by Gemini during plann
 All of the above (venvs, deps, Dagster, services) are handled by `python start.py`. You do not need to pip install manually.
 
 Optional (installed with `pip install -e ".[music]"` inside the venv):
-- **PyTorch + transformers + scipy** — local MusicGen music generation (`--music-backend local`)
+- **PyTorch + transformers + scipy** — local MusicGen music generation (`--music local`)
 
 Other optional extras:
 - **openai-whisper** — speech-to-text for video transcription (`pip install -e ".[whisper]"`)
@@ -413,11 +409,11 @@ Other optional extras:
 |-----------|-------|-----|-------|
 | Vision | llava:13b | ~8GB | Only for `--planner api/algo` |
 | Planning | Gemini API (remote) | — | All planners use Gemini |
-| Music (local) | MusicGen medium | ~6GB | `--music-backend local` |
-| Music (gemini) | Lyria RealTime (remote) | — | `--music-backend gemini` (recommended) |
+| Music (default) | Lyria RealTime (remote) | — | `--music auto` |
+| Music (local) | MusicGen medium | ~6GB | `--music local` |
 | Whisper | mlx-whisper medium | ~1.5GB | Optional, for transcription |
 
-With `--planner visual --music-backend gemini`, no local AI models are needed — everything runs via API. Only one Ollama model loaded at a time. Dagster uses `concurrency_key` to prevent contention.
+With defaults (`--planner visual --music auto`), no local AI models are needed — everything runs via Gemini API. Only one Ollama model loaded at a time. Dagster uses `concurrency_key` to prevent contention.
 
 ## Testing
 
@@ -437,7 +433,7 @@ Integration tests for Gemini music generation (`tests/test_music.py::TestFetchMu
 - **Dagster asset model** — each stage is a Dagster asset that produces a file. Auto-skips when output exists. Re-materialize from the UI to force re-run + downstream cascade.
 - **Trip-type generalization** — scoring profiles, narrative prompts, and music prompts all adapt to trip type. The same pipeline handles family trips, solo adventures, food tours, etc.
 - **Gemini API for planning** — the visual planner uses Gemini 3 Flash to see actual photos via contact sheets, producing better narrative than text-only planning. The API planner also uses Gemini Flash for text-based planning from local vision model descriptions. Both use 3-pass planning: arc design → shot selection → self-review.
-- **Music in assemble, not plan** — music generation happens during rendering, using the actual video duration. Plan declares intent (`music_mode=auto`) and mood; assemble picks the backend (`local` or `gemini`).
+- **Music as a separate asset** — `generate_music` runs between plan and assemble as its own Dagster step. Plan declares intent (`music_mode=auto`) and mood; `generate_music` produces the audio; assemble mixes it into the video.
 - **Shared media + analysis cache** — raw files and per-file vision results are shared across runs. Only plan + assemble re-run.
 - **Per-run isolation** — each run gets its own directory for manifest, EDL, clips, and output.
 - **Interruptible everything** — all subprocess calls use `Popen` with signal forwarding. All Ollama calls use streaming.
