@@ -202,7 +202,7 @@ def _gemini_call(
             parts.append(types.Part(text=p))
             n_text += 1
             text_chars += len(p)
-        elif isinstance(p, dict) and p.get("type") in ("image_bytes", "audio_bytes"):
+        elif isinstance(p, dict) and p.get("type") in ("image_bytes", "audio_bytes", "video_bytes"):
             parts.append(types.Part(
                 inline_data=types.Blob(
                     mime_type=p.get("mime_type", "image/jpeg"),
@@ -273,8 +273,9 @@ You have complete autonomy over:
 - **Contact sheets**: Grid images with numbered cells (#01, #02, ...). Numbers match
   the text metadata below each sheet. Judge the VISUAL content — composition, emotion,
   lighting, quality — not just the metadata.
-- **Video filmstrips**: Horizontal strips showing scene keyframes with timestamps.
-  Select the best scene using start_time/end_time.
+- **Video clips**: Short MP4 samples (5s from the middle) WITH AUDIO. Watch and listen
+  to each clip. Judge motion quality, framing, and audio content. If you hear family
+  speech, laughter, or reactions — that video is especially valuable.
 - **Metadata per item**: tier (A=family together, B=one family member, C=scenery),
   person names, location, time.
 
@@ -286,7 +287,8 @@ You have complete autonomy over:
 
 3. **Video-first**: Prefer video clips over photos when both cover the same moment.
    Videos bring motion, atmosphere, and sound — they make a vlog feel alive, not like
-   a slideshow. Aim for 40-60% video content by screen time.
+   a slideshow. Aim for 40-60% video content by screen time. If you hear family voices
+   or meaningful audio in a video clip, set keep_audio=true to preserve it.
 
 4. **Rhythm**: Alternate photos (3-5s, Ken Burns) with video clips (5-10s, real motion).
    Vary pacing — fast cuts for energy, lingering shots for emotion.
@@ -327,6 +329,7 @@ Output valid JSON only:
           "start_time": null or <seconds for video trim start>,
           "end_time": null or <seconds for video trim end>,
           "effect": "ken_burns_in|ken_burns_out|ken_burns_left|ken_burns_right|static|none",
+          "keep_audio": true or false (for videos: true if you heard meaningful speech/reactions),
           "text_overlay": null or {{"text": "string", "position": "bottom", "font_size": 48}}
         }}
       ],
@@ -410,11 +413,13 @@ def _build_visual_chapter_text(
 def _build_visual_content_blocks(
     preprocessed: dict, analysis_by_id: dict, cfg: Config, log_fn=None,
 ) -> list:
-    """Build multimodal parts: interleaved text + contact sheets + filmstrips.
+    """Build multimodal parts: interleaved text + contact sheets + video clips.
 
-    Returns list of str and image dicts suitable for _gemini_call().
+    Returns list of str and media dicts suitable for _gemini_call().
+    Videos are sent as short MP4 clips (with audio) so Gemini can see motion
+    and hear speech. Photos are sent as contact sheet grids.
     """
-    from .media_utils import make_contact_sheet, make_filmstrip
+    from .media_utils import make_contact_sheet, run_subprocess
 
     _log = log_fn or print
     blocks: list = []
@@ -436,7 +441,6 @@ def _build_visual_content_blocks(
 
             # Contact sheet for photos
             if photo_paths:
-                # Use thumbnail paths if available, otherwise original
                 thumb_paths = []
                 for p in photo_paths:
                     thumb = cfg.workspace / "thumbnails" / f"{p.stem}_thumb.jpg"
@@ -446,8 +450,7 @@ def _build_visual_content_blocks(
                 sheet_name = f"{day['date']}_{chapter.get('time_block', 'x')}_{loc_safe}.jpg"
                 sheet_path = sheets_dir / sheet_name
 
-                # Split large chapters into multiple sheets (max 2000px height limit)
-                max_per_sheet = 28  # 7 rows x 4 cols = 1792px height, under 2000px
+                max_per_sheet = 28
                 sheet_idx = 0
                 for chunk_start in range(0, len(thumb_paths), max_per_sheet):
                     chunk = thumb_paths[chunk_start:chunk_start + max_per_sheet]
@@ -455,7 +458,6 @@ def _build_visual_content_blocks(
                     s_path = sheets_dir / f"{sheet_name.replace('.jpg', '')}_{sheet_idx}.jpg" if len(thumb_paths) > max_per_sheet else sheet_path
                     make_contact_sheet(chunk, s_path, cell_size=256, columns=4, labels=chunk_labels)
                     _log(f"Contact sheet: {s_path.name} ({len(chunk)} photos)")
-
                     blocks.append({
                         "type": "image_bytes",
                         "mime_type": "image/jpeg",
@@ -463,27 +465,37 @@ def _build_visual_content_blocks(
                     })
                     sheet_idx += 1
 
-            # Filmstrips for videos
+            # Video clips — send actual MP4 (with audio) so Gemini sees motion + hears speech
             for vi in video_items:
-                scenes = vi.get("scenes", [])
-                kf_paths = [Path(s["keyframe"]) for s in scenes if s.get("keyframe")]
-                if not kf_paths:
+                vid_id = vi["id"]
+                source = Path(vi.get("local_path", ""))
+                dur = vi.get("video_duration", 0)
+                if not source.exists() or dur <= 0:
                     continue
 
-                vid_id = vi["id"]
-                strip_path = sheets_dir / f"filmstrip_{vid_id}.jpg"
-                time_labels = [f"{s['start']:.0f}-{s['end']:.0f}s" for s in scenes if s.get("keyframe")]
-                # Limit to 5 scene keyframes to keep filmstrip under 2000px width
-                kf_paths = kf_paths[:5]
-                time_labels = time_labels[:5]
-                make_filmstrip(kf_paths, strip_path, cell_height=256, labels=time_labels)
+                # Extract a 5s clip from the middle of the video (with audio)
+                clip_start = max(0, (dur - 5) / 2)
+                clip_path = sheets_dir / f"clip_{vid_id}.mp4"
+                if not clip_path.exists():
+                    run_subprocess(
+                        ["ffmpeg", "-y", "-ss", str(clip_start),
+                         "-i", str(source), "-t", "5",
+                         "-vf", "scale=480:-1",
+                         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                         "-c:a", "aac", "-b:a", "64k", "-ac", "1",
+                         str(clip_path)],
+                        capture_output=True,
+                    )
 
-                blocks.append(f"Video filmstrip for #{global_idx + len(photo_paths) + video_items.index(vi):02d}:")
-                blocks.append({
-                    "type": "image_bytes",
-                    "mime_type": "image/jpeg",
-                    "data": strip_path.read_bytes(),
-                })
+                if clip_path.exists() and clip_path.stat().st_size > 1000:
+                    item_num = global_idx + len(photo_paths) + video_items.index(vi)
+                    blocks.append(f"Video clip #{item_num:02d} ({dur:.0f}s total, showing 5s sample with audio):")
+                    blocks.append({
+                        "type": "video_bytes",
+                        "mime_type": "video/mp4",
+                        "data": clip_path.read_bytes(),
+                    })
+                    _log(f"Video clip: #{item_num:02d} {source.name} ({clip_path.stat().st_size // 1024}KB)")
 
             global_idx += n_items
 
@@ -524,123 +536,6 @@ def _build_review_blocks(edl: EDL, cfg: Config) -> list:
                 })
 
     return blocks
-
-
-# ---------------------------------------------------------------------------
-# Audio assessment — Gemini listens to selected video clips
-# ---------------------------------------------------------------------------
-
-def _assess_audio(edl: EDL, log_fn) -> None:
-    """Extract audio from selected video clips and ask Gemini which have meaningful speech.
-
-    Modifies edl items in-place, setting keep_audio=True on clips worth preserving.
-    Only processes video items with trim points (~20 clips). One Gemini API call.
-    """
-    video_items = [
-        (seg_idx, item_idx, item)
-        for seg_idx, seg in enumerate(edl.segments)
-        for item_idx, item in enumerate(seg.items)
-        if item.media_type == "video"
-    ]
-    if not video_items:
-        log_fn("Audio assessment: no video clips, skipping")
-        return
-
-    log_fn(f"=== AUDIO ASSESSMENT: {len(video_items)} video clips ===")
-
-    from .media_utils import run_subprocess
-    import tempfile
-
-    # Extract audio from each video clip (trimmed to start_time/end_time)
-    audio_parts: list[dict] = []  # {"index": i, "seg_idx": ..., "item_idx": ..., "data": bytes}
-    temp_dir = Path(tempfile.mkdtemp())
-
-    for i, (seg_idx, item_idx, item) in enumerate(video_items):
-        source = Path(item.source_file)
-        if not source.exists():
-            continue
-
-        audio_path = temp_dir / f"clip_{i}.wav"
-        cmd = ["ffmpeg", "-y"]
-        if item.start_time is not None:
-            cmd += ["-ss", str(item.start_time)]
-        cmd += ["-i", str(source)]
-        if item.end_time is not None and item.start_time is not None:
-            cmd += ["-t", str(item.end_time - item.start_time)]
-        cmd += ["-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", str(audio_path)]
-        run_subprocess(cmd, capture_output=True)
-
-        if audio_path.exists() and audio_path.stat().st_size > 1000:
-            audio_parts.append({
-                "index": i,
-                "seg_idx": seg_idx,
-                "item_idx": item_idx,
-                "filename": source.name,
-                "data": audio_path.read_bytes(),
-            })
-
-    if not audio_parts:
-        log_fn("Audio assessment: no audio extracted, skipping")
-        return
-
-    log_fn(f"Extracted audio from {len(audio_parts)} clips, sending to Gemini...")
-
-    # Build multimodal content: audio clips + prompt
-    content_parts: list = []
-    for ap in audio_parts:
-        content_parts.append(f"Clip {ap['index']} ({ap['filename']}):")
-        content_parts.append({
-            "type": "audio_bytes",
-            "mime_type": "audio/wav",
-            "data": ap["data"],
-        })
-
-    system = """\
-You are assessing audio from video clips selected for a family travel vlog.
-For each clip, listen and determine if it contains meaningful speech worth
-preserving in the final video — family conversations, reactions ("wow!",
-laughter), a child's voice, narration, or any emotionally valuable audio.
-
-Ambient noise (wind, traffic, crowd murmur) without clear speech = NOT worth keeping.
-
-Respond with JSON only:
-{
-  "clips": [
-    {"index": <clip number>, "keep_audio": true/false, "reason": "brief reason", "transcript": "exact words spoken, or empty string if no speech"}
-  ]
-}"""
-
-    try:
-        response = _gemini_call(system, content_parts, log_fn,
-                                label="audio assessment", model="gemini-3-flash-preview")
-        from .media_utils import strip_markdown_fences
-        data = json.loads(strip_markdown_fences(response))
-
-        kept = 0
-        for clip_info in data.get("clips", []):
-            idx = clip_info.get("index")
-            if clip_info.get("keep_audio") and idx is not None:
-                for ap in audio_parts:
-                    if ap["index"] == idx:
-                        item = edl.segments[ap["seg_idx"]].items[ap["item_idx"]]
-                        item.keep_audio = True
-                        transcript = clip_info.get("transcript", "")
-                        if transcript:
-                            item.transcript = transcript
-                        log_fn(f"  Clip {idx} ({ap['filename']}): KEEP — {clip_info.get('reason', '')}")
-                        if transcript:
-                            log_fn(f"    Speech: \"{transcript[:100]}\"")
-                        kept += 1
-                        break
-
-        log_fn(f"Audio assessment: {kept}/{len(audio_parts)} clips will keep audio")
-
-    except Exception as e:
-        log_fn(f"Audio assessment failed ({e}), continuing without audio preservation")
-
-    # Cleanup temp files
-    import shutil
-    shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
@@ -812,11 +707,6 @@ Candidates by day/location:"""
         for item in seg.items:
             trim = f" trim={item.start_time:.0f}-{item.end_time:.0f}s" if item.start_time is not None else ""
             _log(f"    - {item.media_type:5s} {item.display_duration}s {Path(item.source_file).name}{trim}")
-
-    # ------------------------------------------------------------------
-    # Pass 2.5: Audio assessment — Gemini listens to selected video clips
-    # ------------------------------------------------------------------
-    _assess_audio(edl, _log)
 
     # ------------------------------------------------------------------
     # Pass 3: Visual review — Gemini reviews selected items at higher res
