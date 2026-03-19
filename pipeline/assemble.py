@@ -23,17 +23,49 @@ _YUNET_MODEL = Path(__file__).parent / "face_detection_yunet_2023mar.onnx"
 # GPU-accelerated encoding (NVENC on NVIDIA, VideoToolbox on macOS)
 # ---------------------------------------------------------------------------
 
-def _detect_hw_encoder() -> list[str]:
-    """Detect hardware encoder and return FFmpeg args.
+def _target_bitrate(width: int, height: int, fps: int) -> str:
+    """Calculate target video bitrate based on resolution and fps.
 
-    Returns ["-c:v", "h264_nvenc", ...] on NVIDIA,
-    ["-c:v", "h264_videotoolbox", ...] on macOS,
-    or ["-c:v", "libx264", "-preset", "fast"] as fallback.
+    Based on YouTube's recommended upload bitrates for H.264 SDR:
+      4K  (2160p) 30fps: 35-45 Mbps, 60fps: 53-68 Mbps
+      2K  (1440p) 30fps: 16 Mbps,    60fps: 24 Mbps
+      1080p       30fps: 8 Mbps,     60fps: 12 Mbps
+      720p        30fps: 5 Mbps,     60fps: 7.5 Mbps
+
+    Returns bitrate string for FFmpeg (e.g. "60M").
+    """
+    pixels = width * height
+    # Base bitrate at 30fps (Mbps), scales with pixel count
+    if pixels >= 3840 * 2160:      # 4K
+        base = 45
+    elif pixels >= 2560 * 1440:    # 2K
+        base = 16
+    elif pixels >= 1920 * 1080:    # 1080p
+        base = 8
+    elif pixels >= 1280 * 720:     # 720p
+        base = 5
+    else:                          # smaller
+        base = 3
+
+    # Scale up for high frame rates
+    if fps > 30:
+        base = int(base * 1.5)
+
+    return f"{base}M"
+
+
+def _detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60) -> list[str]:
+    """Detect hardware encoder and return FFmpeg args with quality bitrate.
+
+    Returns ["-c:v", "h264_nvenc", "-b:v", "60M", ...] on NVIDIA,
+    ["-c:v", "h264_videotoolbox", "-b:v", "60M", ...] on macOS,
+    or ["-c:v", "libx264", "-b:v", "60M", ...] as fallback.
     """
     import sys
+    bitrate = _target_bitrate(width, height, fps)
+
     if sys.platform == "darwin":
-        # macOS VideoToolbox — always available
-        return ["-c:v", "h264_videotoolbox", "-q:v", "65"]
+        return ["-c:v", "h264_videotoolbox", "-b:v", bitrate]
 
     # Check for NVIDIA NVENC
     try:
@@ -42,30 +74,30 @@ def _detect_hw_encoder() -> list[str]:
             capture_output=True, text=True,
         )
         if "h264_nvenc" in (result.stdout or ""):
-            # Verify it actually works (driver may not support it)
             test = run_subprocess(
                 ["ffmpeg", "-y", "-f", "lavfi", "-i", "nullsrc=s=640x360:d=0.1:r=15",
                  "-c:v", "h264_nvenc", "-f", "null", "-"],
                 capture_output=True, text=True,
             )
             if test.returncode == 0:
-                return ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr"]
+                return ["-c:v", "h264_nvenc", "-preset", "p4",
+                        "-rc", "vbr", "-b:v", bitrate, "-maxrate", bitrate]
     except Exception:
         pass
 
-    return ["-c:v", "libx264", "-preset", "fast"]
+    return ["-c:v", "libx264", "-preset", "fast", "-b:v", bitrate]
 
 
-# Cache the result so we only detect once
-_HW_ENCODER: list[str] | None = None
+# Cache per (width, height, fps) so bitrate changes with resolution
+_HW_ENCODER_CACHE: dict[tuple[int, int, int], list[str]] = {}
 
 
-def _get_encoder() -> list[str]:
-    """Get cached hardware encoder args."""
-    global _HW_ENCODER
-    if _HW_ENCODER is None:
-        _HW_ENCODER = _detect_hw_encoder()
-    return _HW_ENCODER
+def _get_encoder(width: int = 3840, height: int = 2160, fps: int = 60) -> list[str]:
+    """Get cached hardware encoder args for the given resolution/fps."""
+    key = (width, height, fps)
+    if key not in _HW_ENCODER_CACHE:
+        _HW_ENCODER_CACHE[key] = _detect_hw_encoder(width, height, fps)
+    return _HW_ENCODER_CACHE[key]
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +361,7 @@ def _render_title_card(
         "ffmpeg", "-y",
         "-f", "lavfi", "-i", f"color=c=0x1a1a2e:s={w}x{h}:d={duration}:r={fps}",
         "-vf", drawtext + fade,
-        *_get_encoder(), "-pix_fmt", "yuv420p",
+        *_get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
         "-an",
         str(out),
     ]
@@ -363,7 +395,7 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
             "ffmpeg", "-y", "-loop", "1", "-i", str(source),
             "-t", str(item.display_duration),
             "-filter_complex", fc,
-            *_get_encoder(), "-pix_fmt", "yuv420p",
+            *_get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
             "-an",
             str(out),
         ]
@@ -419,7 +451,7 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
                 "-vf", f"{scale_filter},{zp}",
             ]
         cmd += [
-            *_get_encoder(), "-pix_fmt", "yuv420p",
+            *_get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
             "-an",
             str(out),
         ]
@@ -450,7 +482,7 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
         fc = _portrait_bg_filter(w, h)
         cmd += [
             "-filter_complex", fc,
-            *_get_encoder(), "-pix_fmt", "yuv420p",
+            *_get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
             "-r", str(fps),
             "-an",
             str(out),
@@ -460,7 +492,7 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
         cmd += [
             "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
                    f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
-            *_get_encoder(), "-pix_fmt", "yuv420p",
+            *_get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
             "-r", str(fps),
             "-an",
             str(out),
