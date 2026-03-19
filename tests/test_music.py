@@ -226,20 +226,128 @@ class TestFetchMusicGemini:
 
 
 # ---------------------------------------------------------------------------
+# Unit tests: generate_music_for_edl (pipeline-level logic)
+# ---------------------------------------------------------------------------
+
+class TestGenerateMusicForEdl:
+    def _make_workspace(self, tmp_path: Path, music_mode: str = "auto",
+                        music_file: str | None = None, music_mood: str = "") -> Path:
+        """Create workspace with EDL."""
+        from pipeline.edl import EDL, EditItem, MusicTrack, Segment
+
+        ws = tmp_path / "workspace"
+        for d in ("media", "clips", "output"):
+            (ws / d).mkdir(parents=True)
+
+        edl = EDL(
+            title="Test", target_duration=30.0, resolution=(320, 180), fps=24,
+            music_mode=music_mode, trip_type="family", style="upbeat",
+            segments=[Segment(
+                name="test", music_mood=music_mood,
+                items=[EditItem(source_file="test.jpg", media_type="photo", display_duration=10.0)],
+            )],
+        )
+        if music_file:
+            edl.music = MusicTrack(file=music_file)
+        (ws / "edl_v1.json").write_text(edl.model_dump_json(indent=2))
+        return ws
+
+    def test_skips_when_music_mode_none(self, tmp_path: Path):
+        from pipeline.config import Config
+        from pipeline.music import generate_music_for_edl
+
+        ws = self._make_workspace(tmp_path, music_mode="none")
+        cfg = Config.load(str(ws))
+        result = generate_music_for_edl(cfg)
+        assert result is None
+
+    def test_skips_when_music_mode_file(self, tmp_path: Path):
+        from pipeline.config import Config
+        from pipeline.music import generate_music_for_edl
+
+        ws = self._make_workspace(tmp_path, music_mode="file")
+        cfg = Config.load(str(ws))
+        result = generate_music_for_edl(cfg)
+        assert result is None
+
+    def test_returns_existing_music_file(self, tmp_path: Path):
+        from pipeline.config import Config
+        from pipeline.music import generate_music_for_edl
+
+        # Create a music file that exists
+        music_file = tmp_path / "existing.wav"
+        music_file.write_bytes(b"RIFF" + b"\x00" * 100)
+
+        ws = self._make_workspace(tmp_path, music_mode="auto", music_file=str(music_file))
+        cfg = Config.load(str(ws))
+        result = generate_music_for_edl(cfg)
+        assert result == music_file
+
+    def test_calls_generate_music_with_correct_args(self, tmp_path: Path):
+        from pipeline.config import Config
+        from pipeline.music import generate_music_for_edl
+
+        ws = self._make_workspace(tmp_path, music_mode="auto", music_mood="gentle piano")
+        cfg = Config.load(str(ws))
+
+        with patch("pipeline.music.generate_music", return_value=None) as mock:
+            generate_music_for_edl(cfg, backend="gemini")
+
+        mock.assert_called_once()
+        _, kwargs = mock.call_args
+        assert kwargs["trip_type"] == "family"
+        assert kwargs["style"] == "upbeat"
+        assert kwargs["backend"] == "gemini"
+        assert "gentle piano" in kwargs["mood"]
+
+    def test_updates_edl_on_success(self, tmp_path: Path):
+        from pipeline.config import Config
+        from pipeline.edl import EDL
+        from pipeline.music import generate_music_for_edl
+
+        ws = self._make_workspace(tmp_path, music_mode="auto")
+        cfg = Config.load(str(ws))
+        fake_track = tmp_path / "track.wav"
+        fake_track.write_bytes(b"RIFF" + b"\x00" * 100)
+
+        with patch("pipeline.music.generate_music", return_value=fake_track):
+            result = generate_music_for_edl(cfg, backend="local")
+
+        assert result == fake_track
+
+        # EDL should now have the music field set
+        edl = EDL.model_validate_json((ws / "edl_v1.json").read_text())
+        assert edl.music is not None
+        assert edl.music.file == str(fake_track)
+
+    def test_handles_generation_failure(self, tmp_path: Path):
+        from pipeline.config import Config
+        from pipeline.music import generate_music_for_edl
+
+        ws = self._make_workspace(tmp_path, music_mode="auto")
+        cfg = Config.load(str(ws))
+
+        with patch("pipeline.music.generate_music", return_value=None):
+            result = generate_music_for_edl(cfg, backend="local")
+
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
 # Dagster config tests
 # ---------------------------------------------------------------------------
 
-class TestAssembleConfigMusicBackend:
+class TestGenerateMusicConfig:
     def test_default_is_local(self):
-        from pipeline.definitions import AssembleConfig
+        from pipeline.definitions import GenerateMusicConfig
 
-        cfg = AssembleConfig()
+        cfg = GenerateMusicConfig()
         assert cfg.music_backend == "local"
 
     def test_gemini_backend(self):
-        from pipeline.definitions import AssembleConfig
+        from pipeline.definitions import GenerateMusicConfig
 
-        cfg = AssembleConfig(music_backend="gemini")
+        cfg = GenerateMusicConfig(music_backend="gemini")
         assert cfg.music_backend == "gemini"
 
 

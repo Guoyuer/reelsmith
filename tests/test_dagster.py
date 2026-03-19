@@ -54,7 +54,7 @@ class TestAssetGraph:
 
         specs = defs.resolve_all_asset_specs()
         keys = {s.key.path[-1] for s in specs}
-        assert keys == {"fetch_media", "preprocess", "analyze", "plan", "assemble"}
+        assert keys == {"fetch_media", "preprocess", "analyze", "plan", "generate_music", "assemble"}
 
     def test_plan_depends_on_analyze(self):
         from pipeline.definitions import defs

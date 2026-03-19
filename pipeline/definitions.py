@@ -21,6 +21,7 @@ from .assemble import assemble as do_assemble
 from .config import Config
 from .edl import EDL
 from .fetch import fetch as do_fetch
+from .music import generate_music_for_edl as do_generate_music
 from .plan import plan as do_plan
 from .preprocess import preprocess as do_preprocess
 
@@ -94,13 +95,16 @@ class PlanConfig(dg.Config):
     music_file: str = ""  # path to background music (mp3/m4a/wav)
 
 
+class GenerateMusicConfig(dg.Config):
+    music_backend: str = "local"  # "local" (MusicGen) or "gemini" (Lyria RealTime)
+
+
 class AssembleConfig(dg.Config):
     version: int = 0  # 0 = auto-detect next version
     width: int = 3840
     height: int = 2160
     fps: int = 60
     skip_broken: bool = False
-    music_backend: str = "local"  # "local" (MusicGen) or "gemini" (Lyria RealTime)
 
 
 class IterateConfig(dg.Config):
@@ -412,11 +416,41 @@ def plan(
 
 @dg.asset(
     group_name="vlog",
+    retry_policy=dg.RetryPolicy(max_retries=1, delay=15),
+)
+def generate_music(
+    context: dg.AssetExecutionContext,
+    plan,
+    config: GenerateMusicConfig,
+) -> dg.MaterializeResult:
+    """Generate background music from EDL mood descriptions."""
+    io = context.resources.io_manager
+    cfg = io.config
+
+    track_path = do_generate_music(
+        cfg, backend=config.music_backend, log_fn=context.log.info,
+    )
+
+    if track_path:
+        return dg.MaterializeResult(
+            metadata={
+                "status": dg.MetadataValue.text("generated"),
+                "music_file": dg.MetadataValue.path(str(track_path)),
+                "backend": dg.MetadataValue.text(config.music_backend),
+            }
+        )
+    return dg.MaterializeResult(
+        metadata={"status": dg.MetadataValue.text("skipped")}
+    )
+
+
+@dg.asset(
+    group_name="vlog",
     retry_policy=dg.RetryPolicy(max_retries=1, delay=30),
 )
 def assemble(
     context: dg.AssetExecutionContext,
-    plan,
+    generate_music,
     config: AssembleConfig,
 ) -> dg.MaterializeResult:
     """Render vlog from EDL via FFmpeg. Always re-renders (versioned)."""
@@ -432,7 +466,6 @@ def assemble(
         resolution=(config.width, config.height), fps=config.fps,
         progress_callback=_progress_cb(context, t0),
         skip_broken=config.skip_broken,
-        music_backend=config.music_backend,
     )
     context.log.info(f"Assembled: {output_path}")
 
@@ -499,7 +532,7 @@ full_pipeline = dg.define_asset_job(
 )
 
 defs = dg.Definitions(
-    assets=[fetch_media, preprocess, analyze, plan, assemble],
+    assets=[fetch_media, preprocess, analyze, plan, generate_music, assemble],
     jobs=[full_pipeline, iterate_job, variations_job],
     resources={
         "io_manager": WorkspaceIOManager(base_dir="./workspace", run_name="default"),

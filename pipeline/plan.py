@@ -309,7 +309,7 @@ def plan(
         edl.music_mode = "file"
     elif music_file == "auto":
         edl.music_mode = "auto"
-        _log("Music mode: auto (will generate in assemble step)")
+        _log("Music mode: auto (will generate in generate_music step)")
 
     from .iterate import _find_latest_version, _save_edl
     version = _find_latest_version(cfg) + 1

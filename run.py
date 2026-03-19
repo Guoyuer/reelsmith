@@ -174,10 +174,14 @@ def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
         plan_cfg["music_file"] = music
     config["ops"]["plan"] = {"config": plan_cfg}
 
+    # Generate Music
+    config["ops"]["generate_music"] = {"config": {
+        "music_backend": music_backend,
+    }}
+
     # Assemble
     config["ops"]["assemble"] = {"config": {
         "width": width, "height": height, "fps": fps, "skip_broken": True,
-        "music_backend": music_backend,
     }}
 
     _submit("full_pipeline", _run_name(ctx), config)
@@ -230,7 +234,10 @@ def assemble(ctx, version, music_backend):
         version = _find_latest_version(cfg) + 1
 
     _submit("full_pipeline", rn, {
-        "ops": {"assemble": {"config": {"version": version, "music_backend": music_backend}}},
+        "ops": {
+            "generate_music": {"config": {"music_backend": music_backend}},
+            "assemble": {"config": {"version": version}},
+        },
     })
 
 

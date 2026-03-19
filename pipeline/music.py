@@ -1,10 +1,10 @@
-"""Auto-generate background music for vlogs using MusicGen (Meta).
+"""Music generation for vlogs — dispatcher + local MusicGen backend.
 
-Uses facebook/musicgen-medium (300M params) via HuggingFace transformers.
-Generates instrumental background music from text prompts.
-No API keys needed — runs fully locally.
+Supports two backends:
+  - "local": Meta's MusicGen (facebook/musicgen-medium) via HuggingFace transformers
+  - "gemini": Google's Lyria RealTime API via WebSocket streaming
 
-Falls back gracefully if model unavailable — vlog renders without music.
+Falls back gracefully if model/API unavailable — vlog renders without music.
 """
 
 from __future__ import annotations
@@ -182,3 +182,57 @@ def generate_music(
         trip_type=trip_type, style=style, target_duration=target_duration,
         cache_dir=cache_dir, mood=mood, log_fn=log_fn,
     )
+
+
+def generate_music_for_edl(
+    cfg,
+    backend: str = "local",
+    log_fn=None,
+) -> Path | None:
+    """Generate music for the latest EDL and update it with the track path.
+
+    Called by the generate_music Dagster asset. Uses edl.estimated_duration()
+    so music generation can run independently of video rendering.
+
+    Returns the music file path, or None if skipped/failed.
+    """
+    _log = log_fn or print
+    from .iterate import _load_latest_edl, _save_edl
+    from .edl import MusicTrack
+
+    edl, version = _load_latest_edl(cfg)
+
+    if edl.music_mode != "auto":
+        _log(f"Music mode is '{edl.music_mode}', skipping generation")
+        return None
+
+    if edl.music and Path(edl.music.file).exists():
+        _log(f"Music file already exists: {edl.music.file}")
+        return Path(edl.music.file)
+
+    target_dur = int(edl.estimated_duration())
+    ws = cfg.workspace
+    music_cache = ws.parent.parent / "music" if ws.parent.name == "runs" else ws / "music"
+
+    segment_moods = [s.music_mood for s in edl.segments if s.music_mood]
+    combined_mood = (
+        f"travel vlog background music: {'; then '.join(segment_moods)}"
+        if segment_moods else ""
+    )
+
+    _log(f"Generating music: backend={backend}, duration={target_dur}s, "
+         f"trip_type={edl.trip_type}, style={edl.style}")
+
+    track_path = generate_music(
+        trip_type=edl.trip_type, style=edl.style,
+        target_duration=target_dur,
+        cache_dir=music_cache, mood=combined_mood,
+        backend=backend, log_fn=_log,
+    )
+
+    if track_path:
+        edl.music = MusicTrack(file=str(track_path))
+        _save_edl(cfg, edl, version)
+        _log(f"Music track saved to EDL v{version}: {track_path}")
+
+    return track_path
