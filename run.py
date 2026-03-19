@@ -136,9 +136,11 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
 @click.option("--country", default=None, help="Filter by country")
 @click.option("--district", default=None, help="Filter by district/city")
 @click.option("--force-analyze", is_flag=True, help="Force re-analyze (ignore cached)")
+@click.option("--family", default=None,
+              help="Comma-separated family member names for tiering (default: auto-detect from NAS face data)")
 @click.pass_context
 def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
-         item_types, music, music_backend, width, height, fps, country, district, force_analyze):
+         item_types, music, music_backend, width, height, fps, country, district, force_analyze, family):
     """Run the full pipeline end-to-end."""
     type_list = _parse_item_types(item_types) if item_types else None
 
@@ -155,9 +157,10 @@ def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
     config["ops"]["fetch_media"] = {"config": fetch_cfg}
 
     # Preprocess
-    config["ops"]["preprocess"] = {"config": {
-        "skip_clustering": planner == "visual",
-    }}
+    preprocess_cfg: dict = {"skip_clustering": planner == "visual"}
+    if family:
+        preprocess_cfg["family_names"] = [n.strip() for n in family.split(",")]
+    config["ops"]["preprocess"] = {"config": preprocess_cfg}
 
     # Analyze
     config["ops"]["analyze"] = {"config": {

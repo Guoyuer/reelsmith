@@ -217,6 +217,7 @@ python run.py -n <name> full [OPTIONS]
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--family` | auto-detect | Comma-separated family member names for tiering (e.g. `"Yi Zhang,Liang Guo,Yuer Guo"`). Default: auto-detected from NAS face recognition data |
 | `--force-analyze` | off | Force re-run analysis (ignore cached `analysis.json`) |
 
 ### Examples
