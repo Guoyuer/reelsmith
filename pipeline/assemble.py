@@ -23,19 +23,22 @@ _YUNET_MODEL = Path(__file__).parent / "face_detection_yunet_2023mar.onnx"
 # GPU-accelerated encoding (NVENC on NVIDIA, VideoToolbox on macOS)
 # ---------------------------------------------------------------------------
 
-def _target_bitrate(width: int, height: int, fps: int) -> str:
-    """Calculate target video bitrate based on resolution and fps.
+def _target_bitrate(width: int, height: int, fps: int, quality: float = 1.0) -> str:
+    """Calculate target video bitrate based on resolution, fps, and quality multiplier.
 
-    Based on YouTube's recommended upload bitrates for H.264 SDR:
+    Base bitrates from YouTube's recommended upload settings for H.264 SDR:
       4K  (2160p) 30fps: 35-45 Mbps, 60fps: 53-68 Mbps
       2K  (1440p) 30fps: 16 Mbps,    60fps: 24 Mbps
       1080p       30fps: 8 Mbps,     60fps: 12 Mbps
       720p        30fps: 5 Mbps,     60fps: 7.5 Mbps
 
-    Returns bitrate string for FFmpeg (e.g. "60M").
+    quality: multiplier on top of base bitrate.
+      0.5 = smaller files (draft/sharing), 1.0 = YouTube quality (default),
+      2.0 = master/archive quality.
+
+    Returns bitrate string for FFmpeg (e.g. "67M").
     """
     pixels = width * height
-    # Base bitrate at 30fps (Mbps), scales with pixel count
     if pixels >= 3840 * 2160:      # 4K
         base = 45
     elif pixels >= 2560 * 1440:    # 2K
@@ -47,22 +50,26 @@ def _target_bitrate(width: int, height: int, fps: int) -> str:
     else:                          # smaller
         base = 3
 
-    # Scale up for high frame rates
+    # Scale for high frame rates
     if fps > 30:
         base = int(base * 1.5)
 
-    return f"{base}M"
+    # Apply quality multiplier
+    base = int(base * quality)
+
+    return f"{max(base, 1)}M"
 
 
-def _detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60) -> list[str]:
+def _detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60,
+                       quality: float = 1.0) -> list[str]:
     """Detect hardware encoder and return FFmpeg args with quality bitrate.
 
-    Returns ["-c:v", "h264_nvenc", "-b:v", "60M", ...] on NVIDIA,
-    ["-c:v", "h264_videotoolbox", "-b:v", "60M", ...] on macOS,
-    or ["-c:v", "libx264", "-b:v", "60M", ...] as fallback.
+    Returns ["-c:v", "h264_nvenc", "-b:v", "67M", ...] on NVIDIA,
+    ["-c:v", "h264_videotoolbox", "-b:v", "67M", ...] on macOS,
+    or ["-c:v", "libx264", "-b:v", "67M", ...] as fallback.
     """
     import sys
-    bitrate = _target_bitrate(width, height, fps)
+    bitrate = _target_bitrate(width, height, fps, quality)
 
     if sys.platform == "darwin":
         return ["-c:v", "h264_videotoolbox", "-b:v", bitrate]
@@ -88,15 +95,16 @@ def _detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60) -> 
     return ["-c:v", "libx264", "-preset", "fast", "-b:v", bitrate]
 
 
-# Cache per (width, height, fps) so bitrate changes with resolution
-_HW_ENCODER_CACHE: dict[tuple[int, int, int], list[str]] = {}
+# Cache per (width, height, fps, quality) so bitrate changes with settings
+_HW_ENCODER_CACHE: dict[tuple, list[str]] = {}
+_QUALITY: float = 1.0  # Set by assemble() before rendering
 
 
 def _get_encoder(width: int = 3840, height: int = 2160, fps: int = 60) -> list[str]:
-    """Get cached hardware encoder args for the given resolution/fps."""
-    key = (width, height, fps)
+    """Get cached hardware encoder args for the given resolution/fps/quality."""
+    key = (width, height, fps, _QUALITY)
     if key not in _HW_ENCODER_CACHE:
-        _HW_ENCODER_CACHE[key] = _detect_hw_encoder(width, height, fps)
+        _HW_ENCODER_CACHE[key] = _detect_hw_encoder(width, height, fps, _QUALITY)
     return _HW_ENCODER_CACHE[key]
 
 
@@ -180,8 +188,11 @@ def _build_portrait_photo_filter(
 # ---------------------------------------------------------------------------
 
 def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_broken: bool = False,
-             resolution: tuple[int, int] | None = None, fps: int | None = None) -> Path:
+             resolution: tuple[int, int] | None = None, fps: int | None = None,
+             quality: float = 1.0) -> Path:
     """Read latest edl_v{N}.json and render the vlog video."""
+    global _QUALITY
+    _QUALITY = quality
     cfg.ensure_dirs()
     from .iterate import _load_latest_edl
     edl, _ = _load_latest_edl(cfg)

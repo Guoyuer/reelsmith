@@ -338,17 +338,17 @@ class TestGenerateMusicForEdl:
 # ---------------------------------------------------------------------------
 
 class TestGenerateMusicConfig:
-    def test_default_is_local(self):
+    def test_default_is_gemini(self):
         from pipeline.definitions import GenerateMusicConfig
 
         cfg = GenerateMusicConfig()
-        assert cfg.music_backend == "local"
+        assert cfg.music_backend == "gemini"
 
-    def test_gemini_backend(self):
+    def test_local_backend(self):
         from pipeline.definitions import GenerateMusicConfig
 
-        cfg = GenerateMusicConfig(music_backend="gemini")
-        assert cfg.music_backend == "gemini"
+        cfg = GenerateMusicConfig(music_backend="local")
+        assert cfg.music_backend == "local"
 
 
 # ---------------------------------------------------------------------------

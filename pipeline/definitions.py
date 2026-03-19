@@ -96,7 +96,7 @@ class PlanConfig(dg.Config):
 
 
 class GenerateMusicConfig(dg.Config):
-    music_backend: str = "local"  # "local" (MusicGen) or "gemini" (Lyria RealTime)
+    music_backend: str = "gemini"  # "gemini" (Lyria RealTime) or "local" (MusicGen)
 
 
 class AssembleConfig(dg.Config):
@@ -105,6 +105,7 @@ class AssembleConfig(dg.Config):
     height: int = 2160
     fps: int = 60
     skip_broken: bool = False
+    quality: float = 1.0  # bitrate multiplier: 0.5=smaller, 1.0=YouTube quality, 2.0=master
 
 
 class IterateConfig(dg.Config):
@@ -478,6 +479,7 @@ def assemble(
         resolution=(config.width, config.height), fps=config.fps,
         progress_callback=_progress_cb(context, t0),
         skip_broken=config.skip_broken,
+        quality=config.quality,
     )
     context.log.info(f"Assembled: {output_path}")
 

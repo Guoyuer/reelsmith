@@ -202,8 +202,8 @@ python run.py -n <name> full [OPTIONS]
 
 | Flag | Default | Values | Description |
 |------|---------|--------|-------------|
-| `--music` | none | `auto` or `/path/to/file` | `auto` = generate background music. Path = use custom audio file. Omit = no music |
-| `--music-backend` | `local` | `local`, `gemini` | `local` = MusicGen (slow, ~20 min/60s, no API). `gemini` = Lyria RealTime (fast, ~8s/60s, uses `GEMINI_API_KEY`) |
+| `--music` | `auto` | `auto`, `/path/to/file`, `none` | `auto` = generate background music. Path = use custom audio file. `none` = no music |
+| `--music-backend` | `gemini` | `gemini`, `local` | `gemini` = Lyria RealTime (fast, ~8s/60s). `local` = MusicGen (slow, ~20 min/60s, no API key needed) |
 
 **Output:**
 
@@ -212,6 +212,16 @@ python run.py -n <name> full [OPTIONS]
 | `--width` | `3840` | pixels | Output video width |
 | `--height` | `2160` | pixels | Output video height |
 | `--fps` | `60` | frames/sec | Output frame rate |
+| `--quality` | `1.0` | float | Bitrate multiplier. Scales the base bitrate for the given resolution/fps |
+
+Quality presets and resulting bitrates:
+
+| `--quality` | Use case | 4K 60fps | 1080p 30fps | 720p 30fps |
+|-------------|----------|----------|-------------|------------|
+| `0.5` | Draft / quick share | 33 Mbps | 4 Mbps | 2 Mbps |
+| `1.0` | YouTube upload (default) | 67 Mbps | 8 Mbps | 5 Mbps |
+| `1.5` | High quality archive | 100 Mbps | 12 Mbps | 7 Mbps |
+| `2.0` | Master / editing source | 134 Mbps | 16 Mbps | 10 Mbps |
 
 **Advanced:**
 
@@ -222,27 +232,24 @@ python run.py -n <name> full [OPTIONS]
 
 ### Examples
 
-**Family trip highlight reel (recommended settings):**
+**Family trip highlight reel:**
 ```bash
-# 3-minute cinematic family vlog with AI music — the "batteries included" command
+# Defaults: visual planner, auto Gemini music, 4K 60fps — just add dates and focus
 python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 \
-  --trip-type family --planner visual --duration 180 \
-  --style cinematic --music auto --music-backend gemini \
+  --duration 180 --style cinematic \
   --focus "happiness of family trip; exotic scenes of Singapore"
 ```
 
-**Quick preview (low res, fast iteration):**
+**Quick preview (low res, draft quality):**
 ```bash
 python run.py -n sg-test full -f 2025-06-13 -t 2025-06-16 \
-  --planner visual --duration 60 \
-  --width 640 --height 360 --fps 15
+  --duration 60 --width 640 --height 360 --fps 15 --quality 0.5
 ```
 
 **Solo travel montage:**
 ```bash
 python run.py -n tokyo full -f 2025-03-01 -t 2025-03-05 \
   --trip-type solo --style energetic --duration 120 \
-  --planner visual --music auto --music-backend gemini \
   --focus "street culture, neon lights, temple serenity"
 ```
 
@@ -250,22 +257,20 @@ python run.py -n tokyo full -f 2025-03-01 -t 2025-03-05 \
 ```bash
 python run.py -n osaka-food full -f 2025-04-10 -t 2025-04-12 \
   --trip-type food --style upbeat --duration 90 \
-  --planner visual --music auto --music-backend gemini \
   --focus "street food, ramen, izakaya atmosphere"
 ```
 
-**Architecture documentary:**
+**Architecture documentary (master quality):**
 ```bash
 python run.py -n barcelona full -f 2025-05-01 -t 2025-05-04 \
   --trip-type architecture --style cinematic --duration 120 \
-  --planner visual --music auto --music-backend gemini \
-  --focus "Gaudí, Gothic Quarter, modernist facades"
+  --focus "Gaudí, Gothic Quarter, modernist facades" --quality 2.0
 ```
 
-**Photos only (no video clips):**
+**Photos only, no music:**
 ```bash
 python run.py -n sg-photos full -f 2025-06-13 -t 2025-06-17 \
-  --item-types photo --planner visual --duration 60
+  --item-types photo --duration 60 --music none
 ```
 
 **Re-plan with different style (keeps cached media):**

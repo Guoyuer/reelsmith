@@ -125,14 +125,16 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
 @click.option("--focus", default="", help="What to emphasize (default: derived from trip-type)")
 @click.option("--item-types", default=None,
               help="Media types: photo,video,live,motion (default: all)")
-@click.option("--music", default=None,
-              help="'auto' to generate music, or path to audio file")
-@click.option("--music-backend", default="local",
+@click.option("--music", default="auto",
+              help="'auto' to generate music, path to audio file, or 'none' to disable")
+@click.option("--music-backend", default="gemini",
               type=click.Choice(["local", "gemini"]),
-              help="Music backend: local (MusicGen) or gemini (Lyria RealTime API)")
+              help="Music backend: gemini (Lyria RealTime, fast) or local (MusicGen, slow)")
 @click.option("--width", default=3840, type=int, help="Output width")
 @click.option("--height", default=2160, type=int, help="Output height")
 @click.option("--fps", default=60, type=int, help="Output FPS")
+@click.option("--quality", default=1.0, type=float,
+              help="Bitrate multiplier: 0.5=smaller files, 1.0=YouTube quality (default), 2.0=master quality")
 @click.option("--country", default=None, help="Filter by country")
 @click.option("--district", default=None, help="Filter by district/city")
 @click.option("--force-analyze", is_flag=True, help="Force re-analyze (ignore cached)")
@@ -140,7 +142,8 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
               help="Comma-separated family member names for tiering (default: auto-detect from NAS face data)")
 @click.pass_context
 def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
-         item_types, music, music_backend, width, height, fps, country, district, force_analyze, family):
+         item_types, music, music_backend, width, height, fps, quality,
+         country, district, force_analyze, family):
     """Run the full pipeline end-to-end."""
     type_list = _parse_item_types(item_types) if item_types else None
 
@@ -173,7 +176,7 @@ def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
         "planner": planner, "style": style, "target_duration": duration,
         "focus": focus, "trip_type": trip_type,
     }
-    if music:
+    if music and music != "none":
         plan_cfg["music_file"] = music
     config["ops"]["plan"] = {"config": plan_cfg}
 
@@ -185,6 +188,7 @@ def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
     # Assemble
     config["ops"]["assemble"] = {"config": {
         "width": width, "height": height, "fps": fps, "skip_broken": True,
+        "quality": quality,
     }}
 
     _submit("full_pipeline", _run_name(ctx), config)
