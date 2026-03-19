@@ -10,9 +10,6 @@ from dotenv import load_dotenv
 @dataclass
 class Config:
     api_base: str = "http://localhost:8000"
-    ollama_base: str = "http://localhost:11434"
-    vision_model: str = "llava:13b"
-    planning_model: str = "llama3:8b"
     whisper_model: str = "medium"
     workspace: Path = Path("./workspace")
     media_dir: Path = Path("./workspace/media")
@@ -34,9 +31,6 @@ class Config:
         base = ws.parent.parent if ws.parent.name == "runs" else ws
         cfg = cls(
             api_base=os.getenv("SYNOLOGY_API_BASE", cls.api_base),
-            ollama_base=os.getenv("OLLAMA_BASE", cls.ollama_base),
-            vision_model=os.getenv("VISION_MODEL", cls.vision_model),
-            planning_model=os.getenv("PLANNING_MODEL", cls.planning_model),
             whisper_model=os.getenv("WHISPER_MODEL", cls.whisper_model),
             workspace=ws,
             media_dir=base / "media",

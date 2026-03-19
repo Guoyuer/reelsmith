@@ -190,7 +190,6 @@ def mock_config(tmp_path: Path) -> Config:
     """Config with fake URLs pointed at tmp_path, directories created."""
     cfg = Config(
         api_base="http://fake:8000",
-        ollama_base="http://fake:11434",
         workspace=tmp_path / "workspace",
         media_dir=tmp_path / "workspace" / "media",
         cache_dir=tmp_path / "workspace" / "analysis_cache",

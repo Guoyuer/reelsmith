@@ -120,8 +120,7 @@ class TestAnalyzeProgressCallback:
             callback_calls.append((current, total, filename))
 
         cfg = Config.load(ws)
-        with patch("pipeline.analyze._analyze_image", return_value={"quality": 7}):
-            analyze(cfg, progress_callback=on_progress)
+        analyze(cfg, progress_callback=on_progress)
 
         assert len(callback_calls) >= 1
 

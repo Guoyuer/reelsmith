@@ -1,4 +1,4 @@
-"""Preprocess: assign tiers by family presence, cluster near-duplicates, build timeline."""
+"""Preprocess: assign tiers by family presence, build timeline."""
 
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ SKIP_PREFIXES = ("screenshot", "screen_", "pano_")
 
 
 def preprocess(cfg: Config, *, family_names: list[str] | None = None,
-               skip_clustering: bool = False, log_fn=None) -> dict:
-    """Read manifest, assign tiers, cluster duplicates, build timeline."""
+               log_fn=None, **_kwargs) -> dict:
+    """Read manifest, assign tiers, build timeline."""
     _log = log_fn or print
     cfg.ensure_dirs()
     manifest = json.loads((cfg.workspace / "manifest.json").read_text())
@@ -41,10 +41,8 @@ def preprocess(cfg: Config, *, family_names: list[str] | None = None,
         item["family_count"] = len(family_in_photo)
         item["family_names"] = family_in_photo
 
-        # Check for skip-worthy files
         fname_lower = item["filename"].lower()
         is_skip = any(fname_lower.startswith(p) for p in SKIP_PREFIXES)
-
         is_video = item.get("item_type") in (1, 3, 6)  # video, live, motion
 
         if is_skip:
@@ -54,38 +52,16 @@ def preprocess(cfg: Config, *, family_names: list[str] | None = None,
         elif len(family_in_photo) == 1:
             item["tier"] = "B"
         elif is_video or item.get("district") or item.get("first_level") or item.get("country"):
-            # Videos are always at least tier C (valuable B-roll)
             item["tier"] = "C"
         else:
             item["tier"] = "D"
 
         _log(f"[tier] {item['filename']}: {item['tier']} (family: {len(family_in_photo)})")
 
-    if skip_clustering:
-        # Visual mode: send everything to Gemini, let it handle dedup visually
-        _log("Skipping clustering (visual mode — Gemini deduplicates visually)")
-        selected = manifest
-        for item in selected:
-            item["cluster_size"] = 1
-    else:
-        # Cluster near-duplicates using time+location and visual similarity
-        _log("Clustering near-duplicates...")
-        clusters = _cluster_items(manifest, _log)
-
-        # Pick best representative from each cluster
-        tier_rank = {"A": 0, "B": 1, "C": 2, "D": 3}
-        selected = []
-        for cluster in clusters:
-            cluster.sort(key=lambda x: (
-                tier_rank.get(x["tier"], 9),
-                -x["family_count"],
-                -(x.get("filesize") or 0),
-            ))
-            best = cluster[0]
-            best["cluster_size"] = len(cluster)
-            if len(cluster) > 1:
-                best["cluster_alt_ids"] = [c["id"] for c in cluster[1:]]
-            selected.append(best)
+    # Send everything to Gemini — it handles dedup visually
+    selected = manifest
+    for item in selected:
+        item["cluster_size"] = 1
 
     # Build timeline
     timeline = _build_timeline(selected)
@@ -122,13 +98,12 @@ def _detect_family(manifest: list[dict], top_n: int = 5) -> list[str]:
         for name in item.get("metadata", {}).get("persons", []):
             counts[name] += 1
     ranked = sorted(counts.items(), key=lambda x: -x[1])
-    # Keep persons appearing in at least 3% of photos
     threshold = max(len(manifest) * 0.03, 5)
     return [name for name, c in ranked[:top_n] if c >= threshold]
 
 
 def _build_timeline(items: list[dict]) -> list[dict]:
-    """Group items into day → time_block → location chapters."""
+    """Group items into day -> time_block -> location chapters."""
     days: dict[str, list[dict]] = defaultdict(list)
 
     for item in items:
@@ -163,7 +138,6 @@ def _build_timeline(items: list[dict]) -> list[dict]:
     timeline = []
     for day in sorted(days.keys()):
         day_items = days[day]
-        # Group by (time_block, location) preserving order
         seen_chapters: dict[tuple[str, str], list] = {}
         for di in day_items:
             key = (di["time_block"], di["location"])
@@ -194,111 +168,3 @@ def _build_timeline(items: list[dict]) -> list[dict]:
         })
 
     return timeline
-
-
-# ---------------------------------------------------------------------------
-# Visual deduplication via histogram similarity
-# ---------------------------------------------------------------------------
-
-def _cluster_items(items: list[dict], log_fn) -> list[list[dict]]:
-    """Cluster near-duplicate items using time+location then visual similarity.
-
-    Two-pass approach:
-    1. Group by time proximity (120s) + same location (when available)
-    2. Within each time group, merge items with high visual similarity (HSV histogram)
-
-    Falls back to time-only grouping if OpenCV is not installed.
-    """
-    try:
-        import cv2 as _cv2
-    except ImportError:
-        _cv2 = None
-
-    # Pass 1: time-based pre-grouping (fast, reduces O(n²) comparisons)
-    sorted_items = sorted(items, key=lambda x: x.get("takentime") or 0)
-    time_groups: list[list[dict]] = []
-    current: list[dict] = []
-
-    for item in sorted_items:
-        t = item.get("takentime") or 0
-        if current:
-            prev_t = current[-1].get("takentime") or 0
-            if t - prev_t > 120:
-                time_groups.append(current)
-                current = []
-        current.append(item)
-    if current:
-        time_groups.append(current)
-
-    # Pass 2: within each time group, merge visually similar items
-    clusters: list[list[dict]] = []
-    for group in time_groups:
-        if len(group) <= 1:
-            clusters.append(group)
-            continue
-
-        if _cv2 is None:
-            # No OpenCV — treat entire time group as one cluster
-            clusters.append(group)
-            continue
-
-        # Compute HSV histograms — if none can be computed, keep as one cluster
-        hists = [_compute_hist(Path(item.get("local_path", ""))) for item in group]
-        if all(h is None for h in hists):
-            clusters.append(group)
-            continue
-
-        # Union-find by visual similarity
-        n = len(group)
-        parent = list(range(n))
-
-        def find(x: int) -> int:
-            while parent[x] != x:
-                parent[x] = parent[parent[x]]
-                x = parent[x]
-            return x
-
-        for i in range(n):
-            if hists[i] is None:
-                continue
-            for j in range(i + 1, n):
-                if hists[j] is None:
-                    continue
-                sim = _cv2.compareHist(hists[i], hists[j], _cv2.HISTCMP_CORREL)
-                if sim > 0.75:
-                    pi, pj = find(i), find(j)
-                    if pi != pj:
-                        parent[pi] = pj
-
-        sub: dict[int, list[dict]] = defaultdict(list)
-        for i in range(n):
-            sub[find(i)].append(group[i])
-        clusters.extend(sub.values())
-
-    merged = sum(1 for c in clusters if len(c) > 1)
-    log_fn(f"Clustering: {len(items)} items → {len(clusters)} clusters ({merged} merged)")
-    return clusters
-
-
-def _compute_hist(path: Path):
-    """Compute HSV color histogram for an image. Returns None on failure."""
-    try:
-        import cv2
-    except ImportError:
-        return None
-    try:
-        # Try OpenCV first (fast, handles JPG/PNG)
-        img = cv2.imread(str(path))
-        if img is None:
-            # Fallback for HEIC: use PIL to convert
-            pil_img = Image.open(path).convert("RGB").resize((64, 64))
-            import numpy as np
-            img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-        else:
-            img = cv2.resize(img, (64, 64))
-        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-        hist = cv2.calcHist([hsv], [0, 1], None, [16, 16], [0, 180, 0, 256])
-        cv2.normalize(hist, hist)
-        return hist
-    except Exception:
-        return None

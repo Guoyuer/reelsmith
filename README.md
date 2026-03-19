@@ -1,6 +1,6 @@
 # vlog
 
-Automated vlog generation from Synology Photos. Downloads trip photos/videos, plans a narrative with AI (Gemini), generates background music (locally via MusicGen or via Gemini Lyria RealTime API), and renders a highlight reel. Three planning modes: **visual** (Gemini sees actual photos — fastest), **api** (Gemini text-only), **algo** (deterministic scoring). Orchestrated by [Dagster](https://dagster.io) with a web UI.
+Automated vlog generation from Synology Photos. Downloads trip photos/videos, plans a narrative with Gemini (which sees actual photos via contact sheets and video filmstrips), generates background music via Gemini Lyria RealTime, and renders a polished highlight reel. Orchestrated by [Dagster](https://dagster.io) with a web UI.
 
 ## Architecture
 
@@ -186,7 +186,6 @@ python run.py -n <name> full [OPTIONS]
 
 | Flag | Default | Values | Description |
 |------|---------|--------|-------------|
-| `--planner` | `visual` | `visual`, `api`, `algo` | `visual` = Gemini sees actual photos (recommended, fast). `api` = Gemini plans from text descriptions. `algo` = deterministic scoring |
 | `--style` | `upbeat` | `upbeat`, `cinematic`, `reflective`, `energetic` | Controls pacing, transitions, and music mood |
 | `--duration` | `60` | seconds | Target vlog length. 60 = ~1 min, 180 = ~3 min |
 
@@ -297,19 +296,10 @@ Assigns tiers based on family member presence (from Synology face detection), cl
 | D | Screenshots, no location | Skipped |
 
 ### 3. analyze
-Two modes depending on planner:
-
-- **Visual mode** (`--planner visual`): Generates thumbnails for photos and keyframes for videos (single FFmpeg pass per video). No local vision model — Gemini sees the actual images in the plan stage. Fast (~1-2min for 300 items). All results cached.
-- **Local mode** (`--planner api/algo`): Vision analysis via Ollama (llava:13b). Tier A/B items get a family-tuned prompt, Tier C gets a scene prompt. Slow (~2hrs for 300 items). Results cached per-file.
+Generates thumbnails for photos and keyframes for videos (single FFmpeg pass per video). Optionally transcribes video audio via Whisper. No local AI models needed — Gemini sees the actual images in the plan stage. Fast (~1-2min for 300 items). All results cached per-file.
 
 ### 4. plan
-Three backends:
-
-- **Visual planner (recommended)**: Gemini sees actual photos via contact sheets + video filmstrips. 3-pass planning: (1) narrative arc design with Gemini Pro, (2) visual selection with Gemini Flash, (3) review with Gemini Pro. Skips local vision model entirely. Outputs EDL with `music_mood` per segment and `narrative_rationale`. Supports video trim points (`start_time`/`end_time`).
-- **API planner**: 3-pass Claude Sonnet planning from text descriptions. Requires local vision model to have run first. Extended thinking available.
-- **Algo planner**: Deterministic selection using scoring profiles per trip_type, with hero shot identification, content-aware Ken Burns effects, time-proximity dedup, and portrait penalty.
-
-All planners produce an EDL (Edit Decision List) with segments, transitions, and text overlays. Video items can include trim points for scene selection.
+Gemini sees actual photos via contact sheets + video filmstrips. 3-pass planning: (1) narrative arc design, (2) visual selection with all photos/videos visible, (3) self-review at higher resolution. Outputs EDL with `music_mood` per segment, `narrative_rationale`, and video trim points (`start_time`/`end_time`). Requires `GEMINI_API_KEY`.
 
 ### 5. generate_music
 When `--music auto` or `--music local`, generates background music using the EDL's `music_mood` descriptions and `estimated_duration()`. See [Music Generation](#music-generation) for backend options. Saves the music file path back into the EDL. Skipped when `--music none` or a custom file path.
@@ -361,10 +351,8 @@ Both backends use the `music_mood` from EDL segments (set by Gemini during plann
 
 - **Python 3.11+** with venv
 - **FFmpeg** — video processing
-- **Ollama** — local vision model (only for `--planner api/algo`, not needed for visual mode)
-  - `ollama pull llava:13b` — vision analysis
 - **Synology Photos API** — the [synology-photos-project](../synology-photos-project) backend running on `:8000`
-- **Gemini API key** — for planning, iterate/feedback, and Gemini music (`GEMINI_API_KEY` in `.env`)
+- **Gemini API key** — for planning and music generation (`GEMINI_API_KEY` in `.env`)
 
 All of the above (venvs, deps, Dagster, services) are handled by `python start.py`. You do not need to pip install manually.
 
@@ -384,19 +372,17 @@ Other optional extras:
 | Whisper | mlx-whisper (Apple Silicon) | openai-whisper | openai-whisper |
 | MusicGen | Works | Works | Works |
 | FFmpeg | `brew install ffmpeg` | [ffmpeg.org/download](https://ffmpeg.org/download.html) | `apt install ffmpeg` |
-| Ollama | `brew install ollama` | [ollama.com/download](https://ollama.com/download) | `curl -fsSL https://ollama.com/install.sh \| sh` |
 
 ### Resource usage
 
 | Component | Model | RAM | Notes |
 |-----------|-------|-----|-------|
-| Vision | llava:13b | ~8GB | Only for `--planner api/algo` |
-| Planning | Gemini API (remote) | — | All planners use Gemini |
+| Planning | Gemini API (remote) | — | Sees actual photos via contact sheets |
 | Music (default) | Lyria RealTime (remote) | — | `--music auto` |
 | Music (local) | MusicGen medium | ~6GB | `--music local` |
-| Whisper | mlx-whisper medium | ~1.5GB | Optional, for transcription |
+| Whisper | mlx-whisper medium | ~1.5GB | Optional, for video transcription |
 
-With defaults (`--planner visual --music auto`), no local AI models are needed — everything runs via Gemini API. Only one Ollama model loaded at a time. Dagster uses `concurrency_key` to prevent contention.
+With defaults, no local AI models are needed — everything runs via Gemini API.
 
 ## Testing
 
@@ -415,7 +401,7 @@ Integration tests for Gemini music generation (`tests/test_music.py::TestFetchMu
 
 - **Dagster asset model** — each stage is a Dagster asset that produces a file. Auto-skips when output exists. Re-materialize from the UI to force re-run + downstream cascade.
 - **Trip-type generalization** — scoring profiles, narrative prompts, and music prompts all adapt to trip type. The same pipeline handles family trips, solo adventures, food tours, etc.
-- **Gemini API for planning** — the visual planner uses Gemini 3 Flash to see actual photos via contact sheets, producing better narrative than text-only planning. The API planner also uses Gemini Flash for text-based planning from local vision model descriptions. Both use 3-pass planning: arc design → shot selection → self-review.
+- **Gemini visual planning** — Gemini 3 Flash sees actual photos via contact sheets and video filmstrips, producing narrative from visual judgment. 3-pass planning: arc design → shot selection → self-review.
 - **Music as a separate asset** — `generate_music` runs between plan and assemble as its own Dagster step. Plan declares intent (`music_mode=auto`) and mood; `generate_music` produces the audio; assemble mixes it into the video.
 - **Shared media + analysis cache** — raw files and per-file vision results are shared across runs. Only plan + assemble re-run.
 - **Per-run isolation** — each run gets its own directory for manifest, EDL, clips, and output.

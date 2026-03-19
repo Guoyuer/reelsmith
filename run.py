@@ -114,9 +114,6 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
 @cli.command()
 @click.option("-f", "--from-date", required=True, help="Start date (YYYY-MM-DD)")
 @click.option("-t", "--to-date", required=True, help="End date (YYYY-MM-DD)")
-@click.option("--planner", default="visual",
-              type=click.Choice(["visual", "api", "algo"]),
-              help="visual=Gemini sees photos (fast), api=Gemini text-only, algo=deterministic")
 @click.option("--duration", default=60, type=int, help="Target vlog length in seconds")
 @click.option("--trip-type", default="family",
               type=click.Choice(["family", "solo", "food", "adventure", "architecture", "general"]))
@@ -138,7 +135,7 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
 @click.option("--family", default=None,
               help="Comma-separated family member names for tiering (default: auto-detect from NAS face data)")
 @click.pass_context
-def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
+def full(ctx, from_date, to_date, duration, trip_type, style, focus,
          item_types, music, width, height, fps, quality,
          country, district, force_analyze, family):
     """Run the full pipeline end-to-end."""
@@ -157,7 +154,7 @@ def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
     config["ops"]["fetch_media"] = {"config": fetch_cfg}
 
     # Preprocess
-    preprocess_cfg: dict = {"skip_clustering": planner == "visual"}
+    preprocess_cfg: dict = {}
     if family:
         preprocess_cfg["family_names"] = [n.strip() for n in family.split(",")]
     config["ops"]["preprocess"] = {"config": preprocess_cfg}
@@ -165,12 +162,11 @@ def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
     # Analyze
     config["ops"]["analyze"] = {"config": {
         "force": force_analyze,
-        "skip_vision": planner == "visual",
     }}
 
     # Plan
     plan_cfg: dict = {
-        "planner": planner, "style": style, "target_duration": duration,
+        "style": style, "target_duration": duration,
         "focus": focus, "trip_type": trip_type,
     }
     # Parse --music: "auto"|"local" → generate, "/path" → file, "none" → skip
@@ -208,8 +204,6 @@ def resume(ctx):
 
 
 @cli.command()
-@click.option("--planner", default="visual",
-              type=click.Choice(["visual", "api", "algo"]))
 @click.option("--duration", default=60, type=int, help="Target vlog length in seconds")
 @click.option("--trip-type", default="family",
               type=click.Choice(["family", "solo", "food", "adventure", "architecture", "general"]))
@@ -217,12 +211,12 @@ def resume(ctx):
               type=click.Choice(["upbeat", "cinematic", "reflective", "energetic"]))
 @click.option("--focus", default="", help="What to emphasize")
 @click.pass_context
-def plan(ctx, planner, duration, trip_type, style, focus):
+def plan(ctx, duration, trip_type, style, focus):
     """Re-plan and re-assemble (uses cached media + analysis)."""
     _submit("full_pipeline", _run_name(ctx), {
         "ops": {
             "plan": {"config": {
-                "planner": planner, "style": style, "target_duration": duration,
+                "style": style, "target_duration": duration,
                 "focus": focus, "trip_type": trip_type,
             }},
         },

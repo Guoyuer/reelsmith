@@ -111,56 +111,6 @@ class TestTierAssignment:
 # -----------------------------------------------------------------------
 
 
-class TestClustering:
-    def _run_preprocess(self, items: list[dict], tmp_path: Path) -> dict:
-        ws = tmp_path / "workspace"
-        manifest_path = ws / "manifest.json"
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text(json.dumps(items))
-
-        with patch.dict(os.environ, {}, clear=True), \
-             patch("pipeline.config.load_dotenv"):
-            cfg = Config.load(workspace=str(ws))
-        return preprocess(cfg, family_names=["Alice", "Bob"])
-
-    def test_items_within_10s_clustered(self, tmp_path: Path):
-        """Items within a 10s window are grouped into one cluster."""
-        base = 1700000000
-        items = [
-            _make_item(1, takentime=base, persons=["Alice"]),
-            _make_item(2, takentime=base + 5, persons=["Alice"]),
-            _make_item(3, takentime=base + 8, persons=["Alice"]),
-        ]
-        result = self._run_preprocess(items, tmp_path)
-        # All 3 items are within 10s, so only 1 selected
-        assert result["selected_items"] == 1
-        best = result["items"][0]
-        assert best["cluster_size"] == 3
-
-    def test_best_tier_wins_cluster(self, tmp_path: Path):
-        """The highest-tier item wins within a cluster."""
-        base = 1700000000
-        items = [
-            _make_item(1, takentime=base, persons=[]),  # tier D
-            _make_item(2, takentime=base + 3, persons=["Alice", "Bob"]),  # tier A
-            _make_item(3, takentime=base + 7, persons=["Alice"]),  # tier B
-        ]
-        result = self._run_preprocess(items, tmp_path)
-        assert result["selected_items"] == 1
-        assert result["items"][0]["tier"] == "A"
-        assert result["items"][0]["id"] == 2
-
-    def test_items_beyond_120s_not_clustered(self, tmp_path: Path):
-        """Items separated by more than 120s are separate clusters."""
-        base = 1700000000
-        items = [
-            _make_item(1, takentime=base, persons=["Alice"]),
-            _make_item(2, takentime=base + 150, persons=["Alice"]),
-        ]
-        result = self._run_preprocess(items, tmp_path)
-        assert result["selected_items"] == 2
-
-
 # -----------------------------------------------------------------------
 # _detect_family tests
 # -----------------------------------------------------------------------

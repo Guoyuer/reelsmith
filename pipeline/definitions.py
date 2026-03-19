@@ -78,16 +78,13 @@ class FetchConfig(dg.Config):
 class PreprocessConfig(dg.Config):
     family_names: list[str] | None = None
     force: bool = False
-    skip_clustering: bool = False  # skip dedup (for --planner visual, Gemini dedupes visually)
 
 
 class AnalyzeConfig(dg.Config):
     force: bool = False
-    skip_vision: bool = False  # skip local vision model (for --planner visual)
 
 
 class PlanConfig(dg.Config):
-    planner: str = "visual"  # "visual" (Gemini sees photos), "api" (text-only), "algo" (deterministic)
     trip_type: str = "family"  # family, solo, food, adventure, architecture, general
     style: str = "upbeat"
     target_duration: int = 180
@@ -303,7 +300,7 @@ def preprocess(
         )
 
     result = do_preprocess(io.config, family_names=config.family_names,
-                           skip_clustering=config.skip_clustering, log_fn=context.log.info)
+                           log_fn=context.log.info)
     context.log.info(
         f"Preprocessed: {result['selected_items']}/{result['total_items']} items, "
         f"tiers: {result['tier_counts']}"
@@ -352,7 +349,6 @@ def analyze(
     t0 = time.monotonic()
     results = do_analyze(
         io.config,
-        skip_vision=config.skip_vision,
         progress_callback=_progress_cb(context, t0, granularity=20),
         log_fn=context.log.info,
     )
@@ -381,7 +377,7 @@ def plan(
     analyze,
     config: PlanConfig,
 ) -> dg.MaterializeResult:
-    """Generate edit decision list using local LLM. Always re-plans (versioned)."""
+    """Generate edit decision list via Gemini visual planner. Always re-plans (versioned)."""
     io = context.resources.io_manager
 
     result, version = do_plan(
@@ -389,7 +385,6 @@ def plan(
         style=config.style,
         target_duration=config.target_duration,
         focus=config.focus,
-        planner=config.planner,
         trip_type=config.trip_type,
         music_file=config.music_file or None,
         log_fn=context.log.info,
