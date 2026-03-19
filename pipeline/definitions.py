@@ -275,7 +275,7 @@ def preprocess(
     fetch_media,
     config: PreprocessConfig,
 ) -> dg.MaterializeResult:
-    """Tier by family presence, cluster duplicates, build timeline."""
+    """Tier by family presence, build timeline."""
     io = context.resources.io_manager
     out = Path(io.workspace_path) / "preprocessed.json"
 
@@ -329,11 +329,9 @@ def analyze(
 
     if not config.force and not stale and out.exists():
         results = json.loads(out.read_text())
-        for i, r in enumerate(results, 1):
-            desc = r.get("vision", {}).get("description", "") if r.get("vision") else "no vision"
-            context.log.info(f"[{i}/{len(results)}] {r.get('filename', '?')} — {desc}")
-        ok = sum(1 for r in results if r.get("vision"))
-        context.log.info(f"Analyze complete: {ok}/{len(results)} with vision (all cached)")
+        videos = sum(1 for r in results if r.get("media_type") == "video")
+        photos = len(results) - videos
+        context.log.info(f"Analyze complete: {len(results)} items ({photos} photos, {videos} videos) — all cached")
         return dg.MaterializeResult(
             metadata=_analyze_metadata(results, str(out), {
                 "status": dg.MetadataValue.text("finished"),
@@ -389,9 +387,19 @@ def plan(
         music_file=config.music_file or None,
         log_fn=context.log.info,
     )
+    all_items = result.all_items()
+    n_videos = sum(1 for i in all_items if i.media_type == "video")
+    n_photos = len(all_items) - n_videos
+    n_keep_audio = sum(1 for i in all_items if i.keep_audio)
+    n_speed = sum(1 for i in all_items if (i.playback_speed or 1.0) != 1.0)
+    vid_time = sum(i.display_duration for i in all_items if i.media_type == "video")
+    total_time = sum(i.display_duration for i in all_items)
+    vid_pct = int(vid_time / total_time * 100) if total_time > 0 else 0
+
     context.log.info(
         f"EDL v{version}: {len(result.segments)} segments, "
-        f"{len(result.all_items())} items, "
+        f"{n_photos} photos + {n_videos} videos ({vid_pct}% video), "
+        f"{n_keep_audio} keep_audio, {n_speed} speed-ramped, "
         f"~{result.estimated_duration():.0f}s"
     )
 
@@ -402,10 +410,17 @@ def plan(
             "target_duration": dg.MetadataValue.int(config.target_duration),
             "estimated_duration": dg.MetadataValue.float(round(result.estimated_duration(), 1)),
             "segments": dg.MetadataValue.int(len(result.segments)),
-            "total_items": dg.MetadataValue.int(len(result.all_items())),
+            "photos": dg.MetadataValue.int(n_photos),
+            "videos": dg.MetadataValue.int(n_videos),
+            "video_pct": dg.MetadataValue.int(vid_pct),
+            "keep_audio": dg.MetadataValue.int(n_keep_audio),
+            "speed_ramped": dg.MetadataValue.int(n_speed),
             "segment_summary": dg.MetadataValue.md(_md_table(
-                ["Segment", "Items", "Transition"],
-                [[seg.name, len(seg.items), seg.transition] for seg in result.segments],
+                ["Segment", "Items", "Transition", "Mode", "Color"],
+                [[seg.name, len(seg.items), seg.transition,
+                  getattr(seg, "mode", "narrative"),
+                  getattr(seg, "color_temp", "neutral")]
+                 for seg in result.segments],
             )),
         }
     )
@@ -465,13 +480,21 @@ def assemble(
         skip_broken=config.skip_broken,
         quality=config.quality,
     )
-    context.log.info(f"Assembled: {output_path}")
+    render_min = round((time.monotonic() - t0) / 60, 1)
+    size_mb = round(output_path.stat().st_size / 1024 / 1024, 1) if output_path.exists() else 0
+    context.log.info(
+        f"Assembled: {output_path.name} ({size_mb}MB, {render_min}min render, "
+        f"resolution={config.width}x{config.height}@{config.fps}fps, quality={config.quality})"
+    )
 
     return dg.MaterializeResult(
         metadata={
             "output": dg.MetadataValue.path(str(output_path)),
             "version": dg.MetadataValue.int(version),
-            "render_time_min": dg.MetadataValue.float(round((time.monotonic() - t0) / 60, 1)),
+            "render_time_min": dg.MetadataValue.float(render_min),
+            "file_size_mb": dg.MetadataValue.float(size_mb),
+            "resolution": dg.MetadataValue.text(f"{config.width}x{config.height}@{config.fps}fps"),
+            "quality": dg.MetadataValue.float(config.quality),
         }
     )
 
