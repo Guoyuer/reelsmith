@@ -41,7 +41,8 @@ class Segment(BaseModel):
     narrative_rationale: str = ""  # why these items, what story beat this segment serves
     music_mood: str = ""  # e.g. "warm acoustic guitar, uplifting" → MusicGen
     items: list[EditItem]
-    transition: Literal["crossfade", "cut", "fade_black", "wipe_left"] = "crossfade"
+    transition: Literal["crossfade", "cut", "fade_black", "wipe_left",
+                        "dissolve", "smoothleft", "smoothright", "circlecrop"] = "crossfade"
     transition_duration: float = 0.4  # seconds
     mode: Literal["narrative", "montage"] = "narrative"  # montage = quick-cut burst
 

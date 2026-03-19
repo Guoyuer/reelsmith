@@ -391,8 +391,8 @@ def _render_title_card(
 
 
 def _color_grade() -> str:
-    """Warm travel vlog color grade — subtle warmth + contrast + saturation."""
-    return "eq=contrast=1.05:brightness=0.02:saturation=1.1,colorbalance=rs=0.03:gs=0.01:bs=-0.02"
+    """Subtle warm travel vlog color grade."""
+    return "eq=contrast=1.02:brightness=0.01:saturation=1.05"
 
 
 def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
@@ -624,16 +624,16 @@ def _concat_xfade(clips: list[dict], output_path: Path) -> None:
         if transition_type == "cut":
             td = 0.0
 
-        # Professional transition variety — cycle through different xfade effects
-        _xfade_map = {
-            "crossfade": ["fade", "smoothleft", "smoothright", "dissolve",
-                          "slideleft", "slideright", "circlecrop"],
-            "fade_black": ["fadeblack"],
-            "wipe_left": ["wipeleft", "wiperight", "slidedown", "slideup"],
-            "cut": ["fade"],
-        }
-        choices = _xfade_map.get(transition_type, ["fade"])
-        xfade_transition = choices[i % len(choices)]
+        xfade_transition = {
+            "crossfade": "fade",
+            "fade_black": "fadeblack",
+            "wipe_left": "wipeleft",
+            "dissolve": "dissolve",
+            "smoothleft": "smoothleft",
+            "smoothright": "smoothright",
+            "circlecrop": "circlecrop",
+            "cut": "fade",
+        }.get(transition_type, "fade")
 
         if i == 1:
             in_label = "[0:v]"

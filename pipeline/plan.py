@@ -307,7 +307,7 @@ You have complete autonomy over:
 - display_duration: 3-5s per photo, 5-10s for video clips
 - For videos: set start_time and end_time to select the best scene
 - effect: ken_burns_in/out/left/right for photos, "none" for video clips
-- Transitions: crossfade within segments, fade_black between major changes
+- Transitions: choose per segment — crossfade (default), dissolve, smoothleft, smoothright, circlecrop, fade_black (for major scene changes), wipe_left. Vary transitions for visual richness.
 - CRITICAL: source_file must be the EXACT path value from the text metadata
 
 Output valid JSON only:
@@ -333,7 +333,7 @@ Output valid JSON only:
           "text_overlay": null or {{"text": "string", "position": "bottom", "font_size": 48}}
         }}
       ],
-      "transition": "crossfade|fade_black",
+      "transition": "crossfade|dissolve|smoothleft|smoothright|circlecrop|fade_black|wipe_left",
       "transition_duration": 0.8
     }}
   ],
