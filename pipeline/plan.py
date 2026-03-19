@@ -614,7 +614,7 @@ Ambient noise (wind, traffic, crowd murmur) without clear speech = NOT worth kee
 Respond with JSON only:
 {
   "clips": [
-    {"index": <clip number>, "keep_audio": true/false, "reason": "brief reason"}
+    {"index": <clip number>, "keep_audio": true/false, "reason": "brief reason", "transcript": "exact words spoken, or empty string if no speech"}
   ]
 }"""
 
@@ -628,11 +628,16 @@ Respond with JSON only:
         for clip_info in data.get("clips", []):
             idx = clip_info.get("index")
             if clip_info.get("keep_audio") and idx is not None:
-                # Find the matching audio_part to get seg/item indices
                 for ap in audio_parts:
                     if ap["index"] == idx:
-                        edl.segments[ap["seg_idx"]].items[ap["item_idx"]].keep_audio = True
+                        item = edl.segments[ap["seg_idx"]].items[ap["item_idx"]]
+                        item.keep_audio = True
+                        transcript = clip_info.get("transcript", "")
+                        if transcript:
+                            item.transcript = transcript
                         log_fn(f"  Clip {idx} ({ap['filename']}): KEEP — {clip_info.get('reason', '')}")
+                        if transcript:
+                            log_fn(f"    Speech: \"{transcript[:100]}\"")
                         kept += 1
                         break
 

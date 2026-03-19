@@ -262,6 +262,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
                 "duration": item.display_duration,
                 "transition": transition,
                 "transition_duration": td,
+                "keep_audio": item.keep_audio,
             })
             pbar.update(1)
             if progress_callback:
@@ -302,6 +303,16 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
                 "transition": "fade_black", "transition_duration": 1.0,
             })
 
+    # Compute speech time ranges for audio ducking
+    speech_ranges: list[tuple[float, float]] = []
+    offset = 0.0
+    for clip in all_clips:
+        if clip.get("keep_audio"):
+            speech_ranges.append((offset, offset + clip["duration"]))
+        offset += clip["duration"] - clip.get("transition_duration", 0.0)
+    if speech_ranges:
+        print(f"Speech ranges: {len(speech_ranges)} clips with original audio")
+
     # Phase 2: Concatenate with transitions
     print(f"Concatenating {len(all_clips)} clips...")
     no_music_path = output_dir / f"vlog_v{version}_nomix.mp4"
@@ -313,7 +324,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
         video_dur = _probe_duration(no_music_path)
         print(f"Mixing music: video={video_dur:.1f}s, music={music_dur:.1f}s, "
               f"volume={edl.music.volume}, fade_in={edl.music.fade_in}s, fade_out={edl.music.fade_out}s")
-        _add_music(no_music_path, edl.music, output_path)
+        _add_music(no_music_path, edl.music, output_path, speech_ranges=speech_ranges)
         no_music_path.unlink(missing_ok=True)
     else:
         shutil.move(str(no_music_path), str(output_path))
@@ -643,11 +654,12 @@ def _concat_xfade(clips: list[dict], output_path: Path) -> None:
         _concat_demuxer(clips, output_path)
 
 
-def _add_music(video_path: Path, music, output_path: Path) -> None:
-    """Mix background music under the video, preserving any original audio.
+def _add_music(video_path: Path, music, output_path: Path, *,
+               speech_ranges: list[tuple[float, float]] | None = None) -> None:
+    """Mix background music under the video, with audio ducking during speech.
 
-    If the video has an audio track (from keep_audio clips), both are mixed:
-    original audio at full volume + music underneath. Otherwise, music only.
+    When speech_ranges is provided, music volume drops during those time ranges
+    so original speech is clearly audible. Otherwise, constant music volume.
     """
     total_dur = _probe_duration(video_path)
     music_dur = _probe_duration(Path(music.file))
@@ -659,6 +671,17 @@ def _add_music(video_path: Path, music, output_path: Path) -> None:
         loops = int(total_dur / music_dur) + 1
         loop_filter = f"aloop=loop={loops}:size={int(music_dur * 32000)},atrim=0:{total_dur},"
 
+    # Build music volume expression: duck to 30% of normal during speech
+    if speech_ranges:
+        # volume='if(between(t,10,18),0.05,if(between(t,30,36),0.05,0.15))'
+        duck_vol = music.volume * 0.3  # 30% of normal during speech
+        vol_expr = str(music.volume)
+        for start, end in reversed(speech_ranges):
+            vol_expr = f"if(between(t,{start:.1f},{end:.1f}),{duck_vol:.3f},{vol_expr})"
+        music_vol_filter = f"volume='{vol_expr}':eval=frame"
+    else:
+        music_vol_filter = f"volume={music.volume}"
+
     # Check if video has an audio stream
     probe = run_subprocess(
         ["ffprobe", "-v", "error", "-select_streams", "a",
@@ -669,18 +692,17 @@ def _add_music(video_path: Path, music, output_path: Path) -> None:
     has_audio = bool(probe.stdout.strip())
 
     if has_audio:
-        # Mix: original audio (full volume) + music (low volume)
+        # Mix: original audio (full volume) + music (ducked during speech)
         audio_filter = (
             f"[0:a]apad[orig];"
-            f"[1:a]{loop_filter}volume={music.volume},"
+            f"[1:a]{loop_filter}{music_vol_filter},"
             f"afade=t=in:d={music.fade_in},"
             f"afade=t=out:st={fade_out_start}:d={music.fade_out}[bg];"
             f"[orig][bg]amix=inputs=2:duration=first[a]"
         )
     else:
-        # Music only (no original audio to mix)
         audio_filter = (
-            f"[1:a]{loop_filter}volume={music.volume},"
+            f"[1:a]{loop_filter}{music_vol_filter},"
             f"afade=t=in:d={music.fade_in},"
             f"afade=t=out:st={fade_out_start}:d={music.fade_out}[a]"
         )
