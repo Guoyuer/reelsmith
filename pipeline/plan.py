@@ -1583,7 +1583,7 @@ Candidates by day/location:"""
         _log(f"    Rationale: {seg.narrative_rationale[:150]}")
         for item in seg.items:
             trim = f" trim={item.start_time:.0f}-{item.end_time:.0f}s" if item.start_time is not None else ""
-            _log(f"    - {item.media_type:5s} {item.display_duration}s {item.source_file.split('/')[-1][:40]}{trim}")
+            _log(f"    - {item.media_type:5s} {item.display_duration}s {Path(item.source_file).name}{trim}")
 
     # ------------------------------------------------------------------
     # Pass 3: Visual review — Gemini reviews selected items at higher res
@@ -1634,7 +1634,7 @@ Output JSON with TWO top-level fields:
             _log(f"    Music: {seg.music_mood}")
             for item in seg.items:
                 trim = f" trim={item.start_time:.0f}-{item.end_time:.0f}s" if item.start_time is not None else ""
-                _log(f"    - {item.media_type:5s} {item.display_duration}s {item.source_file.split('/')[-1][:40]}{trim}")
+                _log(f"    - {item.media_type:5s} {item.display_duration}s {Path(item.source_file).name}{trim}")
         return reviewed
     except Exception as e:
         _log(f"Review parse failed ({e}), using pass 2 EDL")
