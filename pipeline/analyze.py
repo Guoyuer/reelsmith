@@ -108,18 +108,6 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None, **_kwargs) -> l
 
     pbar.close()
 
-    # Speech detection pass — runs on all videos, independent of cache
-    videos = [r for r in results if r.get("media_type") == "video"]
-    if videos:
-        _log(f"Speech detection: {len(videos)} videos...")
-        for r in videos:
-            if "has_speech" not in r:
-                lp = Path(r["local_path"])
-                if lp.exists():
-                    r["has_speech"] = _detect_speech(lp)
-        n_speech = sum(1 for r in videos if r.get("has_speech"))
-        _log(f"Speech detection: {n_speech}/{len(videos)} videos have speech")
-
     # Final save
     analysis_path.write_text(json.dumps(results, indent=2))
     _log(f"Analysis complete: {len(results)} items")
@@ -180,28 +168,6 @@ def _analyze_video(entry, item_id, local_path, cfg, cache_file, log_fn, i, total
 
     log_fn(f"[{i}/{total}] {entry['filename']} — {len(existing_kfs)} keyframes ({total_dur:.0f}s)")
 
-
-def _detect_speech(video_path: Path) -> bool:
-    """Quick check if video has significant audio energy (likely speech).
-
-    Uses FFmpeg volumedetect filter on a 10s sample. If mean volume is above
-    -35dB, likely has speech or meaningful audio (not just ambient noise).
-    Fast: ~0.5s per video, no AI model needed.
-    """
-    result = run_subprocess(
-        ["ffmpeg", "-i", str(video_path), "-t", "10",
-         "-af", "volumedetect", "-f", "null", "-"],
-        capture_output=True, text=True,
-    )
-    # Parse mean_volume from stderr: "mean_volume: -25.3 dB"
-    for line in (result.stderr or "").split("\n"):
-        if "mean_volume" in line:
-            try:
-                vol = float(line.split("mean_volume:")[1].split("dB")[0].strip())
-                return vol > -35.0  # Above -35dB = likely has speech
-            except (ValueError, IndexError):
-                pass
-    return False
 
 
 def _analyze_photo(entry, item_id, local_path, cfg, cache_file):
