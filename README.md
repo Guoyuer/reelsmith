@@ -149,50 +149,144 @@ Media files, analysis results, and music tracks are shared across runs. A second
 
 ## Usage
 
-### CLI
+### Commands
 
-All CLI commands submit to the Dagster webserver — runs appear in the UI.
+All CLI commands submit to the Dagster webserver — runs appear in the UI at http://localhost:3000.
 
-```bash
-# Full pipeline (visual planner — recommended)
-python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 \
-  --trip-type family --planner visual --duration 180 --music auto
+| Command | Description |
+|---------|-------------|
+| `python run.py -n <name> full ...` | Run the full pipeline end-to-end |
+| `python run.py -n <name> resume` | Resume — auto-skips completed stages |
+| `python run.py -n <name> plan ...` | Re-plan + re-assemble (reuses cached media) |
+| `python run.py -n <name> assemble` | Re-render from current EDL |
+| `python run.py -n <name> iterate ...` | Self-critique or apply human feedback |
+| `python run.py -n <name> variations` | Generate multiple style variations |
+| `python run.py workspace` | Show disk usage |
+| `python run.py workspace --clean all -y` | Delete all workspace data |
+| `python start.py stop` | Stop all services |
 
-# Resume from where you stopped (auto-skips completed stages)
-python run.py -n singapore resume
+The `-n` / `--run-name` flag is required for most commands. It isolates each run in its own directory under `workspace/runs/<name>/`.
 
-# Re-plan with different style (cascades to re-assemble)
-python run.py -n singapore plan --trip-type adventure --style cinematic --duration 120
+### Full pipeline flags
 
-# Re-assemble only
-python run.py -n singapore assemble
-
-# Self-critique loop
-python run.py -n singapore iterate --rounds 2
-
-# Human feedback
-python run.py -n singapore iterate --feedback "more family shots at the beach"
-
-# Style variations
-python run.py -n singapore variations
+```
+python run.py -n <name> full [OPTIONS]
 ```
 
-### Key flags
+**Required:**
 
-| Flag | Values | Description |
-|------|--------|-------------|
-| `--trip-type` | family, solo, food, adventure, architecture, general | Scoring profile and narrative style |
-| `--planner` | visual, api, algo | Gemini visual (recommended), Gemini text-only, or algorithmic |
-| `--force-analyze` | flag | Force re-run vision analysis (ignore cached analysis.json) |
-| `--music` | auto, /path/to/file | Generate music or use custom file |
-| `--music-backend` | local, gemini | local = MusicGen (slow, free), gemini = Lyria RealTime API (fast, free during experimental) |
-| `--style` | upbeat, cinematic, reflective, energetic | Pacing and transitions |
-| `--duration` | seconds | Target vlog length |
-| `--item-types` | photo, video, live, motion | Media types to include |
+| Flag | Description |
+|------|-------------|
+| `-f` / `--from-date` | Start date (`YYYY-MM-DD`) |
+| `-t` / `--to-date` | End date (`YYYY-MM-DD`) |
+
+**Content selection:**
+
+| Flag | Default | Values | Description |
+|------|---------|--------|-------------|
+| `--trip-type` | `family` | `family`, `solo`, `food`, `adventure`, `architecture`, `general` | Controls scoring profile, narrative style, and music mood templates |
+| `--item-types` | all | `photo`, `video`, `live`, `motion` (comma-separated) | Media types to fetch from NAS. Omit to include everything |
+| `--country` | — | any string | Filter by country (e.g. `Singapore`) |
+| `--district` | — | any string | Filter by district/city (e.g. `"Marina Bay"`) |
+| `--focus` | derived from trip-type | free text | What to emphasize (e.g. `"family happiness; exotic street food"`) |
+
+**Planning:**
+
+| Flag | Default | Values | Description |
+|------|---------|--------|-------------|
+| `--planner` | `visual` | `visual`, `api`, `algo` | `visual` = Gemini sees actual photos (recommended, fast). `api` = Gemini plans from text descriptions. `algo` = deterministic scoring |
+| `--style` | `upbeat` | `upbeat`, `cinematic`, `reflective`, `energetic` | Controls pacing, transitions, and music mood |
+| `--duration` | `60` | seconds | Target vlog length. 60 = ~1 min, 180 = ~3 min |
+
+**Music:**
+
+| Flag | Default | Values | Description |
+|------|---------|--------|-------------|
+| `--music` | none | `auto` or `/path/to/file` | `auto` = generate background music. Path = use custom audio file. Omit = no music |
+| `--music-backend` | `local` | `local`, `gemini` | `local` = MusicGen (slow, ~20 min/60s, no API). `gemini` = Lyria RealTime (fast, ~8s/60s, uses `GEMINI_API_KEY`) |
+
+**Output:**
+
+| Flag | Default | Values | Description |
+|------|---------|--------|-------------|
+| `--width` | `3840` | pixels | Output video width |
+| `--height` | `2160` | pixels | Output video height |
+| `--fps` | `60` | frames/sec | Output frame rate |
+
+**Advanced:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--force-analyze` | off | Force re-run analysis (ignore cached `analysis.json`) |
+
+### Examples
+
+**Family trip highlight reel (recommended settings):**
+```bash
+# 3-minute cinematic family vlog with AI music — the "batteries included" command
+python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 \
+  --trip-type family --planner visual --duration 180 \
+  --style cinematic --music auto --music-backend gemini \
+  --focus "happiness of family trip; exotic scenes of Singapore"
+```
+
+**Quick preview (low res, fast iteration):**
+```bash
+python run.py -n sg-test full -f 2025-06-13 -t 2025-06-16 \
+  --planner visual --duration 60 \
+  --width 640 --height 360 --fps 15
+```
+
+**Solo travel montage:**
+```bash
+python run.py -n tokyo full -f 2025-03-01 -t 2025-03-05 \
+  --trip-type solo --style energetic --duration 120 \
+  --planner visual --music auto --music-backend gemini \
+  --focus "street culture, neon lights, temple serenity"
+```
+
+**Food tour:**
+```bash
+python run.py -n osaka-food full -f 2025-04-10 -t 2025-04-12 \
+  --trip-type food --style upbeat --duration 90 \
+  --planner visual --music auto --music-backend gemini \
+  --focus "street food, ramen, izakaya atmosphere"
+```
+
+**Architecture documentary:**
+```bash
+python run.py -n barcelona full -f 2025-05-01 -t 2025-05-04 \
+  --trip-type architecture --style cinematic --duration 120 \
+  --planner visual --music auto --music-backend gemini \
+  --focus "Gaudí, Gothic Quarter, modernist facades"
+```
+
+**Photos only (no video clips):**
+```bash
+python run.py -n sg-photos full -f 2025-06-13 -t 2025-06-17 \
+  --item-types photo --planner visual --duration 60
+```
+
+**Re-plan with different style (keeps cached media):**
+```bash
+python run.py -n singapore plan --style reflective --duration 120
+```
+
+**Iterate with feedback:**
+```bash
+python run.py -n singapore iterate --feedback "more family close-ups, less scenery"
+```
+
+**Generate style variations:**
+```bash
+python run.py -n singapore variations --styles "energetic,reflective,cinematic"
+```
 
 ### Web UI (Dagster)
 
 After `python start.py`, open **http://localhost:3000**.
+
+Pipeline graph: `fetch_media → preprocess → analyze → plan → generate_music → assemble`
 
 **Run the full pipeline:** Jobs → full_pipeline → Launchpad → paste config.
 
@@ -230,8 +324,11 @@ Three backends:
 
 All planners produce an EDL (Edit Decision List) with segments, transitions, and text overlays. Video items can include trim points for scene selection.
 
-### 5. assemble
-Renders each item as a video clip (Ken Burns effects for photos, trimmed clips for videos with `start_time`/`end_time`), adds text overlays, concatenates with crossfade/fade_black transitions, renders intro/outro title cards. Generates background music if `--music auto` — uses `music_mood` from the EDL segments as the generation prompt (see [Music Generation](#music-generation) for backend options). After rendering, auto-reviews the output with Gemini: extracts frames, sends for critique, re-plans and re-renders if improvements found.
+### 5. generate_music
+When `--music auto`, generates background music using the EDL's `music_mood` descriptions and `estimated_duration()`. See [Music Generation](#music-generation) for backend options. Saves the music file path back into the EDL. Skipped when `--music` is a file path or omitted.
+
+### 6. assemble
+Renders each item as a video clip (Ken Burns effects for photos, trimmed clips for videos with `start_time`/`end_time`), adds text overlays, concatenates with crossfade/fade_black transitions, renders intro/outro title cards. Mixes in the music track from `generate_music` (if available). After rendering, auto-reviews the output with Gemini: extracts frames, sends for critique, re-plans and re-renders if improvements found.
 
 ## Trip Types & Scoring
 
@@ -248,7 +345,7 @@ Each trip type has a different scoring profile that affects photo selection:
 
 ## Music Generation
 
-When `--music auto` is passed, the assemble step generates background music. Two backends are available:
+When `--music auto` is passed, the `generate_music` pipeline step generates background music before assembly. Two backends are available:
 
 | | `--music-backend local` (default) | `--music-backend gemini` |
 |---|---|---|

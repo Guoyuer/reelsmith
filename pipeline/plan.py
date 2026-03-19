@@ -1497,7 +1497,7 @@ Output JSON only:
       "theme": "emotional theme",
       "target_items": <count>,
       "pacing": "fast|medium|slow",
-      "prefer_video": <true if video clips would enhance this chapter>,
+      "prefer_video": <boolean, default true — video clips bring motion and atmosphere>,
       "music_mood": "describe the ideal background music for this chapter"
     }}
   ]
