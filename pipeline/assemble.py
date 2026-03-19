@@ -473,7 +473,7 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
 
 
 def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
-    """Trim and normalize a video clip."""
+    """Trim and normalize a video clip. Preserves audio if keep_audio is set."""
     cmd = ["ffmpeg", "-y"]
     if item.start_time is not None:
         cmd += ["-ss", str(item.start_time)]
@@ -484,28 +484,28 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
         duration = item.end_time - item.start_time
     cmd += ["-t", str(duration)]
 
+    audio_args = ["-c:a", "aac", "-b:a", "192k"] if item.keep_audio else ["-an"]
+
     # Probe dimensions to decide portrait vs landscape
     src_w, src_h = _probe_dimensions(Path(item.source_file))
     portrait = _is_portrait(src_w, src_h)
 
     if portrait:
-        # Portrait: blurred background + sharp foreground (no black bars)
         fc = _portrait_bg_filter(w, h)
         cmd += [
             "-filter_complex", fc,
             *_get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
             "-r", str(fps),
-            "-an",
+            *audio_args,
             str(out),
         ]
     else:
-        # Landscape: existing scale+pad (fine for landscape)
         cmd += [
             "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
                    f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
             *_get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
             "-r", str(fps),
-            "-an",
+            *audio_args,
             str(out),
         ]
 
@@ -644,7 +644,11 @@ def _concat_xfade(clips: list[dict], output_path: Path) -> None:
 
 
 def _add_music(video_path: Path, music, output_path: Path) -> None:
-    """Mix background music under the video, looping if needed."""
+    """Mix background music under the video, preserving any original audio.
+
+    If the video has an audio track (from keep_audio clips), both are mixed:
+    original audio at full volume + music underneath. Otherwise, music only.
+    """
     total_dur = _probe_duration(video_path)
     music_dur = _probe_duration(Path(music.file))
     fade_out_start = max(0, total_dur - music.fade_out)
@@ -655,11 +659,32 @@ def _add_music(video_path: Path, music, output_path: Path) -> None:
         loops = int(total_dur / music_dur) + 1
         loop_filter = f"aloop=loop={loops}:size={int(music_dur * 32000)},atrim=0:{total_dur},"
 
-    audio_filter = (
-        f"[1:a]{loop_filter}volume={music.volume},"
-        f"afade=t=in:d={music.fade_in},"
-        f"afade=t=out:st={fade_out_start}:d={music.fade_out}[a]"
+    # Check if video has an audio stream
+    probe = run_subprocess(
+        ["ffprobe", "-v", "error", "-select_streams", "a",
+         "-show_entries", "stream=codec_type", "-of", "csv=p=0",
+         str(video_path)],
+        capture_output=True, text=True,
     )
+    has_audio = bool(probe.stdout.strip())
+
+    if has_audio:
+        # Mix: original audio (full volume) + music (low volume)
+        audio_filter = (
+            f"[0:a]apad[orig];"
+            f"[1:a]{loop_filter}volume={music.volume},"
+            f"afade=t=in:d={music.fade_in},"
+            f"afade=t=out:st={fade_out_start}:d={music.fade_out}[bg];"
+            f"[orig][bg]amix=inputs=2:duration=first[a]"
+        )
+    else:
+        # Music only (no original audio to mix)
+        audio_filter = (
+            f"[1:a]{loop_filter}volume={music.volume},"
+            f"afade=t=in:d={music.fade_in},"
+            f"afade=t=out:st={fade_out_start}:d={music.fade_out}[a]"
+        )
+
     cmd = [
         "ffmpeg", "-y",
         "-i", str(video_path),

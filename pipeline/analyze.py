@@ -161,10 +161,6 @@ def _analyze_video(entry, item_id, local_path, cfg, cache_file, log_fn, i, total
         for idx, kf in enumerate(existing_kfs)
     ]
 
-    transcript = _transcribe(local_path, cfg)
-    if transcript:
-        entry["transcript"] = transcript
-
     # Save to shared cache
     cache_entry = {k: v for k, v in entry.items()
                    if k in ("keyframe_paths", "transcript", "scenes", "video_duration", "thumbnail_path")}
@@ -181,38 +177,3 @@ def _analyze_photo(entry, item_id, local_path, cfg, cache_file):
     cache_file.write_text(json.dumps({"thumbnail_path": str(thumb)}, indent=2))
 
 
-def _transcribe(video_path: Path, cfg: Config) -> str | None:
-    """Transcribe audio from video using mlx-whisper or whisper CLI."""
-    import subprocess
-
-    audio_path = video_path.parent / f"_audio_{video_path.stem}.wav"
-    run_subprocess(
-        ["ffmpeg", "-y", "-i", str(video_path),
-         "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
-         str(audio_path)],
-        capture_output=True,
-    )
-    if not audio_path.exists():
-        return None
-
-    transcript = None
-    try:
-        import mlx_whisper
-        result = mlx_whisper.transcribe(
-            str(audio_path),
-            path_or_hf_repo=f"mlx-community/whisper-{cfg.whisper_model}-mlx",
-        )
-        transcript = result.get("text", "").strip()
-    except ImportError:
-        try:
-            import whisper as openai_whisper
-            model = openai_whisper.load_model(cfg.whisper_model)
-            result = model.transcribe(str(audio_path))
-            transcript = result.get("text", "").strip()
-        except ImportError:
-            pass
-    except Exception:
-        pass
-
-    audio_path.unlink(missing_ok=True)
-    return transcript if transcript else None

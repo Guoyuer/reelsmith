@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 @dataclass
 class Config:
     api_base: str = "http://localhost:8000"
-    whisper_model: str = "medium"
     workspace: Path = Path("./workspace")
     media_dir: Path = Path("./workspace/media")
     cache_dir: Path = Path("./workspace/analysis_cache")
@@ -31,7 +30,6 @@ class Config:
         base = ws.parent.parent if ws.parent.name == "runs" else ws
         cfg = cls(
             api_base=os.getenv("SYNOLOGY_API_BASE", cls.api_base),
-            whisper_model=os.getenv("WHISPER_MODEL", cls.whisper_model),
             workspace=ws,
             media_dir=base / "media",
             cache_dir=base / "analysis_cache",

@@ -23,6 +23,7 @@ class EditItem(BaseModel):
     start_time: float | None = None  # video trim start (seconds)
     end_time: float | None = None  # video trim end (seconds)
     display_duration: float = 4.0  # how long this item is on screen
+    keep_audio: bool = False  # preserve original audio (set by audio assessment)
     effect: Literal[
         "ken_burns_in",
         "ken_burns_out",

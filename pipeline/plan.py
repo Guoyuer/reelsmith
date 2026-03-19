@@ -198,29 +198,29 @@ def _gemini_call(
     # Build content parts and count them for logging
     parts = []
     n_text = 0
-    n_images = 0
+    n_media = 0
     text_chars = 0
-    image_bytes_total = 0
+    media_bytes_total = 0
     for p in user_parts:
         if isinstance(p, str):
             parts.append(types.Part(text=p))
             n_text += 1
             text_chars += len(p)
-        elif isinstance(p, dict) and p.get("type") == "image_bytes":
+        elif isinstance(p, dict) and p.get("type") in ("image_bytes", "audio_bytes"):
             parts.append(types.Part(
                 inline_data=types.Blob(
                     mime_type=p.get("mime_type", "image/jpeg"),
-                    data=p["data"],  # raw bytes
+                    data=p["data"],
                 ),
             ))
-            n_images += 1
-            image_bytes_total += len(p["data"])
+            n_media += 1
+            media_bytes_total += len(p["data"])
         elif isinstance(p, types.Part):
             parts.append(p)
 
     _log(f"=== Gemini API Call: {label} ===")
     _log(f"  Model: {model}")
-    _log(f"  Input: {n_text} text parts ({text_chars} chars), {n_images} images ({image_bytes_total // 1024}KB)")
+    _log(f"  Input: {n_text} text parts ({text_chars} chars), {n_media} media ({media_bytes_total // 1024}KB)")
     _log(f"  System prompt: {len(system)} chars")
 
     import time as _time
@@ -535,6 +535,118 @@ def _build_review_blocks(edl: EDL, cfg: Config) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Audio assessment — Gemini listens to selected video clips
+# ---------------------------------------------------------------------------
+
+def _assess_audio(edl: EDL, log_fn) -> None:
+    """Extract audio from selected video clips and ask Gemini which have meaningful speech.
+
+    Modifies edl items in-place, setting keep_audio=True on clips worth preserving.
+    Only processes video items with trim points (~20 clips). One Gemini API call.
+    """
+    video_items = [
+        (seg_idx, item_idx, item)
+        for seg_idx, seg in enumerate(edl.segments)
+        for item_idx, item in enumerate(seg.items)
+        if item.media_type == "video"
+    ]
+    if not video_items:
+        log_fn("Audio assessment: no video clips, skipping")
+        return
+
+    log_fn(f"=== AUDIO ASSESSMENT: {len(video_items)} video clips ===")
+
+    from .media_utils import run_subprocess
+    import tempfile
+
+    # Extract audio from each video clip (trimmed to start_time/end_time)
+    audio_parts: list[dict] = []  # {"index": i, "seg_idx": ..., "item_idx": ..., "data": bytes}
+    temp_dir = Path(tempfile.mkdtemp())
+
+    for i, (seg_idx, item_idx, item) in enumerate(video_items):
+        source = Path(item.source_file)
+        if not source.exists():
+            continue
+
+        audio_path = temp_dir / f"clip_{i}.wav"
+        cmd = ["ffmpeg", "-y"]
+        if item.start_time is not None:
+            cmd += ["-ss", str(item.start_time)]
+        cmd += ["-i", str(source)]
+        if item.end_time is not None and item.start_time is not None:
+            cmd += ["-t", str(item.end_time - item.start_time)]
+        cmd += ["-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", str(audio_path)]
+        run_subprocess(cmd, capture_output=True)
+
+        if audio_path.exists() and audio_path.stat().st_size > 1000:
+            audio_parts.append({
+                "index": i,
+                "seg_idx": seg_idx,
+                "item_idx": item_idx,
+                "filename": source.name,
+                "data": audio_path.read_bytes(),
+            })
+
+    if not audio_parts:
+        log_fn("Audio assessment: no audio extracted, skipping")
+        return
+
+    log_fn(f"Extracted audio from {len(audio_parts)} clips, sending to Gemini...")
+
+    # Build multimodal content: audio clips + prompt
+    content_parts: list = []
+    for ap in audio_parts:
+        content_parts.append(f"Clip {ap['index']} ({ap['filename']}):")
+        content_parts.append({
+            "type": "audio_bytes",
+            "mime_type": "audio/wav",
+            "data": ap["data"],
+        })
+
+    system = """\
+You are assessing audio from video clips selected for a family travel vlog.
+For each clip, listen and determine if it contains meaningful speech worth
+preserving in the final video — family conversations, reactions ("wow!",
+laughter), a child's voice, narration, or any emotionally valuable audio.
+
+Ambient noise (wind, traffic, crowd murmur) without clear speech = NOT worth keeping.
+
+Respond with JSON only:
+{
+  "clips": [
+    {"index": <clip number>, "keep_audio": true/false, "reason": "brief reason"}
+  ]
+}"""
+
+    try:
+        response = _gemini_call(system, content_parts, log_fn,
+                                label="audio assessment", model="gemini-3-flash-preview")
+        from .media_utils import strip_markdown_fences
+        data = json.loads(strip_markdown_fences(response))
+
+        kept = 0
+        for clip_info in data.get("clips", []):
+            idx = clip_info.get("index")
+            if clip_info.get("keep_audio") and idx is not None:
+                # Find the matching audio_part to get seg/item indices
+                for ap in audio_parts:
+                    if ap["index"] == idx:
+                        edl.segments[ap["seg_idx"]].items[ap["item_idx"]].keep_audio = True
+                        log_fn(f"  Clip {idx} ({ap['filename']}): KEEP — {clip_info.get('reason', '')}")
+                        kept += 1
+                        break
+
+        log_fn(f"Audio assessment: {kept}/{len(audio_parts)} clips will keep audio")
+
+    except Exception as e:
+        log_fn(f"Audio assessment failed ({e}), continuing without audio preservation")
+
+    # Cleanup temp files
+    import shutil
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Visual planner — multi-pass Gemini planning with visual input
 # ---------------------------------------------------------------------------
 
@@ -703,6 +815,11 @@ Candidates by day/location:"""
         for item in seg.items:
             trim = f" trim={item.start_time:.0f}-{item.end_time:.0f}s" if item.start_time is not None else ""
             _log(f"    - {item.media_type:5s} {item.display_duration}s {Path(item.source_file).name}{trim}")
+
+    # ------------------------------------------------------------------
+    # Pass 2.5: Audio assessment — Gemini listens to selected video clips
+    # ------------------------------------------------------------------
+    _assess_audio(edl, _log)
 
     # ------------------------------------------------------------------
     # Pass 3: Visual review — Gemini reviews selected items at higher res

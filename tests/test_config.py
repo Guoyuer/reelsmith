@@ -18,7 +18,6 @@ class TestConfigLoadDefaults:
         with patch("pipeline.config.load_dotenv"):
             cfg = Config.load()
         assert cfg.api_base == "http://localhost:8000"
-        assert cfg.whisper_model == "medium"
         assert cfg.workspace == Path("./workspace")
 
     @patch.dict(os.environ, {}, clear=True)
@@ -51,14 +50,12 @@ class TestConfigLoadEnvVars:
     def test_env_var_overrides(self, tmp_path: Path):
         env = {
             "SYNOLOGY_API_BASE": "http://nas:5000",
-            "WHISPER_MODEL": "large",
             "WORKSPACE": str(tmp_path),
         }
         with patch.dict(os.environ, env, clear=True), \
              patch("pipeline.config.load_dotenv"):
             cfg = Config.load()
         assert cfg.api_base == "http://nas:5000"
-        assert cfg.whisper_model == "large"
         assert cfg.workspace == tmp_path
 
     def test_workspace_arg_overrides_env(self, tmp_path: Path):
