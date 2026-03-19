@@ -41,7 +41,7 @@ flowchart LR
 - **Synology NAS** with Photos enabled (for the media source)
 - **Gemini API key** — free, get one at [ai.google.dev](https://ai.google.dev/) → "Get API key"
 
-FFmpeg and Ollama are also needed but `start.py` will offer to install them for you.
+FFmpeg is also needed but `start.py` will offer to install it for you.
 
 ### 1. Clone and setup
 
@@ -60,16 +60,13 @@ The setup wizard will prompt you for:
 
 On first run, `start.py` will:
 1. Clone [synology-photos-project](../synology-photos-project) if missing
-2. Check for FFmpeg and Ollama (offers to auto-install via winget/brew/apt)
+2. Check for FFmpeg (offers to auto-install via winget/brew/apt)
 3. Create Python venvs and install all dependencies (Dagster, google-genai, etc.)
-4. Walk you through `.env` configuration
-5. Pull required Ollama models
-6. Start Ollama, Synology Photos API, and Dagster
+4. Walk you through `.env` configuration (NAS credentials, Gemini API key)
 
 Subsequent runs (`python start.py`) skip setup and just start services:
 ```
 === Services Ready ===
-  Ollama:               http://localhost:11434
   Synology Photos API:  http://localhost:8000
   Dagster UI:           http://localhost:3000
 ```
@@ -405,7 +402,7 @@ Integration tests for Gemini music generation (`tests/test_music.py::TestFetchMu
 - **Music as a separate asset** — `generate_music` runs between plan and assemble as its own Dagster step. Plan declares intent (`music_mode=auto`) and mood; `generate_music` produces the audio; assemble mixes it into the video.
 - **Shared media + analysis cache** — raw files and per-file vision results are shared across runs. Only plan + assemble re-run.
 - **Per-run isolation** — each run gets its own directory for manifest, EDL, clips, and output.
-- **Interruptible everything** — all subprocess calls use `Popen` with signal forwarding. All Ollama calls use streaming.
+- **Interruptible everything** — all subprocess calls use `Popen` with signal forwarding.
 - **EDL is the central artifact** — a JSON file that flows between plan/assemble/iterate. Changing the edit never re-analyzes media.
 - **Content-aware rendering** — hero shots get longer duration and slow zoom-in. Landscapes get horizontal pan. High-quality scenery gets static display. Portraits get blurred background overlay.
 - **HEIC conversion** — Apple HEIC photos are converted via pillow-heif (cross-platform), macOS sips, or ImageMagick, whichever is available.
