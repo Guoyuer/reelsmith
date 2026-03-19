@@ -390,6 +390,11 @@ def _render_title_card(
     run_subprocess(cmd, capture_output=True, text=True)
 
 
+def _color_grade() -> str:
+    """Warm travel vlog color grade — subtle warmth + contrast + saturation."""
+    return "eq=contrast=1.05:brightness=0.02:saturation=1.1,colorbalance=rs=0.03:gs=0.01:bs=-0.02"
+
+
 def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
     """Render a photo with Ken Burns effect as a video clip."""
     source = Path(item.source_file)
@@ -470,18 +475,18 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
                     f"[blurred][sharp]overlay=(W-w)/2:(H-h)/2"
                 )
 
+        cg = _color_grade()
         if "[bg]" in scale_filter:
-            # Complex filter_complex path (blurred background)
             cmd = [
                 "ffmpeg", "-y", "-loop", "1", "-i", str(source),
                 "-t", str(item.display_duration),
-                "-filter_complex", f"{scale_filter}[comp];[comp]{zp}",
+                "-filter_complex", f"{scale_filter}[comp];[comp]{zp},{cg}",
             ]
         else:
             cmd = [
                 "ffmpeg", "-y", "-loop", "1", "-i", str(source),
                 "-t", str(item.display_duration),
-                "-vf", f"{scale_filter},{zp}",
+                "-vf", f"{scale_filter},{zp},{cg}",
             ]
         cmd += [
             *_get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
@@ -512,10 +517,11 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
     src_w, src_h = _probe_dimensions(Path(item.source_file))
     portrait = _is_portrait(src_w, src_h)
 
+    cg = _color_grade()
     if portrait:
         fc = _portrait_bg_filter(w, h)
         cmd += [
-            "-filter_complex", fc,
+            "-filter_complex", f"{fc},{cg}",
             *_get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
             "-r", str(fps),
             *audio_args,
@@ -524,7 +530,7 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
     else:
         cmd += [
             "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-                   f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
+                   f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,{cg}",
             *_get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
             "-r", str(fps),
             *audio_args,
@@ -618,12 +624,16 @@ def _concat_xfade(clips: list[dict], output_path: Path) -> None:
         if transition_type == "cut":
             td = 0.0
 
-        xfade_transition = {
-            "crossfade": "fade",
-            "fade_black": "fadeblack",
-            "wipe_left": "wipeleft",
-            "cut": "fade",
-        }.get(transition_type, "fade")
+        # Professional transition variety — cycle through different xfade effects
+        _xfade_map = {
+            "crossfade": ["fade", "smoothleft", "smoothright", "dissolve",
+                          "slideleft", "slideright", "circlecrop"],
+            "fade_black": ["fadeblack"],
+            "wipe_left": ["wipeleft", "wiperight", "slidedown", "slideup"],
+            "cut": ["fade"],
+        }
+        choices = _xfade_map.get(transition_type, ["fade"])
+        xfade_transition = choices[i % len(choices)]
 
         if i == 1:
             in_label = "[0:v]"
