@@ -225,10 +225,11 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
                     continue
 
                 pbar.set_postfix_str(clip_name, refresh=True)
+                ct = getattr(segment, "color_temp", "neutral") or "neutral"
                 if item.media_type == "photo":
-                    _render_photo(item, clip_path, w, h, fps)
+                    _render_photo(item, clip_path, w, h, fps, color_temp=ct)
                 else:
-                    _render_video(item, clip_path, w, h, fps)
+                    _render_video(item, clip_path, w, h, fps, color_temp=ct)
 
             if not clip_path.exists():
                 failed_clips.append(clip_name)
@@ -249,13 +250,22 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
                 if overlaid.exists():
                     clip_path = overlaid
 
-            # Determine transition (use segment's transition for items within segment)
-            transition = segment.transition if item_idx > 0 else "cut"
-            td = segment.transition_duration if transition != "cut" else 0.0
-            # Between segments: use fade_black
-            if item_idx == 0 and seg_idx > 0:
+            # Determine transition
+            is_montage = getattr(segment, "mode", "narrative") == "montage"
+            if is_montage:
+                # Montage: hard cuts, no transitions
+                transition = "cut"
+                td = 0.0
+            elif item_idx == 0 and seg_idx > 0:
+                # Between segments: fade_black
                 transition = "fade_black"
                 td = 1.0
+            elif item_idx > 0:
+                transition = segment.transition
+                td = segment.transition_duration if transition != "cut" else 0.0
+            else:
+                transition = "cut"
+                td = 0.0
 
             all_clips.append({
                 "path": clip_path,
@@ -331,7 +341,38 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
     duration = _probe_duration(output_path)
     print(f"Done: {output_path} ({duration:.1f}s)")
+
+    # Generate YouTube chapter markers
+    chapters_path = output_dir / f"chapters_v{version}.txt"
+    _write_chapters(edl, all_clips, chapters_path)
+
     return output_path
+
+
+def _write_chapters(edl: EDL, clips: list[dict], out_path: Path) -> None:
+    """Write YouTube-compatible chapter markers from EDL segments."""
+    lines = []
+    offset = 0.0
+    clip_idx = 0
+
+    # Account for intro
+    has_intro = edl.intro_style != "none"
+    if has_intro and clips:
+        offset = clips[0]["duration"]
+        clip_idx = 1
+
+    for seg in edl.segments:
+        minutes = int(offset) // 60
+        seconds = int(offset) % 60
+        lines.append(f"{minutes}:{seconds:02d} {seg.name}")
+        for item in seg.items:
+            if clip_idx < len(clips):
+                td = clips[clip_idx].get("transition_duration", 0.0)
+                offset += clips[clip_idx]["duration"] - td
+                clip_idx += 1
+
+    out_path.write_text("\n".join(lines))
+    print(f"YouTube chapters: {out_path.name} ({len(lines)} chapters)")
 
 
 def _find_font() -> str:
@@ -390,12 +431,18 @@ def _render_title_card(
     run_subprocess(cmd, capture_output=True, text=True)
 
 
-def _color_grade() -> str:
-    """Subtle warm travel vlog color grade."""
-    return "eq=contrast=1.02:brightness=0.01:saturation=1.05"
+def _color_grade(color_temp: str = "neutral") -> str:
+    """Subtle color grade with optional temperature shift."""
+    base = "eq=contrast=1.02:brightness=0.01:saturation=1.05"
+    if color_temp == "warm":
+        return f"{base},colorbalance=rs=0.02:gs=0.01:bs=-0.02"
+    elif color_temp == "cool":
+        return f"{base},colorbalance=rs=-0.02:gs=0.0:bs=0.02"
+    return base
 
 
-def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
+def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
+                   color_temp: str = "neutral") -> None:
     """Render a photo with Ken Burns effect as a video clip."""
     source = Path(item.source_file)
 
@@ -475,7 +522,7 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
                     f"[blurred][sharp]overlay=(W-w)/2:(H-h)/2"
                 )
 
-        cg = _color_grade()
+        cg = _color_grade(color_temp)
         if "[bg]" in scale_filter:
             cmd = [
                 "ffmpeg", "-y", "-loop", "1", "-i", str(source),
@@ -499,7 +546,8 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
         print(f"    Photo render failed: {result.stderr[-200:]}")
 
 
-def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
+def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
+                   color_temp: str = "neutral") -> None:
     """Trim and normalize a video clip. Preserves audio if keep_audio is set."""
     cmd = ["ffmpeg", "-y"]
     if item.start_time is not None:
@@ -513,29 +561,33 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
 
     audio_args = ["-c:a", "aac", "-b:a", "192k"] if item.keep_audio else ["-an"]
 
+    # Speed ramp: setpts for video, atempo for audio
+    speed = getattr(item, "playback_speed", 1.0) or 1.0
+    speed_vf = f",setpts={1/speed:.4f}*PTS" if speed != 1.0 else ""
+    speed_af = f"-af atempo={speed}" if speed != 1.0 and item.keep_audio else ""
+
     # Probe dimensions to decide portrait vs landscape
     src_w, src_h = _probe_dimensions(Path(item.source_file))
     portrait = _is_portrait(src_w, src_h)
 
-    cg = _color_grade()
+    cg = _color_grade(color_temp)
     if portrait:
         fc = _portrait_bg_filter(w, h)
         cmd += [
-            "-filter_complex", f"{fc},{cg}",
+            "-filter_complex", f"{fc},{cg}{speed_vf}",
             *_get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
             "-r", str(fps),
-            *audio_args,
-            str(out),
         ]
     else:
         cmd += [
             "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-                   f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,{cg}",
+                   f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,{cg}{speed_vf}",
             *_get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
             "-r", str(fps),
-            *audio_args,
-            str(out),
         ]
+    if speed_af:
+        cmd += speed_af.split()
+    cmd += [*audio_args, str(out)]
 
     result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:

@@ -25,6 +25,7 @@ class EditItem(BaseModel):
     display_duration: float = 4.0  # how long this item is on screen
     keep_audio: bool = False  # preserve original audio (set by audio assessment)
     transcript: str = ""  # speech transcript (set by audio assessment)
+    playback_speed: float = 1.0  # 0.5=slow-mo, 1.0=normal, 1.5=fast (Gemini decides)
     effect: Literal[
         "ken_burns_in",
         "ken_burns_out",
@@ -45,6 +46,7 @@ class Segment(BaseModel):
                         "dissolve", "smoothleft", "smoothright", "circlecrop"] = "crossfade"
     transition_duration: float = 0.4  # seconds
     mode: Literal["narrative", "montage"] = "narrative"  # montage = quick-cut burst
+    color_temp: Literal["warm", "cool", "neutral"] = "neutral"  # Gemini sets per segment
 
 
 class MusicTrack(BaseModel):

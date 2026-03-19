@@ -307,7 +307,14 @@ You have complete autonomy over:
 - display_duration: 3-5s per photo, 5-10s for video clips
 - For videos: set start_time and end_time to select the best scene
 - effect: ken_burns_in/out/left/right for photos, "none" for video clips
-- Transitions: choose per segment — crossfade (default), dissolve, smoothleft, smoothright, circlecrop, fade_black (for major scene changes), wipe_left. Vary transitions for visual richness.
+- playback_speed: 1.0 = normal (default). Use 0.5 SPARINGLY for dramatic slow-mo moments
+  (a jump, a splash, a reaction). Use 1.5 for transitional walking/travel clips. Most clips = 1.0.
+- Transitions: choose per segment — crossfade (default), dissolve, smoothleft, smoothright,
+  circlecrop, fade_black (major scene changes), wipe_left. Vary for visual richness.
+- mode: "narrative" (default) or "montage" — use montage for 1 energy burst segment max
+  (quick 1-2s cuts, no transitions, builds excitement before a calm segment)
+- color_temp: "neutral" (default), "warm" (family/food/indoor), "cool" (night/architecture).
+  Use conservatively — most segments should be neutral.
 - CRITICAL: source_file must be the EXACT path value from the text metadata
 
 Output valid JSON only:
@@ -321,6 +328,8 @@ Output valid JSON only:
       "name": "Chapter Name",
       "narrative_rationale": "Why these items, what story beat this serves",
       "music_mood": "natural language music description for this segment",
+      "mode": "narrative|montage",
+      "color_temp": "neutral|warm|cool",
       "items": [
         {{
           "source_file": "<exact path from metadata>",
@@ -329,6 +338,7 @@ Output valid JSON only:
           "start_time": null or <seconds for video trim start>,
           "end_time": null or <seconds for video trim end>,
           "effect": "ken_burns_in|ken_burns_out|ken_burns_left|ken_burns_right|static|none",
+          "playback_speed": 1.0 (default, 0.5 for slow-mo, 1.5 for fast),
           "keep_audio": true or false (for videos: true if you heard meaningful speech/reactions),
           "text_overlay": null or {{"text": "string", "position": "bottom", "font_size": 48}}
         }}
