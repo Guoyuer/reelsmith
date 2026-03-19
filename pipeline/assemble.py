@@ -822,12 +822,13 @@ def _add_music(video_path: Path, music, output_path: Path, *,
     if speech_audio and speech_audio.exists():
         # 3-way mix: video (no audio) + speech audio + music
         # Input 0: video, Input 1: music, Input 2: speech audio
+        # Use volume-weighted amix so speech stays loud and music stays low
         audio_filter = (
             f"[1:a]{loop_filter}{music_vol_filter},"
             f"afade=t=in:d={music.fade_in},"
             f"afade=t=out:st={fade_out_start}:d={music.fade_out}[bg];"
-            f"[2:a]apad[speech];"
-            f"[speech][bg]amix=inputs=2:duration=first[a]"
+            f"[2:a]volume=1.0,apad[speech];"
+            f"[speech][bg]amix=inputs=2:duration=first:weights=3 1[a]"
         )
         cmd = [
             "ffmpeg", "-y",
