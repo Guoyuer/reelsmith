@@ -202,8 +202,7 @@ python run.py -n <name> full [OPTIONS]
 
 | Flag | Default | Values | Description |
 |------|---------|--------|-------------|
-| `--music` | `auto` | `auto`, `/path/to/file`, `none` | `auto` = generate background music. Path = use custom audio file. `none` = no music |
-| `--music-backend` | `gemini` | `gemini`, `local` | `gemini` = Lyria RealTime (fast, ~8s/60s). `local` = MusicGen (slow, ~20 min/60s, no API key needed) |
+| `--music` | `auto` | `auto`, `local`, `/path/to/file`, `none` | `auto` = Gemini Lyria RealTime (~8s). `local` = MusicGen (~20 min, no API). Path = custom file. `none` = silent |
 
 **Output:**
 
@@ -364,14 +363,17 @@ When `--music auto` is passed, the `generate_music` pipeline step generates back
 | **Requires** | PyTorch, transformers, scipy | google-genai (already a core dependency) |
 
 ```bash
-# Gemini Lyria RealTime (recommended — fast, high quality, no local model)
-python run.py -n sg full ... --music auto --music-backend gemini
+# Gemini Lyria RealTime (default — fast, high quality)
+python run.py -n sg full ... --music auto
 
 # Local MusicGen (no API key needed, but slow)
-python run.py -n sg full ... --music auto --music-backend local
+python run.py -n sg full ... --music local
 
 # Custom music file (skip generation entirely)
 python run.py -n sg full ... --music /path/to/soundtrack.mp3
+
+# No music
+python run.py -n sg full ... --music none
 ```
 
 Both backends use the `music_mood` from EDL segments (set by Gemini during planning) as the generation prompt, with fallback templates per trip_type + style. Generated tracks are cached in `workspace/music/` — subsequent runs with the same parameters reuse them instantly.

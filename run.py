@@ -126,10 +126,7 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
 @click.option("--item-types", default=None,
               help="Media types: photo,video,live,motion (default: all)")
 @click.option("--music", default="auto",
-              help="'auto' to generate music, path to audio file, or 'none' to disable")
-@click.option("--music-backend", default="gemini",
-              type=click.Choice(["local", "gemini"]),
-              help="Music backend: gemini (Lyria RealTime, fast) or local (MusicGen, slow)")
+              help="auto=Gemini Lyria (default), local=MusicGen, /path/to/file, none=no music")
 @click.option("--width", default=3840, type=int, help="Output width")
 @click.option("--height", default=2160, type=int, help="Output height")
 @click.option("--fps", default=60, type=int, help="Output FPS")
@@ -142,7 +139,7 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
               help="Comma-separated family member names for tiering (default: auto-detect from NAS face data)")
 @click.pass_context
 def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
-         item_types, music, music_backend, width, height, fps, quality,
+         item_types, music, width, height, fps, quality,
          country, district, force_analyze, family):
     """Run the full pipeline end-to-end."""
     type_list = _parse_item_types(item_types) if item_types else None
@@ -176,8 +173,17 @@ def full(ctx, from_date, to_date, planner, duration, trip_type, style, focus,
         "planner": planner, "style": style, "target_duration": duration,
         "focus": focus, "trip_type": trip_type,
     }
-    if music and music != "none":
-        plan_cfg["music_file"] = music
+    # Parse --music: "auto"|"local" → generate, "/path" → file, "none" → skip
+    music_backend = "gemini"
+    if music == "local":
+        plan_cfg["music_file"] = "auto"
+        music_backend = "local"
+    elif music == "none":
+        pass  # no music_file → plan sets music_mode="none"
+    elif music == "auto":
+        plan_cfg["music_file"] = "auto"
+    else:
+        plan_cfg["music_file"] = music  # custom file path
     config["ops"]["plan"] = {"config": plan_cfg}
 
     # Generate Music
@@ -225,11 +231,10 @@ def plan(ctx, planner, duration, trip_type, style, focus):
 
 @cli.command()
 @click.option("-v", "--version", default=None, type=int, help="EDL version to render")
-@click.option("--music-backend", default="local",
-              type=click.Choice(["local", "gemini"]),
-              help="Music backend: local (MusicGen) or gemini (Lyria RealTime API)")
+@click.option("--quality", default=1.0, type=float,
+              help="Bitrate multiplier: 0.5=draft, 1.0=YouTube (default), 2.0=master")
 @click.pass_context
-def assemble(ctx, version, music_backend):
+def assemble(ctx, version, quality):
     """Re-render the vlog from current or specified EDL version."""
     from pipeline.config import Config as PipelineConfig
     from pipeline.iterate import _find_latest_version
@@ -242,8 +247,7 @@ def assemble(ctx, version, music_backend):
 
     _submit("full_pipeline", rn, {
         "ops": {
-            "generate_music": {"config": {"music_backend": music_backend}},
-            "assemble": {"config": {"version": version}},
+            "assemble": {"config": {"version": version, "quality": quality}},
         },
     })
 
