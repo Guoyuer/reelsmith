@@ -292,29 +292,25 @@ def preprocess(
     io = context.resources.io_manager
     out = Path(io.workspace_path) / "preprocessed.json"
 
-    if not config.force and out.exists():
+    manifest_path = Path(io.workspace_path) / "manifest.json"
+    stale = (manifest_path.exists() and out.exists()
+             and manifest_path.stat().st_mtime > out.stat().st_mtime)
+    if stale:
+        context.log.info("Manifest is newer than preprocessed.json — re-preprocessing")
+
+    if not config.force and not stale and out.exists():
         data = json.loads(out.read_text())
-        # Invalidate cache if manifest grew (e.g. videos added to a photos-only run)
-        manifest_path = Path(io.workspace_path) / "manifest.json"
-        if manifest_path.exists():
-            manifest_count = len(json.loads(manifest_path.read_text()))
-            cached_count = data.get("total_items", 0)
-            if manifest_count > cached_count:
-                context.log.info(
-                    f"Manifest has {manifest_count} items but cache has {cached_count} — re-preprocessing"
-                )
-            else:
-                for i, it in enumerate(data.get("items", []), 1):
-                    context.log.info(
-                        f"[{i}/{len(data.get('items', []))}] {it.get('filename', '?')}: "
-                        f"tier {it.get('tier', '?')} (family: {it.get('family_count', 0)})"
-                    )
-                context.log.info(f"Preprocess complete: {data.get('selected_items', 0)} items")
-                return dg.MaterializeResult(
-                    metadata=_preprocess_metadata(data, {
-                        "status": dg.MetadataValue.text("finished"),
-                    })
-                )
+        for i, it in enumerate(data.get("items", []), 1):
+            context.log.info(
+                f"[{i}/{len(data.get('items', []))}] {it.get('filename', '?')}: "
+                f"tier {it.get('tier', '?')} (family: {it.get('family_count', 0)})"
+            )
+        context.log.info(f"Preprocess complete: {data.get('selected_items', 0)} items")
+        return dg.MaterializeResult(
+            metadata=_preprocess_metadata(data, {
+                "status": dg.MetadataValue.text("finished"),
+            })
+        )
 
     result = do_preprocess(io.config, family_names=config.family_names,
                            skip_clustering=config.skip_clustering, log_fn=context.log.info)
@@ -338,26 +334,21 @@ def analyze(
     io = context.resources.io_manager
     out = Path(io.workspace_path) / "analysis.json"
 
-    if not config.force and out.exists():
+    pp_path = Path(io.workspace_path) / "preprocessed.json"
+    stale = (pp_path.exists() and out.exists()
+             and pp_path.stat().st_mtime > out.stat().st_mtime)
+    if stale:
+        context.log.info("preprocessed.json is newer than analysis.json — re-analyzing")
+
+    if not config.force and not stale and out.exists():
         results = json.loads(out.read_text())
-        # Invalidate cache if preprocessed has more items than analysis
-        pp_path = Path(io.workspace_path) / "preprocessed.json"
-        if pp_path.exists():
-            pp_data = json.loads(pp_path.read_text())
-            pp_count = pp_data.get("selected_items", 0)
-            if pp_count > len(results):
-                context.log.info(
-                    f"Preprocessed has {pp_count} items but analysis has {len(results)} — re-analyzing"
-                )
-                # Fall through to re-analyze
-            else:
-                for i, r in enumerate(results, 1):
-                    desc = r.get("vision", {}).get("description", "") if r.get("vision") else "no vision"
-                    context.log.info(f"[{i}/{len(results)}] {r.get('filename', '?')} — {desc}")
-                ok = sum(1 for r in results if r.get("vision"))
-                context.log.info(f"Analyze complete: {ok}/{len(results)} with vision (all cached)")
-                return dg.MaterializeResult(
-                    metadata=_analyze_metadata(results, str(out), {
+        for i, r in enumerate(results, 1):
+            desc = r.get("vision", {}).get("description", "") if r.get("vision") else "no vision"
+            context.log.info(f"[{i}/{len(results)}] {r.get('filename', '?')} — {desc}")
+        ok = sum(1 for r in results if r.get("vision"))
+        context.log.info(f"Analyze complete: {ok}/{len(results)} with vision (all cached)")
+        return dg.MaterializeResult(
+            metadata=_analyze_metadata(results, str(out), {
                 "status": dg.MetadataValue.text("finished"),
                 "from_cache": dg.MetadataValue.int(len(results)),
                 "newly_analyzed": dg.MetadataValue.int(0),
