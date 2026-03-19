@@ -293,6 +293,12 @@ def plan(
                          style=style, target_duration=target_duration,
                          trip_type=trip_type)
 
+    # Post-process: force effect="none" on video items (Ken Burns fights native motion)
+    for seg in edl.segments:
+        for item in seg.items:
+            if item.media_type == "video" and item.effect != "none":
+                item.effect = "none"
+
     # Set metadata fields (API planner doesn't set these)
     edl.trip_type = trip_type
     edl.style = style
@@ -618,9 +624,12 @@ def _plan_auto(
 
 _NARRATIVE_GUIDANCE = {
     "family": """\
-2. **Family is the heart**: Tier A items (2+ family members together) are the
-   emotional core. Use their togetherness and genuine_emotion scores to find
-   the most authentic moments — real laughter > posed smiles.""",
+2. **Family is the heart**: At least 30-40% of items MUST show family members
+   (people with names in metadata, especially tier A/B items). Look for genuine
+   laughter, hugs, play, shared meals — these are the emotional core of a family
+   vlog. Scenic B-roll is important for atmosphere, but a family vlog with no
+   family close-ups feels empty. Balance: every segment should have at least one
+   family shot.""",
     "solo": """\
 2. **Personal journey**: This is one person's story. Place over people — favor
    grand landscapes, intimate details, and moments of solitary wonder. Tier C
