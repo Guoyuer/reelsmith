@@ -317,7 +317,7 @@ def analyze(
     preprocess,
     config: AnalyzeConfig,
 ) -> dg.MaterializeResult:
-    """Analyze media with vision model (llava:7b)."""
+    """Generate thumbnails and keyframes for Gemini visual planning."""
     io = context.resources.io_manager
     out = Path(io.workspace_path) / "analysis.json"
 
@@ -476,9 +476,6 @@ def assemble(
     )
 
 
-# ---------------------------------------------------------------------------
-# Iterate job (op-based, not an asset — mutates existing state)
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Jobs & Definitions

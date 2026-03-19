@@ -11,12 +11,9 @@ from pathlib import Path
 # On Windows, ensure WinGet tool locations take priority on PATH.
 # Other tools (e.g. ImageMagick) may bundle outdated FFmpeg copies.
 if sys.platform == "win32":
-    for _p in [
-        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Links"),
-        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama"),
-    ]:
-        if os.path.isdir(_p):
-            os.environ["PATH"] = _p + os.pathsep + os.environ.get("PATH", "")
+    _winget_links = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Links")
+    if os.path.isdir(_winget_links):
+        os.environ["PATH"] = _winget_links + os.pathsep + os.environ.get("PATH", "")
 
 
 def run_subprocess(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:

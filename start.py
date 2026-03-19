@@ -9,10 +9,9 @@ Usage:
 
 On first run, this script will:
     1. Create Python venvs and install dependencies (vlog + synology-photos-project)
-    2. Check for FFmpeg and Ollama, with install instructions if missing
-    3. Walk you through .env configuration (NAS credentials, API keys)
-    4. Pull required Ollama models
-    5. Start all services (Ollama, Synology API, Dagster)
+    2. Check for FFmpeg (with install instructions if missing)
+    3. Walk you through .env configuration (NAS credentials, Gemini API key)
+    4. Start all services (Synology API, Dagster)
 """
 
 from __future__ import annotations
@@ -33,15 +32,10 @@ API_PORT = int(os.getenv("API_PORT", "8000"))
 PID_DIR = SCRIPT_DIR / ".pids"
 
 # On Windows, winget installs to locations not always on PATH.
-# Add common tool locations so shutil.which() finds them.
 if sys.platform == "win32":
-    _extra_paths = [
-        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Links"),
-        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama"),
-    ]
-    for p in _extra_paths:
-        if os.path.isdir(p) and p not in os.environ.get("PATH", ""):
-            os.environ["PATH"] = p + os.pathsep + os.environ.get("PATH", "")
+    _winget = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Links")
+    if os.path.isdir(_winget) and _winget not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = _winget + os.pathsep + os.environ.get("PATH", "")
 
 
 # ---------------------------------------------------------------------------
@@ -49,21 +43,11 @@ if sys.platform == "win32":
 # ---------------------------------------------------------------------------
 
 def _find_python(venv_dir: Path) -> str:
-    """Find the python executable inside a venv (cross-platform)."""
     if sys.platform == "win32":
         python = venv_dir / "Scripts" / "python.exe"
     else:
         python = venv_dir / "bin" / "python"
     return str(python) if python.exists() else sys.executable
-
-
-def _find_pip(venv_dir: Path) -> str:
-    """Find the pip executable inside a venv (cross-platform)."""
-    if sys.platform == "win32":
-        pip = venv_dir / "Scripts" / "pip.exe"
-    else:
-        pip = venv_dir / "bin" / "pip"
-    return str(pip) if pip.exists() else f"{_find_python(venv_dir)} -m pip"
 
 
 def _is_port_open(port: int) -> bool:
@@ -93,11 +77,7 @@ def _kill_pid(name: str) -> None:
         return
     try:
         if sys.platform == "win32":
-            # /T kills the process tree (important for dagster which spawns children)
-            subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(pid)],
-                capture_output=True,
-            )
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True)
         else:
             os.kill(pid, signal.SIGTERM)
             for _ in range(10):
@@ -108,20 +88,12 @@ def _kill_pid(name: str) -> None:
                     break
     except (OSError, PermissionError):
         pass
-    pid_file = PID_DIR / f"{name}.pid"
-    pid_file.unlink(missing_ok=True)
+    (PID_DIR / f"{name}.pid").unlink(missing_ok=True)
 
 
 def _popen_detached(cmd: list[str], **kwargs) -> subprocess.Popen:
-    """Start a detached background process that survives parent exit.
-
-    On Windows, uses CREATE_NEW_PROCESS_GROUP + CREATE_NO_WINDOW to properly
-    daemonize. On Unix, uses start_new_session=True.
-    """
     if sys.platform == "win32":
-        CREATE_NEW_PROCESS_GROUP = 0x00000200
-        CREATE_NO_WINDOW = 0x08000000
-        kwargs["creationflags"] = CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
+        kwargs["creationflags"] = 0x00000200 | 0x08000000
     else:
         kwargs["start_new_session"] = True
     kwargs.setdefault("stdout", subprocess.DEVNULL)
@@ -130,13 +102,11 @@ def _popen_detached(cmd: list[str], **kwargs) -> subprocess.Popen:
 
 
 def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
-    """Run a command, printing it first for visibility."""
     print(f"  $ {' '.join(cmd[:4])}{'...' if len(cmd) > 4 else ''}")
     return subprocess.run(cmd, **kwargs)
 
 
 def _ask(prompt: str, default: str = "") -> str:
-    """Prompt user for input with an optional default."""
     suffix = f" [{default}]" if default else ""
     answer = input(f"  {prompt}{suffix}: ").strip()
     return answer or default
@@ -147,20 +117,15 @@ def _ask(prompt: str, default: str = "") -> str:
 # ---------------------------------------------------------------------------
 
 def _setup_venv(project_dir: Path, extras: str = "") -> None:
-    """Create venv and install deps for a project if not already done."""
     venv_dir = project_dir / "venv"
-    python = _find_python(venv_dir)
-
     if not venv_dir.exists():
         print(f"  Creating venv in {venv_dir}...")
         subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
-        # Ensure pip is available
         subprocess.run([_find_python(venv_dir), "-m", "ensurepip"], capture_output=True)
 
-    # Install/upgrade deps
     pip_python = _find_python(venv_dir)
-    req_file = project_dir / "requirements.txt"
     pyproject = project_dir / "pyproject.toml"
+    req_file = project_dir / "requirements.txt"
 
     if pyproject.exists():
         install_arg = f"-e .[{extras}]" if extras else "-e ."
@@ -172,38 +137,29 @@ def _setup_venv(project_dir: Path, extras: str = "") -> None:
 
 
 def _setup_synology_deps() -> None:
-    """Install extra deps needed by the synology API server."""
     if not SYNOLOGY_DIR.exists():
         return
     pip_python = _find_python(SYNOLOGY_DIR / "venv")
-    # These are imported by main.py but not in requirements.txt
     _run([pip_python, "-m", "pip", "install",
           "fastapi", "uvicorn", "psycopg2-binary", "orjson"],
          capture_output=True)
 
 
 def _setup_env_file(filepath: Path, fields: list[tuple[str, str, str]]) -> None:
-    """Interactively create a .env file if it doesn't exist.
-
-    fields: list of (KEY, description, default_value)
-    """
     if filepath.exists():
         print(f"  {filepath.name} already exists, skipping.")
         return
-
     print(f"\n  Creating {filepath}...")
     print(f"  (Press Enter to accept defaults shown in brackets)\n")
     lines = []
     for key, desc, default in fields:
         val = _ask(f"{desc} ({key})", default)
         lines.append(f"{key}={val}")
-
     filepath.write_text("\n".join(lines) + "\n")
     print(f"  Saved {filepath}")
 
 
 def _auto_install(name: str, win_cmd: list[str], mac_cmd: list[str], linux_cmd: list[str]) -> bool:
-    """Offer to auto-install a tool. Returns True if installed or skipped."""
     cmds = {
         "win32": (win_cmd, "winget"),
         "darwin": (mac_cmd, "brew"),
@@ -213,19 +169,16 @@ def _auto_install(name: str, win_cmd: list[str], mac_cmd: list[str], linux_cmd: 
     if not cmd:
         print(f"  No auto-install available for {sys.platform}.")
         return False
-
     ans = _ask(f"Install {name} automatically via {mgr}? (Y/n)", "y")
     if ans.lower() != "y" and ans != "":
         return False
-
     print(f"  Installing {name}...")
     result = subprocess.run(cmd, capture_output=False)
     if result.returncode == 0:
         print(f"  {name} installed successfully.")
         return True
-    else:
-        print(f"  Installation failed (exit code {result.returncode}).")
-        return False
+    print(f"  Installation failed (exit code {result.returncode}).")
+    return False
 
 
 def setup() -> bool:
@@ -235,8 +188,8 @@ def setup() -> bool:
     print("  Vlog Pipeline — First-Time Setup")
     print("=" * 60)
 
-    # --- Step 0: Clone synology-photos-project if missing ---
-    print("\n[1/6] Checking synology-photos-project...")
+    # --- Step 1: Clone synology-photos-project if missing ---
+    print("\n[1/4] Checking synology-photos-project...")
     if SYNOLOGY_DIR.exists():
         print(f"  Found at {SYNOLOGY_DIR}")
     else:
@@ -246,15 +199,10 @@ def setup() -> bool:
             print("  Skipping. Fetch stage will not work without the Synology API.")
         else:
             repo_url = _ask("Git repo URL", "https://github.com/Guoyuer/synology-photos-project.git")
-            result = subprocess.run(
-                ["git", "clone", repo_url, str(SYNOLOGY_DIR)],
-                capture_output=False,
-            )
-            if result.returncode != 0:
-                print("  Clone failed. You can clone it manually later.")
+            subprocess.run(["git", "clone", repo_url, str(SYNOLOGY_DIR)], capture_output=False)
 
-    # --- Step 1: FFmpeg ---
-    print("\n[2/6] Checking FFmpeg...")
+    # --- Step 2: FFmpeg ---
+    print("\n[2/4] Checking FFmpeg...")
     if shutil.which("ffprobe") and shutil.which("ffmpeg"):
         print(f"  FFmpeg found: {shutil.which('ffmpeg')}")
     else:
@@ -270,59 +218,21 @@ def setup() -> bool:
             if ans.lower() != "y":
                 return False
 
-    # --- Step 2: Ollama ---
-    print("\n[3/6] Checking Ollama...")
-    ollama = shutil.which("ollama")
-    # Check common Windows install locations not on PATH
-    if not ollama and sys.platform == "win32":
-        for candidate in [
-            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe",
-            Path("C:/Program Files/Ollama/ollama.exe"),
-        ]:
-            if candidate.exists():
-                ollama = str(candidate)
-                break
-
-    if ollama:
-        print(f"  Ollama found: {ollama}")
-    else:
-        print("  Ollama NOT found.")
-        installed = _auto_install(
-            "Ollama",
-            win_cmd=["winget", "install", "Ollama.Ollama", "--accept-source-agreements", "--accept-package-agreements"],
-            mac_cmd=["brew", "install", "ollama"],
-            linux_cmd=["sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh"],
-        )
-        if installed:
-            # Re-check after install
-            ollama = shutil.which("ollama")
-            if not ollama and sys.platform == "win32":
-                candidate = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"
-                if candidate.exists():
-                    ollama = str(candidate)
-        if not ollama:
-            ans = _ask("Continue without Ollama? Vision analysis will be skipped (y/N)", "n")
-            if ans.lower() != "y":
-                return False
-
     # --- Step 3: Python venvs ---
-    print("\n[4/6] Setting up Python environments...")
+    print("\n[3/4] Setting up Python environments...")
     _setup_venv(SCRIPT_DIR, extras="test")
     if SYNOLOGY_DIR.exists():
         _setup_venv(SYNOLOGY_DIR)
         _setup_synology_deps()
 
     # --- Step 4: .env files ---
-    print("\n[5/6] Configuring environment...")
+    print("\n[4/4] Configuring environment...")
 
     _setup_env_file(SCRIPT_DIR / ".env", [
         ("SYNOLOGY_API_BASE", "Synology Photos API URL", "http://localhost:8000"),
-        ("OLLAMA_BASE", "Ollama server URL", "http://localhost:11434"),
-        ("VISION_MODEL", "Vision model for photo analysis", "llava:7b"),
-        ("PLANNING_MODEL", "Planning model", "qwen2.5-coder:7b"),
         ("WHISPER_MODEL", "Whisper model size (tiny/base/small/medium)", "small"),
         ("WORKSPACE", "Workspace directory", "./workspace"),
-        ("GEMINI_API_KEY", "Gemini API key (for visual/api planner — get from ai.google.dev)", ""),
+        ("GEMINI_API_KEY", "Gemini API key (get from ai.google.dev)", ""),
     ])
 
     if SYNOLOGY_DIR.exists():
@@ -337,39 +247,6 @@ def setup() -> bool:
             ("NAS_OTP_CODE", "2FA code (leave blank if not enabled)", ""),
         ])
 
-    # --- Step 5: Ollama models ---
-    # Read VISION_MODEL from .env to ensure we pull the right model
-    vision_model = "llava:7b"
-    env_path = SCRIPT_DIR / ".env"
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            if line.startswith("VISION_MODEL="):
-                vision_model = line.split("=", 1)[1].strip()
-    required_models = [vision_model, "llama3:8b"]
-
-    print(f"\n[6/6] Pulling Ollama models: {', '.join(required_models)}...")
-    ollama_cmd = ollama or shutil.which("ollama") or "ollama"
-    try:
-        # Start Ollama if not running
-        if not _is_port_open(11434):
-            print("  Starting Ollama server...")
-            _popen_detached([ollama_cmd, "serve"])
-            for _ in range(15):
-                if _is_port_open(11434):
-                    break
-                time.sleep(1)
-
-        check = subprocess.run([ollama_cmd, "list"], capture_output=True, text=True)
-        models_output = check.stdout or ""
-        for model in required_models:
-            if model not in models_output:
-                print(f"  Pulling {model} (this may take a while)...")
-                subprocess.run([ollama_cmd, "pull", model])
-            else:
-                print(f"  {model} already available")
-    except FileNotFoundError:
-        print("  Skipped (Ollama not installed)")
-
     print()
     print("=" * 60)
     print("  Setup complete!")
@@ -382,9 +259,8 @@ def setup() -> bool:
 # ---------------------------------------------------------------------------
 
 def stop_all() -> None:
-    """Stop all running services."""
     print("Stopping services...")
-    for name in ["dagster", "synology_api", "ollama"]:
+    for name in ["dagster", "synology_api"]:
         _kill_pid(name)
     if PID_DIR.exists():
         for f in PID_DIR.glob("*.pid"):
@@ -393,8 +269,7 @@ def stop_all() -> None:
 
 
 def start_all() -> None:
-    """Start all services (Ollama, Synology API, Dagster)."""
-    # Check if first-time setup is needed
+    """Start all services (Synology API, Dagster)."""
     venv_dir = SCRIPT_DIR / "venv"
     env_file = SCRIPT_DIR / ".env"
     if not venv_dir.exists() or not env_file.exists():
@@ -408,33 +283,8 @@ def start_all() -> None:
     print("=== Starting Vlog Pipeline Services ===")
     print()
 
-    # 1. Ollama
-    print("[1/3] Ensuring Ollama is running...")
-    ollama_cmd = shutil.which("ollama")
-    if not ollama_cmd and sys.platform == "win32":
-        candidate = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"
-        if candidate.exists():
-            ollama_cmd = str(candidate)
-
-    if not _is_port_open(11434):
-        if ollama_cmd:
-            try:
-                proc = _popen_detached([ollama_cmd, "serve"])
-                _write_pid("ollama", proc.pid)
-                for _ in range(15):
-                    if _is_port_open(11434):
-                        break
-                    time.sleep(1)
-                print("  Ollama started")
-            except FileNotFoundError:
-                print("  WARNING: Could not start Ollama")
-        else:
-            print("  WARNING: Ollama not found. Vision analysis will not work.")
-    else:
-        print("  Ollama already running")
-
-    # 2. Synology Photos API
-    print(f"[2/3] Starting Synology Photos API on :{API_PORT}...")
+    # 1. Synology Photos API
+    print(f"[1/2] Starting Synology Photos API on :{API_PORT}...")
     if SYNOLOGY_DIR.exists() and (SYNOLOGY_DIR / "venv").exists():
         api_python = _find_python(SYNOLOGY_DIR / "venv")
         proc = _popen_detached(
@@ -446,19 +296,17 @@ def start_all() -> None:
     else:
         print(f"  WARNING: Synology API not found or not set up at {SYNOLOGY_DIR}")
 
-    # 3. Dagster (webserver + daemon + code server)
-    print(f"[3/3] Starting Dagster on :{DAGSTER_PORT}...")
+    # 2. Dagster
+    print(f"[2/2] Starting Dagster on :{DAGSTER_PORT}...")
     dagster_home = SCRIPT_DIR / ".dagster_home"
     dagster_home.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "DAGSTER_HOME": str(dagster_home)}
     vlog_python = _find_python(SCRIPT_DIR / "venv")
 
-    # Write a dagster.yaml if missing (avoids warnings)
     dagster_yaml = dagster_home / "dagster.yaml"
     if not dagster_yaml.exists():
         dagster_yaml.write_text("")
 
-    # Use dagster dev with stderr/stdout to a log file for debugging
     dagster_log = dagster_home / "dagster_dev.log"
     dagster_log_fh = open(dagster_log, "w")
     proc = _popen_detached(
@@ -483,19 +331,14 @@ def start_all() -> None:
 
     print()
     print("=== Services Ready ===")
-    print(f"  Ollama:               http://localhost:11434")
     print(f"  Synology Photos API:  http://localhost:{API_PORT}")
     print(f"  Dagster UI:           http://localhost:{DAGSTER_PORT}")
     print()
     print("Run pipeline:")
-    print("  python run.py -n mytrip full -f 2025-06-13 -t 2025-06-17 --duration 60")
+    print("  python run.py -n mytrip full -f 2025-06-13 -t 2025-06-17 --duration 180")
     print()
     print("Stop all:  python start.py stop")
 
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "start"
