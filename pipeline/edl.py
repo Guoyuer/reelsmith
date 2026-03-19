@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from .config import Config
 
 
 class TextOverlay(BaseModel):
@@ -79,3 +83,38 @@ class EDL(BaseModel):
         if self.outro_style in ("fade_title", "last_hero"):
             total += 3.0
         return total - transitions
+
+
+# ---------------------------------------------------------------------------
+# EDL persistence helpers
+# ---------------------------------------------------------------------------
+
+def find_latest_version(cfg: Config) -> int:
+    """Find the latest version number from edl_v*.json files."""
+    versions = []
+    for f in cfg.workspace.glob("edl_v*.json"):
+        try:
+            versions.append(int(f.stem.split("_v")[1]))
+        except (IndexError, ValueError):
+            pass
+    return max(versions) if versions else 0
+
+
+def save_edl(cfg: Config, edl: EDL, version: int) -> Path:
+    """Save EDL as workspace/edl_v{version}.json."""
+    path = cfg.workspace / f"edl_v{version}.json"
+    path.write_text(edl.model_dump_json(indent=2))
+    return path
+
+
+def load_latest_edl(cfg: Config) -> tuple[EDL, int]:
+    """Load the latest edl_v{N}.json. Falls back to edl.json for migration."""
+    version = find_latest_version(cfg)
+    if version > 0:
+        path = cfg.workspace / f"edl_v{version}.json"
+    else:
+        path = cfg.workspace / "edl.json"
+        if not path.exists():
+            raise FileNotFoundError(f"No EDL found in {cfg.workspace}")
+        version = 1
+    return EDL.model_validate_json(path.read_text()), version

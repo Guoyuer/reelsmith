@@ -108,17 +108,6 @@ class AssembleConfig(dg.Config):
     quality: float = 1.0  # bitrate multiplier: 0.5=smaller, 1.0=YouTube quality, 2.0=master
 
 
-class IterateConfig(dg.Config):
-    workspace: str = Config.run_workspace()
-    style: str = "upbeat"
-    max_rounds: int = 2
-    feedback: str | None = None
-
-
-class VariationsConfig(dg.Config):
-    workspace: str = Config.run_workspace()
-    styles: str = "energetic,reflective,cinematic"
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -467,11 +456,11 @@ def assemble(
     config: AssembleConfig,
 ) -> dg.MaterializeResult:
     """Render vlog from EDL via FFmpeg. Always re-renders (versioned)."""
-    from .iterate import _find_latest_version
+    from .edl import find_latest_version
 
     io = context.resources.io_manager
     cfg = io.config
-    version = config.version if config.version > 0 else _find_latest_version(cfg)
+    version = config.version if config.version > 0 else find_latest_version(cfg)
 
     t0 = time.monotonic()
     output_path = do_assemble(
@@ -496,45 +485,6 @@ def assemble(
 # Iterate job (op-based, not an asset — mutates existing state)
 # ---------------------------------------------------------------------------
 
-@dg.op(
-    retry_policy=dg.RetryPolicy(max_retries=1, delay=15),
-)
-def iterate_op(context: dg.OpExecutionContext, config: IterateConfig) -> None:
-    """Self-critique or apply feedback via Claude API, then re-render."""
-    from .iterate import apply_feedback, self_critique
-
-    cfg = Config.load(config.workspace)
-    if config.feedback:
-        apply_feedback(cfg, config.feedback, log_fn=context.log.info)
-    else:
-        self_critique(cfg, style=config.style, max_rounds=config.max_rounds,
-                      log_fn=context.log.info)
-
-
-@dg.job(name="iterate")
-def iterate_job() -> None:
-    iterate_op()
-
-
-@dg.op(
-    retry_policy=dg.RetryPolicy(max_retries=1, delay=15),
-)
-def variations_op(context: dg.OpExecutionContext, config: VariationsConfig) -> None:
-    """Generate multiple vlog variations with different styles via Claude API."""
-    from .iterate import generate_variations
-
-    cfg = Config.load(config.workspace)
-    outputs = generate_variations(cfg, styles=[s.strip() for s in config.styles.split(",")],
-                                  log_fn=context.log.info)
-    for path in outputs:
-        context.log.info(f"  {path}")
-
-
-@dg.job(name="variations")
-def variations_job() -> None:
-    variations_op()
-
-
 # ---------------------------------------------------------------------------
 # Jobs & Definitions
 # ---------------------------------------------------------------------------
@@ -547,7 +497,7 @@ full_pipeline = dg.define_asset_job(
 
 defs = dg.Definitions(
     assets=[fetch_media, preprocess, analyze, plan, generate_music, assemble],
-    jobs=[full_pipeline, iterate_job, variations_job],
+    jobs=[full_pipeline],
     resources={
         "io_manager": WorkspaceIOManager(base_dir="./workspace", run_name="default"),
     },

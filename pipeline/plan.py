@@ -317,9 +317,9 @@ def plan(
         edl.music_mode = "auto"
         _log("Music mode: auto (will generate in generate_music step)")
 
-    from .iterate import _find_latest_version, _save_edl
-    version = _find_latest_version(cfg) + 1
-    _save_edl(cfg, edl, version)
+    from .edl import find_latest_version, save_edl
+    version = find_latest_version(cfg) + 1
+    save_edl(cfg, edl, version)
 
     clips_dir = cfg.workspace / "clips"
     if clips_dir.exists():

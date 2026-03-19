@@ -197,10 +197,10 @@ def generate_music_for_edl(
     Returns the music file path, or None if skipped/failed.
     """
     _log = log_fn or print
-    from .iterate import _load_latest_edl, _save_edl
+    from .edl import load_latest_edl, save_edl
     from .edl import MusicTrack
 
-    edl, version = _load_latest_edl(cfg)
+    edl, version = load_latest_edl(cfg)
 
     if edl.music_mode != "auto":
         _log(f"Music mode is '{edl.music_mode}', skipping generation")
@@ -232,7 +232,7 @@ def generate_music_for_edl(
 
     if track_path:
         edl.music = MusicTrack(file=str(track_path))
-        _save_edl(cfg, edl, version)
+        save_edl(cfg, edl, version)
         _log(f"Music track saved to EDL v{version}: {track_path}")
 
     return track_path

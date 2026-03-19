@@ -237,55 +237,18 @@ def plan(ctx, planner, duration, trip_type, style, focus):
 def assemble(ctx, version, quality):
     """Re-render the vlog from current or specified EDL version."""
     from pipeline.config import Config as PipelineConfig
-    from pipeline.iterate import _find_latest_version
+    from pipeline.edl import find_latest_version
 
     rn = _run_name(ctx)
     if version is None:
         ws = PipelineConfig.run_workspace(run_name=rn)
         cfg = PipelineConfig.load(ws)
-        version = _find_latest_version(cfg) + 1
+        version = find_latest_version(cfg) + 1
 
     _submit("full_pipeline", rn, {
         "ops": {
             "assemble": {"config": {"version": version, "quality": quality}},
         },
-    })
-
-
-# ---------------------------------------------------------------------------
-# Iterate commands
-# ---------------------------------------------------------------------------
-
-@cli.command()
-@click.option("--feedback", default=None, help="Natural language feedback to apply")
-@click.option("--rounds", default=2, type=int, help="Self-critique rounds (if no feedback)")
-@click.option("--style", default="upbeat")
-@click.pass_context
-def iterate(ctx, feedback, rounds, style):
-    """Improve the vlog via Gemini self-critique or human feedback."""
-    from pipeline.config import Config as PipelineConfig
-
-    ws = PipelineConfig.run_workspace(run_name=_run_name(ctx))
-    config: dict = {"ops": {"iterate_op": {"config": {
-        "workspace": ws, "style": style, "max_rounds": rounds,
-    }}}}
-    if feedback:
-        config["ops"]["iterate_op"]["config"]["feedback"] = feedback
-
-    _submit("iterate", _run_name(ctx), config)
-
-
-@cli.command()
-@click.option("--styles", default="energetic,reflective,cinematic",
-              help="Comma-separated variation styles")
-@click.pass_context
-def variations(ctx, styles):
-    """Generate multiple vlog variations with different styles."""
-    from pipeline.config import Config as PipelineConfig
-
-    ws = PipelineConfig.run_workspace(run_name=_run_name(ctx))
-    _submit("variations", _run_name(ctx), {
-        "ops": {"variations_op": {"config": {"workspace": ws, "styles": styles}}},
     })
 
 

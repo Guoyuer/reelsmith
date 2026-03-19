@@ -22,12 +22,7 @@ flowchart LR
         GM --> AS[assemble]
     end
 
-    subgraph "Jobs"
-        IT[iterate<br/>self-critique /<br/>feedback /<br/>variations]
-    end
-
     MAT --> FM
-    AS -.-> IT -.->|mutates| PL
 
     style FM fill:#42A5F5,color:#fff
     style PP fill:#66BB6A,color:#fff
@@ -158,8 +153,6 @@ All CLI commands submit to the Dagster webserver — runs appear in the UI at ht
 | `python run.py -n <name> resume` | Resume — auto-skips completed stages |
 | `python run.py -n <name> plan ...` | Re-plan + re-assemble (reuses cached media) |
 | `python run.py -n <name> assemble` | Re-render from current EDL |
-| `python run.py -n <name> iterate ...` | Self-critique or apply human feedback |
-| `python run.py -n <name> variations` | Generate multiple style variations |
 | `python run.py workspace` | Show disk usage |
 | `python run.py workspace --clean all -y` | Delete all workspace data |
 | `python start.py stop` | Stop all services |
@@ -274,16 +267,6 @@ python run.py -n sg-photos full -f 2025-06-13 -t 2025-06-17 \
 **Re-plan with different style (keeps cached media):**
 ```bash
 python run.py -n singapore plan --style reflective --duration 120
-```
-
-**Iterate with feedback:**
-```bash
-python run.py -n singapore iterate --feedback "more family close-ups, less scenery"
-```
-
-**Generate style variations:**
-```bash
-python run.py -n singapore variations --styles "energetic,reflective,cinematic"
 ```
 
 ### Web UI (Dagster)

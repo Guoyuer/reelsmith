@@ -194,8 +194,8 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     global _QUALITY
     _QUALITY = quality
     cfg.ensure_dirs()
-    from .iterate import _load_latest_edl
-    edl, _ = _load_latest_edl(cfg)
+    from .edl import load_latest_edl
+    edl, _ = load_latest_edl(cfg)
 
     clips_dir = cfg.workspace / "clips"
     output_dir = cfg.workspace / "output"
