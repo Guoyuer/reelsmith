@@ -397,11 +397,25 @@ def plan(
     vid_pct = int(vid_time / total_time * 100) if total_time > 0 else 0
 
     context.log.info(
-        f"EDL v{version}: {len(result.segments)} segments, "
+        f"[Gemini] EDL v{version}: {len(result.segments)} segments, "
         f"{n_photos} photos + {n_videos} videos ({vid_pct}% video), "
-        f"{n_keep_audio} keep_audio, {n_speed} speed-ramped, "
         f"~{result.estimated_duration():.0f}s"
     )
+    if n_keep_audio:
+        context.log.info(f"[Gemini] Audio: {n_keep_audio} clips with speech preserved")
+    if n_speed:
+        context.log.info(f"[Gemini] Speed ramps: {n_speed} clips")
+    for seg in result.segments:
+        extras = []
+        if getattr(seg, "mode", "narrative") == "montage":
+            extras.append("MONTAGE")
+        if getattr(seg, "color_temp", "neutral") != "neutral":
+            extras.append(f"color={seg.color_temp}")
+        extra_str = f" [{', '.join(extras)}]" if extras else ""
+        context.log.info(
+            f"[Gemini]   {seg.name}: {len(seg.items)} items, "
+            f"transition={seg.transition}{extra_str}"
+        )
 
     return dg.MaterializeResult(
         metadata={
@@ -444,6 +458,8 @@ def generate_music(
     )
 
     if track_path:
+        size_kb = round(track_path.stat().st_size / 1024) if track_path.exists() else 0
+        context.log.info(f"[Gemini Lyria] Music generated: {track_path.name} ({size_kb}KB)")
         return dg.MaterializeResult(
             metadata={
                 "status": dg.MetadataValue.text("generated"),
@@ -451,6 +467,7 @@ def generate_music(
                 "backend": dg.MetadataValue.text(config.music_backend),
             }
         )
+    context.log.info("Music generation skipped (music_mode != auto or no API key)")
     return dg.MaterializeResult(
         metadata={"status": dg.MetadataValue.text("skipped")}
     )
@@ -483,8 +500,8 @@ def assemble(
     render_min = round((time.monotonic() - t0) / 60, 1)
     size_mb = round(output_path.stat().st_size / 1024 / 1024, 1) if output_path.exists() else 0
     context.log.info(
-        f"Assembled: {output_path.name} ({size_mb}MB, {render_min}min render, "
-        f"resolution={config.width}x{config.height}@{config.fps}fps, quality={config.quality})"
+        f"[FFmpeg] Assembled: {output_path.name} ({size_mb}MB, {render_min}min render, "
+        f"{config.width}x{config.height}@{config.fps}fps, quality={config.quality})"
     )
 
     return dg.MaterializeResult(
