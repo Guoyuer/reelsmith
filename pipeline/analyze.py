@@ -108,6 +108,18 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None, **_kwargs) -> l
 
     pbar.close()
 
+    # Speech detection pass — runs on all videos, independent of cache
+    videos = [r for r in results if r.get("media_type") == "video"]
+    if videos:
+        _log(f"Speech detection: {len(videos)} videos...")
+        for r in videos:
+            if "has_speech" not in r:
+                lp = Path(r["local_path"])
+                if lp.exists():
+                    r["has_speech"] = _detect_speech(lp)
+        n_speech = sum(1 for r in videos if r.get("has_speech"))
+        _log(f"Speech detection: {n_speech}/{len(videos)} videos have speech")
+
     # Final save
     analysis_path.write_text(json.dumps(results, indent=2))
     _log(f"Analysis complete: {len(results)} items")
@@ -161,12 +173,9 @@ def _analyze_video(entry, item_id, local_path, cfg, cache_file, log_fn, i, total
         for idx, kf in enumerate(existing_kfs)
     ]
 
-    # Detect if video has speech (lightweight FFmpeg audio energy check)
-    entry["has_speech"] = _detect_speech(local_path)
-
-    # Save to shared cache
+    # Save to shared cache (has_speech added in separate pass)
     cache_entry = {k: v for k, v in entry.items()
-                   if k in ("keyframe_paths", "scenes", "video_duration", "thumbnail_path", "has_speech")}
+                   if k in ("keyframe_paths", "scenes", "video_duration", "thumbnail_path")}
     cache_file.write_text(json.dumps(cache_entry, indent=2))
 
     log_fn(f"[{i}/{total}] {entry['filename']} — {len(existing_kfs)} keyframes ({total_dur:.0f}s)")
