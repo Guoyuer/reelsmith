@@ -102,15 +102,22 @@ Run submitted: 94f28746-9f4d-4399-90bf-2da7d485fbf0
 View at: http://localhost:3000/runs/94f28746-...
 ```
 
-### More examples
+### Iteration workflow
+
+Use low-res previews to iterate on narrative/selection quickly, then do a final 4K render:
 
 ```bash
-# Quick preview (low res, draft quality)
-python run.py -n sg-test full -f 2025-06-13 -t 2025-06-16 \
-  --duration 60 --width 640 --height 360 --fps 15 --quality 0.5
+# 1. Fast preview (~1min render, ~20MB file) — check if story works
+python run.py -n sg-draft full -f 2025-06-13 -t 2025-06-17 \
+  --duration 180 --style energetic \
+  --width 640 --height 360 --fps 15 --quality 0.3
 
-# Local MusicGen instead of Gemini API (no API key needed for music, but slow)
-python run.py -n sg full ... --music local
+# 2. Happy with the edit? Re-plan with tweaks if needed
+python run.py -n sg-draft plan --style cinematic --duration 120
+
+# 3. Final 4K render (default settings)
+python run.py -n sg-final full -f 2025-06-13 -t 2025-06-17 \
+  --duration 180 --style energetic
 
 # Stop all services when done
 python start.py stop
