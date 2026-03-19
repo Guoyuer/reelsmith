@@ -403,7 +403,18 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int) -> None:
             return
 
     frames = int(item.display_duration * fps)
-    zoom_rate = 0.001 + (0.3 / frames)  # reach ~1.3x zoom over the duration
+    # Vary zoom intensity by effect type for richer visual feel
+    zoom_targets = {
+        "ken_burns_in": 0.25,    # gentle zoom in
+        "ken_burns_out": 0.20,   # subtle zoom out
+        "ken_burns_left": 0.15,  # gentle pan
+        "ken_burns_right": 0.15, # gentle pan
+        "static": 0.0,
+    }
+    target = zoom_targets.get(item.effect, 0.25)
+    # Add slight variation per-clip using hash of filename
+    variation = (hash(item.source_file) % 10) / 100  # 0.00-0.09
+    zoom_rate = 0.001 + ((target + variation) / frames) if target > 0 else 0
 
     # Probe dimensions (after HEIC conversion) to decide portrait vs landscape
     src_w, src_h = _probe_dimensions(source)
@@ -534,10 +545,10 @@ def _add_text_overlay(
     y_positions = {"top": "50", "center": "(h-text_h)/2", "bottom": "h-text_h-60"}
     y_expr = y_positions.get(position, y_positions["bottom"])
 
-    # Truncate long text and escape special characters for drawtext
-    if len(text) > 25:
-        text = text[:25]
+    # Escape special characters for drawtext, scale font for longer text
     safe_text = text.replace("'", "\u2019").replace(":", "\\:")
+    if len(text) > 20:
+        font_size = int(font_size * 20 / len(text))
 
     end_time = min(clip_duration - 0.5, 3.0)
     font = _find_font()
