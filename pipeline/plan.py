@@ -142,9 +142,8 @@ def _format_item_line(a: dict, tier_prefix: str, prev_time: int | None = None) -
     if persons:
         line += f"\n      people: {', '.join(persons)}"
 
-    transcript = a.get("transcript", "")
-    if transcript:
-        line += f"\n      transcript: {transcript}"
+    if a.get("has_speech"):
+        line += "\n      ** has_speech: family voices detected **"
 
     # Video scenes — show available moments for trim point selection
     scenes = a.get("scenes", [])
@@ -290,8 +289,8 @@ You have complete autonomy over:
 
 3. **Video-first**: Prefer video clips over photos when both cover the same moment.
    Videos bring motion, atmosphere, and sound — they make a vlog feel alive, not like
-   a slideshow. Aim for 40-60% video content by screen time. Videos with speech or
-   reactions (see transcript) are especially valuable.
+   a slideshow. Aim for 40-60% video content by screen time. Videos marked "has_speech"
+   contain family voices — strongly prefer these, as their audio will be preserved.
 
 4. **Rhythm**: Alternate photos (3-5s, Ken Burns) with video clips (5-10s, real motion).
    Vary pacing — fast cuts for energy, lingering shots for emotion.
@@ -393,9 +392,8 @@ def _build_visual_chapter_text(
             dur_s = f"{dur_ms / 1000:.0f}s" if dur_ms else "?"
             n_scenes = len(a.get("scenes", []))
             parts.append(f"video={dur_s} scenes={n_scenes}")
-            transcript = a.get("transcript", "")
-            if transcript:
-                parts.append(f'transcript="{transcript[:100]}"')
+            if a.get("has_speech"):
+                parts.append("has_speech")
             video_items.append(a)
         else:
             photo_paths.append(Path(local_path))
