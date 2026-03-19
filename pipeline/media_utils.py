@@ -16,13 +16,14 @@ if sys.platform == "win32":
         os.environ["PATH"] = _winget_links + os.pathsep + os.environ.get("PATH", "")
 
 
-def run_subprocess(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
+def run_subprocess(cmd: list[str], timeout: int = 300, **kwargs) -> subprocess.CompletedProcess:
     """Run a subprocess that is killed when the parent receives SIGINT/SIGTERM.
 
     Unlike ``subprocess.run``, this uses ``Popen`` so that Python's signal
     handler can execute between poll intervals.  When interrupted, the child
     process is terminated immediately (SIGTERM, then SIGKILL after 3s).
 
+    Timeout defaults to 300s (5min) to prevent hanging on corrupt files.
     Accepts the same keyword arguments as ``subprocess.run``.
     """
     capture = kwargs.pop("capture_output", False)
@@ -32,7 +33,11 @@ def run_subprocess(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
 
     proc = subprocess.Popen(cmd, **kwargs)
     try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
         stdout, stderr = proc.communicate()
+        return subprocess.CompletedProcess(cmd, 1, stdout=stdout, stderr=stderr)
     except KeyboardInterrupt:
         proc.terminate()
         try:
