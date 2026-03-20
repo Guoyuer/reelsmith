@@ -2,21 +2,17 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-try:
-    import cv2
-except ImportError:
-    cv2 = None  # Face detection disabled; falls back to center crop
 from tqdm import tqdm
 
 from .config import Config
-from .edl import EDL, EditItem, Segment
+from .edl import EDL, EditItem
 from .media_utils import convert_heic, run_subprocess, _zoompan_filter, _portrait_bg_filter
-
-# YuNet DNN face detector (loaded once, 100% recall on trip photos)
-_YUNET_MODEL = Path(__file__).parent / "face_detection_yunet_2023mar.onnx"
 
 
 # ---------------------------------------------------------------------------
@@ -62,42 +58,61 @@ def _target_bitrate(width: int, height: int, fps: int, quality: float = 1.0) -> 
 
 def _detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60,
                        quality: float = 1.0) -> list[str]:
-    """Detect hardware encoder and return FFmpeg args with quality bitrate.
+    """Detect best hardware encoder: prefers HEVC (smaller files, same speed on GPU).
 
-    Returns ["-c:v", "h264_nvenc", "-b:v", "67M", ...] on NVIDIA,
-    ["-c:v", "h264_videotoolbox", "-b:v", "67M", ...] on macOS,
-    or ["-c:v", "libx264", "-b:v", "67M", ...] as fallback.
+    Tries: hevc_nvenc → h264_nvenc → hevc_videotoolbox → h264_videotoolbox → libx264.
+    CPU fallback stays H.264 (H.265 CPU encoding is too slow).
     """
     import sys
-    bitrate = _target_bitrate(width, height, fps, quality)
+    h264_br = _target_bitrate(width, height, fps, quality)
+    # HEVC achieves same visual quality at ~65% of H.264 bitrate
+    hevc_br = f"{max(int(int(h264_br.rstrip('M')) * 0.65), 1)}M"
+
+    _test_cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", "nullsrc=s=640x360:d=0.1:r=15"]
 
     if sys.platform == "darwin":
-        return ["-c:v", "h264_videotoolbox", "-b:v", bitrate]
+        try:
+            test = run_subprocess(_test_cmd + ["-c:v", "hevc_videotoolbox", "-f", "null", "-"],
+                                  capture_output=True, text=True)
+            if test.returncode == 0:
+                return ["-c:v", "hevc_videotoolbox", "-b:v", hevc_br]
+        except Exception:
+            pass
+        return ["-c:v", "h264_videotoolbox", "-b:v", h264_br]
 
-    # Check for NVIDIA NVENC
     try:
-        result = run_subprocess(
-            ["ffmpeg", "-hide_banner", "-encoders"],
-            capture_output=True, text=True,
-        )
-        if "h264_nvenc" in (result.stdout or ""):
-            test = run_subprocess(
-                ["ffmpeg", "-y", "-f", "lavfi", "-i", "nullsrc=s=640x360:d=0.1:r=15",
-                 "-c:v", "h264_nvenc", "-f", "null", "-"],
-                capture_output=True, text=True,
-            )
+        result = run_subprocess(["ffmpeg", "-hide_banner", "-encoders"],
+                                capture_output=True, text=True)
+        encoders = result.stdout or ""
+
+        # Try HEVC NVENC first (same speed as H.264 NVENC, ~35% smaller files)
+        if "hevc_nvenc" in encoders:
+            test = run_subprocess(_test_cmd + ["-c:v", "hevc_nvenc", "-f", "null", "-"],
+                                  capture_output=True, text=True)
+            if test.returncode == 0:
+                return ["-c:v", "hevc_nvenc", "-preset", "p4",
+                        "-rc", "vbr", "-b:v", hevc_br, "-maxrate", hevc_br]
+
+        # Fall back to H.264 NVENC
+        if "h264_nvenc" in encoders:
+            test = run_subprocess(_test_cmd + ["-c:v", "h264_nvenc", "-f", "null", "-"],
+                                  capture_output=True, text=True)
             if test.returncode == 0:
                 return ["-c:v", "h264_nvenc", "-preset", "p4",
-                        "-rc", "vbr", "-b:v", bitrate, "-maxrate", bitrate]
+                        "-rc", "vbr", "-b:v", h264_br, "-maxrate", h264_br]
     except Exception:
         pass
 
-    return ["-c:v", "libx264", "-preset", "fast", "-b:v", bitrate]
+    # CPU fallback: H.264 only (H.265 CPU encoding is too slow)
+    return ["-c:v", "libx264", "-preset", "fast", "-b:v", h264_br]
 
 
 # Cache per (width, height, fps, quality) so bitrate changes with settings
 _HW_ENCODER_CACHE: dict[tuple, list[str]] = {}
 _QUALITY: float = 1.0  # Set by assemble() before rendering
+# Probe caches — cleared at start of each assemble run
+_PROBE_DIM_CACHE: dict[str, tuple[int, int]] = {}
+_PROBE_DUR_CACHE: dict[str, float] = {}
 
 
 def _get_encoder(width: int = 3840, height: int = 2160, fps: int = 60) -> list[str]:
@@ -109,42 +124,14 @@ def _get_encoder(width: int = 3840, height: int = 2160, fps: int = 60) -> list[s
 
 
 # ---------------------------------------------------------------------------
-# Face detection & crop helpers
-# ---------------------------------------------------------------------------
-
-def _detect_face_center(path: Path) -> tuple[float, float] | None:
-    """Detect faces and return their center as (cx_ratio, cy_ratio) in 0-1 range.
-
-    Uses OpenCV's YuNet DNN detector. Returns None if no faces found or cv2
-    is not installed.
-    """
-    if cv2 is None:
-        return None
-    img = cv2.imread(str(path))
-    if img is None:
-        return None
-    h, w = img.shape[:2]
-    scale = min(1.0, 640 / max(w, h))
-    nw, nh = int(w * scale), int(h * scale)
-    small = cv2.resize(img, (nw, nh))
-
-    detector = cv2.FaceDetectorYN.create(str(_YUNET_MODEL), "", (nw, nh), 0.7)
-    _, faces = detector.detect(small)
-    if faces is None or len(faces) == 0:
-        return None
-
-    # Average center of all faces (in original image coordinates)
-    cx = sum((f[0] + f[2] / 2) / scale for f in faces) / len(faces)
-    cy = sum((f[1] + f[3] / 2) / scale for f in faces) / len(faces)
-    return cx / w, cy / h
-
-
-# ---------------------------------------------------------------------------
 # Portrait detection & filter helpers (pure functions, easily testable)
 # ---------------------------------------------------------------------------
 
 def _probe_dimensions(path: Path) -> tuple[int, int]:
-    """Use ffprobe to get (width, height) of a media file."""
+    """Use ffprobe to get (width, height) of a media file. Cached."""
+    key = str(path)
+    if key in _PROBE_DIM_CACHE:
+        return _PROBE_DIM_CACHE[key]
     result = run_subprocess(
         [
             "ffprobe", "-v", "error",
@@ -157,9 +144,11 @@ def _probe_dimensions(path: Path) -> tuple[int, int]:
     )
     try:
         parts = result.stdout.strip().split("x")
-        return int(parts[0]), int(parts[1])
+        dims = int(parts[0]), int(parts[1])
     except (ValueError, IndexError):
-        return 0, 0
+        dims = 0, 0
+    _PROBE_DIM_CACHE[key] = dims
+    return dims
 
 
 def _is_portrait(src_w: int, src_h: int) -> bool:
@@ -184,6 +173,166 @@ def _build_portrait_photo_filter(
 
 
 # ---------------------------------------------------------------------------
+# Beat sync — snap transitions to music beats for pro feel
+# ---------------------------------------------------------------------------
+
+def _estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int | None:
+    """Estimate BPM from WAV using energy envelope autocorrelation. Stdlib only."""
+    import math
+    import struct as _struct
+    import wave
+
+    try:
+        with wave.open(str(wav_path)) as w:
+            sr = w.getframerate()
+            nc = w.getnchannels()
+            sw = w.getsampwidth()
+            n_frames = w.getnframes()
+            # Read at most 30s for speed
+            max_frames = min(n_frames, sr * 30)
+            raw = w.readframes(max_frames)
+    except Exception:
+        return None
+
+    # Decode to mono samples
+    n_samples = len(raw) // sw
+    if sw == 2:
+        samples = _struct.unpack(f"<{n_samples}h", raw)
+    elif sw == 4:
+        samples = _struct.unpack(f"<{n_samples}i", raw)
+    else:
+        return None
+
+    if nc == 2:
+        samples = [(samples[i] + samples[i + 1]) / 2 for i in range(0, n_samples - 1, 2)]
+    elif nc > 2:
+        return None
+
+    if len(samples) < sr * 2:
+        return None  # too short
+
+    # Energy in 10ms windows
+    win = sr // 100
+    energy = []
+    for i in range(0, len(samples), win):
+        chunk = samples[i:i + win]
+        if chunk:
+            energy.append(math.sqrt(sum(s * s for s in chunk) / len(chunk)))
+
+    if len(energy) < 200:
+        return None
+
+    # Autocorrelation for BPM range
+    windows_per_sec = 100  # 10ms windows
+    min_lag = int(60 / max_bpm * windows_per_sec)
+    max_lag = int(60 / min_bpm * windows_per_sec)
+    max_lag = min(max_lag, len(energy) // 2)
+
+    if min_lag >= max_lag:
+        return None
+
+    mean_e = sum(energy) / len(energy)
+    best_lag = min_lag
+    best_corr = -1.0
+
+    for lag in range(min_lag, max_lag):
+        corr = sum((energy[i] - mean_e) * (energy[i + lag] - mean_e)
+                   for i in range(len(energy) - lag))
+        if corr > best_corr:
+            best_corr = corr
+            best_lag = lag
+
+    bpm = round(60 / (best_lag / windows_per_sec))
+    return bpm
+
+
+def _beat_snap_edl(edl: EDL, music_path: Path, log_fn=None) -> int:
+    """Snap EDL transition points to music beats. Modifies edl in place.
+
+    Returns the number of transitions snapped.
+    """
+    import bisect
+
+    _log = log_fn or print
+
+    bpm = _estimate_bpm(music_path)
+    if not bpm:
+        _log("Beat sync: could not estimate BPM, skipping")
+        return 0
+
+    _log(f"Beat sync: detected ~{bpm} BPM")
+
+    # Build beat grid at half-beat intervals for finer snap resolution
+    beat_interval = 60.0 / bpm
+    half_beat = beat_interval / 2
+    total_dur = edl.estimated_duration() + 10  # padding
+    beats = [i * half_beat for i in range(int(total_dur / half_beat) + 1)]
+
+    # Walk the EDL and snap transitions
+    max_shift = 0.4  # seconds — max adjustment per clip
+    min_photo_dur = 2.0
+    min_video_dur = 3.0
+
+    offset = 0.0
+    # Account for intro
+    if edl.intro_style == "title_card":
+        offset += 3.0
+    elif edl.intro_style == "highlight_montage":
+        offset += 5.0
+
+    snapped = 0
+    total_transitions = 0
+
+    for seg in edl.segments:
+        # Skip segments with speech (changing duration desynchronizes dialogue)
+        has_speech = any(item.keep_audio for item in seg.items)
+        if has_speech:
+            offset += sum(item.display_duration for item in seg.items)
+            total_transitions += max(0, len(seg.items) - 1)
+            continue
+
+        for i, item in enumerate(seg.items):
+            offset += item.display_duration
+            total_transitions += 1
+
+            if i == len(seg.items) - 1:
+                continue  # last item in segment — transition is segment boundary, handled by xfade
+
+            # Find nearest beat to this transition point
+            idx = bisect.bisect_left(beats, offset)
+            candidates = []
+            if idx > 0:
+                candidates.append(beats[idx - 1])
+            if idx < len(beats):
+                candidates.append(beats[idx])
+
+            if not candidates:
+                continue
+
+            nearest = min(candidates, key=lambda b: abs(b - offset))
+            shift = nearest - offset
+
+            if abs(shift) > max_shift:
+                continue
+
+            # Apply shift: adjust this clip's duration
+            min_dur = min_photo_dur if item.media_type == "photo" else min_video_dur
+            new_dur = item.display_duration + shift
+            if new_dur < min_dur:
+                continue
+
+            item.display_duration = round(new_dur, 3)
+            offset = offset + shift  # update running offset
+            snapped += 1
+
+    if total_transitions > 0:
+        pct = int(snapped / total_transitions * 100)
+        _log(f"Beat sync: snapped {snapped}/{total_transitions} transitions ({pct}%) to {bpm} BPM grid")
+
+    return snapped
+
+
+# ---------------------------------------------------------------------------
 # Main assemble entry point
 # ---------------------------------------------------------------------------
 
@@ -193,6 +342,8 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     """Read latest edl_v{N}.json and render the vlog video."""
     global _QUALITY
     _QUALITY = quality
+    _PROBE_DIM_CACHE.clear()
+    _PROBE_DUR_CACHE.clear()
     cfg.ensure_dirs()
     from .edl import load_latest_edl
     edl, _ = load_latest_edl(cfg)
@@ -203,61 +354,101 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
     w, h = resolution or edl.resolution
     fps = fps or edl.fps
+    lang = edl.language
 
-    # Phase 1: Render each item as a normalized clip
-    all_clips: list[dict] = []  # {"path": Path, "duration": float, "transition": str, "transition_duration": float}
-    failed_clips: list[str] = []
-    total_items = sum(len(seg.items) for seg in edl.segments)
-    pbar = tqdm(total=total_items, desc="Rendering clips", unit="clip",
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
+    # Beat sync: snap transitions to music beats (before rendering clips)
+    if edl.music and Path(edl.music.file).exists():
+        _beat_snap_edl(edl, Path(edl.music.file), log_fn=print)
 
+    # Determine parallel workers based on encoder type
+    encoder = _get_encoder(w, h, fps)
+    encoder_str = " ".join(encoder)
+    if "nvenc" in encoder_str:
+        max_workers = int(os.environ.get("VLOG_PARALLEL_CLIPS", "3"))
+    elif "videotoolbox" in encoder_str:
+        max_workers = 2
+    else:
+        max_workers = max(1, (os.cpu_count() or 4) // 2)
+
+    # Phase 1: Render each item as a normalized clip (parallel)
+    t1 = time.monotonic()
+
+    # Build ordered task list
+    tasks: list[tuple] = []  # (order, seg_idx, item_idx, item, segment)
     for seg_idx, segment in enumerate(edl.segments):
         for item_idx, item in enumerate(segment.items):
-            clip_name = f"seg{seg_idx:02d}_item{item_idx:02d}.mp4"
-            clip_path = clips_dir / clip_name
+            tasks.append((len(tasks), seg_idx, item_idx, item, segment))
 
-            if not clip_path.exists():
-                source = Path(item.source_file)
-                if not source.exists():
-                    pbar.write(f"  SKIP (missing): {item.source_file}")
+    total_items = len(tasks)
+    clip_results: list[Path | None] = [None] * total_items
+    failed_clips: list[str] = []
+
+    pbar = tqdm(total=total_items, desc=f"Rendering clips (x{max_workers})", unit="clip",
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
+
+    def _do_render(task):
+        order, seg_idx, item_idx, item, segment = task
+        clip_name = f"seg{seg_idx:02d}_item{item_idx:02d}.mp4"
+        clip_path = clips_dir / clip_name
+
+        if not clip_path.exists():
+            source = Path(item.source_file)
+            if not source.exists():
+                return order, clip_name, None
+
+            ct = getattr(segment, "color_temp", "neutral") or "neutral"
+            if item.media_type == "photo":
+                _render_photo(item, clip_path, w, h, fps, color_temp=ct,
+                             text_overlay=item.text_overlay, language=lang)
+            else:
+                _render_video(item, clip_path, w, h, fps, color_temp=ct,
+                             text_overlay=item.text_overlay, language=lang)
+
+        if not clip_path.exists():
+            return order, clip_name, None
+        return order, clip_name, clip_path
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_do_render, t): t[0] for t in tasks}
+        for future in as_completed(futures):
+            try:
+                order, clip_name, clip_path = future.result()
+                if clip_path is None:
                     failed_clips.append(clip_name)
-                    pbar.update(1)
-                    continue
-
-                pbar.set_postfix_str(clip_name, refresh=True)
-                ct = getattr(segment, "color_temp", "neutral") or "neutral"
-                if item.media_type == "photo":
-                    _render_photo(item, clip_path, w, h, fps, color_temp=ct)
+                    pbar.write(f"  SKIP: {clip_name}")
                 else:
-                    _render_video(item, clip_path, w, h, fps, color_temp=ct)
+                    clip_results[order] = clip_path
+            except Exception as e:
+                idx = futures[future]
+                pbar.write(f"  ERROR ({idx}): {e}")
+                failed_clips.append(f"task_{idx}")
+            pbar.update(1)
+            if progress_callback:
+                progress_callback(pbar.n, total_items, "")
 
-            if not clip_path.exists():
-                failed_clips.append(clip_name)
-                pbar.update(1)
+    pbar.close()
+    t_clips = time.monotonic() - t1
+    print(f"Phase 1 (clips): {t_clips:.1f}s ({max_workers} workers, "
+          f"{total_items - len(failed_clips)}/{total_items} OK)")
+
+    if failed_clips and not skip_broken:
+        raise RuntimeError(f"Failed to render {len(failed_clips)} clips: {', '.join(failed_clips)}")
+
+    # Build all_clips list with transitions (must be in order)
+    all_clips: list[dict] = []
+    idx = 0
+    for seg_idx, segment in enumerate(edl.segments):
+        for item_idx, item in enumerate(segment.items):
+            clip_path = clip_results[idx]
+            idx += 1
+            if clip_path is None:
                 continue
 
-            # Apply text overlay if specified
-            if item.text_overlay:
-                overlaid = clips_dir / f"{clip_path.stem}_txt.mp4"
-                if not overlaid.exists():
-                    _add_text_overlay(
-                        clip_path, overlaid,
-                        item.text_overlay.text,
-                        item.text_overlay.position,
-                        item.text_overlay.font_size,
-                        clip_duration=item.display_duration,
-                    )
-                if overlaid.exists():
-                    clip_path = overlaid
-
-            # Determine transition
             is_montage = getattr(segment, "mode", "narrative") == "montage"
             if is_montage:
-                # Montage: hard cuts, no transitions
                 transition = "cut"
                 td = 0.0
             elif item_idx == 0 and seg_idx > 0:
-                # Between segments: fade_black
                 transition = "fade_black"
                 td = 1.0
             elif item_idx > 0:
@@ -274,14 +465,6 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
                 "transition_duration": td,
                 "keep_audio": item.keep_audio,
             })
-            pbar.update(1)
-            if progress_callback:
-                progress_callback(pbar.n, total_items, clip_name)
-
-    pbar.close()
-
-    if failed_clips and not skip_broken:
-        raise RuntimeError(f"Failed to render {len(failed_clips)} clips: {', '.join(failed_clips)}")
 
     if not all_clips:
         raise RuntimeError("No clips rendered — check source files in EDL")
@@ -290,15 +473,12 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     if edl.intro_style == "title_card" and edl.title:
         intro_path = clips_dir / "intro_title.mp4"
         if not intro_path.exists():
-            _render_title_card(edl.title, edl.date_range, intro_path, w, h, fps, duration=3.0)
+            _render_title_card(edl.title, edl.date_range, intro_path, w, h, fps, duration=3.0, language=lang)
         if intro_path.exists():
-            # Intro is the first clip — its transition is "into" itself (not used).
-            # The *next* clip's transition controls the fade from intro to content.
             all_clips.insert(0, {
                 "path": intro_path, "duration": 3.0,
                 "transition": "cut", "transition_duration": 0.0,
             })
-            # Set the first content clip to fade from intro
             if len(all_clips) > 1:
                 all_clips[1]["transition"] = "fade_black"
                 all_clips[1]["transition_duration"] = 1.0
@@ -306,27 +486,30 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     if edl.outro_style == "fade_title" and edl.title:
         outro_path = clips_dir / "outro_title.mp4"
         if not outro_path.exists():
-            _render_title_card(edl.title, "", outro_path, w, h, fps, duration=3.0)
+            _render_title_card(edl.title, "", outro_path, w, h, fps, duration=3.0, language=lang)
         if outro_path.exists():
             all_clips.append({
                 "path": outro_path, "duration": 3.0,
                 "transition": "fade_black", "transition_duration": 1.0,
             })
 
-    # Compute clip offsets and build speech audio track
+    # Compute clip offsets using actual rendered durations (avoids drift from EDL rounding)
     speech_ranges: list[tuple[float, float]] = []
-    speech_clips: list[tuple[float, Path]] = []  # (offset, clip_path)
+    speech_clips: list[tuple[float, Path]] = []
     offset = 0.0
     for clip in all_clips:
+        actual_dur = _probe_duration(clip["path"]) or clip["duration"]
         if clip.get("keep_audio"):
-            speech_ranges.append((offset, offset + clip["duration"]))
+            speech_ranges.append((offset, offset + actual_dur))
             speech_clips.append((offset, clip["path"]))
-        offset += clip["duration"] - clip.get("transition_duration", 0.0)
+        offset += actual_dur - clip.get("transition_duration", 0.0)
 
     # Phase 2: Concatenate with transitions (video only — xfade drops audio)
+    t2 = time.monotonic()
     print(f"Concatenating {len(all_clips)} clips...")
     no_music_path = output_dir / f"vlog_v{version}_nomix.mp4"
     _concatenate(all_clips, no_music_path)
+    print(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
 
     # Phase 2b: Build speech audio track from keep_audio clips at correct offsets
     speech_audio_path = None
@@ -337,6 +520,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
         print(f"Speech track: {len(speech_clips)} clips merged into {speech_audio_path.name}")
 
     # Phase 3: Mix music + speech audio
+    t3 = time.monotonic()
     if edl.music and Path(edl.music.file).exists():
         music_dur = _probe_duration(Path(edl.music.file))
         video_dur = _probe_duration(no_music_path)
@@ -348,7 +532,6 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
         if speech_audio_path:
             speech_audio_path.unlink(missing_ok=True)
     elif speech_audio_path:
-        # No music but we have speech — merge speech audio into video
         cmd = [
             "ffmpeg", "-y",
             "-i", str(no_music_path),
@@ -363,9 +546,11 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
         speech_audio_path.unlink(missing_ok=True)
     else:
         shutil.move(str(no_music_path), str(output_path))
+    print(f"Phase 3 (audio): {time.monotonic() - t3:.1f}s")
 
     duration = _probe_duration(output_path)
-    print(f"Done: {output_path} ({duration:.1f}s)")
+    total_time = time.monotonic() - t1
+    print(f"Done: {output_path} ({duration:.1f}s, rendered in {total_time:.0f}s)")
 
     # Generate YouTube chapter markers
     chapters_path = output_dir / f"chapters_v{version}.txt"
@@ -440,17 +625,26 @@ def _write_chapters(edl: EDL, clips: list[dict], out_path: Path) -> None:
     print(f"YouTube chapters: {out_path.name} ({len(lines)} chapters)")
 
 
-def _find_font() -> str:
-    """Find a suitable font for title cards (cross-platform)."""
-    candidates = [
-        "/System/Library/Fonts/STHeiti Medium.ttc",          # macOS
-        "/System/Library/Fonts/Helvetica.ttc",                # macOS fallback
-        "C\\:/Windows/Fonts/segoeui.ttf",                     # Windows
-        "C\\:/Windows/Fonts/arial.ttf",                       # Windows fallback
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",   # Linux
-    ]
+def _find_font(language: str = "en") -> str:
+    """Find a suitable font for title cards (cross-platform, CJK-aware)."""
+    needs_cjk = language in ("cn", "both")
+    if needs_cjk:
+        candidates = [
+            "/System/Library/Fonts/STHeiti Medium.ttc",              # macOS CJK
+            "/System/Library/Fonts/PingFang.ttc",                    # macOS CJK
+            "C\\:/Windows/Fonts/msyh.ttc",                           # Windows YaHei
+            "C\\:/Windows/Fonts/simhei.ttf",                         # Windows SimHei
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",  # Linux CJK
+            "/usr/share/fonts/truetype/droid/DroidSansFallback.ttf", # Linux fallback
+        ]
+    else:
+        candidates = [
+            "/System/Library/Fonts/Helvetica.ttc",                # macOS
+            "C\\:/Windows/Fonts/segoeui.ttf",                     # Windows
+            "C\\:/Windows/Fonts/arial.ttf",                       # Windows fallback
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",   # Linux
+        ]
     for f in candidates:
-        # Unescape for Path check
         check_path = f.replace("\\:", ":")
         if Path(check_path).exists():
             return f
@@ -459,11 +653,11 @@ def _find_font() -> str:
 
 def _render_title_card(
     title: str, subtitle: str, out: Path, w: int, h: int, fps: int,
-    duration: float = 3.0,
+    duration: float = 3.0, language: str = "en",
 ) -> None:
     """Render a professional title card with gradient background and animated text."""
     safe_title = title.replace("'", "\u2019").replace(":", "\\:")
-    font = _find_font()
+    font = _find_font(language)
     font_arg = f":fontfile='{font}'" if font else ""
 
     # Scale font for long titles
@@ -532,9 +726,30 @@ def _color_grade(color_temp: str = "neutral") -> str:
     return base
 
 
+def _drawtext_filter(text: str, position: str, font_size: int,
+                     clip_duration: float, language: str = "en") -> str:
+    """Build a drawtext filter string for text overlay (no leading comma)."""
+    y_positions = {"top": "50", "center": "(h-text_h)/2", "bottom": "h-text_h-60"}
+    y_expr = y_positions.get(position, y_positions["bottom"])
+    safe_text = text.replace("'", "\u2019").replace(":", "\\:")
+    if len(text) > 20:
+        font_size = int(font_size * 20 / len(text))
+    end_time = min(clip_duration - 0.5, 3.0)
+    font = _find_font(language)
+    font_arg = f":fontfile='{font}'" if font else ""
+    return (
+        f"drawtext=text='{safe_text}'{font_arg}"
+        f":fontsize={font_size}:fontcolor=white"
+        f":borderw=2:bordercolor=black"
+        f":x=(w-text_w)/2:y={y_expr}"
+        f":enable='between(t,0.5,{end_time:.1f})'"
+    )
+
+
 def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
-                   color_temp: str = "neutral") -> None:
-    """Render a photo with Ken Burns effect as a video clip."""
+                   color_temp: str = "neutral",
+                   text_overlay=None, language: str = "en") -> None:
+    """Render a photo with Ken Burns effect as a video clip. Text overlay baked in."""
     source = Path(item.source_file)
 
     # Convert HEIC to JPEG first — FFmpeg can't use HEIC with -loop 1
@@ -559,6 +774,12 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
     variation = (hash(item.source_file) % 10) / 100  # 0.00-0.09
     zoom_rate = 0.001 + ((target + variation) / frames) if target > 0 else 0
 
+    # Text overlay suffix (empty if no overlay)
+    dt = ""
+    if text_overlay:
+        dt = "," + _drawtext_filter(text_overlay.text, text_overlay.position,
+                                     text_overlay.font_size, item.display_duration, language)
+
     # Probe dimensions (after HEIC conversion) to decide portrait vs landscape
     src_w, src_h = _probe_dimensions(source)
     portrait = _is_portrait(src_w, src_h)
@@ -570,7 +791,7 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
         cmd = [
             "ffmpeg", "-y", "-loop", "1", "-i", str(source),
             "-t", str(item.display_duration),
-            "-filter_complex", fc,
+            "-filter_complex", f"{fc}{dt}",
             *_get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
             "-an",
             str(out),
@@ -587,7 +808,7 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
         direction = direction_map.get(item.effect, "in")
         zp = _zoompan_filter(zoom_rate, frames, w, h, fps, direction=direction)
 
-        # Choose scaling strategy based on aspect ratio and face detection
+        # Choose scaling strategy based on aspect ratio
         ow, oh = w * 2, h * 2
         src_ratio = src_w / src_h if src_h > 0 else 1.0
         out_ratio = ow / oh
@@ -596,22 +817,14 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
             # Aspect ratio close enough — just scale, no crop or pad
             scale_filter = f"scale={ow}:{oh}"
         else:
-            face = _detect_face_center(source)
-            if face:
-                # Faces found — scale to fill, crop centered on faces
-                cx, cy = face
-                crop_x = f"(iw-{ow})*{cx:.3f}"
-                crop_y = f"(ih-{oh})*{cy:.3f}"
-                scale_filter = f"scale={ow}:{oh}:force_original_aspect_ratio=increase,crop={ow}:{oh}:{crop_x}:{crop_y}"
-            else:
-                # No faces — blurred background + sharp foreground (no black bars)
-                scale_filter = (
-                    f"split[bg][fg];"
-                    f"[bg]scale={ow}:{oh}:force_original_aspect_ratio=increase,"
-                    f"crop={ow}:{oh},gblur=sigma=25[blurred];"
-                    f"[fg]scale={ow}:{oh}:force_original_aspect_ratio=decrease[sharp];"
-                    f"[blurred][sharp]overlay=(W-w)/2:(H-h)/2"
-                )
+            # Blurred background + sharp foreground (no black bars)
+            scale_filter = (
+                f"split[bg][fg];"
+                f"[bg]scale={ow}:{oh}:force_original_aspect_ratio=increase,"
+                f"crop={ow}:{oh},gblur=sigma=25[blurred];"
+                f"[fg]scale={ow}:{oh}:force_original_aspect_ratio=decrease[sharp];"
+                f"[blurred][sharp]overlay=(W-w)/2:(H-h)/2"
+            )
 
         cg = _color_grade(color_temp)
         # Sharpen after zoompan to restore detail lost in resampling
@@ -620,13 +833,13 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
             cmd = [
                 "ffmpeg", "-y", "-loop", "1", "-i", str(source),
                 "-t", str(item.display_duration),
-                "-filter_complex", f"{scale_filter}[comp];[comp]{zp},{cg}{sharpen}",
+                "-filter_complex", f"{scale_filter}[comp];[comp]{zp},{cg}{sharpen}{dt}",
             ]
         else:
             cmd = [
                 "ffmpeg", "-y", "-loop", "1", "-i", str(source),
                 "-t", str(item.display_duration),
-                "-vf", f"{scale_filter},{zp},{cg}{sharpen}",
+                "-vf", f"{scale_filter},{zp},{cg}{sharpen}{dt}",
             ]
         cmd += [
             *_get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
@@ -640,8 +853,9 @@ def _render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
 
 
 def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
-                   color_temp: str = "neutral") -> None:
-    """Trim and normalize a video clip. Preserves audio if keep_audio is set."""
+                   color_temp: str = "neutral",
+                   text_overlay=None, language: str = "en") -> None:
+    """Trim and normalize a video clip. Text overlay baked in. Preserves audio if keep_audio."""
     cmd = ["ffmpeg", "-y"]
     if item.start_time is not None:
         cmd += ["-ss", str(item.start_time)]
@@ -659,6 +873,12 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
     speed_vf = f",setpts={1/speed:.4f}*PTS" if speed != 1.0 else ""
     speed_af = f"-af atempo={speed}" if speed != 1.0 and item.keep_audio else ""
 
+    # Text overlay suffix (empty if no overlay)
+    dt = ""
+    if text_overlay:
+        dt = "," + _drawtext_filter(text_overlay.text, text_overlay.position,
+                                     text_overlay.font_size, item.display_duration, language)
+
     # Probe dimensions to decide portrait vs landscape
     src_w, src_h = _probe_dimensions(Path(item.source_file))
     portrait = _is_portrait(src_w, src_h)
@@ -667,14 +887,14 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
     if portrait:
         fc = _portrait_bg_filter(w, h)
         cmd += [
-            "-filter_complex", f"{fc},{cg}{speed_vf}",
+            "-filter_complex", f"{fc},{cg}{speed_vf}{dt}",
             *_get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
             "-r", str(fps),
         ]
     else:
         cmd += [
             "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-                   f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,{cg}{speed_vf}",
+                   f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,{cg}{speed_vf}{dt}",
             *_get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
             "-r", str(fps),
         ]
@@ -686,39 +906,6 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
     if result.returncode != 0:
         print(f"    Video render failed: {result.stderr[-200:]}")
 
-
-def _add_text_overlay(
-    input_path: Path, output_path: Path,
-    text: str, position: str, font_size: int,
-    clip_duration: float = 4.0,
-) -> None:
-    """Burn a text overlay onto a clip."""
-    y_positions = {"top": "50", "center": "(h-text_h)/2", "bottom": "h-text_h-60"}
-    y_expr = y_positions.get(position, y_positions["bottom"])
-
-    # Escape special characters for drawtext, scale font for longer text
-    safe_text = text.replace("'", "\u2019").replace(":", "\\:")
-    if len(text) > 20:
-        font_size = int(font_size * 20 / len(text))
-
-    end_time = min(clip_duration - 0.5, 3.0)
-    font = _find_font()
-    font_arg = f":fontfile='{font}'" if font else ""
-    vf = (
-        f"drawtext=text='{safe_text}'{font_arg}"
-        f":fontsize={font_size}:fontcolor=white"
-        f":borderw=2:bordercolor=black"
-        f":x=(w-text_w)/2:y={y_expr}"
-        f":enable='between(t,0.5,{end_time:.1f})'"
-    )
-    cmd = [
-        "ffmpeg", "-y", "-i", str(input_path),
-        "-vf", vf,
-        *_get_encoder(), "-pix_fmt", "yuv420p",
-        "-c:a", "copy",
-        str(output_path),
-    ]
-    run_subprocess(cmd, capture_output=True)
 
 
 def _concatenate(clips: list[dict], output_path: Path) -> None:
@@ -755,8 +942,11 @@ def _concat_demuxer(clips: list[dict], output_path: Path) -> None:
 def _concat_xfade(clips: list[dict], output_path: Path) -> None:
     """Concatenate with xfade transitions between clips."""
     inputs = []
+    # Probe actual durations to avoid frame-rounding drift in offset calculation
+    actual_durs = []
     for clip in clips:
         inputs += ["-i", str(clip["path"])]
+        actual_durs.append(_probe_duration(clip["path"]) or clip["duration"])
 
     # Build xfade filter chain
     filter_parts = []
@@ -782,7 +972,7 @@ def _concat_xfade(clips: list[dict], output_path: Path) -> None:
 
         if i == 1:
             in_label = "[0:v]"
-            offset = clips[0]["duration"] - td
+            offset = actual_durs[0] - td
         else:
             in_label = f"[v{i-1}]"
 
@@ -800,7 +990,7 @@ def _concat_xfade(clips: list[dict], output_path: Path) -> None:
                 f":duration=0.01:offset={offset}{out_label}"
             )
 
-        offset += clips[i]["duration"] - td
+        offset += actual_durs[i] - td
 
     if not filter_parts:
         _concat_demuxer(clips, output_path)
@@ -893,7 +1083,10 @@ def _add_music(video_path: Path, music, output_path: Path, *,
 
 
 def _probe_duration(path: Path) -> float:
-    """Get video duration in seconds."""
+    """Get video duration in seconds. Cached."""
+    key = str(path)
+    if key in _PROBE_DUR_CACHE:
+        return _PROBE_DUR_CACHE[key]
     result = run_subprocess(
         [
             "ffprobe", "-v", "error",
@@ -904,6 +1097,8 @@ def _probe_duration(path: Path) -> float:
         capture_output=True, text=True,
     )
     try:
-        return float(result.stdout.strip())
+        dur = float(result.stdout.strip())
     except ValueError:
-        return 0.0
+        dur = 0.0
+    _PROBE_DUR_CACHE[key] = dur
+    return dur
