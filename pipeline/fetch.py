@@ -64,8 +64,8 @@ def fetch(
                 meta_resp = client.get(f"/api/meta/{item_id}", timeout=10)
                 if meta_resp.status_code == 200:
                     meta = meta_resp.json()
-            except httpx.HTTPError:
-                pass
+            except httpx.HTTPError as e:
+                _log(f"  WARNING: metadata fetch failed for {item_id}: {e}")
 
             # Download file (skip if already exists)
             if not filepath.exists():

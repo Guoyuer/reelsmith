@@ -56,7 +56,6 @@ def preprocess(cfg: Config, *, family_names: list[str] | None = None,
         else:
             item["tier"] = "D"
 
-        _log(f"[tier] {item['filename']}: {item['tier']} (family: {len(family_in_photo)})")
 
     # Send everything to Gemini — it handles dedup visually
     selected = manifest

@@ -89,8 +89,8 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None, **_kwargs) -> l
                 results.append(entry)
                 pbar.update(1)
                 continue
-            except (json.JSONDecodeError, KeyError):
-                pass
+            except (json.JSONDecodeError, KeyError) as e:
+                _log(f"  WARNING: corrupt cache for item {item_id}, re-analyzing: {e}")
 
         if is_video:
             _analyze_video(entry, item_id, local_path, cfg, cache_file, _log, i, len(items))
@@ -126,6 +126,7 @@ def _analyze_video(entry, item_id, local_path, cfg, cache_file, log_fn, i, total
     try:
         total_dur = float(probe.stdout.strip())
     except (ValueError, AttributeError):
+        log_fn(f"  WARNING: could not probe duration for {local_path}, assuming 10s")
         total_dur = 10.0
 
     # Extract 5 keyframes in a single FFmpeg pass
