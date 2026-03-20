@@ -512,8 +512,11 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     speech_clips: list[tuple[float, Path]] = []
     for i, clip in enumerate(all_clips):
         if clip.get("keep_audio"):
-            speech_ranges.append((clip_offsets[i], clip_offsets[i] + actual_durs[i]))
-            speech_clips.append((clip_offsets[i], clip["path"]))
+            # Delay speech to when clip is fully visible (after transition finishes)
+            td = clip.get("transition_duration", 0.0) if clip.get("transition") != "cut" else 0.0
+            speech_start = clip_offsets[i] + td
+            speech_ranges.append((speech_start, speech_start + actual_durs[i] - td))
+            speech_clips.append((speech_start, clip["path"]))
 
     # Phase 2: Concatenate with transitions (video only — xfade drops audio)
     t2 = time.monotonic()
