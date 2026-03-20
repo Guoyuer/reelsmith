@@ -90,6 +90,7 @@ class PlanConfig(dg.Config):
     target_duration: int = 180
     focus: str = ""  # empty = derive from trip_type
     music_file: str = ""  # path to background music (mp3/m4a/wav)
+    language: str = "en"  # en, cn, or both
 
 
 class GenerateMusicConfig(dg.Config):
@@ -385,6 +386,7 @@ def plan(
         focus=config.focus,
         trip_type=config.trip_type,
         music_file=config.music_file or None,
+        language=config.language,
         log_fn=context.log.info,
     )
     all_items = result.all_items()

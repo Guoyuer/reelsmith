@@ -23,8 +23,7 @@ class EditItem(BaseModel):
     start_time: float | None = None  # video trim start (seconds)
     end_time: float | None = None  # video trim end (seconds)
     display_duration: float = 4.0  # how long this item is on screen
-    keep_audio: bool = False  # preserve original audio (set by audio assessment)
-    transcript: str = ""  # speech transcript (set by audio assessment)
+    keep_audio: bool = False  # preserve original audio (Gemini decides from video clips)
     playback_speed: float = 1.0  # 0.5=slow-mo, 1.0=normal, 1.5=fast (Gemini decides)
     effect: Literal[
         "ken_burns_in",
@@ -40,7 +39,8 @@ class EditItem(BaseModel):
 class Segment(BaseModel):
     name: str  # e.g. "Opening", "Marina Bay", "Hawker Food"
     narrative_rationale: str = ""  # why these items, what story beat this segment serves
-    music_mood: str = ""  # e.g. "warm acoustic guitar, uplifting" → MusicGen
+    music_mood: str = ""  # e.g. "warm acoustic guitar, uplifting" → Lyria per-segment
+    music_file: str = ""  # per-segment music WAV (set by generate_music stage)
     items: list[EditItem]
     transition: Literal["crossfade", "cut", "fade_black", "wipe_left",
                         "dissolve", "smoothleft", "smoothright", "circlecrop"] = "crossfade"
@@ -69,6 +69,7 @@ class EDL(BaseModel):
     intro_style: Literal["title_card", "highlight_montage", "none"] = "title_card"
     outro_style: Literal["fade_title", "last_hero", "none"] = "fade_title"
     date_range: str = ""  # e.g. "June 13-16, 2025" for title card
+    language: Literal["en", "cn", "both"] = "en"  # text language: en/cn/both
 
     def all_items(self) -> list[EditItem]:
         return [item for seg in self.segments for item in seg.items]

@@ -51,12 +51,16 @@ def _default_focus(trip_type: str) -> str:
 
 _NARRATIVE_GUIDANCE = {
     "family": """\
-2. **Family is the heart**: At least 30-40% of items MUST show family members
-   (people with names in metadata, especially tier A/B items). Look for genuine
-   laughter, hugs, play, shared meals — these are the emotional core of a family
-   vlog. Scenic B-roll is important for atmosphere, but a family vlog with no
-   family close-ups feels empty. Balance: every segment should have at least one
-   family shot.""",
+2. **Family is the heart**: At least 30-40% of items MUST show family members.
+   PRIORITIZE candid moments over posed photos — a blurry shot of real laughter
+   beats a sharp photo of everyone smiling at the camera. Look for:
+   - Genuine reactions: surprise, delight, awe, exhaustion, silliness
+   - Physical connection: holding hands, hugs, piggyback rides, leaning in
+   - Shared experiences: pointing at something together, first bites, splashing
+   - Quiet moments: a child sleeping, a parent watching their kid explore
+   AVOID: generic landmark poses, everyone-look-at-camera group shots (unless
+   the expressions are genuinely joyful), repetitive similar photos.
+   Every segment needs at least one close-up family moment.""",
     "solo": """\
 2. **Personal journey**: This is one person's story. Place over people — favor
    grand landscapes, intimate details, and moments of solitary wonder. Tier C
@@ -96,71 +100,6 @@ def _format_date_range(dates: list[str]) -> str:
         return ""
 
 
-def _format_time_gap(seconds: int) -> str:
-    """Format seconds as a human-readable gap string."""
-    if seconds < 60:
-        return f"{seconds}s"
-    if seconds < 3600:
-        return f"{seconds // 60}m"
-    return f"{seconds // 3600}h{(seconds % 3600) // 60:02d}m"
-
-
-def _format_item_line(a: dict, tier_prefix: str, prev_time: int | None = None) -> str:
-    """Format a single analysis item as a prompt line with metadata."""
-    v = a["vision"]
-    desc = v.get("description", "")
-    media = a.get("media_type", "photo")
-    cluster = a.get("cluster_size", 1)
-    taken = a.get("takentime", 0)
-
-    line = tier_prefix
-    if media == "video":
-        dur_ms = a.get("duration_ms")
-        if dur_ms:
-            line += f" (video {dur_ms / 1000:.0f}s)"
-        else:
-            line += " (video)"
-    if cluster > 1:
-        line += f" (best of {cluster})"
-    if prev_time and taken and taken > prev_time:
-        gap = taken - prev_time
-        line += f" [+{_format_time_gap(gap)}]"
-    line += f" | {desc}"
-
-    loc_detail = _location_detail(a)
-    if loc_detail:
-        line += f"\n      location: {loc_detail}"
-    line += f"\n      path: {a['local_path']}"
-
-    # Include time for Claude to reason about chronology
-    taken_iso = a.get("taken_iso", "")
-    if taken_iso:
-        line += f"\n      time: {taken_iso}"
-
-    # Person names for narrative context
-    persons = a.get("persons", [])
-    if persons:
-        line += f"\n      people: {', '.join(persons)}"
-
-    # Video scenes — show available moments for trim point selection
-    scenes = a.get("scenes", [])
-    if scenes and media == "video":
-        scene_lines = []
-        for s in scenes:
-            sv = s.get("vision", {})
-            s_desc = sv.get("description", "")[:120] if sv else ""
-            motion = s.get("motion", "?")
-            s_qual = sv.get("visual_quality", "?") if sv else "?"
-            scene_lines.append(
-                f"        scene {s['scene_index']}: {s['start']:.1f}-{s['end']:.1f}s "
-                f"({s['duration']:.1f}s) motion={motion} qual={s_qual}"
-                + (f" | {s_desc}" if s_desc else "")
-            )
-        line += "\n      scenes:\n" + "\n".join(scene_lines)
-
-    return line
-
-
 # ---------------------------------------------------------------------------
 # Gemini API call helper
 # ---------------------------------------------------------------------------
@@ -191,7 +130,9 @@ def _gemini_call(
         )
     client = genai.Client(api_key=api_key)
 
-    # Build content parts and count them for logging
+    # Build content parts with per-part media_resolution control
+    # Images at MEDIUM (560 tokens) — good detail at half the cost of HIGH
+    # Video at LOW (70 tokens/frame) — motion + audio assessment doesn't need high res
     parts = []
     n_text = 0
     n_media = 0
@@ -203,11 +144,15 @@ def _gemini_call(
             n_text += 1
             text_chars += len(p)
         elif isinstance(p, dict) and p.get("type") in ("image_bytes", "audio_bytes", "video_bytes"):
+            is_video = p.get("type") == "video_bytes"
+            res = types.MediaResolution.MEDIA_RESOLUTION_LOW if is_video \
+                else types.MediaResolution.MEDIA_RESOLUTION_MEDIUM
             parts.append(types.Part(
                 inline_data=types.Blob(
                     mime_type=p.get("mime_type", "image/jpeg"),
                     data=p["data"],
                 ),
+                media_resolution=res,
             ))
             n_media += 1
             media_bytes_total += len(p["data"])
@@ -250,9 +195,20 @@ def _gemini_call(
 # Visual planner system prompt
 # ---------------------------------------------------------------------------
 
-def _visual_system_prompt(trip_type: str) -> str:
+_LANG_INSTRUCTIONS = {
+    "en": "Write ALL text content (title, segment names, text overlays, narrative_rationale) in English.",
+    "cn": "Write ALL text content (title, segment names, text overlays, narrative_rationale) in Chinese (简体中文). "
+          "Use natural, evocative Chinese — not literal translations from English.",
+    "both": "Write ALL text content in BOTH languages. Format: \"English / 中文\". "
+            "For example: title \"Family Adventure / 家庭奇遇\", segment name \"Wonder & Joy / 惊喜与欢乐\", "
+            "text overlay \"Day One / 第一天\". Keep both versions concise.",
+}
+
+
+def _visual_system_prompt(trip_type: str, language: str = "en") -> str:
     """System prompt for visual planner — Claude sees contact sheets and filmstrips."""
     guidance = _NARRATIVE_GUIDANCE.get(trip_type, _NARRATIVE_GUIDANCE["general"])
+    lang_instruction = _LANG_INSTRUCTIONS.get(language, _LANG_INSTRUCTIONS["en"])
     return f"""\
 You are a professional travel vlog editor with full creative control. You will
 see the actual photos and video filmstrips from a trip, organized as numbered
@@ -293,14 +249,26 @@ You have complete autonomy over:
 4. **Rhythm**: Alternate photos (3-5s, Ken Burns) with video clips (5-10s, real motion).
    Vary pacing — fast cuts for energy, lingering shots for emotion.
 
-5. **Visual judgment**: Use what you SEE in the photos. A photo with genuine laughter
-   beats a posed shot with higher "tier" score. Trust your eyes over metadata.
+5. **Visual judgment**: Use what you SEE in the photos. Trust your eyes over metadata.
+   - A candid shot of real laughter beats a posed landmark photo every time
+   - Look for emotion in body language, not just faces — leaning in, pointing, running
+   - Blurry but emotional > sharp but boring
+   - Pick the ONE best photo from a series of similar shots, not multiple
 
-6. **Text overlays**: Day labels and location names at natural transitions. Keep minimal.
+6. **Text overlays**: Evocative, not descriptive. Keep rare (3-5 per vlog max).
+   BAD: "Day 1 - Marina Bay", "Gardens by the Bay", "Dinner time"
+   GOOD: "The moment we arrived", "Her first time seeing the ocean", "Last night together"
+   Text should make the viewer FEEL something, not just label a location.
 
-7. **Music mood**: For each segment, suggest a music_mood — a natural language description
-   of the background music tone (e.g., "warm acoustic guitar, uplifting",
-   "gentle piano, reflective and slow", "upbeat tropical percussion").
+8. **Language**: {lang_instruction}
+
+7. **Music mood**: Each segment gets its OWN music track. Write a specific, vivid music_mood
+   that captures the emotional tone — this will be sent directly to a music generation AI.
+   Be specific about instruments and feeling, not generic:
+   BAD: "happy music", "sad music", "travel music"
+   GOOD: "warm fingerpicked acoustic guitar with light shaker, sun-dappled morning feeling"
+   GOOD: "playful marimba and claps, children's adventure energy, building excitement"
+   GOOD: "slow solo piano with subtle strings, bittersweet farewell, lingering warmth"
 
 ## Technical rules
 
@@ -317,7 +285,7 @@ You have complete autonomy over:
   Use conservatively — most segments should be neutral.
 - CRITICAL: source_file must be the EXACT path value from the text metadata
 
-Output valid JSON only:
+Think step-by-step, then output valid JSON only:
 {{
   "title": "string",
   "target_duration": <seconds>,
@@ -354,6 +322,33 @@ Output valid JSON only:
 # ---------------------------------------------------------------------------
 # Visual planner content builders
 # ---------------------------------------------------------------------------
+
+def _read_exif_brief(path: Path) -> str:
+    """Extract brief EXIF info (focal length, aperture, ISO) from a photo."""
+    try:
+        from PIL import Image
+        from PIL.ExifTags import TAGS
+        img = Image.open(path)
+        exif_data = img._getexif()
+        if not exif_data:
+            return ""
+        exif = {TAGS.get(k, k): v for k, v in exif_data.items()}
+        parts = []
+        fl = exif.get("FocalLength")
+        if fl:
+            fl_val = float(fl) if not hasattr(fl, 'numerator') else fl.numerator / fl.denominator
+            parts.append(f"{fl_val:.0f}mm")
+        fn = exif.get("FNumber")
+        if fn:
+            fn_val = float(fn) if not hasattr(fn, 'numerator') else fn.numerator / fn.denominator
+            parts.append(f"f/{fn_val:.1f}")
+        iso = exif.get("ISOSpeedRatings")
+        if iso:
+            parts.append(f"ISO{iso}")
+        return " ".join(parts)
+    except Exception:
+        return ""
+
 
 def _build_visual_chapter_text(
     chapter: dict, day: dict, analysis_by_id: dict, start_idx: int,
@@ -403,6 +398,10 @@ def _build_visual_chapter_text(
             parts.append(f"video={dur_s} scenes={n_scenes}")
             video_items.append(a)
         else:
+            # Add EXIF camera metadata for photos
+            exif = _read_exif_brief(Path(local_path))
+            if exif:
+                parts.append(exif)
             photo_paths.append(Path(local_path))
 
         parts.append(f"path={local_path}")
@@ -460,13 +459,13 @@ def _build_visual_content_blocks(
                 sheet_name = f"{day['date']}_{chapter.get('time_block', 'x')}_{loc_safe}.jpg"
                 sheet_path = sheets_dir / sheet_name
 
-                max_per_sheet = 28
+                max_per_sheet = 6
                 sheet_idx = 0
                 for chunk_start in range(0, len(thumb_paths), max_per_sheet):
                     chunk = thumb_paths[chunk_start:chunk_start + max_per_sheet]
                     chunk_labels = [f"#{global_idx + chunk_start + i:02d}" for i in range(len(chunk))]
                     s_path = sheets_dir / f"{sheet_name.replace('.jpg', '')}_{sheet_idx}.jpg" if len(thumb_paths) > max_per_sheet else sheet_path
-                    make_contact_sheet(chunk, s_path, cell_size=256, columns=4, labels=chunk_labels)
+                    make_contact_sheet(chunk, s_path, cell_size=600, columns=3, labels=chunk_labels)
                     _log(f"Contact sheet: {s_path.name} ({len(chunk)} photos)")
                     blocks.append({
                         "type": "image_bytes",
@@ -475,7 +474,7 @@ def _build_visual_content_blocks(
                     })
                     sheet_idx += 1
 
-            # Video clips — send actual MP4 (with audio) so Gemini sees motion + hears speech
+            # Videos: send 3×2s clips (start/mid/end with audio) for motion + speech
             for vi in video_items:
                 vid_id = vi["id"]
                 source = Path(vi.get("local_path", ""))
@@ -483,69 +482,41 @@ def _build_visual_content_blocks(
                 if not source.exists() or dur <= 0:
                     continue
 
-                # Extract a 5s clip from the middle of the video (with audio)
-                clip_start = max(0, (dur - 5) / 2)
-                clip_path = sheets_dir / f"clip_{vid_id}.mp4"
-                if not clip_path.exists():
-                    run_subprocess(
-                        ["ffmpeg", "-y", "-ss", str(clip_start),
-                         "-i", str(source), "-t", "5",
-                         "-vf", "scale=480:-1",
-                         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-                         "-c:a", "aac", "-b:a", "64k", "-ac", "1",
-                         str(clip_path)],
-                        capture_output=True,
-                    )
+                item_num = global_idx + len(photo_paths) + video_items.index(vi)
+                blocks.append(f"Video #{item_num:02d} ({dur:.0f}s total, 3 samples with audio):")
 
-                if clip_path.exists() and clip_path.stat().st_size > 1000:
-                    item_num = global_idx + len(photo_paths) + video_items.index(vi)
-                    blocks.append(f"Video clip #{item_num:02d} ({dur:.0f}s total, showing 5s sample with audio):")
-                    blocks.append({
-                        "type": "video_bytes",
-                        "mime_type": "video/mp4",
-                        "data": clip_path.read_bytes(),
-                    })
-                    _log(f"Video clip: #{item_num:02d} {source.name} ({clip_path.stat().st_size // 1024}KB)")
+                clip_positions = [
+                    ("start", max(0, dur * 0.1)),
+                    ("mid", max(0, (dur - 2) / 2)),
+                    ("end", max(0, dur * 0.9 - 2)),
+                ]
+                clips_sent = 0
+                for clip_label, clip_start in clip_positions:
+                    clip_path = sheets_dir / f"clip_{vid_id}_{clip_label}.mp4"
+                    if not clip_path.exists():
+                        run_subprocess(
+                            ["ffmpeg", "-y", "-ss", str(clip_start),
+                             "-i", str(source), "-t", "2",
+                             "-vf", "scale=480:-2",
+                             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                             "-c:a", "aac", "-b:a", "64k", "-ac", "1",
+                             str(clip_path)],
+                            capture_output=True,
+                        )
+                    if clip_path.exists() and clip_path.stat().st_size > 500:
+                        blocks.append({
+                            "type": "video_bytes",
+                            "mime_type": "video/mp4",
+                            "data": clip_path.read_bytes(),
+                        })
+                        clips_sent += 1
+
+                _log(f"Video #{item_num:02d}: {source.name} ({clips_sent} clips)")
 
             global_idx += n_items
 
     return blocks
 
-
-def _build_review_blocks(edl: EDL, cfg: Config) -> list:
-    """Build review parts: selected items at higher resolution for Gemini."""
-    from .media_utils import generate_thumbnail
-
-    blocks: list = [
-        f"Review this EDL. Current version:\n{edl.model_dump_json(indent=2)}",
-    ]
-    review_dir = cfg.workspace / "review_thumbs"
-    review_dir.mkdir(parents=True, exist_ok=True)
-
-    for seg in edl.segments:
-        blocks.append(f"\n--- {seg.name} ({len(seg.items)} items) ---")
-        for item in seg.items:
-            src = Path(item.source_file)
-            if item.media_type == "video":
-                kf_dir = cfg.workspace.parent.parent / "keyframes" if cfg.workspace.parent.name == "runs" else cfg.workspace / "keyframes"
-                kf_pattern = f"{src.stem}_scene_*.jpg"
-                kfs = sorted(kf_dir.glob(kf_pattern)) if kf_dir.exists() else []
-                if kfs:
-                    thumb = generate_thumbnail(kfs[0], review_dir, size=768)
-                else:
-                    continue
-            else:
-                thumb = generate_thumbnail(src, review_dir, size=768)
-
-            if thumb.exists():
-                blocks.append(f"{item.source_file} ({item.display_duration}s)")
-                blocks.append({
-                    "type": "image_bytes",
-                    "mime_type": "image/jpeg",
-                    "data": thumb.read_bytes(),
-                })
-
-    return blocks
 
 
 # ---------------------------------------------------------------------------
@@ -556,11 +527,12 @@ def _plan_visual(
     cfg: Config, preprocessed: dict, analysis_by_id: dict,
     analysis_items: list[dict],
     style: str, target_duration: int, focus: str,
-    trip_type: str = "family", log_fn=None,
+    trip_type: str = "family", language: str = "en", log_fn=None,
 ) -> EDL:
-    """Multi-pass Gemini planning with visual input — sees actual photos.
+    """Single-pass Gemini planning with chain-of-thought.
 
-    Uses Gemini Pro for text-only passes, Gemini Flash for token-heavy visual pass.
+    Gemini sees contact sheets (12 photos/sheet at 400px) + video clips,
+    designs narrative arc + selects items + self-reviews in one call.
     """
     _log = log_fn or print
 
@@ -594,10 +566,18 @@ def _plan_visual(
         family_line = f"\nFamily: {', '.join(preprocessed['family_names'])}"
 
     # ------------------------------------------------------------------
-    # Pass 1: Narrative arc (text-only, lightweight)
+    # Single pass: chain-of-thought (arc → select → self-review)
     # ------------------------------------------------------------------
-    _log("=== VISUAL PASS 1: Narrative Arc ===")
+    _log("=== SINGLE-PASS PLANNING ===")
 
+    _log("Building contact sheets (12/sheet @ 400px) and video clips...")
+    content_blocks = _build_visual_content_blocks(preprocessed, analysis_by_id, cfg, _log)
+    n_img = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "image_bytes")
+    n_vid_clips = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "video_bytes")
+    n_text = sum(1 for b in content_blocks if isinstance(b, str))
+    _log(f"Visual content: {n_text} text blocks, {n_img} contact sheets, {n_vid_clips} video clips")
+
+    # Build trip structure summary for arc thinking
     arc_lines = []
     for day in preprocessed["timeline"]:
         arc_lines.append(f"\n=== {day['day_name']} {day['date']} ===")
@@ -612,95 +592,35 @@ def _plan_visual(
                 line += f" ({n_vid} videos)"
             arc_lines.append(line)
 
-    arc_system = f"""\
-You are a professional travel vlog narrative designer with full creative control.
-Design the emotional arc and chapter structure for a {style} highlight reel.
-
-IMPORTANT: Create narrative chapters based on STORY BEATS, not locations or times.
-For example, "Discovery & Wonder" is a chapter theme, not "Morning at Marina Bay".
-Group moments by emotion and narrative purpose, not by when/where they happened.
-
-Output JSON only:
-{{
-  "title": "vlog title",
-  "arc_description": "1-2 sentences describing the overall narrative arc",
-  "chapters": [
-    {{
-      "name": "Chapter Name (narrative, not location)",
-      "theme": "emotional theme",
-      "target_items": <count>,
-      "pacing": "fast|medium|slow",
-      "prefer_video": <boolean, default true — video clips bring motion and atmosphere>,
-      "music_mood": "describe the ideal background music for this chapter"
-    }}
-  ]
-}}"""
-
-    arc_user = f"""\
-Design the narrative arc for a {style} {trip_label} vlog.
-
-{trip_summary}{family_line}
-Target: {target_duration}s (~{n_items} items).
-Focus: {focus}.
-
-Trip structure:
-{"".join(arc_lines)}"""
-
-    arc_content = _gemini_call(arc_system, [arc_user], _log,
-                               label="visual pass 1: arc", model="gemini-3-flash-preview")
-    _log(f"Arc response:\n{arc_content[:500]}")
-
-    from .media_utils import strip_markdown_fences
-    arc_content = strip_markdown_fences(arc_content)
-    try:
-        narrative_arc = json.loads(arc_content)
-    except json.JSONDecodeError:
-        _log("Failed to parse arc, continuing without it")
-        narrative_arc = None
-
-    # ------------------------------------------------------------------
-    # Pass 2: Visual selection — Claude sees contact sheets + filmstrips
-    # ------------------------------------------------------------------
-    _log("=== VISUAL PASS 2: Visual Selection ===")
-
-    _log("Building contact sheets and filmstrips from cached thumbnails...")
-    content_blocks = _build_visual_content_blocks(preprocessed, analysis_by_id, cfg, _log)
-    n_img_blocks = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "image_bytes")
-    n_text_blocks = sum(1 for b in content_blocks if isinstance(b, str))
-    _log(f"Visual content: {n_text_blocks} text blocks, {n_img_blocks} images (contact sheets + filmstrips)")
-
-    arc_guidance = ""
-    if narrative_arc:
-        arc_guidance = f"\n**Narrative arc** (follow this structure):\nTitle: {narrative_arc.get('title', '')}\nArc: {narrative_arc.get('arc_description', '')}\nChapters:\n"
-        for ch in narrative_arc.get("chapters", []):
-            arc_guidance += (
-                f"  - {ch.get('name', '?')}: {ch.get('theme', '?')}, "
-                f"~{ch.get('target_items', '?')} items, pacing={ch.get('pacing', '?')}"
-                f"{', prefer video' if ch.get('prefer_video') else ''}\n"
-            )
-
     intro_text = f"""\
 Create a {style} {trip_label} vlog EDL from the photos and videos shown below.
 
 {trip_summary}{family_line}
 Target: {target_duration}s (~{n_items} items). Focus: {focus}.
-{arc_guidance}
-Look at each contact sheet carefully. Select the best photos and video scenes.
-For videos, specify start_time/end_time to pick the best scene.
-Use the exact path values from the metadata as source_file.
+
+Trip structure:
+{"".join(arc_lines)}
+
+**Think step-by-step:**
+1. First, design a narrative arc — 4-6 chapters based on STORY BEATS (not locations).
+2. Then, look at every contact sheet and video clip. Select the best items for each chapter.
+3. Finally, self-review: check pacing, variety, video/photo balance. Fix any issues.
+
+Output ONE JSON with all your thinking and the final EDL.
 
 Candidates by day/location:"""
 
-    # Prepend intro text before the content blocks
     visual_parts: list = [intro_text] + content_blocks
 
-    system_prompt = _visual_system_prompt(trip_type)
-    _log(f"Visual message: {len(visual_parts)} parts")
+    system_prompt = _visual_system_prompt(trip_type, language=language)
+    _log(f"Sending {len(visual_parts)} parts to Gemini (single pass)...")
+
+    from .media_utils import strip_markdown_fences
 
     edl_content = _gemini_call(system_prompt, visual_parts, _log,
-                               label="visual pass 2: select", model="gemini-3-flash-preview")
+                               label="single pass: plan", model="gemini-3-flash-preview")
 
-    _log(f"=== VISUAL EDL RESPONSE ({len(edl_content)} chars) ===")
+    _log(f"=== EDL RESPONSE ({len(edl_content)} chars) ===")
     _log(edl_content[:1000])
     _log("=== END ===")
 
@@ -718,148 +638,9 @@ Candidates by day/location:"""
             trim = f" trim={item.start_time:.0f}-{item.end_time:.0f}s" if item.start_time is not None else ""
             _log(f"    - {item.media_type:5s} {item.display_duration}s {Path(item.source_file).name}{trim}")
 
-    # ------------------------------------------------------------------
-    # Pass 3: Visual review — Gemini reviews selected items at higher res
-    # ------------------------------------------------------------------
-    _log("=== VISUAL PASS 3: Visual Review ===")
-
-    review_system = """\
-You are reviewing a vlog EDL you just created. You can see each selected photo/video
-at higher resolution. Check:
-1. Does the sequence flow visually? Adjacent shots shouldn't look too similar.
-2. Video/photo balance — enough video clips for energy? Not all slideshows?
-3. Pacing — duration varies enough? Emotional beats get more time?
-4. Are the music_mood values specific and evocative (not generic)?
-5. Do text overlays appear at natural transitions?
-6. Video trim points — are start_time/end_time selecting the best moment?
-
-Output JSON with TWO top-level fields:
-{
-  "review_notes": "What you changed and why — be specific (e.g., 'removed #03 because too similar to #02, swapped order of segments 2 and 3 for better arc')",
-  "edl": { ... the improved EDL (same schema as input) ... }
-}"""
-
-    review_parts = _build_review_blocks(edl, cfg)
-    review_content = _gemini_call(review_system, review_parts, _log,
-                                   label="visual pass 3: review", model="gemini-3-flash-preview")
-
-    review_content = strip_markdown_fences(review_content)
-    try:
-        review_data = json.loads(review_content)
-        # Extract review notes and EDL from wrapper
-        if "review_notes" in review_data and "edl" in review_data:
-            review_notes = review_data["review_notes"]
-            _log(f"=== Review Notes ===")
-            _log(review_notes)
-            _log(f"=== End Review Notes ===")
-            reviewed = EDL.model_validate(review_data["edl"])
-        else:
-            # Fallback: Gemini output the EDL directly without wrapper
-            _log("(No review_notes wrapper — Gemini output EDL directly)")
-            reviewed = EDL.model_validate(review_data)
-
-        n_vid = sum(1 for i in reviewed.all_items() if i.media_type == "video")
-        n_photo = sum(1 for i in reviewed.all_items() if i.media_type == "photo")
-        _log(f"Reviewed EDL: {len(reviewed.segments)} segments, {n_photo} photos + {n_vid} videos, "
-             f"~{reviewed.estimated_duration():.0f}s")
-        for seg in reviewed.segments:
-            _log(f"  [{seg.name}] ({len(seg.items)} items)")
-            _log(f"    Music: {seg.music_mood}")
-            for item in seg.items:
-                trim = f" trim={item.start_time:.0f}-{item.end_time:.0f}s" if item.start_time is not None else ""
-                _log(f"    - {item.media_type:5s} {item.display_duration}s {Path(item.source_file).name}{trim}")
-        return reviewed
-    except Exception as e:
-        _log(f"Review parse failed ({e}), using pass 2 EDL")
-        return edl
+    return edl
 
 
-# ---------------------------------------------------------------------------
-# Prompt builder (used by visual planner arc pass for text descriptions)
-# ---------------------------------------------------------------------------
-
-def _build_chapters_prompt(preprocessed: dict, analysis_by_id: dict) -> str:
-    """Build a structured text representation of the timeline with scores."""
-    lines = []
-
-    for day in preprocessed["timeline"]:
-        lines.append(f"\n=== {day['day_name']} {day['date']} ===")
-
-        for chapter in day["chapters"]:
-            loc = chapter["location"]
-            block = chapter["time_block"]
-
-            ab_items = []
-            c_items = []
-            for item_id in chapter["item_ids"]:
-                a = analysis_by_id.get(item_id)
-                if not a or not a.get("vision"):
-                    continue
-                tier = a.get("tier", "?")
-                if tier in ("A", "B", "?"):
-                    ab_items.append(a)
-                elif tier == "C":
-                    c_items.append(a)
-
-            if not ab_items and not c_items:
-                continue
-
-            # Sort all items by time for gap calculation
-            all_chapter = ab_items + c_items
-            all_chapter.sort(key=lambda x: x.get("takentime", 0))
-            prev_time = None
-
-            lines.append(f"\n  [{block.upper()}] {loc}")
-
-            # Emit all items in chronological order so Claude sees natural flow
-            all_sorted = sorted(all_chapter, key=lambda x: x.get("takentime", 0))
-            for a in all_sorted:
-                v = a["vision"]
-                tier = a.get("tier", "?")
-                issues = v.get("issues", "")
-
-                if tier in ("A", "B", "?"):
-                    tog = v.get("togetherness", v.get("happiness_score", "?"))
-                    emo = v.get("genuine_emotion", "?")
-                    beat = v.get("story_beat", v.get("scene_type", "?"))
-                    qual = v.get("visual_quality", "?")
-                    prefix = (
-                        f"    [{tier}] fam={a.get('family_count',0)} "
-                        f"tog={tog} emo={emo} qual={qual} beat={beat}"
-                    )
-                else:
-                    scene = v.get("scene_type", "?")
-                    qual = v.get("visual_quality", "?")
-                    prefix = f"    [C] scene={scene} qual={qual}"
-
-                if issues:
-                    prefix += f" ISSUES={issues}"
-                # Include rich description fields for Claude
-                extra_parts = []
-                if v.get("setting"):
-                    extra_parts.append(f"setting={v['setting']}")
-                if v.get("mood"):
-                    extra_parts.append(f"mood={v['mood']}")
-                if v.get("activity"):
-                    extra_parts.append(f"activity={v['activity']}")
-                if extra_parts:
-                    prefix += " | " + ", ".join(extra_parts)
-                lines.append(_format_item_line(a, prefix, prev_time))
-                prev_time = a.get("takentime")
-
-    return "\n".join(lines)
-
-
-def _location_detail(a: dict) -> str:
-    """Build location detail string from district/country fields."""
-    parts = []
-    if a.get("district"):
-        parts.append(a["district"])
-    if a.get("first_level"):
-        parts.append(a["first_level"])
-    if a.get("country"):
-        parts.append(a["country"])
-    return ", ".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -874,6 +655,7 @@ def plan(
     focus: str = "",
     trip_type: str = "family",
     music_file: str | None = None,
+    language: str = "en",
     log_fn=None,
 ) -> tuple[EDL, int]:
     """Generate an EDL from preprocessed + analysis data using the visual planner."""
@@ -893,10 +675,11 @@ def plan(
     analysis_items = json.loads((cfg.workspace / "analysis.json").read_text())
     analysis_by_id: dict[int, dict] = {a["id"]: a for a in analysis_items}
 
-    _log(f"Planning via Gemini with visual input (target {target_duration}s, style={style}, trip_type={trip_type})...")
+    _log(f"Planning via Gemini with visual input (target {target_duration}s, style={style}, trip_type={trip_type}, lang={language})...")
     edl = _plan_visual(cfg, preprocessed, analysis_by_id, analysis_items,
                        style=style, target_duration=target_duration,
-                       focus=effective_focus, trip_type=trip_type, log_fn=_log)
+                       focus=effective_focus, trip_type=trip_type,
+                       language=language, log_fn=_log)
 
     # Post-process: force effect="none" on video items (Ken Burns fights native motion)
     for seg in edl.segments:
@@ -907,6 +690,7 @@ def plan(
     # Set metadata fields
     edl.trip_type = trip_type
     edl.style = style
+    edl.language = language
     edl.intro_style = edl.intro_style or "title_card"
     edl.outro_style = edl.outro_style or "fade_title"
     if not edl.date_range:
