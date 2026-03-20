@@ -18,10 +18,9 @@ dependencies = [
 
 [project.optional-dependencies]
 heic = ["pillow-heif>=0.18"]                           # Cross-platform HEIC support
-cv = ["opencv-python-headless>=4.8"]                   # Face detection in assemble
 music = ["torch>=2.0", "transformers>=4.30", "scipy>=1.10"]
 test = ["pytest>=8.0", "dagster>=1.9"]
-all = ["pillow-heif>=0.18", "opencv-python-headless>=4.8", "torch>=2.0", "transformers>=4.30", "scipy>=1.10"]
+all = ["pillow-heif>=0.18", "torch>=2.0", "transformers>=4.30", "scipy>=1.10"]
 
 [project.scripts]
 vlog = "run:cli"
