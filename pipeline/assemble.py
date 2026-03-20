@@ -493,74 +493,36 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
                 "transition": "fade_black", "transition_duration": 1.0,
             })
 
-    # Compute clip start times replicating _concat_xfade's offset math exactly.
-    # The xfade loop: offset starts at dur[0]-td[1], then offset += dur[i]-td[i].
-    actual_durs = [_probe_duration(c["path"]) or c["duration"] for c in all_clips]
-    clip_offsets: list[float] = [0.0] * len(all_clips)
-    if len(all_clips) > 1:
-        xf_offset = 0.0
-        for i in range(1, len(all_clips)):
-            td = all_clips[i].get("transition_duration", 0.0)
-            if all_clips[i].get("transition") == "cut":
-                td = 0.0
-            if i == 1:
-                xf_offset = actual_durs[0] - td
-            clip_offsets[i] = xf_offset
-            xf_offset += actual_durs[i] - td
+    # Build Timeline — single source of truth for all clip timing
+    from .timeline import Timeline
+    tl = Timeline.build(all_clips)
+    tl.dump(log_fn=print)
 
-    speech_ranges: list[tuple[float, float]] = []
-    speech_clips: list[tuple[float, Path]] = []
-    for i, clip in enumerate(all_clips):
-        if clip.get("keep_audio"):
-            # Delay speech to when clip is fully visible (after transition finishes)
-            td = clip.get("transition_duration", 0.0) if clip.get("transition") != "cut" else 0.0
-            speech_start = clip_offsets[i] + td
-            speech_ranges.append((speech_start, speech_start + actual_durs[i] - td))
-            speech_clips.append((speech_start, clip["path"]))
-
-    # Phase 2: Concatenate with transitions (video only — xfade drops audio)
+    # Phase 2: Concatenate with transitions + embed speech audio
+    # Both use Timeline's offsets — guaranteed sync.
     t2 = time.monotonic()
-    print(f"Concatenating {len(all_clips)} clips...")
+    n_speech = len(tl.speech_entries())
+    print(f"Concatenating {len(all_clips)} clips ({n_speech} with speech audio)...")
     no_music_path = output_dir / f"vlog_v{version}_nomix.mp4"
-    _concatenate(all_clips, no_music_path)
-    print(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
+    _concatenate(all_clips, no_music_path, timeline=tl)
+    print(f"Phase 2 (concat + speech): {time.monotonic() - t2:.1f}s")
 
-    # Phase 2b: Build speech audio track from keep_audio clips at correct offsets
-    speech_audio_path = None
-    if speech_clips:
-        video_dur = _probe_duration(no_music_path)
-        speech_audio_path = output_dir / f"vlog_v{version}_speech.wav"
-        _build_speech_track(speech_clips, video_dur, speech_audio_path)
-        print(f"Speech track: {len(speech_clips)} clips merged into {speech_audio_path.name}")
-
-    # Phase 3: Mix music + speech audio
+    # Phase 3: Mix music on top of video+speech
+    # Speech is already in the nomix file. _add_music preserves existing audio
+    # via the speech track in nomix (input 0:a) and ducks music during speech_ranges.
     t3 = time.monotonic()
+    speech_ranges = tl.speech_ranges()
     if edl.music and Path(edl.music.file).exists():
         music_dur = _probe_duration(Path(edl.music.file))
         video_dur = _probe_duration(no_music_path)
         print(f"Mixing music: video={video_dur:.1f}s, music={music_dur:.1f}s, "
               f"volume={edl.music.volume}, fade_in={edl.music.fade_in}s, fade_out={edl.music.fade_out}s")
         _add_music(no_music_path, edl.music, output_path,
-                   speech_ranges=speech_ranges, speech_audio=speech_audio_path)
+                   speech_ranges=speech_ranges, speech_audio=None)
         no_music_path.unlink(missing_ok=True)
-        if speech_audio_path:
-            speech_audio_path.unlink(missing_ok=True)
-    elif speech_audio_path:
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", str(no_music_path),
-            "-i", str(speech_audio_path),
-            "-map", "0:v", "-map", "1:a",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-            "-shortest",
-            str(output_path),
-        ]
-        run_subprocess(cmd, capture_output=True)
-        no_music_path.unlink(missing_ok=True)
-        speech_audio_path.unlink(missing_ok=True)
     else:
         shutil.move(str(no_music_path), str(output_path))
-    print(f"Phase 3 (audio): {time.monotonic() - t3:.1f}s")
+    print(f"Phase 3 (music): {time.monotonic() - t3:.1f}s")
 
     duration = _probe_duration(output_path)
     total_time = time.monotonic() - t1
@@ -922,18 +884,16 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
 
 
 
-def _concatenate(clips: list[dict], output_path: Path) -> None:
-    """Concatenate clips, using xfade for crossfades and fade_black."""
+def _concatenate(clips: list[dict], output_path: Path, timeline=None) -> None:
+    """Concatenate clips with transitions. Uses Timeline for all offsets."""
     if len(clips) == 1:
         shutil.copy(str(clips[0]["path"]), str(output_path))
         return
 
-    # For large numbers of clips, use concat demuxer (simpler, more robust)
-    # For smaller sets with transitions, use xfade filter chain
     if len(clips) > 30 or all(c["transition"] == "cut" for c in clips):
         _concat_demuxer(clips, output_path)
     else:
-        _concat_xfade(clips, output_path)
+        _concat_xfade(clips, output_path, timeline=timeline)
 
 
 def _concat_demuxer(clips: list[dict], output_path: Path) -> None:
@@ -953,68 +913,81 @@ def _concat_demuxer(clips: list[dict], output_path: Path) -> None:
     list_path.unlink(missing_ok=True)
 
 
-def _concat_xfade(clips: list[dict], output_path: Path) -> None:
-    """Concatenate with xfade transitions between clips."""
+def _concat_xfade(clips: list[dict], output_path: Path,
+                   timeline=None) -> None:
+    """Concatenate with xfade transitions using Timeline offsets.
+
+    If timeline has speech entries, embeds speech audio in the same FFmpeg
+    command using the SAME offsets as xfade — guaranteed sync.
+    """
+    from .timeline import Timeline
+
+    if timeline is None:
+        timeline = Timeline.build(clips)
+
     inputs = []
-    # Probe actual durations to avoid frame-rounding drift in offset calculation
-    actual_durs = []
     for clip in clips:
         inputs += ["-i", str(clip["path"])]
-        actual_durs.append(_probe_duration(clip["path"]) or clip["duration"])
 
-    # Build xfade filter chain
+    # Build xfade filter chain from timeline entries
     filter_parts = []
-    offset = 0.0
-
-    for i in range(1, len(clips)):
-        td = clips[i]["transition_duration"]
-        transition_type = clips[i]["transition"]
-
-        if transition_type == "cut":
-            td = 0.0
-
+    for i in range(1, len(timeline.entries)):
+        e = timeline.entries[i]
         xfade_transition = {
-            "crossfade": "fade",
-            "fade_black": "fadeblack",
-            "wipe_left": "wipeleft",
-            "dissolve": "dissolve",
-            "smoothleft": "smoothleft",
-            "smoothright": "smoothright",
-            "circlecrop": "circlecrop",
-            "cut": "fade",
-        }.get(transition_type, "fade")
+            "crossfade": "fade", "fade_black": "fadeblack",
+            "wipe_left": "wipeleft", "dissolve": "dissolve",
+            "smoothleft": "smoothleft", "smoothright": "smoothright",
+            "circlecrop": "circlecrop", "cut": "fade",
+        }.get(e.transition, "fade")
 
-        if i == 1:
-            in_label = "[0:v]"
-            offset = actual_durs[0] - td
-        else:
-            in_label = f"[v{i-1}]"
+        in_label = "[0:v]" if i == 1 else f"[v{i-1}]"
+        out_label = f"[v{i}]" if i < len(timeline.entries) - 1 else "[vout]"
 
-        out_label = f"[v{i}]" if i < len(clips) - 1 else "[vout]"
-
+        td = e.transition_duration
         if td > 0:
             filter_parts.append(
                 f"{in_label}[{i}:v]xfade=transition={xfade_transition}"
-                f":duration={td}:offset={offset}{out_label}"
+                f":duration={td}:offset={e.video_offset}{out_label}"
             )
         else:
-            # No transition — just concat via overlay workaround
             filter_parts.append(
                 f"{in_label}[{i}:v]xfade=transition=fade"
-                f":duration=0.01:offset={offset}{out_label}"
+                f":duration=0.01:offset={e.video_offset}{out_label}"
             )
-
-        offset += actual_durs[i] - td
 
     if not filter_parts:
         _concat_demuxer(clips, output_path)
         return
+
+    # Add speech audio in the SAME filter_complex — guaranteed sync
+    speech = timeline.speech_entries()
+    if speech:
+        for idx, e in enumerate(speech):
+            delay_ms = int(e.visible_offset * 1000)
+            aud_dur = e.actual_duration - e.transition_duration
+            fade_out_st = max(0, aud_dur - 0.3)
+            filter_parts.append(
+                f"[{e.index}:a]afade=t=in:d=0.3,afade=t=out:st={fade_out_st:.1f}:d=0.3,"
+                f"adelay={delay_ms}|{delay_ms}[a{idx}]"
+            )
+        mix_inputs = "".join(f"[a{i}]" for i in range(len(speech)))
+        if len(speech) == 1:
+            filter_parts.append(f"{mix_inputs}apad[aout]")
+        else:
+            filter_parts.append(
+                f"{mix_inputs}amix=inputs={len(speech)}"
+                f":duration=longest:dropout_transition=0,apad[aout]"
+            )
 
     filter_complex = ";".join(filter_parts)
 
     cmd = ["ffmpeg", "-y"] + inputs + [
         "-filter_complex", filter_complex,
         "-map", "[vout]",
+    ]
+    if speech:
+        cmd += ["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]
+    cmd += [
         *_get_encoder(), "-pix_fmt", "yuv420p",
         str(output_path),
     ]
@@ -1027,9 +1000,10 @@ def _concat_xfade(clips: list[dict], output_path: Path) -> None:
 def _add_music(video_path: Path, music, output_path: Path, *,
                speech_ranges: list[tuple[float, float]] | None = None,
                speech_audio: Path | None = None) -> None:
-    """Mix background music + speech audio into the video.
+    """Mix background music into the video, preserving any existing speech audio.
 
-    speech_audio: pre-built WAV with speech clips at correct offsets.
+    The video_path may already contain speech audio (embedded during concat).
+    If so, we mix: existing_audio + ducked_music → output.
     speech_ranges: time ranges where music should duck for speech.
     """
     total_dur = _probe_duration(video_path)
@@ -1052,47 +1026,43 @@ def _add_music(video_path: Path, music, output_path: Path, *,
     else:
         music_vol_filter = f"volume={music.volume}"
 
-    if speech_audio and speech_audio.exists():
-        # 3-way mix: video (no audio) + speech audio + music
-        # Input 0: video, Input 1: music, Input 2: speech audio
-        # Use volume-weighted amix so speech stays loud and music stays low
+    # Check if video already has audio (speech embedded during concat)
+    probe = run_subprocess(
+        ["ffprobe", "-v", "error", "-select_streams", "a",
+         "-show_entries", "stream=codec_type", "-of", "csv=p=0",
+         str(video_path)],
+        capture_output=True, text=True,
+    )
+    has_audio = bool(probe.stdout.strip())
+
+    music_filter = (
+        f"[1:a]{loop_filter}{music_vol_filter},"
+        f"afade=t=in:d={music.fade_in},"
+        f"afade=t=out:st={fade_out_start}:d={music.fade_out}[music]"
+    )
+
+    if has_audio and speech_ranges:
+        # Video has embedded speech — mix speech + ducked music
         audio_filter = (
-            f"[1:a]{loop_filter}{music_vol_filter},"
-            f"afade=t=in:d={music.fade_in},"
-            f"afade=t=out:st={fade_out_start}:d={music.fade_out}[bg];"
-            f"[2:a]volume=1.0,apad[speech];"
-            f"[speech][bg]amix=inputs=2:duration=first:weights=3 1,"
+            f"{music_filter};"
+            f"[0:a]volume=1.0,apad[speech];"
+            f"[speech][music]amix=inputs=2:duration=first:weights=3 1,"
             f"loudnorm=I=-16:TP=-1.5:LRA=11[a]"
         )
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", str(video_path),
-            "-i", str(music.file),
-            "-i", str(speech_audio),
-            "-filter_complex", audio_filter,
-            "-map", "0:v", "-map", "[a]",
-            "-shortest",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-            str(output_path),
-        ]
     else:
-        # Music only
-        audio_filter = (
-            f"[1:a]{loop_filter}{music_vol_filter},"
-            f"afade=t=in:d={music.fade_in},"
-            f"afade=t=out:st={fade_out_start}:d={music.fade_out},"
-            f"loudnorm=I=-16:TP=-1.5:LRA=11[a]"
-        )
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", str(video_path),
-            "-i", str(music.file),
-            "-filter_complex", audio_filter,
-            "-map", "0:v", "-map", "[a]",
-            "-shortest",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-            str(output_path),
-        ]
+        # No speech — music only
+        audio_filter = f"{music_filter};[music]loudnorm=I=-16:TP=-1.5:LRA=11[a]"
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(video_path),
+        "-i", str(music.file),
+        "-filter_complex", audio_filter,
+        "-map", "0:v", "-map", "[a]",
+        "-shortest",
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+        str(output_path),
+    ]
     run_subprocess(cmd, capture_output=True)
 
 
