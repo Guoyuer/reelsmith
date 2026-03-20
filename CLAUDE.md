@@ -21,15 +21,17 @@ python -c "from pipeline.analyze import analyze; analyze(cfg)"
 
 6 Dagster assets. All stages use Gemini API (no local AI models needed). Requires `GEMINI_API_KEY` in `.env`.
 
-## Gemini API calls in the plan stage
+## Gemini API call in the plan stage
 
-| # | Call | Input | What it does |
-|---|------|-------|-------------|
-| 1 | Pass 1: Arc | Text metadata only | Design narrative structure and chapter themes |
-| 2 | Pass 2: Select | Contact sheets + video clips (MP4 with audio) + metadata | See ALL photos, watch/listen to videos, pick items, assign music_mood, set keep_audio/playback_speed/transitions/color_temp |
-| 3 | Pass 3: Review | Selected items at 768px | Refine pacing, check video/photo balance, adjust trim points |
+Single-pass planning with chain-of-thought: Gemini designs narrative arc, selects items,
+and self-reviews in one API call. Contact sheets use 12 photos/sheet at 400px (not 28 at 256px)
+for better visual judgment.
 
-Total cost: ~$0.05 per run on Gemini 3 Flash.
+| Input | What Gemini does |
+|-------|-----------------|
+| Contact sheets (12/sheet @ 400px) + video clips (5s MP4 with audio) + metadata | Design narrative arc → select items → assign music_mood/keep_audio/playback_speed/transitions/color_temp → self-review |
+
+Total cost: ~$0.03 per run on Gemini 3 Flash.
 
 Every API call is logged with: model, input token count, output tokens, wall time, response preview.
 
@@ -51,13 +53,15 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 ## What's still hard-coded
 
 - **Preprocess tiering** — face count -> A/B/C/D (but Gemini ignores tiers, judges visually)
-- **FFmpeg rendering** — mechanical clip assembly from EDL
+- **FFmpeg rendering** — parallel clip assembly from EDL (3 NVENC workers by default, `VLOG_PARALLEL_CLIPS` env var)
 - **Ken Burns effects** — applied per EDL effect field (forced to "none" for videos)
 - **Thumbnail/keyframe generation** — Pillow resize, FFmpeg extraction
-- **Bitrate** — based on resolution/fps with `--quality` multiplier (YouTube recommended rates)
+- **Codec** — HEVC (hevc_nvenc) on GPU, H.264 (libx264) on CPU; auto-detected
+- **Bitrate** — HEVC at 65% of H.264 YouTube rates with `--quality` multiplier
 - **Audio ducking** — music volume drops to 30% during speech clips (fixed ratio)
 - **Color grading** — subtle contrast/saturation boost, temperature shift per segment
 - **YouTube chapter markers** — timestamps from EDL segment boundaries
+- **Text overlays** — baked into clips during render (single FFmpeg pass, no separate overlay step)
 
 ## Debugging & iteration
 
@@ -81,3 +85,8 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - Ken Burns is forced to "none" on video items (native motion conflicts with zoompan)
 - prefer_video defaults to true in arc pass (video brings motion and atmosphere)
 - `--music auto` uses Gemini Lyria RealTime; `--music local` uses MusicGen — single flag controls both backend and intent
+- `--lang en|cn|both` controls text language (title, overlays, chapters); cn/both auto-selects CJK font
+- Clip rendering is parallel (ThreadPoolExecutor): 3 workers for NVENC, cpu_count/2 for libx264
+- HEVC NVENC auto-detected; falls back to H.264 NVENC → libx264. CPU stays H.264 (H.265 CPU is too slow)
+- ffprobe results cached per assemble run (dimensions + duration) — avoids redundant subprocess calls
+- Text overlays baked into clips via drawtext filter (no separate encode pass)
