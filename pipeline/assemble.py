@@ -493,16 +493,27 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
                 "transition": "fade_black", "transition_duration": 1.0,
             })
 
-    # Compute clip offsets using actual rendered durations (avoids drift from EDL rounding)
+    # Compute clip start times replicating _concat_xfade's offset math exactly.
+    # The xfade loop: offset starts at dur[0]-td[1], then offset += dur[i]-td[i].
+    actual_durs = [_probe_duration(c["path"]) or c["duration"] for c in all_clips]
+    clip_offsets: list[float] = [0.0] * len(all_clips)
+    if len(all_clips) > 1:
+        xf_offset = 0.0
+        for i in range(1, len(all_clips)):
+            td = all_clips[i].get("transition_duration", 0.0)
+            if all_clips[i].get("transition") == "cut":
+                td = 0.0
+            if i == 1:
+                xf_offset = actual_durs[0] - td
+            clip_offsets[i] = xf_offset
+            xf_offset += actual_durs[i] - td
+
     speech_ranges: list[tuple[float, float]] = []
     speech_clips: list[tuple[float, Path]] = []
-    offset = 0.0
-    for clip in all_clips:
-        actual_dur = _probe_duration(clip["path"]) or clip["duration"]
+    for i, clip in enumerate(all_clips):
         if clip.get("keep_audio"):
-            speech_ranges.append((offset, offset + actual_dur))
-            speech_clips.append((offset, clip["path"]))
-        offset += actual_dur - clip.get("transition_duration", 0.0)
+            speech_ranges.append((clip_offsets[i], clip_offsets[i] + actual_durs[i]))
+            speech_clips.append((clip_offsets[i], clip["path"]))
 
     # Phase 2: Concatenate with transitions (video only — xfade drops audio)
     t2 = time.monotonic()
