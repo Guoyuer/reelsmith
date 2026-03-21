@@ -392,6 +392,7 @@ def workspace(clean, prune, yes):
     shared = [
         ("media", "Source photos & videos", ws / "media"),
         ("music", "Generated music (Lyria cache)", ws / "music"),
+        ("preview_clips", "Video preview clips (shared)", ws / "preview_clips"),
         ("keyframes", "Video keyframe cache", ws / "keyframes"),
         ("analysis_cache", "Analysis cache", ws / "analysis_cache"),
         ("thumbnails", "Photo thumbnails", ws / "thumbnails"),

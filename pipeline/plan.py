@@ -556,6 +556,10 @@ def _build_visual_content_blocks(
     blocks: list = []
     sheets_dir = cfg.workspace / "contact_sheets"
     sheets_dir.mkdir(parents=True, exist_ok=True)
+    # Shared clip cache across runs (like thumbnails/keyframes/music)
+    ws = cfg.workspace
+    clips_cache = ws.parent.parent / "preview_clips" if ws.parent.name == "runs" else ws / "preview_clips"
+    clips_cache.mkdir(parents=True, exist_ok=True)
 
     global_idx = 1  # continuous numbering across chapters
 
@@ -568,7 +572,7 @@ def _build_visual_content_blocks(
                 if a and a.get("media_type") == "video":
                     all_video_items.append(a)
     if all_video_items:
-        _generate_video_clips_parallel(all_video_items, sheets_dir, _log)
+        _generate_video_clips_parallel(all_video_items, clips_cache, _log)
 
     for day in preprocessed["timeline"]:
         for chapter in day["chapters"]:
@@ -618,7 +622,7 @@ def _build_visual_content_blocks(
                 item_num = global_idx + len(photo_paths) + video_items.index(vi)
 
                 if dur <= 15:
-                    clip_path = sheets_dir / f"clip_{vid_id}_full.mp4"
+                    clip_path = clips_cache / f"clip_{vid_id}_full.mp4"
                     if clip_path.exists() and clip_path.stat().st_size > 500:
                         blocks.append(f"Video #{item_num:02d} ({dur:.0f}s, FULL clip with audio):")
                         blocks.append({
@@ -632,7 +636,7 @@ def _build_visual_content_blocks(
                     n_clips = min(n_clips, 30)
                     blocks.append(f"Video #{item_num:02d} ({dur:.0f}s total, {n_clips} samples with audio):")
                     for ci in range(n_clips):
-                        clip_path = sheets_dir / f"clip_{vid_id}_{ci}.mp4"
+                        clip_path = clips_cache / f"clip_{vid_id}_{ci}.mp4"
                         if clip_path.exists() and clip_path.stat().st_size > 500:
                             blocks.append({
                                 "type": "video_bytes",
