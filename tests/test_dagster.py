@@ -157,7 +157,10 @@ class TestAssembleProgressCallback:
 
         callback_calls = []
         cfg = Config.load(ws)
-        assemble(cfg, version=99, progress_callback=lambda c, t, n: callback_calls.append((c, t, n)))
+        output_path, validation_issues = assemble(
+            cfg, version=99,
+            progress_callback=lambda c, t, n: callback_calls.append((c, t, n)),
+        )
 
         assert len(callback_calls) >= 1
         assert (tmp_path / "output" / "vlog_v99.mp4").exists()

@@ -434,7 +434,7 @@ def assemble(
     version = config.version if config.version > 0 else find_latest_version(cfg)
 
     t0 = time.monotonic()
-    output_path = do_assemble(
+    output_path, validation_issues = do_assemble(
         cfg, version=version,
         resolution=(config.width, config.height), fps=config.fps,
         progress_callback=_progress_cb(context, t0),
@@ -448,16 +448,35 @@ def assemble(
         f"{config.width}x{config.height}@{config.fps}fps, quality={config.quality})"
     )
 
-    return dg.MaterializeResult(
-        metadata={
-            "output": dg.MetadataValue.path(str(output_path)),
-            "version": dg.MetadataValue.int(version),
-            "render_time_min": dg.MetadataValue.float(render_min),
-            "file_size_mb": dg.MetadataValue.float(size_mb),
-            "resolution": dg.MetadataValue.text(f"{config.width}x{config.height}@{config.fps}fps"),
-            "quality": dg.MetadataValue.float(config.quality),
-        }
-    )
+    # Log validation results
+    val_errors = [i for i in validation_issues if i["level"] == "error"]
+    val_warnings = [i for i in validation_issues if i["level"] == "warning"]
+    if val_warnings:
+        for issue in val_warnings:
+            context.log.warning(f"[FFmpeg] Validation: {issue['message']}")
+    if not validation_issues:
+        context.log.info("[FFmpeg] Validation: all checks passed")
+
+    metadata = {
+        "output": dg.MetadataValue.path(str(output_path)),
+        "version": dg.MetadataValue.int(version),
+        "render_time_min": dg.MetadataValue.float(render_min),
+        "file_size_mb": dg.MetadataValue.float(size_mb),
+        "resolution": dg.MetadataValue.text(f"{config.width}x{config.height}@{config.fps}fps"),
+        "quality": dg.MetadataValue.float(config.quality),
+        "validation_passed": dg.MetadataValue.bool(len(val_errors) == 0),
+        "validation_warnings": dg.MetadataValue.int(len(val_warnings)),
+    }
+    if validation_issues:
+        metadata["validation_details"] = dg.MetadataValue.md(
+            _md_table(
+                ["Level", "Check", "Message"],
+                [[i["level"].upper(), i["check"], i["message"]]
+                 for i in validation_issues],
+            )
+        )
+
+    return dg.MaterializeResult(metadata=metadata)
 
 
 

@@ -1,4 +1,4 @@
-"""Tests for pipeline.assemble — portrait-aware rendering helpers."""
+"""Tests for pipeline.assemble — portrait-aware rendering helpers and output validation."""
 
 from __future__ import annotations
 
@@ -14,8 +14,9 @@ from pipeline.assemble import (
     _probe_dimensions,
     _render_photo,
     _render_video,
+    _validate_output,
 )
-from pipeline.edl import EditItem
+from pipeline.edl import EDL, EditItem, MusicTrack, Segment
 from pipeline.media_utils import _portrait_bg_filter
 
 
@@ -265,3 +266,313 @@ class TestRenderPortraitVideo:
 
         assert left_pixel != (0, 0, 0), f"Left edge pixel is black: {left_pixel}"
         assert right_pixel != (0, 0, 0), f"Right edge pixel is black: {right_pixel}"
+
+
+# -----------------------------------------------------------------------
+# Output validation tests (mocked -- no FFmpeg needed)
+# -----------------------------------------------------------------------
+
+
+def _make_edl(duration: float = 60.0, music_file: str = "",
+              resolution: tuple[int, int] = (3840, 2160)) -> EDL:
+    """Helper to build a minimal EDL for validation tests."""
+    music = MusicTrack(file=music_file) if music_file else None
+    return EDL(
+        title="Test",
+        target_duration=duration,
+        resolution=resolution,
+        segments=[
+            Segment(
+                name="Seg1",
+                items=[
+                    EditItem(source_file="a.jpg", media_type="photo",
+                             display_duration=duration / 2),
+                    EditItem(source_file="b.jpg", media_type="photo",
+                             display_duration=duration / 2),
+                ],
+                transition="cut",
+            ),
+        ],
+        intro_style="none",
+        outro_style="none",
+        music=music,
+    )
+
+
+def _mock_subprocess_for_validation(
+    *,
+    streams: str = "hevc,video\naac,audio\n",
+    duration: str = "60.0",
+    dimensions: str = "3840x2160",
+    vid_stream_dur: str = "60.0",
+    aud_stream_dur: str = "60.0",
+):
+    """Return a side_effect function for run_subprocess that handles all ffprobe calls."""
+
+    def _side_effect(cmd, **kwargs):
+        result = MagicMock()
+        result.returncode = 0
+        result.stderr = ""
+        cmd_str = " ".join(str(c) for c in cmd)
+        if "codec_type,codec_name" in cmd_str:
+            result.stdout = streams
+        elif "format=duration" in cmd_str:
+            result.stdout = duration + "\n"
+        elif "stream=width,height" in cmd_str:
+            result.stdout = dimensions + "\n"
+        elif "select_streams" in cmd_str and "v:0" in cmd_str and "stream=duration" in cmd_str:
+            result.stdout = vid_stream_dur + "\n"
+        elif "select_streams" in cmd_str and "a:0" in cmd_str and "stream=duration" in cmd_str:
+            result.stdout = aud_stream_dur + "\n"
+        else:
+            result.stdout = ""
+        return result
+
+    return _side_effect
+
+
+class TestValidateOutputFileChecks:
+    """Tests for file existence and size checks."""
+
+    def test_missing_file_returns_error(self, tmp_path: Path):
+        """Non-existent output file should produce a file_exists error."""
+        edl = _make_edl()
+        issues = _validate_output(
+            tmp_path / "nonexistent.mp4", edl,
+            has_speech=False, resolution=(3840, 2160),
+        )
+        assert len(issues) == 1
+        assert issues[0]["level"] == "error"
+        assert issues[0]["check"] == "file_exists"
+
+    def test_empty_file_returns_error(self, tmp_path: Path):
+        """Output file smaller than 1KB should produce a file_size error."""
+        out = tmp_path / "tiny.mp4"
+        out.write_bytes(b"\x00" * 500)
+        edl = _make_edl()
+        issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        assert len(issues) == 1
+        assert issues[0]["level"] == "error"
+        assert issues[0]["check"] == "file_size"
+
+    def test_valid_file_no_early_return(self, tmp_path: Path):
+        """A file >1KB should not trigger the early-return error path."""
+        out = tmp_path / "ok.mp4"
+        out.write_bytes(b"\x00" * 2048)
+        edl = _make_edl()
+        with patch("pipeline.assemble.run_subprocess",
+                    side_effect=_mock_subprocess_for_validation()):
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        # Should pass all checks (no errors for a well-formed mock)
+        errors = [i for i in issues if i["level"] == "error"]
+        assert len(errors) == 0
+
+
+class TestValidateOutputDuration:
+    """Tests for duration checks against EDL expected duration."""
+
+    def test_duration_below_50pct_is_error(self, tmp_path: Path):
+        """Duration <50% of expected should produce an error."""
+        out = tmp_path / "short.mp4"
+        out.write_bytes(b"\x00" * 2048)
+        edl = _make_edl(duration=120.0)  # expected ~120s
+        with patch("pipeline.assemble.run_subprocess",
+                    side_effect=_mock_subprocess_for_validation(duration="50.0")):
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        dur_issues = [i for i in issues if i["check"] == "duration"]
+        assert len(dur_issues) == 1
+        assert dur_issues[0]["level"] == "error"
+        assert "truncation" in dur_issues[0]["message"]
+
+    def test_duration_between_50_and_80pct_is_warning(self, tmp_path: Path):
+        """Duration between 50-80% of expected should produce a warning."""
+        out = tmp_path / "medium.mp4"
+        out.write_bytes(b"\x00" * 2048)
+        edl = _make_edl(duration=100.0)  # expected ~100s
+        with patch("pipeline.assemble.run_subprocess",
+                    side_effect=_mock_subprocess_for_validation(duration="70.0")):
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        dur_issues = [i for i in issues if i["check"] == "duration"]
+        assert len(dur_issues) == 1
+        assert dur_issues[0]["level"] == "warning"
+
+    def test_duration_above_80pct_passes(self, tmp_path: Path):
+        """Duration >=80% of expected should not produce any duration issue."""
+        out = tmp_path / "good.mp4"
+        out.write_bytes(b"\x00" * 2048)
+        edl = _make_edl(duration=100.0)
+        with patch("pipeline.assemble.run_subprocess",
+                    side_effect=_mock_subprocess_for_validation(duration="95.0")):
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        dur_issues = [i for i in issues if i["check"] == "duration"]
+        assert len(dur_issues) == 0
+
+    def test_zero_probe_duration_is_error(self, tmp_path: Path):
+        """ffprobe returning 0 for duration should be a hard error."""
+        out = tmp_path / "bad.mp4"
+        out.write_bytes(b"\x00" * 2048)
+        edl = _make_edl()
+        with patch("pipeline.assemble.run_subprocess",
+                    side_effect=_mock_subprocess_for_validation(duration="0")):
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        dur_issues = [i for i in issues if i["check"] == "duration"]
+        assert len(dur_issues) == 1
+        assert dur_issues[0]["level"] == "error"
+
+
+class TestValidateOutputStreams:
+    """Tests for video/audio stream presence."""
+
+    def test_no_video_stream_is_error(self, tmp_path: Path):
+        """Missing video stream should be a critical error."""
+        out = tmp_path / "nostream.mp4"
+        out.write_bytes(b"\x00" * 2048)
+        edl = _make_edl()
+        with patch("pipeline.assemble.run_subprocess",
+                    side_effect=_mock_subprocess_for_validation(streams="aac,audio\n")):
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        stream_issues = [i for i in issues if i["check"] == "video_stream"]
+        assert len(stream_issues) == 1
+        assert stream_issues[0]["level"] == "error"
+
+    def test_no_audio_with_speech_is_warning(self, tmp_path: Path):
+        """Missing audio when speech was expected should be a warning."""
+        out = tmp_path / "noaudio.mp4"
+        out.write_bytes(b"\x00" * 2048)
+        edl = _make_edl()
+        with patch("pipeline.assemble.run_subprocess",
+                    side_effect=_mock_subprocess_for_validation(streams="hevc,video\n")):
+            issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160))
+        audio_issues = [i for i in issues if i["check"] == "audio_stream"]
+        assert len(audio_issues) == 1
+        assert audio_issues[0]["level"] == "warning"
+
+    def test_no_audio_without_speech_no_warning(self, tmp_path: Path):
+        """Missing audio when no speech expected should not warn about speech."""
+        out = tmp_path / "videoonly.mp4"
+        out.write_bytes(b"\x00" * 2048)
+        edl = _make_edl()
+        with patch("pipeline.assemble.run_subprocess",
+                    side_effect=_mock_subprocess_for_validation(streams="hevc,video\n")):
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        audio_speech = [i for i in issues if i["check"] == "audio_stream"]
+        assert len(audio_speech) == 0
+
+    def test_no_audio_with_music_is_warning(self, tmp_path: Path):
+        """Missing audio when music configured should warn."""
+        out = tmp_path / "noaudio_music.mp4"
+        out.write_bytes(b"\x00" * 2048)
+        # Create a fake music file so the path check passes
+        music_file = tmp_path / "music.mp3"
+        music_file.write_bytes(b"\x00" * 100)
+        edl = _make_edl(music_file=str(music_file))
+        with patch("pipeline.assemble.run_subprocess",
+                    side_effect=_mock_subprocess_for_validation(streams="hevc,video\n")):
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        music_issues = [i for i in issues if i["check"] == "audio_stream_music"]
+        assert len(music_issues) == 1
+        assert music_issues[0]["level"] == "warning"
+
+
+class TestValidateOutputCodec:
+    """Tests for video codec validation."""
+
+    def test_expected_codec_passes(self, tmp_path: Path):
+        """hevc codec should not trigger a warning."""
+        out = tmp_path / "ok.mp4"
+        out.write_bytes(b"\x00" * 2048)
+        edl = _make_edl()
+        with patch("pipeline.assemble.run_subprocess",
+                    side_effect=_mock_subprocess_for_validation(streams="hevc,video\naac,audio\n")):
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        codec_issues = [i for i in issues if i["check"] == "video_codec"]
+        assert len(codec_issues) == 0
+
+    def test_unexpected_codec_warns(self, tmp_path: Path):
+        """An unexpected video codec should produce a warning."""
+        out = tmp_path / "weird.mp4"
+        out.write_bytes(b"\x00" * 2048)
+        edl = _make_edl()
+        with patch("pipeline.assemble.run_subprocess",
+                    side_effect=_mock_subprocess_for_validation(streams="vp9,video\naac,audio\n")):
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        codec_issues = [i for i in issues if i["check"] == "video_codec"]
+        assert len(codec_issues) == 1
+        assert codec_issues[0]["level"] == "warning"
+
+
+class TestValidateOutputAVSync:
+    """Tests for audio-video sync spot check."""
+
+    def test_large_av_drift_warns(self, tmp_path: Path):
+        """>5s drift between audio and video stream durations should warn."""
+        out = tmp_path / "drifted.mp4"
+        out.write_bytes(b"\x00" * 2048)
+        edl = _make_edl()
+        with patch("pipeline.assemble.run_subprocess",
+                    side_effect=_mock_subprocess_for_validation(
+                        vid_stream_dur="60.0", aud_stream_dur="52.0")):
+            issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160))
+        sync_issues = [i for i in issues if i["check"] == "av_sync"]
+        assert len(sync_issues) == 1
+        assert "drift" in sync_issues[0]["message"]
+
+    def test_small_av_drift_passes(self, tmp_path: Path):
+        """<5s drift should not trigger a sync warning."""
+        out = tmp_path / "synced.mp4"
+        out.write_bytes(b"\x00" * 2048)
+        edl = _make_edl()
+        with patch("pipeline.assemble.run_subprocess",
+                    side_effect=_mock_subprocess_for_validation(
+                        vid_stream_dur="60.0", aud_stream_dur="58.0")):
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        sync_issues = [i for i in issues if i["check"] == "av_sync"]
+        assert len(sync_issues) == 0
+
+
+class TestValidateOutputResolution:
+    """Tests for resolution check."""
+
+    def test_matching_resolution_passes(self, tmp_path: Path):
+        """Output matching expected resolution should pass."""
+        out = tmp_path / "ok.mp4"
+        out.write_bytes(b"\x00" * 2048)
+        edl = _make_edl()
+        with patch("pipeline.assemble.run_subprocess",
+                    side_effect=_mock_subprocess_for_validation()):
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        res_issues = [i for i in issues if i["check"] == "resolution"]
+        assert len(res_issues) == 0
+
+    def test_mismatched_resolution_warns(self, tmp_path: Path):
+        """Output with different resolution should warn."""
+        out = tmp_path / "wrongres.mp4"
+        out.write_bytes(b"\x00" * 2048)
+        edl = _make_edl()
+        with patch("pipeline.assemble.run_subprocess",
+                    side_effect=_mock_subprocess_for_validation(dimensions="1920x1080")):
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        res_issues = [i for i in issues if i["check"] == "resolution"]
+        assert len(res_issues) == 1
+        assert res_issues[0]["level"] == "warning"
+        assert "1920x1080" in res_issues[0]["message"]
+
+
+class TestValidateOutputAllPassing:
+    """Test that a well-formed output produces no issues."""
+
+    def test_all_checks_pass(self, tmp_path: Path):
+        """Fully valid output should return zero issues."""
+        out = tmp_path / "perfect.mp4"
+        out.write_bytes(b"\x00" * 2048)
+        edl = _make_edl(duration=60.0)
+        with patch("pipeline.assemble.run_subprocess",
+                    side_effect=_mock_subprocess_for_validation(
+                        streams="hevc,video\naac,audio\n",
+                        duration="58.0",
+                        dimensions="3840x2160",
+                        vid_stream_dur="58.0",
+                        aud_stream_dur="58.0",
+                    )):
+            issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160))
+        assert len(issues) == 0

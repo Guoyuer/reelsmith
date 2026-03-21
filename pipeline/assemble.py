@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import time
@@ -338,8 +339,12 @@ def _beat_snap_edl(edl: EDL, music_path: Path, log_fn=None) -> int:
 
 def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_broken: bool = False,
              resolution: tuple[int, int] | None = None, fps: int | None = None,
-             quality: float = 1.0) -> Path:
-    """Read latest edl_v{N}.json and render the vlog video."""
+             quality: float = 1.0) -> tuple[Path, list[dict]]:
+    """Read latest edl_v{N}.json and render the vlog video.
+
+    Returns (output_path, validation_issues) where validation_issues is a list
+    of dicts with keys: level ("error"/"warning"), check, message.
+    """
     global _QUALITY
     _QUALITY = quality
     _PROBE_DIM_CACHE.clear()
@@ -566,7 +571,174 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     chapters_path = output_dir / f"chapters_v{version}.txt"
     _write_chapters(edl, all_clips, chapters_path)
 
-    return output_path
+    # Phase 4: Validate output
+    has_speech = bool(speech_ka_indices)
+    validation_issues = _validate_output(output_path, edl, has_speech, (w, h))
+    errors = [i for i in validation_issues if i["level"] == "error"]
+    warnings = [i for i in validation_issues if i["level"] == "warning"]
+
+    if warnings:
+        print(f"Validation: {len(warnings)} warning(s)")
+        for issue in warnings:
+            print(f"  WARNING [{issue['check']}]: {issue['message']}")
+    if errors:
+        print(f"Validation: {len(errors)} error(s)")
+        for issue in errors:
+            print(f"  ERROR [{issue['check']}]: {issue['message']}")
+        raise RuntimeError(
+            f"Output validation failed with {len(errors)} error(s): "
+            + "; ".join(i["message"] for i in errors)
+        )
+
+    if not validation_issues:
+        print("Validation: all checks passed")
+
+    return output_path, validation_issues
+
+
+# ---------------------------------------------------------------------------
+# Post-assemble output validation
+# ---------------------------------------------------------------------------
+
+def _validate_output(
+    output_path: Path,
+    edl: "EDL",
+    has_speech: bool,
+    resolution: tuple[int, int],
+) -> list[dict]:
+    """Validate the rendered output video. Returns a list of issue dicts.
+
+    Each issue dict has:
+      - level: "error" or "warning"
+      - check: short identifier for the check (e.g. "file_exists", "duration")
+      - message: human-readable description
+
+    Errors indicate critical failures; warnings are informational.
+    """
+    logger = logging.getLogger(__name__)
+    issues: list[dict] = []
+
+    def _error(check: str, msg: str) -> None:
+        issues.append({"level": "error", "check": check, "message": msg})
+        logger.error("Validation FAIL [%s]: %s", check, msg)
+
+    def _warn(check: str, msg: str) -> None:
+        issues.append({"level": "warning", "check": check, "message": msg})
+        logger.warning("Validation WARN [%s]: %s", check, msg)
+
+    # --- 1. File existence and minimum size ---
+    if not output_path.exists():
+        _error("file_exists", f"Output file does not exist: {output_path}")
+        return issues  # nothing else to check
+
+    file_size = output_path.stat().st_size
+    if file_size < 1024:
+        _error("file_size", f"Output file too small ({file_size} bytes): {output_path}")
+        return issues
+
+    # --- 2. Duration check ---
+    expected_duration = edl.estimated_duration()
+    # Clear cache entry for the output so we get a fresh probe
+    _PROBE_DUR_CACHE.pop(str(output_path), None)
+    actual_duration = _probe_duration(output_path)
+
+    if actual_duration <= 0:
+        _error("duration", "Could not probe output duration (ffprobe returned 0)")
+    elif expected_duration > 0:
+        ratio = actual_duration / expected_duration
+        if ratio < 0.5:
+            _error("duration",
+                   f"Duration {actual_duration:.1f}s is <50% of expected "
+                   f"{expected_duration:.1f}s — possible xfade truncation")
+        elif ratio < 0.8:
+            _warn("duration",
+                  f"Duration {actual_duration:.1f}s is <80% of expected "
+                  f"{expected_duration:.1f}s — some content may be missing")
+
+    # --- 3. Stream validation (video + audio presence) ---
+    stream_result = run_subprocess(
+        ["ffprobe", "-v", "error",
+         "-show_entries", "stream=codec_type,codec_name",
+         "-of", "csv=p=0",
+         str(output_path)],
+        capture_output=True, text=True,
+    )
+    stream_lines = [ln.strip() for ln in stream_result.stdout.strip().split("\n") if ln.strip()]
+    # Each line is "codec_name,codec_type" e.g. "hevc,video" or "aac,audio"
+    codec_types = []
+    codec_names = {}
+    for line in stream_lines:
+        parts = line.split(",")
+        if len(parts) >= 2:
+            codec_name, codec_type = parts[0].strip(), parts[1].strip()
+            codec_types.append(codec_type)
+            codec_names[codec_type] = codec_name
+
+    has_video_stream = "video" in codec_types
+    has_audio_stream = "audio" in codec_types
+
+    if not has_video_stream:
+        _error("video_stream", "No video stream found in output")
+
+    if not has_audio_stream and has_speech:
+        _warn("audio_stream", "No audio stream in output but speech clips were expected")
+
+    has_music = edl.music is not None and edl.music.file and Path(edl.music.file).exists()
+    if not has_audio_stream and has_music:
+        _warn("audio_stream_music", "No audio stream in output but music track was configured")
+
+    # --- 4. Video codec check ---
+    if has_video_stream:
+        video_codec = codec_names.get("video", "")
+        expected_codecs = {"hevc", "h264", "h265"}
+        if video_codec and video_codec not in expected_codecs:
+            _warn("video_codec",
+                  f"Unexpected video codec '{video_codec}' "
+                  f"(expected one of {sorted(expected_codecs)})")
+
+    # --- 5. Audio-video sync spot check ---
+    if has_video_stream and has_audio_stream:
+        # Probe video and audio stream durations separately
+        vid_dur_result = run_subprocess(
+            ["ffprobe", "-v", "error",
+             "-select_streams", "v:0",
+             "-show_entries", "stream=duration",
+             "-of", "csv=p=0",
+             str(output_path)],
+            capture_output=True, text=True,
+        )
+        aud_dur_result = run_subprocess(
+            ["ffprobe", "-v", "error",
+             "-select_streams", "a:0",
+             "-show_entries", "stream=duration",
+             "-of", "csv=p=0",
+             str(output_path)],
+            capture_output=True, text=True,
+        )
+        try:
+            vid_stream_dur = float(vid_dur_result.stdout.strip())
+            aud_stream_dur = float(aud_dur_result.stdout.strip())
+            drift = abs(vid_stream_dur - aud_stream_dur)
+            if drift > 5.0:
+                _warn("av_sync",
+                      f"Audio/video stream duration mismatch: "
+                      f"video={vid_stream_dur:.1f}s, audio={aud_stream_dur:.1f}s "
+                      f"(drift={drift:.1f}s) — possible sync issue")
+        except (ValueError, TypeError):
+            pass  # stream duration not available; skip this check
+
+    # --- 6. Resolution check ---
+    if has_video_stream:
+        _PROBE_DIM_CACHE.pop(str(output_path), None)
+        out_w, out_h = _probe_dimensions(output_path)
+        exp_w, exp_h = resolution
+        if out_w > 0 and out_h > 0:
+            if out_w != exp_w or out_h != exp_h:
+                _warn("resolution",
+                      f"Output resolution {out_w}x{out_h} does not match "
+                      f"expected {exp_w}x{exp_h}")
+
+    return issues
 
 
 def _build_speech_track(
