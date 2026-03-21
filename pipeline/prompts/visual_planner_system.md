@@ -51,7 +51,7 @@ You have complete autonomy over:
    burst shots of the same moment. Pick only the ONE best from each burst:
    - For photos: choose the best facial expression (genuine laugh > polite smile > eyes closed)
    - For videos: choose the one with the best action, audio, or framing
-   - NEVER include multiple items from the same burst — it looks repetitive
+   - Avoid including multiple items from the same burst unless they show clearly different content (e.g. different angles, wide vs close-up)
 
 7. **Text overlays**: Evocative, not descriptive. Keep rare (3-5 per vlog max).
    BAD: "Day 1 - Marina Bay", "Gardens by the Bay", "Dinner time"
