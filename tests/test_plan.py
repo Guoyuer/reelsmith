@@ -8,7 +8,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from pipeline.plan import _default_focus
+from pipeline.plan import _default_focus, _format_date_range
 from pipeline.edl import EDL, EditItem, Segment
 
 
@@ -100,6 +100,101 @@ class TestPathValidation:
         assert candidates[0] == real_file
 
 
+class TestTrimValidation:
+    """Layer 2b: Validate video trim points against actual duration."""
+
+    def _validate_trims(self, edl, analysis_by_id):
+        """Replicate the Layer 2b trim validation logic from plan.py."""
+        for seg in edl.segments:
+            valid_items = []
+            for item in seg.items:
+                if item.media_type == "video" and item.start_time is not None:
+                    vid_dur = analysis_by_id.get(
+                        next((aid for aid, a in analysis_by_id.items()
+                              if a.get("local_path") == item.source_file), None),
+                        {},
+                    ).get("video_duration")
+                    if vid_dur and vid_dur > 0:
+                        if item.start_time >= vid_dur:
+                            item.start_time = max(vid_dur - 2, 0)
+                        if item.end_time is not None and item.end_time > vid_dur:
+                            item.end_time = vid_dur
+                        if item.end_time is not None and item.start_time >= item.end_time:
+                            continue
+                valid_items.append(item)
+            seg.items = valid_items
+        edl.segments = [s for s in edl.segments if s.items]
+
+    def test_start_past_duration_clamped(self):
+        """start_time=120 on a 60s video should be clamped to 58."""
+        edl = _make_test_edl([
+            EditItem(source_file="/media/clip.mp4", media_type="video",
+                     display_duration=5.0, start_time=120.0, end_time=125.0),
+        ])
+        analysis_by_id = {1: {"local_path": "/media/clip.mp4", "video_duration": 60.0}}
+        self._validate_trims(edl, analysis_by_id)
+        items = edl.all_items()
+        assert len(items) == 1
+        assert items[0].start_time == 58.0
+        assert items[0].end_time == 60.0
+
+    def test_end_past_duration_clamped(self):
+        """end_time=90 on a 60s video should be clamped to 60."""
+        edl = _make_test_edl([
+            EditItem(source_file="/media/clip.mp4", media_type="video",
+                     display_duration=5.0, start_time=50.0, end_time=90.0),
+        ])
+        analysis_by_id = {1: {"local_path": "/media/clip.mp4", "video_duration": 60.0}}
+        self._validate_trims(edl, analysis_by_id)
+        items = edl.all_items()
+        assert len(items) == 1
+        assert items[0].start_time == 50.0
+        assert items[0].end_time == 60.0
+
+    def test_start_ge_end_after_clamp_removed(self):
+        """If clamping makes start >= end, the item should be removed."""
+        # vid_dur=60, start=120 -> clamp to 58, end=57 (within duration, not clamped)
+        # 58 >= 57 -> item removed
+        edl = _make_test_edl([
+            EditItem(source_file="/media/clip.mp4", media_type="video",
+                     display_duration=5.0, start_time=120.0, end_time=57.0),
+        ])
+        analysis_by_id = {1: {"local_path": "/media/clip.mp4", "video_duration": 60.0}}
+        self._validate_trims(edl, analysis_by_id)
+        assert len(edl.all_items()) == 0
+
+    def test_valid_trims_unchanged(self):
+        """Trim points within duration should not be modified."""
+        edl = _make_test_edl([
+            EditItem(source_file="/media/clip.mp4", media_type="video",
+                     display_duration=5.0, start_time=10.0, end_time=20.0),
+        ])
+        analysis_by_id = {1: {"local_path": "/media/clip.mp4", "video_duration": 60.0}}
+        self._validate_trims(edl, analysis_by_id)
+        items = edl.all_items()
+        assert len(items) == 1
+        assert items[0].start_time == 10.0
+        assert items[0].end_time == 20.0
+
+    def test_photo_items_unaffected(self):
+        """Photo items should not be affected by trim validation."""
+        edl = _make_test_edl([
+            EditItem(source_file="/media/photo.jpg", media_type="photo", display_duration=4.0),
+        ])
+        analysis_by_id = {}
+        self._validate_trims(edl, analysis_by_id)
+        assert len(edl.all_items()) == 1
+
+    def test_no_trim_points_unaffected(self):
+        """Video items without start_time should not be affected."""
+        edl = _make_test_edl([
+            EditItem(source_file="/media/clip.mp4", media_type="video", display_duration=5.0),
+        ])
+        analysis_by_id = {1: {"local_path": "/media/clip.mp4", "video_duration": 60.0}}
+        self._validate_trims(edl, analysis_by_id)
+        assert len(edl.all_items()) == 1
+
+
 class TestDurationCheck:
     """Layer 3: Duration check."""
 
@@ -120,3 +215,39 @@ class TestDurationCheck:
         ])
         actual = edl.estimated_duration()
         assert actual >= 10.0 * 0.8
+
+
+# ---------------------------------------------------------------------------
+# _format_date_range tests (cross-platform, no %-d)
+# ---------------------------------------------------------------------------
+
+
+class TestFormatDateRange:
+    """Verify _format_date_range works on all platforms (no %-d strftime)."""
+
+    def test_same_month(self):
+        """Dates within one month: 'June 13-16, 2025'."""
+        result = _format_date_range(["2025-06-13", "2025-06-14", "2025-06-16"])
+        assert result == "June 13-16, 2025"
+
+    def test_multi_month(self):
+        """Dates spanning months: 'June 28 - July 3, 2025'."""
+        result = _format_date_range(["2025-06-28", "2025-06-30", "2025-07-01", "2025-07-03"])
+        assert result == "June 28 - July 3, 2025"
+
+    def test_single_date(self):
+        """Single date: 'March 5-5, 2024'."""
+        result = _format_date_range(["2024-03-05"])
+        assert "March" in result
+        assert "2024" in result
+
+    def test_empty_list(self):
+        result = _format_date_range([])
+        assert result == ""
+
+    def test_no_zero_padding(self):
+        """Day numbers should not have leading zeros (e.g. '3' not '03')."""
+        result = _format_date_range(["2025-01-03", "2025-02-05"])
+        # Should be "January 3 - February 5, 2025", not "January 03 - February 05"
+        assert "January 3" in result
+        assert "February 5" in result

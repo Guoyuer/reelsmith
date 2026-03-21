@@ -77,6 +77,7 @@ class FetchConfig(dg.Config):
 class PrepareConfig(dg.Config):
     family_names: list[str] | None = None
     force: bool = False
+    tz_offset: int | None = None  # UTC offset in hours; None = system local timezone
 
 
 class PlanConfig(dg.Config):
@@ -284,9 +285,11 @@ def prepare(
         force=config.force,
         progress_callback=_progress_cb(context, t0, granularity=20),
         log_fn=context.log.info,
+        tz_hours=config.tz_offset,
     )
     elapsed = round((time.monotonic() - t0) / 60, 1)
-    n_items = result.get("selected_items", 0)
+    analysis_path = Path(io.workspace_path) / "analysis.json"
+    n_items = len(json.loads(analysis_path.read_text())) if analysis_path.exists() else 0
     family = ", ".join(result.get("family_names", [])) or "(none detected)"
     context.log.info(f"Prepared {n_items} items in {elapsed}min, family: {family}")
 

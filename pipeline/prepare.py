@@ -29,7 +29,8 @@ except ImportError:
 from .config import Config
 from .media_utils import run_subprocess, generate_thumbnail
 
-SGT = timezone(timedelta(hours=8))
+# Default timezone: system local (replaces hardcoded SGT)
+_LOCAL_TZ = datetime.now(timezone.utc).astimezone().tzinfo
 
 SKIP_PREFIXES = ("screenshot", "screen_", "pano_")
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
@@ -38,6 +39,7 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 def prepare(cfg: Config, *, family_names: list[str] | None = None,
             force: bool = False, progress_callback=None, log_fn=None,
+            tz_hours: int | None = None,
             **_kwargs) -> dict:
     """Prepare all media for Gemini visual planning.
 
@@ -61,7 +63,11 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
         item["family_names"] = family_in_photo
 
     # --- Build timeline ---
-    timeline = _build_timeline(manifest)
+    if tz_hours is not None:
+        tz = timezone(timedelta(hours=tz_hours))
+    else:
+        tz = _LOCAL_TZ
+    timeline = _build_timeline(manifest, tz=tz)
 
     preprocessed = {
         "family_names": family_names,
@@ -169,15 +175,17 @@ def _detect_family(manifest: list[dict], top_n: int = 5) -> list[str]:
     return [name for name, c in ranked[:top_n] if c >= threshold]
 
 
-def _build_timeline(items: list[dict]) -> list[dict]:
+def _build_timeline(items: list[dict], tz=None) -> list[dict]:
     """Group items into day -> time_block -> location chapters."""
+    if tz is None:
+        tz = _LOCAL_TZ
     days: dict[str, list[dict]] = defaultdict(list)
 
     for item in items:
         t = item.get("takentime")
         if not t:
             continue
-        dt = datetime.fromtimestamp(t, tz=SGT)
+        dt = datetime.fromtimestamp(t, tz=tz)
         day_key = dt.strftime("%Y-%m-%d")
 
         hour = dt.hour

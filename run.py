@@ -136,10 +136,12 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
               help="Text language: en=English (default), cn=Chinese, both=bilingual")
 @click.option("--family", default=None,
               help="Comma-separated family member names for tiering (default: auto-detect from NAS face data)")
+@click.option("--timezone", "--tz", "tz_offset", default=None, type=int,
+              help="UTC offset in hours for day grouping (default: system local timezone, e.g. -5 for NYC, 8 for SGT)")
 @click.pass_context
 def full(ctx, from_date, to_date, duration, trip_type, style, focus,
          item_types, music, width, height, fps, quality,
-         country, district, force_prepare, family, lang):
+         country, district, force_prepare, family, lang, tz_offset):
     """Run the full pipeline end-to-end."""
     type_list = _parse_item_types(item_types) if item_types else None
 
@@ -159,6 +161,8 @@ def full(ctx, from_date, to_date, duration, trip_type, style, focus,
     prepare_cfg: dict = {"force": force_prepare}
     if family:
         prepare_cfg["family_names"] = [n.strip() for n in family.split(",")]
+    if tz_offset is not None:
+        prepare_cfg["tz_offset"] = tz_offset
     config["ops"]["prepare"] = {"config": prepare_cfg}
 
     # Plan

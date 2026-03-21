@@ -84,7 +84,7 @@ def _format_date_range(dates: list[str]) -> str:
         first, last = min(dts), max(dts)
         if first.month == last.month:
             return f"{first.strftime('%B')} {first.day}-{last.day}, {first.year}"
-        return f"{first.strftime('%B %-d')} - {last.strftime('%B %-d')}, {first.year}"
+        return f"{first.strftime('%B')} {first.day} - {last.strftime('%B')} {last.day}, {first.year}"
     except (ValueError, TypeError):
         return ""
 
@@ -657,6 +657,43 @@ Candidates by day/location:"""
     edl.segments = [s for s in edl.segments if s.items]
     if removed_count:
         _log(f"  Path validation: removed {removed_count} items with missing sources")
+
+    # Layer 2b: Validate video trim points against actual duration
+    trim_fixed = 0
+    trim_removed = 0
+    for seg in edl.segments:
+        valid_items = []
+        for item in seg.items:
+            if item.media_type == "video" and item.start_time is not None:
+                vid_dur = analysis_by_id.get(
+                    next((aid for aid, a in analysis_by_id.items()
+                          if a.get("local_path") == item.source_file), None),
+                    {},
+                ).get("video_duration")
+                if vid_dur and vid_dur > 0:
+                    changed = False
+                    if item.start_time >= vid_dur:
+                        item.start_time = max(vid_dur - 2, 0)
+                        changed = True
+                    if item.end_time is not None and item.end_time > vid_dur:
+                        item.end_time = vid_dur
+                        changed = True
+                    if item.end_time is not None and item.start_time >= item.end_time:
+                        _log(f"  Trim removal: {Path(item.source_file).name} "
+                             f"start={item.start_time:.1f} >= end={item.end_time:.1f} "
+                             f"(duration={vid_dur:.1f}s)")
+                        trim_removed += 1
+                        continue
+                    if changed:
+                        _log(f"  Trim clamped: {Path(item.source_file).name} "
+                             f"to [{item.start_time:.1f}, {item.end_time}] "
+                             f"(duration={vid_dur:.1f}s)")
+                        trim_fixed += 1
+            valid_items.append(item)
+        seg.items = valid_items
+    edl.segments = [s for s in edl.segments if s.items]
+    if trim_fixed or trim_removed:
+        _log(f"  Trim validation: {trim_fixed} clamped, {trim_removed} removed")
 
     # Layer 3: Duration check
     actual_dur = edl.estimated_duration()
