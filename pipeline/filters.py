@@ -4,21 +4,30 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .filtergraph import FilterGraph
+
 
 def build_portrait_photo_filter(
     out_w: int, out_h: int, frames: int, fps: int, zoom_rate: float,
 ) -> str:
     """Build FFmpeg filter_complex for portrait photos: blurred BG + sharp FG + gentle Ken Burns."""
-    return (
-        f"[0:v]split[bg][fg];"
-        f"[bg]scale=960:-1:force_original_aspect_ratio=increase,crop=960:540,"
-        f"gblur=sigma=20,scale={out_w}:{out_h}[blurred];"
-        f"[fg]scale=-1:{out_h}[sharp];"
-        f"[blurred][sharp]overlay=(W-w)/2:(H-h)/2[comp];"
-        f"[comp]zoompan=z='min(zoom+{zoom_rate:.6f},1.08)':d={frames}"
-        f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-        f":s={out_w}x{out_h}:fps={fps}"
+    fg = FilterGraph()
+    fg.add("split", inputs=["0:v"], output="bg] [fg")
+    fg.add_raw(
+        f"scale=960:-1:force_original_aspect_ratio=increase,crop=960:540,"
+        f"gblur=sigma=20,scale={out_w}:{out_h}",
+        inputs=["bg"], output="blurred",
     )
+    fg.add_raw(f"scale=-1:{out_h}", inputs=["fg"], output="sharp")
+    fg.add("overlay", {"x": "(W-w)/2", "y": "(H-h)/2"},
+           inputs=["blurred", "sharp"], output="comp")
+    fg.add_raw(
+        f"zoompan=z='min(zoom+{zoom_rate:.6f},1.08)':d={frames}"
+        f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+        f":s={out_w}x{out_h}:fps={fps}",
+        inputs=["comp"], output="",  # no output label — FFmpeg auto-connects to output
+    )
+    return fg.compile()
 
 
 def color_grade(color_temp: str = "neutral") -> str:
