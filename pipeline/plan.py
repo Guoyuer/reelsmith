@@ -1,7 +1,7 @@
 """Stage 3: Generate EDL — select photos/videos and arrange into a narrative.
 
 Uses the visual planner (Gemini 3 Flash): Gemini sees actual photos via
-contact sheets + filmstrips and creates a cinematic edit decision list.
+contact sheets and watches video clips (with audio) to create an EDL.
 
 Requires GEMINI_API_KEY in .env.
 """
@@ -212,7 +212,7 @@ def _build_visual_chapter_text(
     Returns (text, photo_paths, video_items) where:
     - text: metadata lines with numbered items
     - photo_paths: ordered list of photo paths for contact sheet
-    - video_items: list of video analysis dicts for filmstrips
+    - video_items: list of video analysis dicts for preview clips
     """
     lines = []
     photo_paths = []
