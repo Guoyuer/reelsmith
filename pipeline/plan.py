@@ -446,7 +446,8 @@ def _generate_video_clips_parallel(
     from .media_utils import run_subprocess
 
     _log = log_fn or print
-    encoder = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "28"]
+    # 320p 10fps CRF35 — Gemini processes at ~1fps anyway, audio quality unchanged
+    encoder = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "35"]
     max_workers = max(4, (os.cpu_count() or 4) // 2)
 
     # Build list of (clip_path, ffmpeg_cmd) for clips that need generating
@@ -463,7 +464,7 @@ def _generate_video_clips_parallel(
             if not clip_path.exists():
                 tasks.append((clip_path, [
                     "ffmpeg", "-y", "-i", str(source),
-                    "-vf", "scale=480:-2",
+                    "-vf", "scale=320:-2", "-r", "10",
                     *encoder,
                     "-c:a", "aac", "-b:a", "64k", "-ac", "1",
                     str(clip_path),
@@ -480,7 +481,7 @@ def _generate_video_clips_parallel(
                     tasks.append((clip_path, [
                         "ffmpeg", "-y", "-ss", str(clip_start),
                         "-i", str(source), "-t", str(clip_len),
-                        "-vf", "scale=480:-2",
+                        "-vf", "scale=320:-2", "-r", "10",
                         *encoder,
                         "-c:a", "aac", "-b:a", "64k", "-ac", "1",
                         str(clip_path),
