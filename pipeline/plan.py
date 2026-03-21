@@ -98,7 +98,7 @@ def _gemini_call(
     user_parts: list,
     log_fn,
     label: str = "",
-    model: str = "gemini-3-flash",
+    model: str = "gemini-2.5-flash",
 ) -> str:
     """Make a Gemini API call with multimodal content. Returns response text.
 
@@ -132,10 +132,11 @@ def _gemini_call(
             n_media += 1
             media_bytes_total += len(p.get("data", b""))
 
-    # Use Files API for large payloads (>20MB inline limit)
-    use_files_api = media_bytes_total > 20 * 1024 * 1024
-    uploaded_files = []  # track for cleanup
+    # Videos: single mega-preview uploaded via Files API (1 file, not 100+)
+    # Images: inline (contact sheets, ~44MB base64 ~59MB, within 100MB limit)
+    import time as _time
 
+    n_uploaded = 0
     parts = []
     for p in user_parts:
         if isinstance(p, str):
@@ -144,42 +145,40 @@ def _gemini_call(
             is_video = p.get("type") == "video_bytes"
             mime = p.get("mime_type", "image/jpeg")
 
-            if use_files_api:
-                # Write to temp file, upload via Files API
+            if is_video:
+                # Upload video to Files API (typically 1 mega-preview)
                 import tempfile
-                suffix = ".mp4" if is_video else (".wav" if "audio" in p.get("type", "") else ".jpg")
-                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
+                with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tf:
                     tf.write(p["data"])
                     tf_path = tf.name
                 try:
+                    _log(f"  Uploading video ({len(p['data']) / 1024 / 1024:.1f}MB) to Files API...")
                     uploaded = client.files.upload(file=tf_path)
-                    uploaded_files.append(uploaded)
-                    parts.append(types.Part(
-                        file_data=types.FileData(
-                            file_uri=uploaded.uri,
-                            mime_type=mime,
-                        ),
-                    ))
+                    while uploaded.state.name != "ACTIVE":
+                        _time.sleep(2)
+                        uploaded = client.files.get(name=uploaded.name)
+                    _log(f"  Video uploaded and ACTIVE: {uploaded.name}")
+                    n_uploaded += 1
                 finally:
                     Path(tf_path).unlink(missing_ok=True)
+                parts.append(types.Part(
+                    file_data=types.FileData(file_uri=uploaded.uri, mime_type=mime),
+                ))
             else:
-                res = types.MediaResolution.MEDIA_RESOLUTION_LOW if is_video \
-                    else types.MediaResolution.MEDIA_RESOLUTION_MEDIUM
                 parts.append(types.Part(
                     inline_data=types.Blob(mime_type=mime, data=p["data"]),
-                    media_resolution=res,
                 ))
         elif isinstance(p, types.Part):
             parts.append(p)
 
-    upload_method = "Files API" if use_files_api else "inline"
     _log(f"=== [Gemini] API Call: {label} ===")
     _log(f"  Model: {model}")
     _log(f"  System prompt: {len(system)} chars")
     _log(f"  Input: {n_text} text parts ({text_chars} chars), "
-         f"{n_media} media files ({media_bytes_total / 1024 / 1024:.1f}MB, {upload_method})")
-    if use_files_api:
-        _log(f"  Uploaded {len(uploaded_files)} files via Files API")
+         f"{n_media} media files ({media_bytes_total / 1024 / 1024:.1f}MB)")
+    if n_uploaded:
+        _log(f"  Videos: {n_uploaded} uploaded via Files API")
+    _log(f"  Images: {n_media - n_uploaded} inline")
     # Log system prompt (truncated for readability)
     for line in system.split("\n")[:5]:
         _log(f"  [system] {line}")
@@ -194,7 +193,6 @@ def _gemini_call(
             size_kb = len(p.get("data", b"")) // 1024
             _log(f"  [media #{i}] {ptype} {p.get('mime_type', '?')} ({size_kb}KB)")
 
-    import time as _time
     t0 = _time.monotonic()
 
     response = client.models.generate_content(
@@ -204,27 +202,18 @@ def _gemini_call(
             system_instruction=system,
             max_output_tokens=16000,
             temperature=0.7,
-            thinking_config=types.ThinkingConfig(
-                thinking_level="HIGH",
-            ),
+            media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
         ),
     )
 
     elapsed = _time.monotonic() - t0
 
-    # Cleanup uploaded files (auto-deleted after 48h, but clean up proactively)
-    for uf in uploaded_files:
-        try:
-            client.files.delete(name=uf.name)
-        except Exception as e:
-            _log(f"  WARNING: Failed to cleanup uploaded file {uf.name}: {e}")
-
     content = response.text or ""
     usage = response.usage_metadata
     input_tokens = usage.prompt_token_count or 0
     output_tokens = usage.candidates_token_count or 0
-    # Gemini 3 Flash pricing: ~$0.01/M input, ~$0.04/M output (approx)
-    cost_est = input_tokens * 0.01 / 1_000_000 + output_tokens * 0.04 / 1_000_000
+    # Gemini 2.5 Flash pricing: $0.30/M input, $2.50/M output
+    cost_est = input_tokens * 0.30 / 1_000_000 + output_tokens * 2.50 / 1_000_000
     _log(f"  Response: {input_tokens:,} input tokens, "
          f"{output_tokens:,} output tokens, {elapsed:.1f}s")
     _log(f"  Estimated cost: ${cost_est:.4f}")
@@ -340,6 +329,38 @@ def _build_visual_chapter_text(
 
 
 
+def _has_dense_keyframes(source: Path, duration: float) -> bool:
+    """Check if video has keyframe interval <= 2s (safe for -skip_frame nokey).
+
+    Probes first 10s to estimate keyframe density. Returns False for
+    long-GOP videos (GoPro ProTune, surveillance cams) where skipping
+    non-keyframes would cause frame duplication in 1fps output.
+    """
+    from .media_utils import run_subprocess
+    try:
+        r = run_subprocess(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-read_intervals", "%+10",  # probe first 10s only
+             "-show_entries", "packet=pts_time,flags",
+             "-of", "csv=p=0", str(source)],
+            capture_output=True, text=True, timeout=10,
+        )
+        keyframe_times = []
+        for line in r.stdout.strip().split("\n"):
+            parts = line.strip().split(",")
+            if len(parts) == 2 and "K" in parts[1]:
+                try:
+                    keyframe_times.append(float(parts[0]))
+                except ValueError:
+                    pass
+        if len(keyframe_times) < 2:
+            return False
+        avg_interval = (keyframe_times[-1] - keyframe_times[0]) / (len(keyframe_times) - 1)
+        return avg_interval <= 2.0
+    except Exception:
+        return False  # fallback to safe full decode
+
+
 def _generate_video_previews(
     video_items: list[dict], preview_dir: Path, log_fn=None,
 ) -> None:
@@ -354,8 +375,18 @@ def _generate_video_previews(
 
     _log = log_fn or print
     # 360p 1fps CRF35 — matches Gemini's internal processing rate
-    encoder = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "35"]
+    # -hwaccel auto: GPU-accelerated decode (~1.3x)
+    # -skip_frame nokey: only decode keyframes (~7x) — safe when GOP <= 2s
+    # Combined: ~22x faster. Falls back to full decode for long-GOP videos.
+    encoder = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "40"]
     max_workers = max(4, (os.cpu_count() or 4) // 2)
+
+    # Clean orphaned previews from previous runs (different ID schemes)
+    current_ids = {str(vi["id"]) for vi in video_items}
+    for old in preview_dir.glob("preview_*.mp4"):
+        pid = old.stem.replace("preview_", "")
+        if pid not in current_ids:
+            old.unlink()
 
     tasks: list[tuple[Path, list[str]]] = []
     for vi in video_items:
@@ -367,14 +398,22 @@ def _generate_video_previews(
 
         preview_path = preview_dir / f"preview_{vid_id}.mp4"
         if not preview_path.exists():
+            # Use -skip_frame nokey when keyframe interval <= 2s (most phone/drone videos).
+            # For long-GOP videos (GoPro ProTune, etc.), skip it to avoid frame duplication.
+            skip = ["-skip_frame", "nokey"] if _has_dense_keyframes(source, dur) else []
             tasks.append((preview_path, [
-                "ffmpeg", "-y", "-i", str(source),
-                "-vf", "scale=360:-2", "-r", "1",
+                "ffmpeg", "-y",
+                "-hwaccel", "auto", *skip,
+                "-i", str(source),
+                "-vf", "fps=1,scale=360:-2",
                 *encoder,
                 "-c:a", "aac", "-b:a", "64k", "-ac", "1",
                 str(preview_path),
             ]))
 
+    cached = len(video_items) - len(tasks)
+    if cached:
+        _log(f"Video previews: {cached} cached, {len(tasks)} to generate")
     if not tasks:
         return
 
@@ -393,6 +432,53 @@ def _generate_video_previews(
     _log(f"  Video clips done: {n_ok}/{len(tasks)} OK")
 
 
+def _concat_previews(
+    video_entries: list[tuple[int, float, Path]],
+    output_path: Path,
+    log_fn=None,
+) -> tuple[list[tuple[int, float, float]], Path]:
+    """Concatenate video previews into one mega-preview via FFmpeg concat demuxer.
+
+    Returns (offset_table, output_path) where offset_table is
+    [(item_num, original_duration, offset_in_mega), ...].
+    """
+    import tempfile
+    from .media_utils import run_subprocess
+
+    _log = log_fn or print
+
+    # Build concat list file
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        for _, _, preview_path in video_entries:
+            # FFmpeg concat demuxer needs absolute paths with forward slashes
+            safe_path = str(preview_path.resolve()).replace("\\", "/")
+            f.write(f"file '{safe_path}'\n")
+        list_path = f.name
+
+    try:
+        _log(f"Concatenating {len(video_entries)} previews into mega-preview...")
+        result = run_subprocess(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+             "-i", list_path, "-c", "copy", str(output_path)],
+            capture_output=True, timeout=120,
+        )
+        if result.returncode != 0:
+            _log(f"  WARNING: concat failed: {(result.stderr or b'').decode()[-300:]}")
+    finally:
+        Path(list_path).unlink(missing_ok=True)
+
+    # Build offset table
+    offset = 0.0
+    offset_table = []
+    for item_num, dur, _ in video_entries:
+        offset_table.append((item_num, dur, offset))
+        offset += dur
+
+    size_mb = output_path.stat().st_size / 1024 / 1024 if output_path.exists() else 0
+    _log(f"  Mega-preview: {len(video_entries)} videos, {offset:.0f}s total, {size_mb:.1f}MB")
+    return offset_table, output_path
+
+
 def _build_visual_content_blocks(
     preprocessed: dict, analysis_by_id: dict, cfg: Config, log_fn=None,
 ) -> list:
@@ -409,6 +495,7 @@ def _build_visual_content_blocks(
     blocks: list = []
     sheets_dir = cfg.contact_sheets_dir
     preview_dir = cfg.preview_clips_dir
+    video_entries: list[tuple[int, float, Path]] = []  # (item_num, duration, preview_path)
 
     global_idx = 1  # continuous numbering across chapters
 
@@ -461,27 +548,41 @@ def _build_visual_content_blocks(
                     })
                     sheet_idx += 1
 
-            # Videos: full previews already generated in batch above
+            # Collect video info for concatenated mega-preview (built after loop)
             for vi in video_items:
                 vid_id = vi["id"]
                 dur = vi.get("video_duration", 0)
                 if dur <= 0:
                     continue
-
                 item_num = global_idx + len(photo_paths) + video_items.index(vi)
                 preview_path = preview_dir / f"preview_{vid_id}.mp4"
                 if preview_path.exists() and preview_path.stat().st_size > 500:
-                    blocks.append(
-                        f"Video #{item_num:02d} ({dur:.0f}s full preview with audio). "
-                        f"Watch it and pick the best moment — set start_time/end_time in seconds:"
-                    )
-                    blocks.append({
-                        "type": "video_bytes",
-                        "mime_type": "video/mp4",
-                        "data": preview_path.read_bytes(),
-                    })
+                    video_entries.append((item_num, dur, preview_path))
 
             global_idx += n_items
+
+    # Build one concatenated mega-preview from all video previews
+    if video_entries:
+        mega_path = preview_dir / "_mega_preview.mp4"
+        offset_table, mega_path = _concat_previews(video_entries, mega_path, _log)
+
+        # Add video reference table as text
+        lines = ["--- VIDEO PREVIEW GUIDE ---",
+                 "All video previews are concatenated into one file below.",
+                 "Use this table to find each video. Times are relative to the ORIGINAL video (starting from 0), not the concatenated file.",
+                 ""]
+        for item_num, orig_dur, offset in offset_table:
+            lines.append(f"  Video #{item_num:02d}: {orig_dur:.0f}s long, starts at {offset:.1f}s in the concatenated preview")
+        lines.append("")
+        lines.append("For each video you select, set start_time/end_time relative to that video (0-based), NOT the concatenated preview time.")
+        blocks.append("\n".join(lines))
+
+        # Add the single mega-preview file
+        blocks.append({
+            "type": "video_bytes",
+            "mime_type": "video/mp4",
+            "data": mega_path.read_bytes(),
+        })
 
     return blocks
 
@@ -538,12 +639,12 @@ def _plan_visual(
     # ------------------------------------------------------------------
     _log("=== SINGLE-PASS PLANNING ===")
 
-    _log("Building contact sheets (12/sheet @ 400px) and video clips...")
+    _log("Building contact sheets (12/sheet @ 600px) and concatenated video preview...")
     content_blocks = _build_visual_content_blocks(preprocessed, analysis_by_id, cfg, _log)
     n_img = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "image_bytes")
     n_vid_clips = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "video_bytes")
     n_text = sum(1 for b in content_blocks if isinstance(b, str))
-    _log(f"Visual content: {n_text} text blocks, {n_img} contact sheets, {n_vid_clips} video previews")
+    _log(f"Visual content: {n_text} text blocks, {n_img} contact sheets, {n_vid_clips} video file(s)")
 
     # Build trip structure summary for arc thinking
     arc_lines = []
@@ -595,7 +696,7 @@ Candidates by day/location:"""
     edl = None
     for attempt in range(2):
         edl_content = _gemini_call(system_prompt, visual_parts, _log,
-                                   label="single pass: plan", model="gemini-3-flash-preview")
+                                   label="single pass: plan", model="gemini-2.5-flash")
 
         _log(f"=== [Gemini] EDL RESPONSE ({len(edl_content)} chars) ===")
         # Log full response (may contain thinking + JSON)

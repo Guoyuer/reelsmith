@@ -211,8 +211,6 @@ def fetch_media(
             items = do_fetch_local(
                 cfg,
                 source_dir=config.source_dir,
-                from_date=config.from_date or None,
-                to_date=config.to_date or None,
                 log_fn=context.log.info,
             )
         else:

@@ -14,10 +14,10 @@ dependencies = [
     "dagster-webserver>=1.9",
     "dagster-graphql>=1.9",
     "google-genai>=1.0",
+    "pillow-heif>=0.18",
 ]
 
 [project.optional-dependencies]
-heic = ["pillow-heif>=0.18"]                           # Cross-platform HEIC support
 music = ["torch>=2.0", "transformers>=4.30", "scipy>=1.10"]
 test = ["pytest>=8.0", "dagster>=1.9"]
 all = ["pillow-heif>=0.18", "torch>=2.0", "transformers>=4.30", "scipy>=1.10"]

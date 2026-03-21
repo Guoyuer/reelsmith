@@ -32,7 +32,8 @@ def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
         "static": 0.0,
     }
     target = zoom_targets.get(item.effect, 0.25)
-    variation = (hash(item.source_file) % 10) / 100
+    import hashlib
+    variation = (int(hashlib.md5(item.source_file.encode()).hexdigest()[:4], 16) % 10) / 100
     zoom_rate = 0.001 + ((target + variation) / frames) if target > 0 else 0
 
     dt = ""

@@ -136,6 +136,19 @@ Achievable in FFmpeg filter chain in `render.py:render_title_card`.
 
 ## Engineering Improvements
 
+### E5. Optimize Gemini payload >100MB path (Files API)
+
+Current inline limit is 100MB. With ~1000+ media files, payload can exceed this
+(188MB for 946 items). Falls back to Files API which uploads each file individually
+→ 500+ API calls, slow and error-prone.
+
+Options to explore:
+- Parallel file uploads (currently serial)
+- Batch multiple media into single uploaded files (e.g. concat video previews)
+- GCS-backed URLs instead of upload (if user has GCS)
+- Adaptive resolution: lower contact sheet density for large collections
+- Split into multiple Gemini calls (one per day/chapter) and merge plans
+
 ### E1. Unify clip timing to one source of truth
 
 Three independent offset implementations must agree:

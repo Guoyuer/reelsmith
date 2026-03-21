@@ -218,7 +218,7 @@ def make_contact_sheet(
                            fill=(0, 0, 0, 200))
             draw.text((x + pad, y + pad), label, fill="yellow", font=font)
 
-    sheet.save(output_path, "JPEG", quality=88)
+    sheet.save(output_path, "JPEG", quality=75)
     return output_path
 
 

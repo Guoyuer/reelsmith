@@ -8,6 +8,7 @@ the pipeline. Alternative to fetch.py (Synology NAS).
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,15 +22,13 @@ def fetch_local(
     cfg: Config,
     *,
     source_dir: str,
-    from_date: str | None = None,
-    to_date: str | None = None,
     log_fn=None,
 ) -> list[dict]:
     """Scan a local folder for photos/videos and build a manifest.
 
-    Extracts dates from EXIF (photos) or file mtime (fallback).
-    Optionally filters by date range (YYYY-MM-DD).
-    Files are symlinked/copied into cfg.media_dir for pipeline compatibility.
+    Uses all media files found — no date filtering.
+    Extracts dates from EXIF / filename / file mtime for sorting.
+    Points directly to source files (no copying or linking).
     """
     _log = log_fn or print
     cfg.ensure_dirs()
@@ -39,27 +38,15 @@ def fetch_local(
 
     all_extensions = PHOTO_EXTENSIONS | VIDEO_EXTENSIONS
 
-    # Parse date filters
-    date_from = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=timezone.utc) if from_date else None
-    date_to = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=timezone.utc, hour=23, minute=59, second=59) if to_date else None
-
-    # Scan for media files (recursive), skip temp/converted files and dedup by base name
-    seen_base_names: set[str] = set()
+    # Scan for media files (recursive), skip pipeline temp files
     files = []
     for f in sorted(source.rglob("*")):
         if not f.is_file() or f.suffix.lower() not in all_extensions:
             continue
-        # Skip pipeline temp files
         if f.name.startswith(("_converted_", "_hist_", "_audio_", "_resized_")):
             continue
-        # Dedup: strip numeric ID prefix (e.g. "87681_IMG_001.jpg" → "IMG_001.jpg")
-        parts = f.name.split("_", 1)
-        base_name = parts[1] if len(parts) > 1 and parts[0].isdigit() else f.name
-        if base_name in seen_base_names:
-            continue
-        seen_base_names.add(base_name)
         files.append(f)
-    _log(f"Found {len(files)} unique media files in {source}")
+    _log(f"Found {len(files)} media files in {source}")
 
     manifest = []
     for i, src_path in enumerate(files, 1):
@@ -75,14 +62,9 @@ def fetch_local(
         takentime = int(taken_dt.timestamp())
         taken_iso = taken_dt.isoformat()
 
-        # Date filter
-        if date_from and taken_dt < date_from:
-            continue
-        if date_to and taken_dt > date_to:
-            continue
-
-        # Stable ID from file path (deterministic across runs)
-        item_id = abs(hash(str(src_path))) % (10**8)
+        # Stable ID from filename (deterministic across runs, unlike hash())
+        import hashlib
+        item_id = int(hashlib.md5(src_path.name.encode()).hexdigest()[:8], 16) % (10**8)
         filename = src_path.name
 
         # Point directly to source file — no copying or linking
@@ -105,7 +87,7 @@ def fetch_local(
 
         manifest.append(entry)
         if i % 100 == 0 or i == len(files):
-            _log(f"[{i}/{len(files)}] Scanned ({len(manifest)} matched date filter)")
+            _log(f"[{i}/{len(files)}] Scanned")
 
     manifest_path = cfg.workspace / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2))
@@ -131,7 +113,8 @@ def _extract_date(path: Path) -> datetime | None:
                 return dt
         except Exception:
             pass
-        return None
+        # ffprobe failed — try filename
+        return _parse_date_from_filename(path.stem)
 
     try:
         from PIL import Image
@@ -144,6 +127,31 @@ def _extract_date(path: Path) -> datetime | None:
                 return dt.replace(tzinfo=timezone.utc)
     except Exception:
         pass
+
+    # PIL/FFmpeg failed — try parsing date from filename (common patterns)
+    return _parse_date_from_filename(path.stem)
+
+
+_DATE_PATTERNS = [
+    # 87462_20250617_191756 (NAS ID prefix + date + time)
+    re.compile(r"(?:^\d+_)?(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})"),
+    # IMG20250613085912 or DJI_20250613120415_0072_D
+    re.compile(r"(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})"),
+    # 2025-06-13_12-04-15
+    re.compile(r"(\d{4})-(\d{2})-(\d{2})[_T](\d{2})-(\d{2})-(\d{2})"),
+]
+
+
+def _parse_date_from_filename(stem: str) -> datetime | None:
+    """Try to extract a datetime from common filename patterns."""
+    for pat in _DATE_PATTERNS:
+        m = pat.search(stem)
+        if m:
+            try:
+                y, mo, d, h, mi, s = (int(x) for x in m.groups()[-6:])
+                return datetime(y, mo, d, h, mi, s, tzinfo=timezone.utc)
+            except ValueError:
+                continue
     return None
 
 

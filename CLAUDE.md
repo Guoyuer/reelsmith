@@ -7,8 +7,13 @@ Always run pipeline stages through Dagster (via `python run.py` CLI or Dagster U
 Use `dagster dev` (not just `dagster-webserver`) — the daemon is needed for the run queue coordinator.
 
 ```bash
-# Correct
+# NAS source (date range)
 python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 --duration 180
+
+# Local folder source (all files, no date filtering)
+python run.py -n singapore full --source workspace/media --duration 180 --lang cn --tz 8
+
+# Resume a failed run
 python run.py -n singapore resume
 
 # Wrong — don't do this
@@ -38,28 +43,28 @@ The assemble stage is split into focused modules:
 ## Gemini API call in the plan stage
 
 Single-pass planning with chain-of-thought: Gemini designs narrative arc, selects items,
-and self-reviews in one API call. Contact sheets use 6 photos/sheet at 600px.
+and self-reviews in one API call. Contact sheets use 12 photos/sheet at 600px, q=75.
 
 Prompts are externalized to `pipeline/prompts/` (editable without code changes):
 - `visual_planner_system.md` — main system prompt template
 - `narrative_guidance.json` — per-trip-type narrative rules
 - `lang_instructions.json` — language directives (en/cn/both)
 
-Fault tolerance: auto-retry on parse failure, fuzzy path matching for hallucinated
-file paths, duration check (warns if EDL is underfilled).
+Fault tolerance: fuzzy path matching for hallucinated file paths, duration check
+(warns if EDL is underfilled).
 
 | Input | What Gemini does |
 |-------|-----------------|
-| Contact sheets (6/sheet @ 600px) + video clips (320p 10fps with audio) + metadata | Design narrative arc → select items → assign music_mood/keep_audio/playback_speed/transitions/color_temp → self-review |
+| Contact sheets (12/sheet @ 600px, inline) + 1 concatenated video preview (360p 1fps, Files API) + metadata | Design narrative arc → select items → assign music_mood/keep_audio/playback_speed/transitions/color_temp → self-review |
 
-Total cost: ~$0.03 per run on Gemini 3 Flash.
+Model: `gemini-2.5-flash` (stable). Total cost: ~$0.06 per run.
 
 Every API call is logged with: model, input token count, output tokens, wall time, response preview.
 
 ## What Gemini controls (e2e)
 
 - **Photo/video selection** — Gemini sees actual photos via contact sheets, judges visually
-- **Video clips with audio** — Gemini watches 320p 10fps MP4 samples with audio, judges motion/framing/speech
+- **Video clips with audio** — Gemini watches 1 concatenated 360p 1fps preview (all videos stitched together with offset table), judges motion/framing/speech
 - **keep_audio** — Gemini sets `keep_audio=true` on videos where it hears meaningful speech/laughter
 - **Chapter structure** — narrative chapters by story beat, not location/time buckets
 - **Video trim points** — `start_time`/`end_time` for selecting best moments from video clips
@@ -97,9 +102,12 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 
 ## Key gotchas
 
-- Contact sheets must stay under 2000px in any dimension (Gemini API limit for multi-image requests) — large chapters auto-split into multiple sheets (max 28 per sheet)
-- Video clips sent to Gemini are 320p 10fps MP4 samples with audio (CRF35, ~80% smaller than 480p)
+- Contact sheets must stay under 2000px in any dimension — large chapters auto-split into multiple sheets (max 12 per sheet)
+- Video previews: individual 360p 1fps CRF40 clips concatenated into 1 mega-preview, uploaded via Files API. Images sent inline (~44MB). Inline base64 limit is 100MB (~75MB raw).
+- Preview generation uses `-hwaccel auto -skip_frame nokey` for ~22x speedup (only decodes keyframes)
 - Photo thumbnails cached in `workspace/thumbnails/`, video analysis cached in `workspace/analysis_cache/`
+- Preview clips cached in `workspace/preview_clips/` — orphaned files from old runs auto-cleaned
+- `--source` flag for local folder (alternative to NAS `-f`/`-t` date range)
 - Dagster: use `dagster dev` not `dagster-webserver` (daemon needed for run queue)
 - tqdm auto-disabled when stderr is not a TTY (prevents BrokenPipeError in Dagster)
 - Stale cache auto-invalidation: prepare re-runs if upstream file is newer (mtime check)
