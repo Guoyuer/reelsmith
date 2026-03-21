@@ -3,7 +3,7 @@
 Merges preprocess + analyze into one stage:
 - Family member auto-detection + family_count per item
 - Timeline construction (day → time_block → location)
-- Photo thumbnails (512px, cached)
+- Photo thumbnails (600px, cached — matches contact sheet cell size)
 - EXIF extraction (cached)
 - Video duration probing (cached)
 
@@ -290,7 +290,7 @@ def _read_exif(path) -> dict:
 def _prepare_photo(entry, item_id, local_path, cfg, cache_file):
     """Generate thumbnail and extract EXIF for a photo."""
     thumb_dir = cfg.thumbnails_dir
-    thumb = generate_thumbnail(local_path, thumb_dir, size=512)
+    thumb = generate_thumbnail(local_path, thumb_dir, size=600)
     exif = _read_exif(local_path)
     cache_data = {"thumbnail_path": str(thumb)}
     if exif:
