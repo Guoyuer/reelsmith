@@ -275,6 +275,8 @@ You have complete autonomy over:
 
 ## Technical rules
 
+- **DURATION IS MANDATORY**: Your EDL's total display_duration MUST match the target_duration.
+  Sum all items' display_duration — if it's more than 10% below target, add more items.
 - display_duration: 3-5s per photo, 5-10s for video clips
 - For videos: set start_time and end_time to select the best scene.
   IMPORTANT: if you hear speech/dialogue, make sure the trim includes the COMPLETE
@@ -682,7 +684,10 @@ def _plan_visual(
 Create a {style} {trip_label} vlog EDL from the photos and videos shown below.
 
 {trip_summary}{family_line}
-Target: {target_duration}s (~{n_items} items). Focus: {focus}.
+CRITICAL: The vlog MUST be {target_duration}s long. Select ~{n_items} items to fill this duration.
+Photos = 3-5s each, videos = 5-10s each. Do the math: {n_items} items × ~4s avg = {target_duration}s.
+If your EDL totals less than {int(target_duration * 0.9)}s, you have selected TOO FEW items — add more.
+Focus: {focus}.
 
 Trip structure:
 {"".join(arc_lines)}
