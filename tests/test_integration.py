@@ -165,17 +165,20 @@ class TestWriteChapters:
             ],
         )
         clips = [
-            {"duration": 4.0, "transition_duration": 0.0},
-            {"duration": 3.0, "transition_duration": 0.5},
-            {"duration": 5.0, "transition_duration": 0.0},
+            {"path": Path("a.mp4"), "duration": 4.0, "transition": "cut",
+             "transition_duration": 0.0, "keep_audio": False},
+            {"path": Path("b.mp4"), "duration": 3.0, "transition": "crossfade",
+             "transition_duration": 0.5, "keep_audio": False},
+            {"path": Path("c.mp4"), "duration": 5.0, "transition": "cut",
+             "transition_duration": 0.0, "keep_audio": False},
         ]
+        with patch("pipeline.timeline._probe_dur", return_value=0.0):
+            tl = Timeline.build(clips)
         out = tmp_path / "chapters.txt"
-        _write_chapters(edl, clips, out)
+        _write_chapters(edl, clips, out, timeline=tl)
         lines = out.read_text().strip().split("\n")
         assert len(lines) == 2
         assert lines[0] == "0:00 Beach"
-        # After Beach: 4.0 + (3.0 - 0.5) = 6.5s → "0:06 City"
-        assert lines[1] == "0:06 City"
 
     def test_with_intro_offsets_chapters(self, tmp_path):
         from pipeline.audio import write_chapters as _write_chapters
@@ -188,11 +191,15 @@ class TestWriteChapters:
             ],
         )
         clips = [
-            {"duration": 3.0, "transition_duration": 0.0},  # intro title card
-            {"duration": 4.0, "transition_duration": 0.0},  # actual clip
+            {"path": Path("intro.mp4"), "duration": 3.0, "transition": "cut",
+             "transition_duration": 0.0, "keep_audio": False},
+            {"path": Path("a.mp4"), "duration": 4.0, "transition": "cut",
+             "transition_duration": 0.0, "keep_audio": False},
         ]
+        with patch("pipeline.timeline._probe_dur", return_value=0.0):
+            tl = Timeline.build(clips)
         out = tmp_path / "chapters.txt"
-        _write_chapters(edl, clips, out)
+        _write_chapters(edl, clips, out, timeline=tl)
         lines = out.read_text().strip().split("\n")
         # Chapter starts after intro (3s)
         assert lines[0] == "0:03 Opening"

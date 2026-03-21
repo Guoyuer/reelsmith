@@ -261,34 +261,17 @@ def write_chapters(edl: EDL, all_clips: list[dict], out_path: Path,
                     timeline=None) -> None:
     """Write YouTube-compatible chapter markers from EDL segments.
 
-    Uses Timeline offsets when available (single source of truth).
-    Falls back to clip-based accumulation if no timeline provided.
+    Requires a Timeline object (single source of truth for offsets).
     """
-    if timeline is not None:
-        chapters = timeline.chapter_offsets(edl, all_clips)
-        lines = []
-        for offset, name in chapters:
-            minutes = int(offset) // 60
-            seconds = int(offset) % 60
-            lines.append(f"{minutes}:{seconds:02d} {name}")
-    else:
-        # Fallback: accumulate from clip durations
-        lines = []
-        offset = 0.0
-        clip_idx = 0
-        has_intro = edl.intro_style != "none"
-        if has_intro and all_clips:
-            offset = all_clips[0]["duration"]
-            clip_idx = 1
-        for seg in edl.segments:
-            minutes = int(offset) // 60
-            seconds = int(offset) % 60
-            lines.append(f"{minutes}:{seconds:02d} {seg.name}")
-            for item in seg.items:
-                if clip_idx < len(all_clips):
-                    td = all_clips[clip_idx].get("transition_duration", 0.0)
-                    offset += all_clips[clip_idx]["duration"] - td
-                    clip_idx += 1
+    if timeline is None:
+        raise ValueError("write_chapters requires a Timeline object")
+
+    chapters = timeline.chapter_offsets(edl, all_clips)
+    lines = []
+    for offset, name in chapters:
+        minutes = int(offset) // 60
+        seconds = int(offset) % 60
+        lines.append(f"{minutes}:{seconds:02d} {name}")
 
     out_path.write_text("\n".join(lines))
     print(f"YouTube chapters: {out_path.name} ({len(lines)} chapters)")
