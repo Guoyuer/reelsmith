@@ -474,7 +474,7 @@ def _build_visual_content_blocks(
                     })
                     sheet_idx += 1
 
-            # Videos: send 3×2s clips (start/mid/end with audio) for motion + speech
+            # Videos: short (<15s) sent in full, long sent as 3×2s clips
             for vi in video_items:
                 vid_id = vi["id"]
                 source = Path(vi.get("local_path", ""))
@@ -483,20 +483,13 @@ def _build_visual_content_blocks(
                     continue
 
                 item_num = global_idx + len(photo_paths) + video_items.index(vi)
-                blocks.append(f"Video #{item_num:02d} ({dur:.0f}s total, 3 samples with audio):")
 
-                clip_positions = [
-                    ("start", max(0, dur * 0.1)),
-                    ("mid", max(0, (dur - 2) / 2)),
-                    ("end", max(0, dur * 0.9 - 2)),
-                ]
-                clips_sent = 0
-                for clip_label, clip_start in clip_positions:
-                    clip_path = sheets_dir / f"clip_{vid_id}_{clip_label}.mp4"
+                if dur <= 15:
+                    # Short video: send full clip so Gemini sees complete interactions
+                    clip_path = sheets_dir / f"clip_{vid_id}_full.mp4"
                     if not clip_path.exists():
                         run_subprocess(
-                            ["ffmpeg", "-y", "-ss", str(clip_start),
-                             "-i", str(source), "-t", "2",
+                            ["ffmpeg", "-y", "-i", str(source),
                              "-vf", "scale=480:-2",
                              "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
                              "-c:a", "aac", "-b:a", "64k", "-ac", "1",
@@ -504,14 +497,44 @@ def _build_visual_content_blocks(
                             capture_output=True,
                         )
                     if clip_path.exists() and clip_path.stat().st_size > 500:
+                        blocks.append(f"Video #{item_num:02d} ({dur:.0f}s, FULL clip with audio):")
                         blocks.append({
                             "type": "video_bytes",
                             "mime_type": "video/mp4",
                             "data": clip_path.read_bytes(),
                         })
-                        clips_sent += 1
-
-                _log(f"Video #{item_num:02d}: {source.name} ({clips_sent} clips)")
+                        _log(f"Video #{item_num:02d}: {source.name} (full {dur:.0f}s)")
+                    else:
+                        _log(f"Video #{item_num:02d}: {source.name} (full clip failed)")
+                else:
+                    # Long video: send 3×2s samples (start/mid/end)
+                    blocks.append(f"Video #{item_num:02d} ({dur:.0f}s total, 3 samples with audio):")
+                    clip_positions = [
+                        ("start", max(0, dur * 0.1)),
+                        ("mid", max(0, (dur - 2) / 2)),
+                        ("end", max(0, dur * 0.9 - 2)),
+                    ]
+                    clips_sent = 0
+                    for clip_label, clip_start in clip_positions:
+                        clip_path = sheets_dir / f"clip_{vid_id}_{clip_label}.mp4"
+                        if not clip_path.exists():
+                            run_subprocess(
+                                ["ffmpeg", "-y", "-ss", str(clip_start),
+                                 "-i", str(source), "-t", "2",
+                                 "-vf", "scale=480:-2",
+                                 "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                                 "-c:a", "aac", "-b:a", "64k", "-ac", "1",
+                                 str(clip_path)],
+                                capture_output=True,
+                            )
+                        if clip_path.exists() and clip_path.stat().st_size > 500:
+                            blocks.append({
+                                "type": "video_bytes",
+                                "mime_type": "video/mp4",
+                                "data": clip_path.read_bytes(),
+                            })
+                            clips_sent += 1
+                    _log(f"Video #{item_num:02d}: {source.name} ({clips_sent} clips)")
 
             global_idx += n_items
 
