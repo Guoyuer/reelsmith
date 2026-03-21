@@ -204,7 +204,7 @@ def _gemini_call(
             temperature=0.7,
             media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
             thinking_config=types.ThinkingConfig(
-                thinking_level="MINIMAL",
+                thinking_level="HIGH",
             ),
         ),
     )
@@ -378,12 +378,13 @@ def _has_dense_keyframes(source: Path, duration: float) -> bool:
 
 def _generate_video_previews(
     video_items: list[dict], preview_dir: Path, log_fn=None,
+    *, vid_id_to_num: dict[str, int] | None = None,
 ) -> None:
     """Generate one full-length preview per video (360p 1fps + audio).
 
     Gemini processes video at 1fps internally — sending 1fps means zero
     wasted frames. Full-length means 100% coverage (vs 71% with clips).
-    Gemini can reference any second natively for trim point decisions.
+    Burns item number (#XX) into video for Gemini to match with text metadata.
     """
     import os
     from .media_utils import run_subprocess
@@ -411,6 +412,15 @@ def _generate_video_previews(
         if not source.exists() or dur <= 0:
             continue
 
+        # Label: burn item number into video if mapping available
+        item_num = (vid_id_to_num or {}).get(str(vid_id))
+        label_filter = ""
+        if item_num is not None:
+            label_text = f"\\#%d" % item_num  # escaped for FFmpeg
+            label_filter = (f",drawtext=text='{label_text}'"
+                           f":fontsize=28:fontcolor=yellow"
+                           f":box=1:boxcolor=black@0.8:boxborderw=6:x=8:y=6")
+
         preview_path = preview_dir / f"preview_{vid_id}.mp4"
         if not preview_path.exists():
             # Use -skip_frame nokey when keyframe interval <= 2s (most phone/drone videos).
@@ -420,7 +430,7 @@ def _generate_video_previews(
                 "ffmpeg", "-y",
                 "-hwaccel", "auto", *skip,
                 "-i", str(source),
-                "-vf", "fps=1,scale=360:-2",
+                "-vf", f"fps=1,scale=360:-2{label_filter}",
                 *encoder,
                 "-c:a", "aac", "-b:a", "64k", "-ac", "1",
                 str(preview_path),
@@ -514,7 +524,19 @@ def _build_visual_content_blocks(
 
     global_idx = 1  # continuous numbering across chapters
 
-    # Pre-generate ALL video previews in one parallel batch (not per-chapter)
+    # Pre-compute vid_id → item_num mapping (must match text metadata numbering)
+    vid_id_to_num: dict[str, int] = {}
+    idx = 1
+    for day in preprocessed["timeline"]:
+        for chapter in day["chapters"]:
+            ids = chapter.get("item_ids", [])
+            for item_id in ids:
+                a = analysis_by_id.get(str(item_id))
+                if a and a.get("media_type") == "video":
+                    vid_id_to_num[str(a["id"])] = idx
+                idx += 1
+
+    # Pre-generate ALL video previews with burned-in labels
     all_video_items = []
     for day in preprocessed["timeline"]:
         for chapter in day["chapters"]:
@@ -523,7 +545,7 @@ def _build_visual_content_blocks(
                 if a and a.get("media_type") == "video":
                     all_video_items.append(a)
     if all_video_items:
-        _generate_video_previews(all_video_items, preview_dir, _log)
+        _generate_video_previews(all_video_items, preview_dir, _log, vid_id_to_num=vid_id_to_num)
 
     for day in preprocessed["timeline"]:
         for chapter in day["chapters"]:
@@ -579,20 +601,15 @@ def _build_visual_content_blocks(
     # Build one concatenated mega-preview from all video previews
     if video_entries:
         mega_path = preview_dir / "_mega_preview.mp4"
-        offset_table, mega_path = _concat_previews(video_entries, mega_path, _log)
+        _concat_previews(video_entries, mega_path, _log)
 
-        # Add video reference table as text
-        lines = ["--- VIDEO PREVIEW GUIDE ---",
-                 "All video previews are concatenated into one file below.",
-                 "Use this table to find each video. Times are relative to the ORIGINAL video (starting from 0), not the concatenated file.",
-                 ""]
-        for item_num, orig_dur, offset in offset_table:
-            lines.append(f"  Video #{item_num:02d}: {orig_dur:.0f}s long, starts at {offset:.1f}s in the concatenated preview")
-        lines.append("")
-        lines.append("For each video you select, set start_time/end_time relative to that video (0-based), NOT the concatenated preview time.")
-        blocks.append("\n".join(lines))
-
-        # Add the single mega-preview file
+        blocks.append(
+            "--- VIDEO PREVIEW ---\n"
+            "All video clips are concatenated below. Each clip has its item number "
+            "(e.g. #30) burned into the top-left corner. Match these numbers to the "
+            "item metadata above. start_time/end_time are relative to each original "
+            "video (0-based), not the concatenated preview."
+        )
         blocks.append({
             "type": "video_bytes",
             "mime_type": "video/mp4",
@@ -792,6 +809,23 @@ Candidates by day/location:"""
     edl.segments = [s for s in edl.segments if s.items]
     if trim_fixed or trim_removed:
         _log(f"  Trim validation: {trim_fixed} clamped, {trim_removed} removed")
+
+    # Layer 2c: Deduplicate source files (keep first occurrence)
+    seen_sources: set[str] = set()
+    dedup_removed = 0
+    for seg in edl.segments:
+        unique_items = []
+        for item in seg.items:
+            if item.source_file in seen_sources:
+                _log(f"  Dedup: removed duplicate {Path(item.source_file).name}")
+                dedup_removed += 1
+            else:
+                seen_sources.add(item.source_file)
+                unique_items.append(item)
+        seg.items = unique_items
+    edl.segments = [s for s in edl.segments if s.items]
+    if dedup_removed:
+        _log(f"  Dedup: removed {dedup_removed} duplicate items")
 
     # Layer 3: Duration check
     actual_dur = edl.estimated_duration()

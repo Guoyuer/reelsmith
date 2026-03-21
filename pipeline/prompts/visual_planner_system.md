@@ -74,9 +74,10 @@ You have complete autonomy over:
   Sum all items' display_duration — if it's more than 10% below target, add more items.
 - display_duration: 3-5s per photo, 5-10s for video clips
 - For videos: set start_time and end_time to select the best scene.
-  Video previews are concatenated into one file — use the VIDEO PREVIEW GUIDE
-  to locate each video. start_time/end_time must be relative to each ORIGINAL
-  video (0-based), not the concatenated preview's timeline.
+  Video previews are concatenated into one file. Each clip has its item number
+  (e.g. #30) burned into the top-left corner — match these to the item numbers
+  in the text metadata. start_time/end_time are relative to each original video
+  (0-based), not the concatenated preview.
   IMPORTANT: if you hear speech/dialogue, make sure the trim includes the COMPLETE
   conversation — don't cut mid-sentence. End at least 1s after the last word.
   If someone says "come say hi" and another person responds, include BOTH.
