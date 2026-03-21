@@ -39,16 +39,17 @@ def _submit(job_name: str, run_name: str, run_config: dict | None = None):
         except Exception as reload_err:
             click.echo(f"Code reload warning: {reload_err}", err=True)
 
-        # Retry submission — webserver may need a moment after reload
+        # Wait for reload to finish — poll until job is found
         run_id = None
-        for attempt in range(10):
+        click.echo("Waiting for code reload...")
+        for attempt in range(30):
             try:
                 run_id = client.submit_job_execution(
                     job_name=job_name, run_config=config,
                 )
                 break
             except Exception as submit_err:
-                if "JobNotFoundError" in str(submit_err) and attempt < 9:
+                if attempt < 29:
                     time.sleep(1)
                     continue
                 raise

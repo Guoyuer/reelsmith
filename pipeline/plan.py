@@ -203,17 +203,33 @@ def _gemini_call(
             max_output_tokens=16000,
             temperature=0.7,
             media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
+            thinking_config=types.ThinkingConfig(
+                thinking_level="HIGH",
+                include_thoughts=True,
+            ),
         ),
     )
 
     elapsed = _time.monotonic() - t0
 
+    # Log thinking summary if available
+    if response.candidates:
+        for part in (response.candidates[0].content.parts or []):
+            if getattr(part, 'thought', False) and part.text:
+                _log(f"  [Thinking] {part.text[:500]}...")
+
     content = response.text or ""
+    # Log finish reason if response is empty or blocked
+    if not content and response.candidates:
+        c = response.candidates[0]
+        _log(f"  WARNING: Empty response. finish_reason={c.finish_reason}, safety={c.safety_ratings}")
+    elif not content:
+        _log(f"  WARNING: Empty response with no candidates. prompt_feedback={response.prompt_feedback}")
     usage = response.usage_metadata
     input_tokens = usage.prompt_token_count or 0
     output_tokens = usage.candidates_token_count or 0
-    # Gemini 2.5 Flash pricing: $0.30/M input, $2.50/M output
-    cost_est = input_tokens * 0.30 / 1_000_000 + output_tokens * 2.50 / 1_000_000
+    # Gemini 3.1 Flash Lite pricing: $0.075/M input, $0.30/M output
+    cost_est = input_tokens * 0.075 / 1_000_000 + output_tokens * 0.30 / 1_000_000
     _log(f"  Response: {input_tokens:,} input tokens, "
          f"{output_tokens:,} output tokens, {elapsed:.1f}s")
     _log(f"  Estimated cost: ${cost_est:.4f}")
@@ -264,7 +280,7 @@ def _build_visual_chapter_text(
     idx = start_idx
 
     for item_id in chapter.get("item_ids", []):
-        a = analysis_by_id.get(item_id)
+        a = analysis_by_id.get(str(item_id))
         if not a:
             continue
 
@@ -504,7 +520,7 @@ def _build_visual_content_blocks(
     for day in preprocessed["timeline"]:
         for chapter in day["chapters"]:
             for item_id in chapter.get("item_ids", []):
-                a = analysis_by_id.get(item_id)
+                a = analysis_by_id.get(str(item_id))
                 if a and a.get("media_type") == "video":
                     all_video_items.append(a)
     if all_video_items:
@@ -562,7 +578,8 @@ def _build_visual_content_blocks(
             global_idx += n_items
 
     # Build one concatenated mega-preview from all video previews
-    if video_entries:
+    # TODO: re-enable after photos-only iteration works
+    if False and video_entries:
         mega_path = preview_dir / "_mega_preview.mp4"
         offset_table, mega_path = _concat_previews(video_entries, mega_path, _log)
 
@@ -616,7 +633,7 @@ def _plan_visual(
             if loc and loc != "unknown" and loc not in locations:
                 locations.append(loc)
             for item_id in ch.get("item_ids", []):
-                a = analysis_by_id.get(item_id)
+                a = analysis_by_id.get(str(item_id))
                 if a:
                     n_candidates += 1
                     if a.get("media_type") == "video":
@@ -655,7 +672,7 @@ def _plan_visual(
             block = ch["time_block"]
             count = len(ch.get("item_ids", []))
             n_vid = sum(1 for iid in ch["item_ids"]
-                        if analysis_by_id.get(iid, {}).get("media_type") == "video")
+                        if analysis_by_id.get(str(iid), {}).get("media_type") == "video")
             line = f"  [{block.upper()}] {loc} — {count} items"
             if n_vid:
                 line += f" ({n_vid} videos)"
@@ -689,31 +706,16 @@ Candidates by day/location:"""
 
     from .media_utils import strip_markdown_fences
 
-    # Layer 1: Auto-retry on parse failure
-    import json as _json
-    from pydantic import ValidationError
+    edl_content = _gemini_call(system_prompt, visual_parts, _log,
+                               label="single pass: plan", model="gemini-3.1-flash-lite-preview")
 
-    edl = None
-    for attempt in range(2):
-        edl_content = _gemini_call(system_prompt, visual_parts, _log,
-                                   label="single pass: plan", model="gemini-2.5-flash")
+    _log(f"=== [Gemini] EDL RESPONSE ({len(edl_content)} chars) ===")
+    for line in edl_content.split("\n"):
+        _log(f"  | {line}")
+    _log("=== [Gemini] END RESPONSE ===")
 
-        _log(f"=== [Gemini] EDL RESPONSE ({len(edl_content)} chars) ===")
-        # Log full response (may contain thinking + JSON)
-        for line in edl_content.split("\n"):
-            _log(f"  | {line}")
-        _log("=== [Gemini] END RESPONSE ===")
-
-        edl_content = strip_markdown_fences(edl_content)
-        try:
-            edl = EDL.model_validate_json(edl_content)
-            break
-        except (ValidationError, _json.JSONDecodeError) as e:
-            _log(f"Parse failed (attempt {attempt + 1}/2): {e}")
-            if attempt == 1:
-                raise
-
-    assert edl is not None  # guaranteed by the loop above
+    edl_content = strip_markdown_fences(edl_content)
+    edl = EDL.model_validate_json(edl_content)
 
     # Layer 2: Fix hallucinated file paths
     media_dir = cfg.media_dir
