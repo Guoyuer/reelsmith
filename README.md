@@ -291,6 +291,45 @@ Fault tolerance: auto-retry on parse failure (1 retry), fuzzy path matching for 
 
 Outputs versioned EDL (`edl_v{N}.json`). Render settings (resolution, fps, quality) stored in EDL. Requires `GEMINI_API_KEY`.
 
+#### What goes in and out of Gemini
+
+**Sent to Gemini (per item):**
+
+| Data | Format | Source | Example |
+|------|--------|--------|---------|
+| Contact sheet | JPEG grid (6 photos/sheet @ 600px) | Pillow compositing | `contact_sheets/2025-06-13_afternoon_Marina_Bay.jpg` |
+| Video clip | MP4 (320p 10fps CRF35, with audio) | FFmpeg extraction | `contact_sheets/clip_87681_0.mp4` |
+| People | Text: who's in the photo | NAS face recognition → `family_count` | `#01: family together (Alice,Bob)` |
+| Time | Text: when taken | EXIF / NAS metadata | `time=14:30` |
+| Location | Text: where taken | NAS metadata / EXIF GPS | `at=Chinatown` |
+| Video duration | Text: total length | ffprobe | `video=45s` |
+| EXIF (photos) | Text: camera settings | Pillow EXIF extraction | `24mm f/1.4 ISO100` |
+| File path | Text: for source_file reference | Local filesystem path | `path=workspace/media/87681_IMG.jpg` |
+| Trip context | Text: type, style, family names, duration target | CLI args | `family trip, 180s, Family: Alice, Bob` |
+| Trip structure | Text: days and locations summary | Timeline from prepare | `=== Tuesday 2025-06-13 === Marina Bay (12 photos, 3 videos)` |
+| System prompt | Markdown: narrative principles, technical rules | `pipeline/prompts/*.md` | Loaded from files, ~7KB |
+
+**Returned by Gemini (EDL):**
+
+| Field | Level | What Gemini decides | Used by |
+|-------|-------|-------------------|---------|
+| `title` | EDL | Vlog title | Title card rendering |
+| `segments[].name` | Segment | Chapter name (narrative, not location) | YouTube chapters, title cards |
+| `segments[].narrative_rationale` | Segment | Why these items, what story beat | Logging only |
+| `segments[].music_mood` | Segment | Vivid music description | Lyria music generation prompt |
+| `segments[].mode` | Segment | `narrative` or `montage` | Transition style in assemble |
+| `segments[].color_temp` | Segment | `warm` / `cool` / `neutral` | FFmpeg color grading filter |
+| `segments[].transition` | Segment | `crossfade` / `dissolve` / `fade_black` / etc. | FFmpeg xfade filter |
+| `segments[].transition_duration` | Segment | Seconds of overlap | Xfade offset calculation |
+| `items[].source_file` | Item | Which photo/video to use | File path for rendering |
+| `items[].media_type` | Item | `photo` or `video` | Render method selection |
+| `items[].display_duration` | Item | How long on screen (3-10s) | Clip length, pacing |
+| `items[].start_time` / `end_time` | Item | Video trim points | FFmpeg `-ss` / `-t` |
+| `items[].effect` | Item | Ken Burns direction or `none` | Zoompan filter |
+| `items[].playback_speed` | Item | `0.5` / `1.0` / `1.5` | FFmpeg setpts/atempo |
+| `items[].keep_audio` | Item | Preserve original audio? | Speech track building |
+| `items[].text_overlay` | Item | Evocative text + position | FFmpeg drawtext filter |
+
 ### 4. generate_music
 Generates background music using the EDL's `music_mood` descriptions and `estimated_duration()`. See [Music Generation](#music-generation) for backend options. Saves the music file path back into the EDL. Skipped when `--music none` or a custom file path is provided.
 
