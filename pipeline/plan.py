@@ -461,10 +461,26 @@ def _preview_encoder(log_fn=None) -> list[str]:
     return _PREVIEW_ENCODER_CACHE
 
 
+import signal
+import threading
+
+_SHUTDOWN = threading.Event()
+
+# Set shutdown flag on SIGTERM/SIGINT so parallel workers stop spawning FFmpeg
+def _on_shutdown(signum, frame):
+    _SHUTDOWN.set()
+
+signal.signal(signal.SIGTERM, _on_shutdown)
+signal.signal(signal.SIGINT, _on_shutdown)
+
+
 def _generate_video_clips_parallel(
     video_items: list[dict], sheets_dir: Path, log_fn=None,
 ) -> None:
-    """Generate all preview clips for a batch of videos in parallel."""
+    """Generate all preview clips for a batch of videos in parallel.
+
+    Respects _SHUTDOWN flag — stops spawning new FFmpeg on SIGTERM/SIGINT.
+    """
     import os
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from .media_utils import run_subprocess
@@ -472,8 +488,6 @@ def _generate_video_clips_parallel(
     _log = log_fn or print
     encoder = _preview_encoder(log_fn=_log)
     is_nvenc = "nvenc" in str(encoder)
-    # NVENC: limit to 2 workers (consumer GPUs have 3-5 session limit,
-    # leave headroom for other processes). CPU: use half of cores.
     max_workers = 2 if is_nvenc else max(2, (os.cpu_count() or 4) // 2)
 
     # Build list of (clip_path, ffmpeg_cmd) for clips that need generating
@@ -516,12 +530,22 @@ def _generate_video_clips_parallel(
     if not tasks:
         return
 
-    _log(f"Generating {len(tasks)} video clips (CPU, {max_workers} workers)...")
+    enc_name = "NVENC" if is_nvenc else "CPU"
+    _log(f"Generating {len(tasks)} video clips ({enc_name}, {max_workers} workers)...")
+
+    def _run_if_not_shutdown(cmd):
+        if _SHUTDOWN.is_set():
+            return None
+        return run_subprocess(cmd, capture_output=True)
 
     done = 0
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(run_subprocess, cmd, capture_output=True): path for path, cmd in tasks}
+        futures = {pool.submit(_run_if_not_shutdown, cmd): path for path, cmd in tasks}
         for future in as_completed(futures):
+            if _SHUTDOWN.is_set():
+                pool.shutdown(wait=False, cancel_futures=True)
+                _log("  Shutdown requested — stopping clip generation")
+                return
             done += 1
             if done % 20 == 0 or done == len(tasks):
                 _log(f"  Video clips: {done}/{len(tasks)}")
