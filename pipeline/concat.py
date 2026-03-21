@@ -33,12 +33,14 @@ def _partition_into_groups(n: int, get_transition) -> list[list[int]]:
 
 def concatenate(clips: list[dict], output_path: Path,
                 w: int = 0, h: int = 0, fps: int = 0,
-                timeline=None) -> None:
+                timeline=None, log_fn=None) -> None:
     """Concatenate clips with transitions (video only). Speech handled separately.
 
     For reliability at high resolutions, splits into segments and xfades
     within each segment, then concats segments via demuxer.
     """
+    _log = log_fn or print
+
     if len(clips) == 1:
         shutil.copy(str(clips[0]["path"]), str(output_path))
         return
@@ -52,10 +54,10 @@ def concatenate(clips: list[dict], output_path: Path,
     idx_groups = _partition_into_groups(len(clips), lambda i: clips[i].get("transition"))
     groups = [[clips[i] for i in g] for g in idx_groups]
 
-    print(f"  Concat strategy: {len(groups)} groups ({', '.join(f'{len(g)} clips' for g in groups)})")
+    _log(f"  Concat strategy: {len(groups)} groups ({', '.join(f'{len(g)} clips' for g in groups)})")
 
     if len(groups) == 1 and len(clips) <= 15:
-        print(f"  Single xfade ({len(clips)} clips)...")
+        _log(f"  Single xfade ({len(clips)} clips)...")
         concat_xfade(clips, output_path, w, h, fps, timeline=timeline)
         return
 
@@ -65,25 +67,25 @@ def concatenate(clips: list[dict], output_path: Path,
         if len(group) == 1:
             group_files.append({"path": group[0]["path"], "duration": group[0]["duration"],
                                 "transition": "cut", "transition_duration": 0.0})
-            print(f"  Group {gi+1}/{len(groups)}: 1 clip (pass-through)")
+            _log(f"  Group {gi+1}/{len(groups)}: 1 clip (pass-through)")
             continue
 
         group_path = tmp_dir / f"_group_{gi}.mp4"
         group[0] = {**group[0], "transition": "cut", "transition_duration": 0.0}
         if len(group) <= 15:
-            print(f"  Group {gi+1}/{len(groups)}: xfade {len(group)} clips...")
+            _log(f"  Group {gi+1}/{len(groups)}: xfade {len(group)} clips...")
             concat_xfade(group, group_path, w, h, fps)
         else:
-            print(f"  Group {gi+1}/{len(groups)}: demuxer {len(group)} clips...")
+            _log(f"  Group {gi+1}/{len(groups)}: demuxer {len(group)} clips...")
             concat_demuxer(group, group_path, w, h, fps)
 
         if group_path.exists():
             dur = probe_duration(group_path) or sum(c["duration"] for c in group)
             group_files.append({"path": group_path, "duration": dur,
                                 "transition": "cut", "transition_duration": 0.0})
-            print(f"  Group {gi+1}/{len(groups)}: done ({dur:.1f}s)")
+            _log(f"  Group {gi+1}/{len(groups)}: done ({dur:.1f}s)")
         else:
-            print(f"  Group {gi+1}/{len(groups)}: xfade failed, falling back to demuxer...")
+            _log(f"  Group {gi+1}/{len(groups)}: xfade failed, falling back to demuxer...")
             concat_demuxer(group, group_path, w, h, fps)
             if group_path.exists():
                 dur = probe_duration(group_path) or sum(c["duration"] for c in group)
@@ -91,14 +93,14 @@ def concatenate(clips: list[dict], output_path: Path,
                                     "transition": "cut", "transition_duration": 0.0})
 
     if not group_files:
-        print("  All groups failed, falling back to full demuxer")
+        _log("  All groups failed, falling back to full demuxer")
         concat_demuxer(clips, output_path, w, h, fps)
         return
 
     if len(group_files) == 1:
         shutil.move(str(group_files[0]["path"]), str(output_path))
     else:
-        print(f"  Joining {len(group_files)} groups via demuxer...")
+        _log(f"  Joining {len(group_files)} groups via demuxer...")
         concat_demuxer(group_files, output_path, w, h, fps)
 
 
@@ -175,5 +177,5 @@ def concat_xfade(clips: list[dict], output_path: Path,
     ]
     result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"xfade failed, falling back to concat demuxer: {result.stderr[-200:]}")
+        _log(f"xfade failed, falling back to concat demuxer: {result.stderr[-200:]}")
         concat_demuxer(clips, output_path, w, h, fps)

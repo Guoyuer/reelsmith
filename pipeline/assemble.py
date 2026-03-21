@@ -274,7 +274,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     t2 = time.monotonic()
     _log(f"Concatenating {len(all_clips)} clips...")
     no_music_path = output_dir / f"vlog_v{version}_nomix.mp4"
-    concatenate(all_clips, no_music_path, w, h, _fps)
+    concatenate(all_clips, no_music_path, w, h, _fps, log_fn=_log)
     _log(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
 
     # Phase 2b: Build speech audio track using Timeline as single source of truth
