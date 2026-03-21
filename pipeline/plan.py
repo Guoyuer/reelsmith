@@ -148,10 +148,24 @@ def _gemini_call(
         elif isinstance(p, types.Part):
             parts.append(p)
 
-    _log(f"=== Gemini API Call: {label} ===")
+    _log(f"=== [Gemini] API Call: {label} ===")
     _log(f"  Model: {model}")
-    _log(f"  Input: {n_text} text parts ({text_chars} chars), {n_media} media ({media_bytes_total // 1024}KB)")
     _log(f"  System prompt: {len(system)} chars")
+    _log(f"  Input: {n_text} text parts ({text_chars} chars), "
+         f"{n_media} media files ({media_bytes_total / 1024 / 1024:.1f}MB)")
+    # Log system prompt (truncated for readability)
+    for line in system.split("\n")[:5]:
+        _log(f"  [system] {line}")
+    _log(f"  [system] ... ({len(system.split(chr(10)))} lines total)")
+    # Log text parts sent to Gemini
+    for i, p in enumerate(user_parts):
+        if isinstance(p, str):
+            preview = p[:200].replace("\n", " ")
+            _log(f"  [text #{i}] {preview}{'...' if len(p) > 200 else ''}")
+        elif isinstance(p, dict):
+            ptype = p.get("type", "?")
+            size_kb = len(p.get("data", b"")) // 1024
+            _log(f"  [media #{i}] {ptype} {p.get('mime_type', '?')} ({size_kb}KB)")
 
     import time as _time
     t0 = _time.monotonic()
@@ -172,13 +186,18 @@ def _gemini_call(
     elapsed = _time.monotonic() - t0
     content = response.text or ""
     usage = response.usage_metadata
-    _log(f"  Response: {usage.prompt_token_count} input tokens, "
-         f"{usage.candidates_token_count} output tokens, {elapsed:.1f}s")
+    input_tokens = usage.prompt_token_count or 0
+    output_tokens = usage.candidates_token_count or 0
+    # Gemini 3 Flash pricing: ~$0.01/M input, ~$0.04/M output (approx)
+    cost_est = input_tokens * 0.01 / 1_000_000 + output_tokens * 0.04 / 1_000_000
+    _log(f"  Response: {input_tokens:,} input tokens, "
+         f"{output_tokens:,} output tokens, {elapsed:.1f}s")
+    _log(f"  Estimated cost: ${cost_est:.4f}")
     _log(f"  Output: {len(content)} chars")
-    # Log first 300 chars of response for debugging
-    preview = content[:300].replace("\n", " ")
+    # Log first 500 chars of response for debugging
+    preview = content[:500].replace("\n", " ")
     _log(f"  Preview: {preview}...")
-    _log(f"=== End {label} ===")
+    _log(f"=== [Gemini] End {label} ===")
 
     return content
 
@@ -593,9 +612,11 @@ Candidates by day/location:"""
         edl_content = _gemini_call(system_prompt, visual_parts, _log,
                                    label="single pass: plan", model="gemini-3-flash-preview")
 
-        _log(f"=== EDL RESPONSE ({len(edl_content)} chars) ===")
-        _log(edl_content[:1000])
-        _log("=== END ===")
+        _log(f"=== [Gemini] EDL RESPONSE ({len(edl_content)} chars) ===")
+        # Log full response (may contain thinking + JSON)
+        for line in edl_content.split("\n"):
+            _log(f"  | {line}")
+        _log("=== [Gemini] END RESPONSE ===")
 
         edl_content = strip_markdown_fences(edl_content)
         try:
@@ -646,15 +667,41 @@ Candidates by day/location:"""
 
     n_vid = sum(1 for i in edl.all_items() if i.media_type == "video")
     n_photo = sum(1 for i in edl.all_items() if i.media_type == "photo")
-    _log(f"Parsed EDL: {len(edl.segments)} segments, {n_photo} photos + {n_vid} videos = "
-         f"{len(edl.all_items())} items, ~{actual_dur:.0f}s")
-    for seg in edl.segments:
-        _log(f"  [{seg.name}] ({len(seg.items)} items)")
-        _log(f"    Music: {seg.music_mood}")
-        _log(f"    Rationale: {seg.narrative_rationale[:150]}")
+    n_keep_audio = sum(1 for i in edl.all_items() if i.keep_audio)
+    n_text_overlay = sum(1 for i in edl.all_items() if i.text_overlay)
+    n_speed_ramp = sum(1 for i in edl.all_items() if i.playback_speed != 1.0)
+
+    _log(f"=== [Gemini] PARSED EDL ===")
+    _log(f"  Title: {edl.title}")
+    _log(f"  Segments: {len(edl.segments)}, Items: {len(edl.all_items())} "
+         f"({n_photo} photos + {n_vid} videos)")
+    _log(f"  Duration: {actual_dur:.0f}s (target: {target_duration}s, "
+         f"{'OK' if actual_dur >= target_duration * 0.8 else 'UNDERFILLED'})")
+    _log(f"  Speech clips (keep_audio): {n_keep_audio}")
+    _log(f"  Text overlays: {n_text_overlay}")
+    _log(f"  Speed ramps: {n_speed_ramp}")
+
+    for si, seg in enumerate(edl.segments):
+        seg_dur = sum(i.display_duration for i in seg.items)
+        _log(f"  --- Segment {si}: {seg.name} ({len(seg.items)} items, {seg_dur:.0f}s) ---")
+        _log(f"    Transition: {seg.transition} ({seg.transition_duration}s) | "
+             f"Mode: {seg.mode} | Color: {seg.color_temp}")
+        _log(f"    Music mood: {seg.music_mood[:120]}")
+        if seg.narrative_rationale:
+            _log(f"    Rationale: {seg.narrative_rationale[:150]}")
         for item in seg.items:
             trim = f" trim={item.start_time:.0f}-{item.end_time:.0f}s" if item.start_time is not None else ""
-            _log(f"    - {item.media_type:5s} {item.display_duration}s {Path(item.source_file).name}{trim}")
+            flags = []
+            if item.keep_audio:
+                flags.append("SPEECH")
+            if item.playback_speed != 1.0:
+                flags.append(f"speed={item.playback_speed}x")
+            if item.text_overlay:
+                flags.append(f'text="{item.text_overlay.text[:30]}"')
+            flag_str = f" [{', '.join(flags)}]" if flags else ""
+            _log(f"    - {item.media_type:5s} {item.display_duration}s "
+                 f"{item.effect:16s} {Path(item.source_file).name}{trim}{flag_str}")
+    _log(f"=== [Gemini] END PARSED EDL ===")
 
     return edl
 
