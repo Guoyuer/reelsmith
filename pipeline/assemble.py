@@ -117,6 +117,13 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
     ctx = init_context(quality=_quality)
 
+    # Log all FFmpeg commands to output/ffmpeg_commands.log
+    ffmpeg_log = logging.getLogger("pipeline.ffmpeg")
+    log_path = output_dir / "ffmpeg_commands.log"
+    _fh = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+    _fh.setLevel(logging.INFO)
+    ffmpeg_log.addHandler(_fh)
+
     # Beat sync: snap transitions to music beats (before rendering clips)
     if edl.music and Path(edl.music.file).exists():
         beat_snap_edl(edl, Path(edl.music.file), log_fn=print)
@@ -351,6 +358,11 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
     if not validation_issues:
         print("Validation: all checks passed")
+
+    # Clean up file handler
+    ffmpeg_log.removeHandler(_fh)
+    _fh.close()
+    print(f"FFmpeg commands logged to: {log_path}")
 
     return output_path, validation_issues
 

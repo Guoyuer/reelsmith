@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import subprocess
@@ -16,6 +17,9 @@ if sys.platform == "win32":
         os.environ["PATH"] = _winget_links + os.pathsep + os.environ.get("PATH", "")
 
 
+_ffmpeg_logger = logging.getLogger("pipeline.ffmpeg")
+
+
 def run_subprocess(cmd: list[str], timeout: int = 300, **kwargs) -> subprocess.CompletedProcess:
     """Run a subprocess that is killed when the parent receives SIGINT/SIGTERM.
 
@@ -26,6 +30,8 @@ def run_subprocess(cmd: list[str], timeout: int = 300, **kwargs) -> subprocess.C
     Timeout defaults to 300s (5min) to prevent hanging on corrupt files.
     Accepts the same keyword arguments as ``subprocess.run``.
     """
+    if cmd and cmd[0] in ("ffmpeg", "ffprobe"):
+        _ffmpeg_logger.info("$ %s", " ".join(str(c) for c in cmd))
     capture = kwargs.pop("capture_output", False)
     if capture:
         kwargs.setdefault("stdout", subprocess.PIPE)
