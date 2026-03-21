@@ -387,13 +387,9 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
                 bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
 
     def _do_render(task):
-        from .plan import _SHUTDOWN
         order, seg_idx, item_idx, item, segment = task
         clip_name = f"seg{seg_idx:02d}_item{item_idx:02d}.mp4"
         clip_path = clips_dir / clip_name
-
-        if _SHUTDOWN.is_set():
-            return order, clip_name, None
 
         if not clip_path.exists():
             source = Path(item.source_file)

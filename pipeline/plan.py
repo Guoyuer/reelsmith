@@ -452,19 +452,6 @@ def _preview_encoder(log_fn=None) -> list[str]:
     return ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "28"]
 
 
-import signal
-import threading
-
-_SHUTDOWN = threading.Event()
-
-# Set shutdown flag on SIGTERM/SIGINT so parallel workers stop spawning FFmpeg
-def _on_shutdown(signum, frame):
-    _SHUTDOWN.set()
-
-signal.signal(signal.SIGTERM, _on_shutdown)
-signal.signal(signal.SIGINT, _on_shutdown)
-
-
 def _generate_video_clips_parallel(
     video_items: list[dict], sheets_dir: Path, log_fn=None,
 ) -> None:
@@ -524,22 +511,33 @@ def _generate_video_clips_parallel(
     enc_name = "NVENC" if is_nvenc else "CPU"
     _log(f"Generating {len(tasks)} video clips ({enc_name}, {max_workers} workers)...")
 
-    def _run_if_not_shutdown(cmd):
-        if _SHUTDOWN.is_set():
-            return None
-        return run_subprocess(cmd, capture_output=True)
-
+    # Feed tasks one at a time — at most max_workers FFmpeg processes alive.
+    # When process is killed, only max_workers subprocesses are orphaned, not hundreds.
+    from concurrent.futures import wait, FIRST_COMPLETED
     done = 0
+    task_iter = iter(tasks)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(_run_if_not_shutdown, cmd): path for path, cmd in tasks}
-        for future in as_completed(futures):
-            if _SHUTDOWN.is_set():
-                pool.shutdown(wait=False, cancel_futures=True)
-                _log("  Shutdown requested — stopping clip generation")
-                return
-            done += 1
-            if done % 20 == 0 or done == len(tasks):
+        pending: set = set()
+        # Seed initial batch
+        for _ in range(max_workers):
+            try:
+                _, cmd = next(task_iter)
+                pending.add(pool.submit(run_subprocess, cmd, capture_output=True))
+            except StopIteration:
+                break
+
+        while pending:
+            completed, pending = wait(pending, return_when=FIRST_COMPLETED)
+            done += len(completed)
+            if done % 20 == 0 or done >= len(tasks):
                 _log(f"  Video clips: {done}/{len(tasks)}")
+            # Feed next tasks
+            for _ in range(len(completed)):
+                try:
+                    _, cmd = next(task_iter)
+                    pending.add(pool.submit(run_subprocess, cmd, capture_output=True))
+                except StopIteration:
+                    break
 
     n_ok = sum(1 for p, _ in tasks if p.exists() and p.stat().st_size > 500)
     _log(f"  Video clips done: {n_ok}/{len(tasks)} OK")
