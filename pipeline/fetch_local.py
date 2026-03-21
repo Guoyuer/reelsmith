@@ -45,12 +45,23 @@ def fetch_local(
     date_from = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=timezone.utc) if from_date else None
     date_to = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=timezone.utc, hour=23, minute=59, second=59) if to_date else None
 
-    # Scan for media files (recursive)
+    # Scan for media files (recursive), skip temp/converted files and dedup by base name
+    seen_base_names: set[str] = set()
     files = []
     for f in sorted(source.rglob("*")):
-        if f.is_file() and f.suffix.lower() in all_extensions:
-            files.append(f)
-    _log(f"Found {len(files)} media files in {source}")
+        if not f.is_file() or f.suffix.lower() not in all_extensions:
+            continue
+        # Skip pipeline temp files
+        if f.name.startswith(("_converted_", "_hist_", "_audio_", "_resized_")):
+            continue
+        # Dedup: strip numeric ID prefix (e.g. "87681_IMG_001.jpg" → "IMG_001.jpg")
+        parts = f.name.split("_", 1)
+        base_name = parts[1] if len(parts) > 1 and parts[0].isdigit() else f.name
+        if base_name in seen_base_names:
+            continue
+        seen_base_names.add(base_name)
+        files.append(f)
+    _log(f"Found {len(files)} unique media files in {source}")
 
     manifest = []
     for i, src_path in enumerate(files, 1):
