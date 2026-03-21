@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import signal
 import sys
 import time
 from datetime import datetime, timezone
@@ -18,10 +19,148 @@ import click
 
 
 # ---------------------------------------------------------------------------
-# Pipeline runner
+# SIGINT handler — first Ctrl+C sets flag, second force-quits
+# ---------------------------------------------------------------------------
+
+_interrupted = False
+
+
+def _handle_sigint(sig, frame):
+    global _interrupted
+    if _interrupted:
+        sys.exit(1)
+    _interrupted = True
+    print("\n\u26a0 Interrupted \u2014 finishing current operation...")
+
+
+signal.signal(signal.SIGINT, _handle_sigint)
+
+
+# ---------------------------------------------------------------------------
+# Pipeline display
 # ---------------------------------------------------------------------------
 
 STAGES = ["fetch", "prepare", "plan", "generate_music", "assemble"]
+
+_ICON_PENDING = "\u25cb"   # ○
+_ICON_RUNNING = "\u23f3"   # ⏳
+_ICON_DONE    = "\u2705"   # ✅
+_ICON_FAILED  = "\u274c"   # ❌
+
+
+class _PipelineDisplay:
+    """Live terminal progress display for pipeline stages.
+
+    Uses ANSI cursor-up codes to overwrite previous output on each update.
+    Falls back to simple one-shot print lines when stderr is not a TTY.
+    """
+
+    def __init__(self, run_name: str, headline: str, stages: list[str]):
+        self._run_name = run_name
+        self._headline = headline
+        self._stages = stages
+        self._is_tty = sys.stderr.isatty()
+        self._t_start = time.monotonic()
+        self._prev_lines = 0  # how many lines we printed last time
+
+        # Per-stage state
+        self._status: dict[str, str] = {s: "pending" for s in stages}
+        self._detail: dict[str, str] = {s: "" for s in stages}
+        self._duration: dict[str, str] = {s: "" for s in stages}
+
+    # -- Public API --
+
+    def start(self, stage: str) -> None:
+        self._status[stage] = "running"
+        self._detail[stage] = ""
+        self._duration[stage] = ""
+        self._render()
+
+    def update(self, stage: str, detail: str) -> None:
+        self._detail[stage] = detail
+        # Only re-render in TTY mode to avoid flooding non-TTY output
+        if self._is_tty:
+            self._render()
+
+    def done(self, stage: str, detail: str, duration: float) -> None:
+        self._status[stage] = "done"
+        self._detail[stage] = detail
+        cached = duration < 0.5
+        self._duration[stage] = f"{duration:.0f}s" + (" (cached)" if cached else "")
+        self._render()
+
+    def fail(self, stage: str, error: str) -> None:
+        self._status[stage] = "failed"
+        self._detail[stage] = error[:60]
+        self._render()
+
+    # -- Rendering --
+
+    def _icon(self, status: str) -> str:
+        return {
+            "pending": _ICON_PENDING,
+            "running": _ICON_RUNNING,
+            "done": _ICON_DONE,
+            "failed": _ICON_FAILED,
+        }.get(status, _ICON_PENDING)
+
+    def _format_stage_name(self, stage: str) -> str:
+        return stage.replace("_", " ")
+
+    def _render(self) -> None:
+        elapsed = time.monotonic() - self._t_start
+
+        lines: list[str] = []
+        lines.append("")
+        lines.append(f"\U0001f3ac {self._run_name} \u2014 {self._headline}")
+        lines.append("")
+
+        for stage in self._stages:
+            icon = self._icon(self._status[stage])
+            name = self._format_stage_name(stage)
+            detail = self._detail[stage]
+            dur = self._duration[stage]
+
+            # Build the line with aligned columns
+            stage_col = f"  {icon} {name:<17s}"
+            detail_col = f"{detail:<30s}" if detail else " " * 30
+            dur_col = f"{dur}" if dur else ""
+            lines.append(f"{stage_col}{detail_col}{dur_col}")
+
+        lines.append("")
+        lines.append(f"  Elapsed: {elapsed:.0f}s")
+        lines.append("")
+
+        if self._is_tty:
+            # Move cursor up to overwrite previous output
+            if self._prev_lines > 0:
+                sys.stderr.write(f"\033[{self._prev_lines}F")
+                # Clear each line we're about to overwrite
+                for _ in range(self._prev_lines):
+                    sys.stderr.write("\033[2K\033[1B")
+                sys.stderr.write(f"\033[{self._prev_lines}F")
+
+            output = "\n".join(lines)
+            sys.stderr.write(output)
+            sys.stderr.flush()
+            self._prev_lines = len(lines)
+        else:
+            # Non-TTY: only print when a stage completes or fails
+            for stage in self._stages:
+                st = self._status[stage]
+                if st in ("done", "failed") and not getattr(self, f"_printed_{stage}", False):
+                    icon = self._icon(st)
+                    name = self._format_stage_name(stage)
+                    detail = self._detail[stage]
+                    dur = self._duration[stage]
+                    sys.stderr.write(f"{icon} {name}: {detail}  {dur}\n")
+                    sys.stderr.flush()
+                    setattr(self, f"_printed_{stage}", True)
+
+
+# ---------------------------------------------------------------------------
+# Pipeline runner
+# ---------------------------------------------------------------------------
 
 
 def _setup_logging(run_name: str) -> logging.Logger:
@@ -50,16 +189,19 @@ def _setup_logging(run_name: str) -> logging.Logger:
     return logger
 
 
-def _progress_cb(logger: logging.Logger, stage: str, t0: float):
-    """Create a progress callback that logs to terminal."""
+def _progress_cb(logger: logging.Logger, display: _PipelineDisplay, stage: str, t0: float):
+    """Create a progress callback that logs to file and updates display."""
     def cb(current: int, total: int, name: str) -> None:
         if total == 0:
             return
+        # Update display on every callback
+        display.update(stage, f"{current}/{total}")
+        # Log at ~10% intervals to file
         if current % max(total // 10, 1) == 0 or current == total:
             elapsed = time.monotonic() - t0
             eta = (elapsed / current * (total - current) / 60) if current else 0
             pct = current / total * 100
-            logger.info(f"{stage}: {current}/{total} ({pct:.0f}%) ETA {eta:.1f}min — {name}")
+            logger.info(f"{stage}: {current}/{total} ({pct:.0f}%) ETA {eta:.1f}min \u2014 {name}")
     return cb
 
 
@@ -68,8 +210,41 @@ def _write_status(ws: Path, status: dict) -> None:
     (ws / "run_status.json").write_text(json.dumps(status, indent=2, default=str))
 
 
+def _build_headline(stage_configs: dict, stages: list[str]) -> str:
+    """Build a short headline from plan config for display."""
+    plan_cfg = stage_configs.get("plan", {})
+    parts = []
+    dur = plan_cfg.get("target_duration")
+    if dur:
+        parts.append(f"{dur}s")
+    style = plan_cfg.get("style")
+    if style:
+        parts.append(style)
+    trip = plan_cfg.get("trip_type")
+    if trip:
+        parts.append(f"{trip} vlog")
+    if not parts:
+        # Fallback: describe which stages are running
+        parts.append(", ".join(stages))
+    return " ".join(parts)
+
+
+def _check_interrupted(display: _PipelineDisplay, status: dict, ws: Path, logger: logging.Logger):
+    """Check if Ctrl+C was pressed between stages. If so, save and exit."""
+    global _interrupted
+    if _interrupted:
+        logger.info("Pipeline interrupted by user")
+        status["result"] = "interrupted"
+        status["completed_at"] = datetime.now(timezone.utc).isoformat()
+        _write_status(ws, status)
+        sys.exit(130)
+
+
 def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | None = None):
     """Execute pipeline stages directly in this process."""
+    global _interrupted
+    _interrupted = False
+
     from pipeline.config import Config
 
     active = stages or STAGES
@@ -81,6 +256,9 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
     ws = Path(ws_path)
     log = logger.info
 
+    headline = _build_headline(stage_configs, active)
+    display = _PipelineDisplay(run_name, headline, active)
+
     status: dict = {
         "run_name": run_name,
         "started_at": datetime.now(timezone.utc).isoformat(),
@@ -91,13 +269,17 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
     try:
         # --- FETCH ---
         if "fetch" in active:
+            _check_interrupted(display, status, ws, logger)
+            display.start("fetch")
             fc = stage_configs.get("fetch", {})
             t0 = time.monotonic()
             manifest_path = ws / "manifest.json"
 
             if not fc.get("force") and manifest_path.exists():
                 items = json.loads(manifest_path.read_text())
+                dur = time.monotonic() - t0
                 log(f"Fetch: {len(items)} items (cached)")
+                display.done("fetch", f"{len(items)} items", dur)
                 status["stages"]["fetch"] = {"status": "cached", "items": len(items)}
             else:
                 if fc.get("source_dir"):
@@ -114,10 +296,13 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
                     )
                 dur = time.monotonic() - t0
                 log(f"Fetch: {len(items)} items in {dur:.0f}s")
+                display.done("fetch", f"{len(items)} items", dur)
                 status["stages"]["fetch"] = {"status": "ok", "duration_s": round(dur, 1), "items": len(items)}
 
         # --- PREPARE ---
         if "prepare" in active:
+            _check_interrupted(display, status, ws, logger)
+            display.start("prepare")
             pc = stage_configs.get("prepare", {})
             t0 = time.monotonic()
             analysis_path = ws / "analysis.json"
@@ -126,28 +311,40 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             stale = (manifest_path.exists() and analysis_path.exists()
                      and manifest_path.stat().st_mtime > analysis_path.stat().st_mtime)
             if stale:
-                log("Manifest is newer — re-preparing")
+                log("Manifest is newer \u2014 re-preparing")
 
             if not pc.get("force") and not stale and analysis_path.exists():
                 results = json.loads(analysis_path.read_text())
                 n_photos = sum(1 for r in results if r.get("media_type") == "photo")
                 n_videos = len(results) - n_photos
-                log(f"Prepare: {len(results)} items ({n_photos} photos, {n_videos} videos) — cached")
+                dur = time.monotonic() - t0
+                log(f"Prepare: {len(results)} items ({n_photos} photos, {n_videos} videos) \u2014 cached")
+                display.done("prepare", f"{n_photos} photos, {n_videos} videos", dur)
                 status["stages"]["prepare"] = {"status": "cached"}
             else:
                 from pipeline.prepare import prepare
                 result = prepare(
                     cfg, family_names=pc.get("family_names"),
                     force=pc.get("force", False),
-                    progress_callback=_progress_cb(logger, "Prepare", t0),
+                    progress_callback=_progress_cb(logger, display, "prepare", t0),
                     log_fn=log, tz_hours=pc.get("tz_offset"),
                 )
                 dur = time.monotonic() - t0
                 log(f"Prepare: done in {dur:.0f}s")
+                # Read back results to get counts for display
+                if analysis_path.exists():
+                    results = json.loads(analysis_path.read_text())
+                    n_photos = sum(1 for r in results if r.get("media_type") == "photo")
+                    n_videos = len(results) - n_photos
+                    display.done("prepare", f"{n_photos} photos, {n_videos} videos", dur)
+                else:
+                    display.done("prepare", "done", dur)
                 status["stages"]["prepare"] = {"status": "ok", "duration_s": round(dur, 1)}
 
         # --- PLAN ---
         if "plan" in active:
+            _check_interrupted(display, status, ws, logger)
+            display.start("plan")
             pc = stage_configs.get("plan", {})
             t0 = time.monotonic()
 
@@ -175,7 +372,11 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             vid_pct = int(vid_time / total_time * 100) if total_time > 0 else 0
 
             dur = time.monotonic() - t0
-            log(f"Plan: EDL v{version} — {len(edl.segments)} segments, "
+            plan_detail = (f"v{version}: {n_photos}p+{n_videos}v, "
+                           f"~{edl.estimated_duration():.0f}s")
+            display.done("plan", plan_detail, dur)
+
+            log(f"Plan: EDL v{version} \u2014 {len(edl.segments)} segments, "
                 f"{n_photos} photos + {n_videos} videos ({vid_pct}% video), "
                 f"~{edl.estimated_duration():.0f}s, {dur:.0f}s")
             if n_keep:
@@ -192,6 +393,8 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
 
         # --- GENERATE MUSIC ---
         if "generate_music" in active:
+            _check_interrupted(display, status, ws, logger)
+            display.start("generate_music")
             mc = stage_configs.get("generate_music", {})
             t0 = time.monotonic()
 
@@ -203,13 +406,17 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             dur = time.monotonic() - t0
             if track:
                 log(f"Music: generated {track.name} in {dur:.0f}s")
+                display.done("generate_music", track.name, dur)
                 status["stages"]["generate_music"] = {"status": "ok", "duration_s": round(dur, 1)}
             else:
                 log("Music: skipped")
+                display.done("generate_music", "skipped", dur)
                 status["stages"]["generate_music"] = {"status": "skipped"}
 
         # --- ASSEMBLE ---
         if "assemble" in active:
+            _check_interrupted(display, status, ws, logger)
+            display.start("assemble")
             ac = stage_configs.get("assemble", {})
             t0 = time.monotonic()
 
@@ -224,7 +431,7 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
                 cfg, version=version,
                 resolution=(ac.get("width", 3840), ac.get("height", 2160)),
                 fps=ac.get("fps", 60),
-                progress_callback=_progress_cb(logger, "Assemble", t0),
+                progress_callback=_progress_cb(logger, display, "assemble", t0),
                 skip_broken=ac.get("skip_broken", False),
                 quality=ac.get("quality", 1.0),
                 log_fn=log,
@@ -233,6 +440,7 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             dur = time.monotonic() - t0
             size_mb = round(out.stat().st_size / 1024 / 1024, 1) if out.exists() else 0
             log(f"Assemble: {out.name} ({size_mb}MB) in {dur:.0f}s")
+            display.done("assemble", f"{out.name} ({size_mb}MB)", dur)
 
             for issue in issues:
                 level = issue.get("level", "warning")
@@ -245,7 +453,14 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
 
         status["result"] = "success"
 
+    except SystemExit:
+        raise
     except Exception as e:
+        # Mark the currently-running stage as failed in display
+        for stage in active:
+            if display._status.get(stage) == "running":
+                display.fail(stage, str(e))
+                break
         logger.error(f"Pipeline failed: {e}", exc_info=True)
         status["result"] = "failure"
         status["error"] = str(e)
@@ -286,7 +501,7 @@ def _parse_item_types(value: str) -> list[int]:
               help="Run name (subdirectory under workspace/runs/)")
 @click.pass_context
 def cli(ctx: click.Context, run_name: str | None) -> None:
-    """Automated vlog pipeline: fetch → prepare → plan → generate_music → assemble."""
+    """Automated vlog pipeline: fetch \u2192 prepare \u2192 plan \u2192 generate_music \u2192 assemble."""
     ctx.ensure_object(dict)
     ctx.obj["run_name"] = run_name
 
