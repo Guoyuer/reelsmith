@@ -509,10 +509,11 @@ def _build_visual_content_blocks(
                 else:
                     # Long video: send 3×2s samples (start/mid/end)
                     blocks.append(f"Video #{item_num:02d} ({dur:.0f}s total, 3 samples with audio):")
+                    clip_len = 5  # 5s per sample for better coverage
                     clip_positions = [
                         ("start", max(0, dur * 0.1)),
-                        ("mid", max(0, (dur - 2) / 2)),
-                        ("end", max(0, dur * 0.9 - 2)),
+                        ("mid", max(0, (dur - clip_len) / 2)),
+                        ("end", max(0, dur * 0.9 - clip_len)),
                     ]
                     clips_sent = 0
                     for clip_label, clip_start in clip_positions:
@@ -520,7 +521,7 @@ def _build_visual_content_blocks(
                         if not clip_path.exists():
                             run_subprocess(
                                 ["ffmpeg", "-y", "-ss", str(clip_start),
-                                 "-i", str(source), "-t", "2",
+                                 "-i", str(source), "-t", str(clip_len),
                                  "-vf", "scale=480:-2",
                                  "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
                                  "-c:a", "aac", "-b:a", "64k", "-ac", "1",
