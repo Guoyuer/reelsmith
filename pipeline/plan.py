@@ -273,7 +273,10 @@ You have complete autonomy over:
 ## Technical rules
 
 - display_duration: 3-5s per photo, 5-10s for video clips
-- For videos: set start_time and end_time to select the best scene
+- For videos: set start_time and end_time to select the best scene.
+  IMPORTANT: if you hear speech/dialogue, make sure the trim includes the COMPLETE
+  conversation — don't cut mid-sentence. End at least 1s after the last word.
+  If someone says "come say hi" and another person responds, include BOTH.
 - effect: ken_burns_in/out/left/right for photos, "none" for video clips
 - playback_speed: 1.0 = normal (default). Use 0.5 SPARINGLY for dramatic slow-mo moments
   (a jump, a splash, a reaction). Use 1.5 for transitional walking/travel clips. Most clips = 1.0.
@@ -507,17 +510,17 @@ def _build_visual_content_blocks(
                     else:
                         _log(f"Video #{item_num:02d}: {source.name} (full clip failed)")
                 else:
-                    # Long video: send 3×2s samples (start/mid/end)
-                    blocks.append(f"Video #{item_num:02d} ({dur:.0f}s total, 3 samples with audio):")
-                    clip_len = 5  # 5s per sample for better coverage
-                    clip_positions = [
-                        ("start", max(0, dur * 0.1)),
-                        ("mid", max(0, (dur - clip_len) / 2)),
-                        ("end", max(0, dur * 0.9 - clip_len)),
-                    ]
+                    # Long video: dynamic sampling — target ~50% coverage
+                    clip_len = 5
+                    n_clips = max(3, int(dur / (clip_len * 2)))  # 1 clip per 10s
+                    n_clips = min(n_clips, 15)  # cap at 15 clips
+                    blocks.append(f"Video #{item_num:02d} ({dur:.0f}s total, {n_clips} samples with audio):")
                     clips_sent = 0
-                    for clip_label, clip_start in clip_positions:
-                        clip_path = sheets_dir / f"clip_{vid_id}_{clip_label}.mp4"
+                    for ci in range(n_clips):
+                        # Evenly space clips across the video
+                        clip_start = dur * (ci + 0.5) / n_clips - clip_len / 2
+                        clip_start = max(0, min(clip_start, dur - clip_len))
+                        clip_path = sheets_dir / f"clip_{vid_id}_{ci}.mp4"
                         if not clip_path.exists():
                             run_subprocess(
                                 ["ffmpeg", "-y", "-ss", str(clip_start),
@@ -535,7 +538,7 @@ def _build_visual_content_blocks(
                                 "data": clip_path.read_bytes(),
                             })
                             clips_sent += 1
-                    _log(f"Video #{item_num:02d}: {source.name} ({clips_sent} clips)")
+                    _log(f"Video #{item_num:02d}: {source.name} ({clips_sent}/{n_clips} clips, {dur:.0f}s)")
 
             global_idx += n_items
 
