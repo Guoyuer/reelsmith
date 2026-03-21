@@ -512,7 +512,7 @@ def _build_visual_content_blocks(
                 else:
                     # Long video: dynamic sampling — target ~50% coverage
                     clip_len = 5
-                    n_clips = max(3, int(dur / (clip_len * 2)))  # 1 clip per 10s
+                    n_clips = max(3, round(dur / 7))  # 1 clip per 7s → ~71% coverage
                     n_clips = min(n_clips, 15)  # cap at 15 clips
                     blocks.append(f"Video #{item_num:02d} ({dur:.0f}s total, {n_clips} samples with audio):")
                     clips_sent = 0
