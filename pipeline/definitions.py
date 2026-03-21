@@ -204,7 +204,6 @@ def _analyze_metadata(results: list[dict], out: str, extra: dict | None = None) 
 
 @dg.asset(
     group_name="vlog",
-    retry_policy=dg.RetryPolicy(max_retries=2, delay=30),
 )
 def fetch_media(
     context: dg.AssetExecutionContext,
@@ -269,7 +268,6 @@ def fetch_media(
 
 @dg.asset(
     group_name="vlog",
-    retry_policy=dg.RetryPolicy(max_retries=1),
 )
 def preprocess(
     context: dg.AssetExecutionContext,
@@ -311,7 +309,6 @@ def preprocess(
 
 @dg.asset(
     group_name="vlog",
-    retry_policy=dg.RetryPolicy(max_retries=1, delay=10),
 )
 def analyze(
     context: dg.AssetExecutionContext,
@@ -369,7 +366,6 @@ def analyze(
 
 @dg.asset(
     group_name="vlog",
-    retry_policy=dg.RetryPolicy(max_retries=2, delay=15),
 )
 def plan(
     context: dg.AssetExecutionContext,
@@ -444,7 +440,6 @@ def plan(
 
 @dg.asset(
     group_name="vlog",
-    retry_policy=dg.RetryPolicy(max_retries=1, delay=15),
 )
 def generate_music(
     context: dg.AssetExecutionContext,
@@ -477,7 +472,6 @@ def generate_music(
 
 @dg.asset(
     group_name="vlog",
-    retry_policy=dg.RetryPolicy(max_retries=1, delay=30),
 )
 def assemble(
     context: dg.AssetExecutionContext,
