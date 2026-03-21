@@ -387,12 +387,8 @@ def _build_visual_content_blocks(
 
     _log = log_fn or print
     blocks: list = []
-    # Shared caches across runs (like thumbnails/keyframes/music)
-    ws = cfg.workspace
-    sheets_dir = ws.parent.parent / "contact_sheets" if ws.parent.name == "runs" else ws / "contact_sheets"
-    sheets_dir.mkdir(parents=True, exist_ok=True)
-    clips_cache = ws.parent.parent / "preview_clips" if ws.parent.name == "runs" else ws / "preview_clips"
-    clips_cache.mkdir(parents=True, exist_ok=True)
+    sheets_dir = cfg.contact_sheets_dir
+    clips_cache = cfg.preview_clips_dir
 
     global_idx = 1  # continuous numbering across chapters
 
@@ -422,7 +418,7 @@ def _build_visual_content_blocks(
             if photo_paths:
                 thumb_paths = []
                 for p in photo_paths:
-                    thumb = cfg.workspace / "thumbnails" / f"{p.stem}_thumb.jpg"
+                    thumb = cfg.thumbnails_dir / f"{p.stem}_thumb.jpg"
                     thumb_paths.append(thumb if thumb.exists() else p)
 
                 loc_safe = chapter.get("location", "x").replace("/", "_")[:30]

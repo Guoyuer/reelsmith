@@ -295,8 +295,7 @@ def generate_music_for_edl(
         _log(f"Music file already exists: {edl.music.file}")
         return Path(edl.music.file)
 
-    ws = cfg.workspace
-    music_cache = ws.parent.parent / "music" if ws.parent.name == "runs" else ws / "music"
+    music_cache = cfg.music_dir
 
     # Generate per-segment music tracks
     _log(f"Generating per-segment music: {len(edl.segments)} segments, backend={backend}")

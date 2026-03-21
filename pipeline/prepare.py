@@ -289,7 +289,7 @@ def _read_exif(path) -> dict:
 
 def _prepare_photo(entry, item_id, local_path, cfg, cache_file):
     """Generate thumbnail and extract EXIF for a photo."""
-    thumb_dir = cfg.workspace / "thumbnails"
+    thumb_dir = cfg.thumbnails_dir
     thumb = generate_thumbnail(local_path, thumb_dir, size=512)
     exif = _read_exif(local_path)
     cache_data = {"thumbnail_path": str(thumb)}

@@ -11,9 +11,14 @@ from dotenv import load_dotenv
 class Config:
     api_base: str = "http://localhost:8000"
     workspace: Path = Path("./workspace")
+    # Shared directories (across all runs)
     media_dir: Path = Path("./workspace/media")
     cache_dir: Path = Path("./workspace/analysis_cache")
     keyframes_dir: Path = Path("./workspace/keyframes")
+    thumbnails_dir: Path = Path("./workspace/thumbnails")
+    contact_sheets_dir: Path = Path("./workspace/contact_sheets")
+    preview_clips_dir: Path = Path("./workspace/preview_clips")
+    music_dir: Path = Path("./workspace/music")
 
     @staticmethod
     def run_workspace(base_dir: str = "./workspace", run_name: str = "default") -> str:
@@ -34,6 +39,10 @@ class Config:
             media_dir=base / "media",
             cache_dir=base / "analysis_cache",
             keyframes_dir=base / "keyframes",
+            thumbnails_dir=base / "thumbnails",
+            contact_sheets_dir=base / "contact_sheets",
+            preview_clips_dir=base / "preview_clips",
+            music_dir=base / "music",
         )
         return cfg
 
@@ -44,5 +53,9 @@ class Config:
             self.media_dir,
             self.cache_dir,
             self.keyframes_dir,
+            self.thumbnails_dir,
+            self.contact_sheets_dir,
+            self.preview_clips_dir,
+            self.music_dir,
         ]:
             d.mkdir(parents=True, exist_ok=True)
