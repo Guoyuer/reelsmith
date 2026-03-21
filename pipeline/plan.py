@@ -252,6 +252,11 @@ You have complete autonomy over:
 4. **Rhythm**: Alternate photos (3-5s, Ken Burns) with video clips (5-10s, real motion).
    Vary pacing — fast cuts for energy, lingering shots for emotion.
 
+4b. **Location diversity**: A trip vlog MUST show the VARIETY of places visited.
+   Do NOT over-represent any single location. If the trip has 10 locations, each
+   should get roughly equal screen time. Spread items across ALL days and locations.
+   BAD: 40% of items from the airport. GOOD: 2-3 items per location, covering the full trip.
+
 5. **Visual judgment**: Use what you SEE in the photos. Trust your eyes over metadata.
    - A candid shot of real laughter beats a posed landmark photo every time
    - Look for emotion in body language, not just faces — leaning in, pointing, running
