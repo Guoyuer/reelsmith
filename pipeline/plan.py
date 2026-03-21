@@ -636,6 +636,51 @@ def _build_visual_content_blocks(
             "data": mega_path.read_bytes(),
         })
 
+    # --- Validate everything before sending to Gemini ---
+    n_text_blocks = sum(1 for b in blocks if isinstance(b, str))
+    n_images = sum(1 for b in blocks if isinstance(b, dict) and b.get("type") == "image_bytes")
+    n_videos = sum(1 for b in blocks if isinstance(b, dict) and b.get("type") == "video_bytes")
+
+    # 1. Must have content
+    if n_text_blocks == 0:
+        raise RuntimeError("No text blocks generated — check analysis_by_id key types")
+    if n_images == 0:
+        _log("WARNING: No contact sheets generated — photos may be missing from plan")
+
+    # 2. Text metadata item count must match contact sheet + video counts
+    # Count items referenced in text blocks
+    import re
+    text_item_nums = set()
+    for b in blocks:
+        if isinstance(b, str):
+            text_item_nums.update(int(m) for m in re.findall(r"#(\d+):", b))
+
+    # Count items in contact sheet labels
+    # (labels are baked into images, can't read them — trust they match)
+
+    # Count video entries that made it into mega-preview
+    video_nums_in_mega = {num for num, _, _ in video_entries} if video_entries else set()
+
+    # 3. Video label numbers must be in text metadata
+    missing_in_text = video_nums_in_mega - text_item_nums
+    if missing_in_text:
+        _log(f"WARNING: {len(missing_in_text)} video labels not found in text metadata: {sorted(missing_in_text)[:10]}")
+
+    # 4. All source paths in text metadata must exist
+    path_pattern = re.compile(r"path=(\S+)")
+    missing_files = []
+    for b in blocks:
+        if isinstance(b, str):
+            for m in path_pattern.finditer(b):
+                p = Path(m.group(1))
+                if not p.exists():
+                    missing_files.append(str(p))
+    if missing_files:
+        _log(f"WARNING: {len(missing_files)} source files in metadata don't exist: {missing_files[:5]}")
+
+    _log(f"Validation: {n_text_blocks} text, {n_images} images, {n_videos} video(s), "
+         f"{len(text_item_nums)} items referenced, {len(video_nums_in_mega)} video labels")
+
     return blocks
 
 
@@ -697,6 +742,13 @@ def _plan_visual(
     n_vid_clips = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "video_bytes")
     n_text = sum(1 for b in content_blocks if isinstance(b, str))
     _log(f"Visual content: {n_text} text blocks, {n_img} contact sheets, {n_vid_clips} video file(s)")
+
+    # Sanity check: candidates count must match what we're actually sending
+    if n_candidates > 0 and n_text == 0:
+        raise RuntimeError(
+            f"Have {n_candidates} candidates but 0 text blocks — "
+            f"analysis_by_id key mismatch (int vs str?)"
+        )
 
     # Build trip structure summary for arc thinking
     arc_lines = []
