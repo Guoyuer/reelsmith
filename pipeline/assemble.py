@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -153,7 +154,8 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     from .parallel import run_parallel
 
     pbar = tqdm(total=total_items, desc=f"Rendering clips (x{max_workers})", unit="clip",
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
+                file=sys.stdout, disable=not sys.stdout.isatty())
 
     def _do_render(order, seg_idx, item_idx, item, segment):
         clip_name = f"seg{seg_idx:02d}_item{item_idx:02d}.mp4"
