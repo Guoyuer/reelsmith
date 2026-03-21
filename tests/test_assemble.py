@@ -89,7 +89,7 @@ class TestProbeDimensions:
         fake_result.stdout = "3840x2160\n"
         fake_result.returncode = 0
 
-        with patch("pipeline.assemble.run_subprocess", return_value=fake_result):
+        with patch("pipeline.encoder.run_subprocess", return_value=fake_result):
             w, h = _probe_dimensions(Path("/fake/video.mp4"))
         assert (w, h) == (3840, 2160)
 
@@ -132,8 +132,9 @@ class TestHeicConversion:
             display_duration=3.0,
         )
 
-        with patch("pipeline.assemble.convert_heic", side_effect=mock_convert), \
-             patch("pipeline.assemble.run_subprocess", side_effect=mock_run):
+        with patch("pipeline.render.convert_heic", side_effect=mock_convert), \
+             patch("pipeline.render.run_subprocess", side_effect=mock_run), \
+             patch("pipeline.encoder.run_subprocess", side_effect=mock_run):
             _render_photo(item, out_file, 3840, 2160, 60)
 
         assert len(convert_calls) == 1, "convert_heic should be called for HEIC files"
@@ -331,6 +332,22 @@ def _mock_subprocess_for_validation(
     return _side_effect
 
 
+from contextlib import contextmanager
+
+
+@contextmanager
+def _patch_validation(**kwargs):
+    """Patch both assemble and encoder run_subprocess for validation tests."""
+    mock_fn = _mock_subprocess_for_validation(**kwargs)
+    with patch("pipeline.assemble.run_subprocess", side_effect=mock_fn), \
+         patch("pipeline.encoder.run_subprocess", side_effect=mock_fn):
+        # Clear encoder probe caches so mocked values are used
+        from pipeline.encoder import _PROBE_DIM_CACHE, _PROBE_DUR_CACHE
+        _PROBE_DIM_CACHE.clear()
+        _PROBE_DUR_CACHE.clear()
+        yield
+
+
 class TestValidateOutputFileChecks:
     """Tests for file existence and size checks."""
 
@@ -360,8 +377,7 @@ class TestValidateOutputFileChecks:
         out = tmp_path / "ok.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with patch("pipeline.assemble.run_subprocess",
-                    side_effect=_mock_subprocess_for_validation()):
+        with _patch_validation():
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         # Should pass all checks (no errors for a well-formed mock)
         errors = [i for i in issues if i["level"] == "error"]
@@ -376,8 +392,7 @@ class TestValidateOutputDuration:
         out = tmp_path / "short.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl(duration=120.0)  # expected ~120s
-        with patch("pipeline.assemble.run_subprocess",
-                    side_effect=_mock_subprocess_for_validation(duration="50.0")):
+        with _patch_validation(duration="50.0"):
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         dur_issues = [i for i in issues if i["check"] == "duration"]
         assert len(dur_issues) == 1
@@ -389,8 +404,7 @@ class TestValidateOutputDuration:
         out = tmp_path / "medium.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl(duration=100.0)  # expected ~100s
-        with patch("pipeline.assemble.run_subprocess",
-                    side_effect=_mock_subprocess_for_validation(duration="70.0")):
+        with _patch_validation(duration="70.0"):
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         dur_issues = [i for i in issues if i["check"] == "duration"]
         assert len(dur_issues) == 1
@@ -401,8 +415,7 @@ class TestValidateOutputDuration:
         out = tmp_path / "good.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl(duration=100.0)
-        with patch("pipeline.assemble.run_subprocess",
-                    side_effect=_mock_subprocess_for_validation(duration="95.0")):
+        with _patch_validation(duration="95.0"):
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         dur_issues = [i for i in issues if i["check"] == "duration"]
         assert len(dur_issues) == 0
@@ -412,8 +425,7 @@ class TestValidateOutputDuration:
         out = tmp_path / "bad.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with patch("pipeline.assemble.run_subprocess",
-                    side_effect=_mock_subprocess_for_validation(duration="0")):
+        with _patch_validation(duration="0"):
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         dur_issues = [i for i in issues if i["check"] == "duration"]
         assert len(dur_issues) == 1
@@ -428,8 +440,7 @@ class TestValidateOutputStreams:
         out = tmp_path / "nostream.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with patch("pipeline.assemble.run_subprocess",
-                    side_effect=_mock_subprocess_for_validation(streams="aac,audio\n")):
+        with _patch_validation(streams="aac,audio\n"):
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         stream_issues = [i for i in issues if i["check"] == "video_stream"]
         assert len(stream_issues) == 1
@@ -440,8 +451,7 @@ class TestValidateOutputStreams:
         out = tmp_path / "noaudio.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with patch("pipeline.assemble.run_subprocess",
-                    side_effect=_mock_subprocess_for_validation(streams="hevc,video\n")):
+        with _patch_validation(streams="hevc,video\n"):
             issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160))
         audio_issues = [i for i in issues if i["check"] == "audio_stream"]
         assert len(audio_issues) == 1
@@ -452,8 +462,7 @@ class TestValidateOutputStreams:
         out = tmp_path / "videoonly.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with patch("pipeline.assemble.run_subprocess",
-                    side_effect=_mock_subprocess_for_validation(streams="hevc,video\n")):
+        with _patch_validation(streams="hevc,video\n"):
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         audio_speech = [i for i in issues if i["check"] == "audio_stream"]
         assert len(audio_speech) == 0
@@ -466,8 +475,7 @@ class TestValidateOutputStreams:
         music_file = tmp_path / "music.mp3"
         music_file.write_bytes(b"\x00" * 100)
         edl = _make_edl(music_file=str(music_file))
-        with patch("pipeline.assemble.run_subprocess",
-                    side_effect=_mock_subprocess_for_validation(streams="hevc,video\n")):
+        with _patch_validation(streams="hevc,video\n"):
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         music_issues = [i for i in issues if i["check"] == "audio_stream_music"]
         assert len(music_issues) == 1
@@ -482,8 +490,7 @@ class TestValidateOutputCodec:
         out = tmp_path / "ok.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with patch("pipeline.assemble.run_subprocess",
-                    side_effect=_mock_subprocess_for_validation(streams="hevc,video\naac,audio\n")):
+        with _patch_validation(streams="hevc,video\naac,audio\n"):
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         codec_issues = [i for i in issues if i["check"] == "video_codec"]
         assert len(codec_issues) == 0
@@ -493,8 +500,7 @@ class TestValidateOutputCodec:
         out = tmp_path / "weird.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with patch("pipeline.assemble.run_subprocess",
-                    side_effect=_mock_subprocess_for_validation(streams="vp9,video\naac,audio\n")):
+        with _patch_validation(streams="vp9,video\naac,audio\n"):
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         codec_issues = [i for i in issues if i["check"] == "video_codec"]
         assert len(codec_issues) == 1
@@ -509,9 +515,7 @@ class TestValidateOutputAVSync:
         out = tmp_path / "drifted.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with patch("pipeline.assemble.run_subprocess",
-                    side_effect=_mock_subprocess_for_validation(
-                        vid_stream_dur="60.0", aud_stream_dur="52.0")):
+        with _patch_validation(vid_stream_dur="60.0", aud_stream_dur="52.0"):
             issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160))
         sync_issues = [i for i in issues if i["check"] == "av_sync"]
         assert len(sync_issues) == 1
@@ -522,9 +526,7 @@ class TestValidateOutputAVSync:
         out = tmp_path / "synced.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with patch("pipeline.assemble.run_subprocess",
-                    side_effect=_mock_subprocess_for_validation(
-                        vid_stream_dur="60.0", aud_stream_dur="58.0")):
+        with _patch_validation(vid_stream_dur="60.0", aud_stream_dur="58.0"):
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         sync_issues = [i for i in issues if i["check"] == "av_sync"]
         assert len(sync_issues) == 0
@@ -538,8 +540,7 @@ class TestValidateOutputResolution:
         out = tmp_path / "ok.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with patch("pipeline.assemble.run_subprocess",
-                    side_effect=_mock_subprocess_for_validation()):
+        with _patch_validation():
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         res_issues = [i for i in issues if i["check"] == "resolution"]
         assert len(res_issues) == 0
@@ -549,8 +550,7 @@ class TestValidateOutputResolution:
         out = tmp_path / "wrongres.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with patch("pipeline.assemble.run_subprocess",
-                    side_effect=_mock_subprocess_for_validation(dimensions="1920x1080")):
+        with _patch_validation(dimensions="1920x1080"):
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         res_issues = [i for i in issues if i["check"] == "resolution"]
         assert len(res_issues) == 1
@@ -566,13 +566,10 @@ class TestValidateOutputAllPassing:
         out = tmp_path / "perfect.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl(duration=60.0)
-        with patch("pipeline.assemble.run_subprocess",
-                    side_effect=_mock_subprocess_for_validation(
-                        streams="hevc,video\naac,audio\n",
+        with _patch_validation(streams="hevc,video\naac,audio\n",
                         duration="58.0",
                         dimensions="3840x2160",
                         vid_stream_dur="58.0",
-                        aud_stream_dur="58.0",
-                    )):
+                        aud_stream_dur="58.0",):
             issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160))
         assert len(issues) == 0
