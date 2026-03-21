@@ -714,19 +714,70 @@ Candidates by day/location:"""
 
     from .media_utils import strip_markdown_fences
 
-    edl_content = _gemini_call(system_prompt, visual_parts, _log,
-                               label="single pass: plan", model="gemini-3-flash-preview")
+    # Layer 1: Auto-retry on parse failure
+    import json as _json
+    from pydantic import ValidationError
 
-    _log(f"=== EDL RESPONSE ({len(edl_content)} chars) ===")
-    _log(edl_content[:1000])
-    _log("=== END ===")
+    edl = None
+    for attempt in range(2):
+        edl_content = _gemini_call(system_prompt, visual_parts, _log,
+                                   label="single pass: plan", model="gemini-3-flash-preview")
 
-    edl_content = strip_markdown_fences(edl_content)
-    edl = EDL.model_validate_json(edl_content)
+        _log(f"=== EDL RESPONSE ({len(edl_content)} chars) ===")
+        _log(edl_content[:1000])
+        _log("=== END ===")
+
+        edl_content = strip_markdown_fences(edl_content)
+        try:
+            edl = EDL.model_validate_json(edl_content)
+            break
+        except (ValidationError, _json.JSONDecodeError) as e:
+            _log(f"Parse failed (attempt {attempt + 1}/2): {e}")
+            if attempt == 1:
+                raise
+
+    assert edl is not None  # guaranteed by the loop above
+
+    # Layer 2: Fix hallucinated file paths
+    media_dir = cfg.media_dir
+    removed_count = 0
+    for seg in edl.segments:
+        valid_items = []
+        for item in seg.items:
+            source = Path(item.source_file)
+            if source.exists():
+                valid_items.append(item)
+                continue
+            # Try fuzzy match: strip numeric ID prefix (e.g., "87681_IMG.jpg" → "IMG.jpg")
+            name = source.name
+            parts = name.split("_", 1)
+            candidates = list(media_dir.glob(f"*{parts[-1]}")) if len(parts) > 1 else []
+            if not candidates:
+                candidates = list(media_dir.glob(f"*{name}"))
+            if candidates:
+                item.source_file = str(candidates[0])
+                _log(f"  Fixed path: {name} → {candidates[0].name}")
+                valid_items.append(item)
+            else:
+                _log(f"  Removed item with missing source: {name}")
+                removed_count += 1
+        seg.items = valid_items
+    # Remove empty segments
+    edl.segments = [s for s in edl.segments if s.items]
+    if removed_count:
+        _log(f"  Path validation: removed {removed_count} items with missing sources")
+
+    # Layer 3: Duration check
+    actual_dur = edl.estimated_duration()
+    if actual_dur < target_duration * 0.5:
+        _log(f"WARNING: EDL is {actual_dur:.0f}s, target is {target_duration}s — severely underfilled")
+    elif actual_dur < target_duration * 0.8:
+        _log(f"WARNING: EDL is {actual_dur:.0f}s, target is {target_duration}s — underfilled")
+
     n_vid = sum(1 for i in edl.all_items() if i.media_type == "video")
     n_photo = sum(1 for i in edl.all_items() if i.media_type == "photo")
     _log(f"Parsed EDL: {len(edl.segments)} segments, {n_photo} photos + {n_vid} videos = "
-         f"{len(edl.all_items())} items, ~{edl.estimated_duration():.0f}s")
+         f"{len(edl.all_items())} items, ~{actual_dur:.0f}s")
     for seg in edl.segments:
         _log(f"  [{seg.name}] ({len(seg.items)} items)")
         _log(f"    Music: {seg.music_mood}")
