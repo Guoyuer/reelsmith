@@ -8,7 +8,7 @@
 - [x] **A2. Remove global state** — RenderContext dataclass replaces 4 scattered globals
 - [x] **A6. Consistent error handling** — ClipStatus/RenderReport with per-clip status tracking
 - [x] **A4. Config pass-through** — render settings (quality) stored in EDL, read by assemble
-- [x] **A1. FFmpeg filter abstraction** — FilterGraph builder with label validation
+- [x] ~~**A1. FFmpeg filter abstraction**~~ — Added then removed. FilterGraph wrapped raw strings in objects without catching real bugs. Deleted.
 - [x] **A3. Shared parallel utility** — parallel.run_parallel() replaces duplicate ThreadPoolExecutor patterns
 - [x] **Issue #2. Gemini fault tolerance** — auto-retry, fuzzy path matching, duration check
 - [x] **Issue #5. Post-assemble validation** — 6 automated checks (file, duration, streams, codec, sync, resolution)
@@ -168,13 +168,11 @@ In parallel execution, these prints interleave and the actual error is lost.
 
 **Fix**: Return the error message from render functions so RenderReport captures it.
 
-### E5. `FilterGraph` barely adopted
+### ~~E5. FilterGraph~~ — Decided: not worth it
 
-Built as an abstraction but only used for portrait photo filter. All other filter construction
-is still raw string concatenation. Two competing paradigms confuse contributors.
-
-**Fix**: Incrementally convert remaining filter chains (landscape photo, video, title card)
-to use FilterGraph, or document that FilterGraph is for complex multi-node chains only.
+Deleted. FilterGraph wrapped raw FFmpeg strings in objects without catching the bugs that
+actually happen (bitrate mismatch, concat truncation, sync drift). The `add_raw()` escape
+hatch meant most nodes were just strings in objects. Direct string construction is simpler.
 
 ---
 

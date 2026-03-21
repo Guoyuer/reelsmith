@@ -30,7 +30,6 @@ The assemble stage is split into focused modules:
 | `assemble.py` | Orchestration: Phase 1 (parallel clip render), Phase 2 (concat), Phase 3 (audio mix), Phase 4 (validation) |
 | `encoder.py` | RenderContext, GPU encoder detection, bitrate calculation, ffprobe caching |
 | `filters.py` | Color grade, text overlay (drawtext), portrait photo filter, font detection |
-| `filtergraph.py` | Typed FilterGraph builder with label validation for FFmpeg filter_complex |
 | `render.py` | render_photo, render_video, render_title_card |
 | `concat.py` | Xfade concatenation, group splitting (MAX_GROUP=10), demuxer fallback |
 | `audio.py` | BPM estimation, beat sync, speech track, music mixing, chapter markers |
