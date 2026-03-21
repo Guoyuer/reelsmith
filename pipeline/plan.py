@@ -339,22 +339,23 @@ def _build_visual_chapter_text(
 
 
 
-def _generate_video_clips_parallel(
-    video_items: list[dict], sheets_dir: Path, log_fn=None,
+def _generate_video_previews(
+    video_items: list[dict], preview_dir: Path, log_fn=None,
 ) -> None:
-    """Generate all preview clips for a batch of videos in parallel.
+    """Generate one full-length preview per video (360p 1fps + audio).
 
-    Respects _SHUTDOWN flag — stops spawning new FFmpeg on SIGTERM/SIGINT.
+    Gemini processes video at 1fps internally — sending 1fps means zero
+    wasted frames. Full-length means 100% coverage (vs 71% with clips).
+    Gemini can reference any second natively for trim point decisions.
     """
     import os
     from .media_utils import run_subprocess
 
     _log = log_fn or print
-    # 320p 10fps CRF35 — Gemini processes at ~1fps anyway, audio quality unchanged
+    # 360p 1fps CRF35 — matches Gemini's internal processing rate
     encoder = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "35"]
     max_workers = max(4, (os.cpu_count() or 4) // 2)
 
-    # Build list of (clip_path, ffmpeg_cmd) for clips that need generating
     tasks: list[tuple[Path, list[str]]] = []
     for vi in video_items:
         vid_id = vi["id"]
@@ -363,33 +364,15 @@ def _generate_video_clips_parallel(
         if not source.exists() or dur <= 0:
             continue
 
-        if dur <= 15:
-            clip_path = sheets_dir / f"clip_{vid_id}_full.mp4"
-            if not clip_path.exists():
-                tasks.append((clip_path, [
-                    "ffmpeg", "-y", "-i", str(source),
-                    "-vf", "scale=320:-2", "-r", "10",
-                    *encoder,
-                    "-c:a", "aac", "-b:a", "64k", "-ac", "1",
-                    str(clip_path),
-                ]))
-        else:
-            clip_len = 5
-            n_clips = max(3, round(dur / 7))
-            n_clips = min(n_clips, 30)
-            for ci in range(n_clips):
-                clip_start = dur * (ci + 0.5) / n_clips - clip_len / 2
-                clip_start = max(0, min(clip_start, dur - clip_len))
-                clip_path = sheets_dir / f"clip_{vid_id}_{ci}.mp4"
-                if not clip_path.exists():
-                    tasks.append((clip_path, [
-                        "ffmpeg", "-y", "-ss", str(clip_start),
-                        "-i", str(source), "-t", str(clip_len),
-                        "-vf", "scale=320:-2", "-r", "10",
-                        *encoder,
-                        "-c:a", "aac", "-b:a", "64k", "-ac", "1",
-                        str(clip_path),
-                    ]))
+        preview_path = preview_dir / f"preview_{vid_id}.mp4"
+        if not preview_path.exists():
+            tasks.append((preview_path, [
+                "ffmpeg", "-y", "-i", str(source),
+                "-vf", "scale=360:-2", "-r", "1",
+                *encoder,
+                "-c:a", "aac", "-b:a", "64k", "-ac", "1",
+                str(preview_path),
+            ]))
 
     if not tasks:
         return
@@ -412,22 +395,23 @@ def _generate_video_clips_parallel(
 def _build_visual_content_blocks(
     preprocessed: dict, analysis_by_id: dict, cfg: Config, log_fn=None,
 ) -> list:
-    """Build multimodal parts: interleaved text + contact sheets + video clips.
+    """Build multimodal parts: interleaved text + contact sheets + full video previews.
 
     Returns list of str and media dicts suitable for _gemini_call().
-    Videos are sent as short MP4 clips (with audio) so Gemini can see motion
-    and hear speech. Photos are sent as contact sheet grids.
+    Videos are sent as full-length 360p 1fps MP4 previews (with audio) so
+    Gemini sees 100% of content and can reference any second for trim points.
+    Photos are sent as contact sheet grids.
     """
     from .media_utils import make_contact_sheet, run_subprocess
 
     _log = log_fn or print
     blocks: list = []
     sheets_dir = cfg.contact_sheets_dir
-    clips_cache = cfg.preview_clips_dir
+    preview_dir = cfg.preview_clips_dir
 
     global_idx = 1  # continuous numbering across chapters
 
-    # Pre-generate ALL video clips in one parallel batch (not per-chapter)
+    # Pre-generate ALL video previews in one parallel batch (not per-chapter)
     all_video_items = []
     for day in preprocessed["timeline"]:
         for chapter in day["chapters"]:
@@ -436,7 +420,7 @@ def _build_visual_content_blocks(
                 if a and a.get("media_type") == "video":
                     all_video_items.append(a)
     if all_video_items:
-        _generate_video_clips_parallel(all_video_items, clips_cache, _log)
+        _generate_video_previews(all_video_items, preview_dir, _log)
 
     for day in preprocessed["timeline"]:
         for chapter in day["chapters"]:
@@ -475,47 +459,25 @@ def _build_visual_content_blocks(
                     })
                     sheet_idx += 1
 
-            # Videos: clips already generated in batch above, just build blocks
+            # Videos: full previews already generated in batch above
             for vi in video_items:
                 vid_id = vi["id"]
-                source = Path(vi.get("local_path", ""))
                 dur = vi.get("video_duration", 0)
-                if not source.exists() or dur <= 0:
+                if dur <= 0:
                     continue
 
                 item_num = global_idx + len(photo_paths) + video_items.index(vi)
-
-                if dur <= 15:
-                    clip_path = clips_cache / f"clip_{vid_id}_full.mp4"
-                    if clip_path.exists() and clip_path.stat().st_size > 500:
-                        blocks.append(f"Video #{item_num:02d} ({dur:.0f}s, FULL clip 0-{dur:.0f}s, with audio):")
-                        blocks.append({
-                            "type": "video_bytes",
-                            "mime_type": "video/mp4",
-                            "data": clip_path.read_bytes(),
-                        })
-                else:
-                    clip_len = 5
-                    n_clips = max(3, round(dur / 7))
-                    n_clips = min(n_clips, 30)
+                preview_path = preview_dir / f"preview_{vid_id}.mp4"
+                if preview_path.exists() and preview_path.stat().st_size > 500:
                     blocks.append(
-                        f"Video #{item_num:02d} ({dur:.0f}s total, {n_clips} samples). "
-                        f"Use the timestamps below to set start_time/end_time in your EDL:"
+                        f"Video #{item_num:02d} ({dur:.0f}s full preview with audio). "
+                        f"Watch it and pick the best moment — set start_time/end_time in seconds:"
                     )
-                    for ci in range(n_clips):
-                        clip_start = dur * (ci + 0.5) / n_clips - clip_len / 2
-                        clip_start = max(0, min(clip_start, dur - clip_len))
-                        clip_end = clip_start + clip_len
-                        clip_path = clips_cache / f"clip_{vid_id}_{ci}.mp4"
-                        if clip_path.exists() and clip_path.stat().st_size > 500:
-                            blocks.append(
-                                f"  Sample {ci+1}/{n_clips} ({clip_start:.0f}-{clip_end:.0f}s):"
-                            )
-                            blocks.append({
-                                "type": "video_bytes",
-                                "mime_type": "video/mp4",
-                                "data": clip_path.read_bytes(),
-                            })
+                    blocks.append({
+                        "type": "video_bytes",
+                        "mime_type": "video/mp4",
+                        "data": preview_path.read_bytes(),
+                    })
 
             global_idx += n_items
 
@@ -579,7 +541,7 @@ def _plan_visual(
     n_img = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "image_bytes")
     n_vid_clips = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "video_bytes")
     n_text = sum(1 for b in content_blocks if isinstance(b, str))
-    _log(f"Visual content: {n_text} text blocks, {n_img} contact sheets, {n_vid_clips} video clips")
+    _log(f"Visual content: {n_text} text blocks, {n_img} contact sheets, {n_vid_clips} video previews")
 
     # Build trip structure summary for arc thinking
     arc_lines = []
