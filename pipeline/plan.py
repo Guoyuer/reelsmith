@@ -464,9 +464,8 @@ def _generate_video_clips_parallel(
     from .media_utils import run_subprocess
 
     _log = log_fn or print
-    encoder = _preview_encoder(log_fn=_log)
-    is_nvenc = "nvenc" in str(encoder)
-    max_workers = 2 if is_nvenc else max(2, (os.cpu_count() or 4) // 2)
+    encoder = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "28"]
+    max_workers = max(4, (os.cpu_count() or 4) // 2)
 
     # Build list of (clip_path, ffmpeg_cmd) for clips that need generating
     tasks: list[tuple[Path, list[str]]] = []
@@ -508,8 +507,7 @@ def _generate_video_clips_parallel(
     if not tasks:
         return
 
-    enc_name = "NVENC" if is_nvenc else "CPU"
-    _log(f"Generating {len(tasks)} video clips ({enc_name}, {max_workers} workers)...")
+    _log(f"Generating {len(tasks)} video clips (CPU x{max_workers})...")
 
     # Feed tasks one at a time — at most max_workers FFmpeg processes alive.
     # When process is killed, only max_workers subprocesses are orphaned, not hundreds.
