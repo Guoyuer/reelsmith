@@ -342,9 +342,10 @@ def _patch_validation(**kwargs):
     with patch("pipeline.assemble.run_subprocess", side_effect=mock_fn), \
          patch("pipeline.encoder.run_subprocess", side_effect=mock_fn):
         # Clear encoder probe caches so mocked values are used
-        from pipeline.encoder import _PROBE_DIM_CACHE, _PROBE_DUR_CACHE
-        _PROBE_DIM_CACHE.clear()
-        _PROBE_DUR_CACHE.clear()
+        from pipeline.encoder import get_context
+        ctx = get_context()
+        ctx._dim_cache.clear()
+        ctx._dur_cache.clear()
         yield
 
 

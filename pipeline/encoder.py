@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .media_utils import run_subprocess
@@ -33,10 +34,7 @@ def target_bitrate(width: int, height: int, fps: int, quality: float = 1.0) -> s
 
 def detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60,
                       quality: float = 1.0) -> list[str]:
-    """Detect best hardware encoder: prefers HEVC (smaller files, same speed on GPU).
-
-    Tries: hevc_nvenc -> h264_nvenc -> hevc_videotoolbox -> h264_videotoolbox -> libx264.
-    """
+    """Detect best hardware encoder: prefers HEVC (smaller files, same speed on GPU)."""
     import sys
     h264_br = target_bitrate(width, height, fps, quality)
     hevc_br = f"{max(int(int(h264_br.rstrip('M')) * 0.65), 1)}M"
@@ -77,76 +75,114 @@ def detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60,
     return ["-c:v", "libx264", "-preset", "fast", "-b:v", h264_br]
 
 
-# Cache per (width, height, fps, quality) so bitrate changes with settings
-_HW_ENCODER_CACHE: dict[tuple, list[str]] = {}
-_QUALITY: float = 1.0  # Set by assemble() before rendering
-# Probe caches — cleared at start of each assemble run
-_PROBE_DIM_CACHE: dict[str, tuple[int, int]] = {}
-_PROBE_DUR_CACHE: dict[str, float] = {}
+# ---------------------------------------------------------------------------
+# RenderContext — replaces scattered module-level globals
+# ---------------------------------------------------------------------------
 
+@dataclass
+class RenderContext:
+    """Per-run render state. Created by assemble(), used by all render modules."""
+    quality: float = 1.0
+    _encoder_cache: dict[tuple, list[str]] = field(default_factory=dict)
+    _dim_cache: dict[str, tuple[int, int]] = field(default_factory=dict)
+    _dur_cache: dict[str, float] = field(default_factory=dict)
+
+    def get_encoder(self, width: int = 3840, height: int = 2160, fps: int = 60) -> list[str]:
+        key = (width, height, fps, self.quality)
+        if key not in self._encoder_cache:
+            self._encoder_cache[key] = detect_hw_encoder(width, height, fps, self.quality)
+        return self._encoder_cache[key]
+
+    def probe_dimensions(self, path: Path) -> tuple[int, int]:
+        key = str(path)
+        if key in self._dim_cache:
+            return self._dim_cache[key]
+        result = run_subprocess(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x",
+             str(path)],
+            capture_output=True, text=True,
+        )
+        try:
+            parts = result.stdout.strip().split("x")
+            dims = int(parts[0]), int(parts[1])
+        except (ValueError, IndexError):
+            dims = 0, 0
+        self._dim_cache[key] = dims
+        return dims
+
+    def probe_duration(self, path: Path) -> float:
+        key = str(path)
+        if key in self._dur_cache:
+            return self._dur_cache[key]
+        result = run_subprocess(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True,
+        )
+        try:
+            dur = float(result.stdout.strip().split("\n")[0])
+        except (ValueError, IndexError):
+            dur = 0.0
+        self._dur_cache[key] = dur
+        return dur
+
+
+# Module-level context — set by init_context(), read by module-level functions.
+_ctx = RenderContext()
+
+
+def init_context(quality: float = 1.0) -> RenderContext:
+    """Create a fresh RenderContext for a new assemble run."""
+    global _ctx
+    _ctx = RenderContext(quality=quality)
+    return _ctx
+
+
+def get_context() -> RenderContext:
+    """Get the current RenderContext."""
+    return _ctx
+
+
+# ---------------------------------------------------------------------------
+# Module-level convenience functions (delegate to _ctx)
+# ---------------------------------------------------------------------------
 
 def get_encoder(width: int = 3840, height: int = 2160, fps: int = 60) -> list[str]:
-    """Get cached hardware encoder args for the given resolution/fps/quality."""
-    key = (width, height, fps, _QUALITY)
-    if key not in _HW_ENCODER_CACHE:
-        _HW_ENCODER_CACHE[key] = detect_hw_encoder(width, height, fps, _QUALITY)
-    return _HW_ENCODER_CACHE[key]
+    return _ctx.get_encoder(width, height, fps)
 
 
 def set_quality(q: float) -> None:
-    """Set the global quality multiplier (called by assemble at start)."""
-    global _QUALITY
-    _QUALITY = q
+    """Deprecated — use init_context() instead."""
+    global _ctx
+    _ctx = RenderContext(quality=q)
 
 
 def clear_caches() -> None:
-    """Clear all probe caches (called at start of each assemble run)."""
-    _PROBE_DIM_CACHE.clear()
-    _PROBE_DUR_CACHE.clear()
+    """Deprecated — use init_context() instead."""
+    _ctx._dim_cache.clear()
+    _ctx._dur_cache.clear()
 
-
-# ---------------------------------------------------------------------------
-# Media probing
-# ---------------------------------------------------------------------------
 
 def probe_dimensions(path: Path) -> tuple[int, int]:
-    """Use ffprobe to get (width, height) of a media file. Cached."""
-    key = str(path)
-    if key in _PROBE_DIM_CACHE:
-        return _PROBE_DIM_CACHE[key]
-    result = run_subprocess(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0",
-         "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x",
-         str(path)],
-        capture_output=True, text=True,
-    )
-    try:
-        parts = result.stdout.strip().split("x")
-        dims = int(parts[0]), int(parts[1])
-    except (ValueError, IndexError):
-        dims = 0, 0
-    _PROBE_DIM_CACHE[key] = dims
-    return dims
+    return _ctx.probe_dimensions(path)
 
 
 def probe_duration(path: Path) -> float:
-    """Get video/audio duration in seconds. Cached."""
-    key = str(path)
-    if key in _PROBE_DUR_CACHE:
-        return _PROBE_DUR_CACHE[key]
-    result = run_subprocess(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "csv=p=0", str(path)],
-        capture_output=True, text=True,
-    )
-    try:
-        dur = float(result.stdout.strip().split("\n")[0])
-    except (ValueError, IndexError):
-        dur = 0.0
-    _PROBE_DUR_CACHE[key] = dur
-    return dur
+    return _ctx.probe_duration(path)
 
 
 def is_portrait(src_w: int, src_h: int) -> bool:
     """Return True if the source is clearly portrait (height > width * 1.2)."""
     return src_w > 0 and src_h > src_w * 1.2
+
+
+# Expose cache dicts for backward compatibility (validation cache-busting)
+@property
+def _PROBE_DIM_CACHE():
+    return _ctx._dim_cache
+
+
+@property
+def _PROBE_DUR_CACHE():
+    return _ctx._dur_cache

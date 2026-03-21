@@ -19,15 +19,12 @@ from .concat import compute_actual_offsets, concat_xfade, concatenate
 from .config import Config
 from .edl import EDL, EditItem
 from .encoder import (
-    clear_caches,
+    get_context,
     get_encoder,
+    init_context,
     is_portrait,
     probe_dimensions,
     probe_duration,
-    set_quality,
-    # Expose caches for _validate_output cache-busting
-    _PROBE_DIM_CACHE,
-    _PROBE_DUR_CACHE,
 )
 from .filters import (
     build_portrait_photo_filter,
@@ -75,8 +72,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     Returns (output_path, validation_issues) where validation_issues is a list
     of dicts with keys: level ("error"/"warning"), check, message.
     """
-    set_quality(quality)
-    clear_caches()
+    ctx = init_context(quality=quality)
     cfg.ensure_dirs()
     from .edl import load_latest_edl
     edl, _ = load_latest_edl(cfg)
@@ -362,7 +358,7 @@ def _validate_output_impl(
 
     # --- 2. Duration check ---
     expected_duration = edl.estimated_duration()
-    _PROBE_DUR_CACHE.pop(str(output_path), None)
+    get_context()._dur_cache.pop(str(output_path), None)
     actual_duration = probe_duration(output_path)
 
     if actual_duration <= 0:
@@ -450,7 +446,7 @@ def _validate_output_impl(
 
     # --- 6. Resolution check ---
     if has_video_stream:
-        _PROBE_DIM_CACHE.pop(str(output_path), None)
+        get_context()._dim_cache.pop(str(output_path), None)
         out_w, out_h = probe_dimensions(output_path)
         exp_w, exp_h = resolution
         if out_w > 0 and out_h > 0:
