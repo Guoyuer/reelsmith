@@ -171,11 +171,41 @@ def _analyze_video(entry, item_id, local_path, cfg, cache_file, log_fn, i, total
 
 
 
+def _read_exif(path) -> dict:
+    """Extract EXIF metadata from a photo. Returns dict with focal_length, aperture, iso."""
+    try:
+        from PIL import Image
+        from PIL.ExifTags import TAGS
+        img = Image.open(path)
+        exif_data = img._getexif()
+        if not exif_data:
+            return {}
+        exif = {TAGS.get(k, k): v for k, v in exif_data.items()}
+        result = {}
+        fl = exif.get("FocalLength")
+        if fl:
+            result["focal_length"] = float(fl) if not hasattr(fl, 'numerator') else fl.numerator / fl.denominator
+        fn = exif.get("FNumber")
+        if fn:
+            result["aperture"] = float(fn) if not hasattr(fn, 'numerator') else fn.numerator / fn.denominator
+        iso = exif.get("ISOSpeedRatings")
+        if iso:
+            result["iso"] = int(iso)
+        return result
+    except Exception:
+        return {}
+
+
 def _analyze_photo(entry, item_id, local_path, cfg, cache_file):
-    """Generate thumbnail for a photo."""
+    """Generate thumbnail and extract EXIF for a photo."""
     thumb_dir = cfg.workspace / "thumbnails"
     thumb = generate_thumbnail(local_path, thumb_dir, size=512)
+    exif = _read_exif(local_path)
+    cache_data = {"thumbnail_path": str(thumb)}
+    if exif:
+        cache_data["exif"] = exif
+        entry["exif"] = exif
     entry["thumbnail_path"] = str(thumb)
-    cache_file.write_text(json.dumps({"thumbnail_path": str(thumb)}, indent=2))
+    cache_file.write_text(json.dumps(cache_data, indent=2))
 
 

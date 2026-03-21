@@ -104,6 +104,45 @@ class TestAnalyzeSavesToSharedCache:
         assert "thumbnail_path" in cached
 
 
+class TestAnalyzeExifCaching:
+    def test_exif_cached_in_analysis(self, mock_config):
+        """EXIF data should be cached in the per-file cache and in results."""
+        cfg = mock_config
+        img_path = cfg.media_dir / "200_photo.jpg"
+        from PIL import Image
+        img = Image.new("RGB", (100, 100), (200, 100, 50))
+        img.save(str(img_path), "JPEG")
+
+        items = [_make_item(200, "A", "photo.jpg", str(img_path), family_count=2)]
+        _write_preprocessed(cfg, items)
+
+        results = analyze(cfg)
+        assert len(results) == 1
+
+        # Cache should exist with thumbnail
+        cache_file = cfg.cache_dir / "200.json"
+        assert cache_file.exists()
+        cached = json.loads(cache_file.read_text())
+        assert "thumbnail_path" in cached
+
+    def test_exif_from_cache_used(self, mock_config):
+        """When cache has EXIF data, it should appear in results."""
+        cfg = mock_config
+        img = _make_tiny_image(cfg.media_dir / "201_photo.jpg")
+        items = [_make_item(201, "B", "photo.jpg", str(img), family_count=1)]
+        _write_preprocessed(cfg, items)
+
+        # Pre-populate cache with EXIF
+        cache_data = {
+            "thumbnail_path": "/fake/thumb.jpg",
+            "exif": {"focal_length": 24.0, "aperture": 1.4, "iso": 100},
+        }
+        (cfg.cache_dir / "201.json").write_text(json.dumps(cache_data))
+
+        results = analyze(cfg)
+        assert results[0].get("exif") == {"focal_length": 24.0, "aperture": 1.4, "iso": 100}
+
+
 class TestAnalyzeProgressCallback:
     def test_analyze_progress_callback(self, mock_config):
         cfg = mock_config

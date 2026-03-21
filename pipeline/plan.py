@@ -336,32 +336,6 @@ Think step-by-step, then output valid JSON only:
 # Visual planner content builders
 # ---------------------------------------------------------------------------
 
-def _read_exif_brief(path: Path) -> str:
-    """Extract brief EXIF info (focal length, aperture, ISO) from a photo."""
-    try:
-        from PIL import Image
-        from PIL.ExifTags import TAGS
-        img = Image.open(path)
-        exif_data = img._getexif()
-        if not exif_data:
-            return ""
-        exif = {TAGS.get(k, k): v for k, v in exif_data.items()}
-        parts = []
-        fl = exif.get("FocalLength")
-        if fl:
-            fl_val = float(fl) if not hasattr(fl, 'numerator') else fl.numerator / fl.denominator
-            parts.append(f"{fl_val:.0f}mm")
-        fn = exif.get("FNumber")
-        if fn:
-            fn_val = float(fn) if not hasattr(fn, 'numerator') else fn.numerator / fn.denominator
-            parts.append(f"f/{fn_val:.1f}")
-        iso = exif.get("ISOSpeedRatings")
-        if iso:
-            parts.append(f"ISO{iso}")
-        return " ".join(parts)
-    except Exception:
-        return ""
-
 
 def _build_visual_chapter_text(
     chapter: dict, day: dict, analysis_by_id: dict, start_idx: int,
@@ -411,10 +385,18 @@ def _build_visual_chapter_text(
             parts.append(f"video={dur_s} scenes={n_scenes}")
             video_items.append(a)
         else:
-            # Add EXIF camera metadata for photos
-            exif = _read_exif_brief(Path(local_path))
-            if exif:
-                parts.append(exif)
+            # Add EXIF camera metadata (cached from analyze stage)
+            exif_data = a.get("exif", {})
+            if exif_data:
+                exif_parts = []
+                if exif_data.get("focal_length"):
+                    exif_parts.append(f"{exif_data['focal_length']:.0f}mm")
+                if exif_data.get("aperture"):
+                    exif_parts.append(f"f/{exif_data['aperture']:.1f}")
+                if exif_data.get("iso"):
+                    exif_parts.append(f"ISO{exif_data['iso']}")
+                if exif_parts:
+                    parts.append(" ".join(exif_parts))
             photo_paths.append(Path(local_path))
 
         parts.append(f"path={local_path}")
@@ -554,10 +536,10 @@ def _build_visual_content_blocks(
 
     _log = log_fn or print
     blocks: list = []
-    sheets_dir = cfg.workspace / "contact_sheets"
-    sheets_dir.mkdir(parents=True, exist_ok=True)
-    # Shared clip cache across runs (like thumbnails/keyframes/music)
+    # Shared caches across runs (like thumbnails/keyframes/music)
     ws = cfg.workspace
+    sheets_dir = ws.parent.parent / "contact_sheets" if ws.parent.name == "runs" else ws / "contact_sheets"
+    sheets_dir.mkdir(parents=True, exist_ok=True)
     clips_cache = ws.parent.parent / "preview_clips" if ws.parent.name == "runs" else ws / "preview_clips"
     clips_cache.mkdir(parents=True, exist_ok=True)
 
