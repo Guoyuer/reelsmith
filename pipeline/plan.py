@@ -472,20 +472,24 @@ def _concat_previews(
 
     _log = log_fn or print
 
-    # Build concat list file
+    # Build concat list file with explicit durations (prevents timestamp drift)
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-        for _, _, preview_path in video_entries:
-            # FFmpeg concat demuxer needs absolute paths with forward slashes
+        for _, dur, preview_path in video_entries:
             safe_path = str(preview_path.resolve()).replace("\\", "/")
             f.write(f"file '{safe_path}'\n")
+            f.write(f"duration {dur}\n")
         list_path = f.name
 
     try:
         _log(f"Concatenating {len(video_entries)} previews into mega-preview...")
+        # Re-encode (not -c copy) — 1fps videos have timestamp bugs with concat demuxer copy mode
         result = run_subprocess(
             ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-             "-i", list_path, "-c", "copy", str(output_path)],
-            capture_output=True, timeout=120,
+             "-i", list_path,
+             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "40",
+             "-c:a", "aac", "-b:a", "64k", "-ac", "1",
+             str(output_path)],
+            capture_output=True, timeout=300,
         )
         if result.returncode != 0:
             _log(f"  WARNING: concat failed: {(result.stderr or b'').decode()[-300:]}")
@@ -501,6 +505,22 @@ def _concat_previews(
 
     size_mb = output_path.stat().st_size / 1024 / 1024 if output_path.exists() else 0
     _log(f"  Mega-preview: {len(video_entries)} videos, {offset:.0f}s total, {size_mb:.1f}MB")
+
+    # Validate: actual duration must match expected
+    if output_path.exists():
+        r = run_subprocess(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(output_path)],
+            capture_output=True, text=True, timeout=10,
+        )
+        actual_dur = float(r.stdout.strip()) if r.stdout.strip() else 0
+        if abs(actual_dur - offset) > 5:
+            raise RuntimeError(
+                f"Mega-preview duration mismatch: expected {offset:.0f}s, got {actual_dur:.0f}s. "
+                f"Concat demuxer timestamp bug."
+            )
+        _log(f"  Duration verified: {actual_dur:.0f}s (expected {offset:.0f}s)")
+
     return offset_table, output_path
 
 
