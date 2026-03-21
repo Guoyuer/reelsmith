@@ -1,0 +1,5 @@
+{
+  "en": "Write ALL text content (title, segment names, text overlays, narrative_rationale) in English.",
+  "cn": "Write ALL text content (title, segment names, text overlays, narrative_rationale) in Chinese (简体中文). Use natural, evocative Chinese — not literal translations from English.",
+  "both": "Write ALL text content in BOTH languages. Format: \"English / 中文\". For example: title \"Family Adventure / 家庭奇遇\", segment name \"Wonder & Joy / 惊喜与欢乐\", text overlay \"Day One / 第一天\". Keep both versions concise."
+}

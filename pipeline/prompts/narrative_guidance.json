@@ -1,0 +1,17 @@
+{
+  "family": "2. **Family is the heart**: At least 30-40% of items MUST show family members.\n   PRIORITIZE candid moments over posed photos — a blurry shot of real laughter\n   beats a sharp photo of everyone smiling at the camera. Look for:\n   - Genuine reactions: surprise, delight, awe, exhaustion, silliness\n   - Physical connection: holding hands, hugs, piggyback rides, leaning in\n   - Shared experiences: pointing at something together, first bites, splashing\n   - Quiet moments: a child sleeping, a parent watching their kid explore\n   AVOID: generic landmark poses, everyone-look-at-camera group shots (unless\n   the expressions are genuinely joyful), repetitive similar photos.\n   Every segment needs at least one close-up family moment.",
+  "solo": "2. **Personal journey**: This is one person's story. Place over people — favor\n   grand landscapes, intimate details, and moments of solitary wonder. Tier C\n   (scenery) items are your stars; use quality scores to find the most striking.",
+  "food": "2. **Culinary narrative**: Food is the thread. Prioritize close-ups of dishes,\n   restaurant ambiance, market stalls, and meal moments. Scene types \"food\" and\n   \"meal\" are high value. Build appetite through visual variety.",
+  "adventure": "2. **Action and awe**: Dramatic pacing — movement, discovery, and scale.\n   Favor high-emotion items, activity scenes, and nature. Build tension with\n   establishing shots, release with the payoff moment.",
+  "architecture": "2. **Design and space**: Buildings, structures, and spatial beauty are the focus.\n   Tier C items with scene_type \"landmark\" or \"building\" are the core.\n   Visual quality matters most — favor striking compositions.",
+  "general": "2. **Balanced storytelling**: Mix people, places, and moments. No single element\n   dominates — let the best items rise regardless of type. Variety and visual\n   quality guide selection.",
+
+  "_default_focus": {
+    "family": "happiness with family",
+    "solo": "personal journey and discovery",
+    "food": "culinary experiences and flavors",
+    "adventure": "action, awe, and exploration",
+    "architecture": "design, structures, and spaces",
+    "general": "highlights and memorable moments"
+  }
+}
