@@ -198,9 +198,7 @@ def fetch_media(
     newly_fetched = 0
     if not config.force and out.exists():
         items = json.loads(out.read_text())
-        for i, it in enumerate(items, 1):
-            context.log.info(f"[{i}/{len(items)}] {it.get('filename', '?')} (cached)")
-        context.log.info(f"Fetch complete: {len(items)} items (all cached)")
+        context.log.info(f"Fetch: {len(items)} items (all cached, skipping download)")
     else:
         if not config.from_date or not config.to_date:
             raise dg.Failure(
