@@ -500,8 +500,8 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     use_xfade = len(all_clips) <= 30 and not all_cuts
     tl = Timeline.build(all_clips, use_xfade=use_xfade)
     tl.dump(log_fn=print)
-    if not use_xfade and len(all_clips) > 30:
-        print(f"  NOTE: {len(all_clips)} clips > 30 → using concat demuxer (no transitions)")
+    if not use_xfade:
+        print(f"  NOTE: using concat demuxer (no transitions)")
 
     # Phase 2: Concatenate with transitions (video only)
     t2 = time.monotonic()
