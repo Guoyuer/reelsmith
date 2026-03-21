@@ -13,7 +13,7 @@ from pipeline.encoder import is_portrait as _is_portrait, probe_dimensions as _p
 from pipeline.filters import build_portrait_photo_filter as _build_portrait_photo_filter
 from pipeline.render import render_photo as _render_photo, render_video as _render_video
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
-from pipeline.media_utils import _portrait_bg_filter
+from pipeline.media_utils import portrait_bg_filter
 
 
 # -----------------------------------------------------------------------
@@ -62,14 +62,14 @@ class TestBuildPortraitPhotoFilter:
 class TestBuildPortraitVideoFilter:
     def test_portrait_video_filter_structure(self):
         """Filter must contain split, gblur, and overlay stages."""
-        fc = _portrait_bg_filter(3840, 2160)
+        fc = portrait_bg_filter(3840, 2160)
         assert "split" in fc
         assert "gblur" in fc
         assert "overlay" in fc
 
     def test_portrait_video_filter_no_pad(self):
         """Portrait video filter must NOT use pad (no black bars)."""
-        fc = _portrait_bg_filter(3840, 2160)
+        fc = portrait_bg_filter(3840, 2160)
         assert "pad=" not in fc
 
 

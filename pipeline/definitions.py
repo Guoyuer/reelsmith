@@ -164,7 +164,7 @@ def _preprocess_metadata(data: dict, extra: dict | None = None) -> dict:
     return meta
 
 
-def _analyze_metadata(results: list[dict], out: str, extra: dict | None = None) -> dict:
+def _prepare_analysis_metadata(results: list[dict], out: str, extra: dict | None = None) -> dict:
     n_photos = sum(1 for r in results if r.get("media_type") == "photo")
     n_videos = len(results) - n_photos
     n_family = sum(1 for r in results if r.get("family_count", 0) >= 1)

@@ -7,7 +7,7 @@ from pathlib import Path
 from .edl import EditItem
 from .encoder import get_encoder, is_portrait, probe_dimensions
 from .filters import build_portrait_photo_filter, color_grade, drawtext_filter, find_font
-from .media_utils import convert_heic, run_subprocess, _zoompan_filter, _portrait_bg_filter
+from .media_utils import convert_heic, run_subprocess, zoompan_filter, portrait_bg_filter
 
 
 def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
@@ -61,7 +61,7 @@ def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
             "static": "static",
         }
         direction = direction_map.get(item.effect, "in")
-        zp = _zoompan_filter(zoom_rate, frames, w, h, fps, direction=direction)
+        zp = zoompan_filter(zoom_rate, frames, w, h, fps, direction=direction)
 
         ow, oh = w * 2, h * 2
         src_ratio = src_w / src_h if src_h > 0 else 1.0
@@ -133,7 +133,7 @@ def render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
 
     cg = color_grade(color_temp)
     if portrait:
-        fc = _portrait_bg_filter(w, h)
+        fc = portrait_bg_filter(w, h)
         cmd += [
             "-filter_complex", f"{fc},{cg}{speed_vf}{dt}",
             *get_encoder(w, h, fps), "-pix_fmt", "yuv420p",

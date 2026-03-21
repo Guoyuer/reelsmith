@@ -227,7 +227,7 @@ def make_contact_sheet(
 # FFmpeg filter-string helpers (used by assemble.py)
 # ---------------------------------------------------------------------------
 
-def _zoompan_filter(
+def zoompan_filter(
     zoom_rate: float, frames: int, w: int, h: int, fps: int,
     direction: str = "in",
 ) -> str:
@@ -248,7 +248,7 @@ def _zoompan_filter(
     return f"zoompan={zoom_exprs.get(direction, zoom_exprs['in'])}{tail}"
 
 
-def _portrait_bg_filter(w: int, h: int) -> str:
+def portrait_bg_filter(w: int, h: int) -> str:
     """Build the blurred-background + sharp-foreground overlay filter for portrait videos.
 
     The result is a ``filter_complex`` string suitable for a single-input
