@@ -40,6 +40,109 @@ Target: `fetch_media → prepare → plan → generate_music → assemble` (5 st
 
 ---
 
+## Architecture Debt (Senior Engineer Review)
+
+These are structural issues identified from an architecture perspective.
+Not blocking current functionality, but will slow down future development.
+
+### A1. No FFmpeg abstraction — string programming
+
+assemble.py builds FFmpeg filter chains by string concatenation:
+```python
+f"{scale_filter}[comp];[comp]{zp},{cg}{sharpen}{dt}"
+```
+~400 lines of assemble.py are string manipulation. No compile-time validation.
+A missing comma or bracket label is a runtime crash.
+
+**Fix**: FilterGraph abstraction (Scale, ZoomPan, ColorGrade nodes → validated string).
+**Effort**: High (significant refactor of assemble.py)
+
+### A2. Global mutable state
+
+```python
+_QUALITY: float = 1.0           # set by assemble(), read by _get_encoder()
+_HW_ENCODER_CACHE: dict = {}
+_PROBE_DIM_CACHE: dict = {}
+_PROBE_DUR_CACHE: dict = {}
+```
+Implicit coupling via module-level globals. Not thread-safe for parallel execution.
+
+**Fix**: Context object or dependency injection.
+**Effort**: Medium
+
+### A3. Two parallel models, no shared abstraction
+
+plan.py: ThreadPoolExecutor + batch submit + as_completed
+assemble.py: ThreadPoolExecutor + full submit + as_completed
+
+Two independent parallel FFmpeg runners with different error handling.
+Infrastructure code mixed into business logic.
+
+**Fix**: Shared `parallel_ffmpeg(tasks, max_workers)` utility.
+**Effort**: Low
+
+### A4. Config pass-through chain (shotgun surgery)
+
+`--lang cn` passes through 8 layers: CLI → Dagster config → plan() →
+_plan_visual() → _visual_system_prompt() → Gemini → EDL.language →
+assemble() → _render_photo(language=) → _find_font(language=) → FFmpeg.
+
+Adding any new parameter requires touching 8 files.
+
+**Fix**: EDL should be fully self-contained. assemble reads everything from EDL,
+no external parameters passed through function args.
+**Effort**: Medium
+
+### A5. Integration test gap
+
+102 tests, but mostly pure functions and mocked IO. Zero tests cover:
+- Gemini JSON → EDL parse → clip render → xfade → audio sync
+- Timeline offset correctness
+- Beat sync output
+- Segment-level xfade grouping
+- Audio mixing (speech + music)
+
+The audio sync bug took 5 commits to fix because no integration test existed.
+
+**Fix**: One 360p integration test: render a 30s vlog from a test EDL,
+ffprobe to verify duration/streams/codec, extract frames to check content.
+**Effort**: Medium
+
+### A6. Inconsistent error handling
+
+Three patterns mixed:
+- Silent skip: `skip_broken=True` drops failed clips, no report
+- Warning: `warnings.warn()` in media_utils
+- Hard crash: `raise RuntimeError` in plan
+
+User doesn't know a clip was skipped until watching the video.
+
+**Fix**: RenderReport object recording each item's status (ok/skipped/failed+reason).
+Print summary at end, persist in Dagster metadata.
+**Effort**: Medium
+
+### A7. Dagster used as cron, not as asset framework
+
+definitions.py is 532 lines of wrapping pipeline functions in Dagster decorators.
+None of Dagster's unique features used (partitions, sensors, schedules, incremental
+materialization). A Makefile + subprocess would achieve the same result.
+
+**Fix**: Either leverage Dagster features (partitioned assets per segment, sensors
+for new photos) or simplify to a lighter orchestrator.
+**Effort**: Decision, not implementation
+
+### A8. Monolithic assemble.py (1161 lines, 15 responsibilities)
+
+Contains: encoder detection, dimension probing, Ken Burns animation, portrait blur,
+color grading, text overlay, title cards, xfade concat, speech track, music mix,
+chapter markers, BPM detection, beat sync, timeline integration, output validation.
+
+**Fix**: Split into encoder.py, filters.py, concat.py, audio.py. assemble.py
+becomes pure orchestration (~200 lines).
+**Effort**: High (but low risk — pure refactor, no behavior change)
+
+---
+
 ## Issue #3: Parallelize music generation and clip rendering
 
 ### Problem
