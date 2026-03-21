@@ -205,7 +205,6 @@ def _gemini_call(
             media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
             thinking_config=types.ThinkingConfig(
                 thinking_level="HIGH",
-                include_thoughts=True,
             ),
         ),
     )
@@ -715,6 +714,18 @@ Candidates by day/location:"""
     _log("=== [Gemini] END RESPONSE ===")
 
     edl_content = strip_markdown_fences(edl_content)
+
+    # Fix common Gemini output issues before parsing
+    import json as _json
+    try:
+        raw = _json.loads(edl_content)
+        # Gemini sometimes puts a string in "music" instead of object/null
+        if "music" in raw and isinstance(raw["music"], str):
+            raw["music"] = None
+        edl_content = _json.dumps(raw)
+    except _json.JSONDecodeError:
+        pass  # let pydantic handle it
+
     edl = EDL.model_validate_json(edl_content)
 
     # Layer 2: Fix hallucinated file paths
@@ -866,7 +877,7 @@ def plan(
     effective_focus = focus or _default_focus(trip_type)
     preprocessed = json.loads((cfg.workspace / "preprocessed.json").read_text())
     analysis_items = json.loads((cfg.workspace / "analysis.json").read_text())
-    analysis_by_id: dict[int, dict] = {a["id"]: a for a in analysis_items}
+    analysis_by_id: dict[str, dict] = {str(a["id"]): a for a in analysis_items}
 
     _log(f"Planning via Gemini with visual input (target {target_duration}s, style={style}, trip_type={trip_type}, lang={language})...")
     edl = _plan_visual(cfg, preprocessed, analysis_by_id, analysis_items,

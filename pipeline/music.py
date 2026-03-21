@@ -276,7 +276,7 @@ def generate_music_for_edl(
 ) -> Path | None:
     """Generate per-segment music and build a composite track with crossfades.
 
-    Called by the generate_music Dagster asset. Generates one Lyria track per
+    Called by the generate_music stage. Generates one Lyria track per
     segment based on its music_mood, then crossfades them into one file.
 
     Returns the composite music file path, or None if skipped/failed.

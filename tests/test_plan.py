@@ -40,19 +40,19 @@ def _make_test_edl(items: list | None = None) -> EDL:
 
 
 SAMPLE_ANALYSIS = {
-    1: {
+    "1": {
         "id": 1, "filename": "IMG_001.jpg", "local_path": "/media/1_IMG_001.jpg",
         "media_type": "photo", "family_count": 2, "persons": ["Alice", "Bob"],
         "district": "Marina Bay", "country": "Singapore",
         "taken_iso": "2025-06-13T14:30:00",
         "exif": {"focal_length": 24.0, "aperture": 1.4, "iso": 100},
     },
-    2: {
+    "2": {
         "id": 2, "filename": "VID_002.mp4", "local_path": "/media/2_VID_002.mp4",
         "media_type": "video", "family_count": 0, "persons": [],
         "video_duration": 45.3, "duration_ms": 45300,
     },
-    3: {
+    "3": {
         "id": 3, "filename": "IMG_003.jpg", "local_path": "/media/3_IMG_003.jpg",
         "media_type": "photo", "family_count": 1, "persons": ["Alice"],
     },

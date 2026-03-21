@@ -10,16 +10,13 @@ dependencies = [
     "Pillow>=10.0",
     "python-dotenv>=1.0",
     "tqdm>=4.60",
-    "dagster>=1.9",
-    "dagster-webserver>=1.9",
-    "dagster-graphql>=1.9",
     "google-genai>=1.0",
     "pillow-heif>=0.18",
 ]
 
 [project.optional-dependencies]
 music = ["torch>=2.0", "transformers>=4.30", "scipy>=1.10"]
-test = ["pytest>=8.0", "dagster>=1.9"]
+test = ["pytest>=8.0"]
 all = ["pillow-heif>=0.18", "torch>=2.0", "transformers>=4.30", "scipy>=1.10"]
 
 [project.scripts]

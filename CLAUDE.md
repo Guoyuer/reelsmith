@@ -2,23 +2,23 @@
 
 ## Pipeline execution
 
-Always run pipeline stages through Dagster (via `python run.py` CLI or Dagster UI), never by calling pipeline functions directly in Python. Running stages directly bypasses Dagster's run tracking and causes process management issues.
-
-Use `dagster dev` (not just `dagster-webserver`) — the daemon is needed for the run queue coordinator.
+Run pipeline via `python run.py` CLI. Stages execute directly in a single Python process — no external services needed. Each stage caches its output; re-running `full` is fast.
 
 ```bash
-# NAS source (date range)
-python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 --duration 180
-
 # Local folder source (all files, no date filtering)
 python run.py -n singapore full --source workspace/media --duration 180 --lang cn --tz 8
 
-# Resume a failed run
-python run.py -n singapore resume
+# NAS source (date range)
+python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 --duration 180
 
-# Wrong — don't do this
-python -c "from pipeline.prepare import prepare; prepare(cfg)"
+# Re-plan only (uses cached media + analysis)
+python run.py -n singapore plan --duration 180 --lang cn
+
+# Re-render only
+python run.py -n singapore assemble
 ```
+
+Logs go to terminal AND `workspace/runs/{name}/run.log`. Run summary in `workspace/runs/{name}/run_status.json`.
 
 ## Pipeline stages
 
@@ -108,8 +108,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - Photo thumbnails cached in `workspace/thumbnails/`, video analysis cached in `workspace/analysis_cache/`
 - Preview clips cached in `workspace/preview_clips/` — orphaned files from old runs auto-cleaned
 - `--source` flag for local folder (alternative to NAS `-f`/`-t` date range)
-- Dagster: use `dagster dev` not `dagster-webserver` (daemon needed for run queue)
-- tqdm auto-disabled when stderr is not a TTY (prevents BrokenPipeError in Dagster)
+- tqdm auto-disabled when stderr is not a TTY
 - Stale cache auto-invalidation: prepare re-runs if upstream file is newer (mtime check)
 - FFmpeg subprocesses have a 5-minute timeout (prevents hanging on corrupt files)
 - Ken Burns is forced to "none" on video items (native motion conflicts with zoompan)

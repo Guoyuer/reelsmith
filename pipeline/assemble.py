@@ -77,8 +77,8 @@ class RenderReport:
             parts.append(f"{self.failed_count} failed ({', '.join(f'{c.clip_name}: {c.reason}' for c in failed)})")
         return ", ".join(parts)
 
-    def to_dagster_metadata(self) -> dict:
-        """Convert to dict suitable for Dagster MetadataValue."""
+    def to_metadata(self) -> dict:
+        """Convert to metadata dict."""
         return {
             "clips_ok": self.ok_count,
             "clips_skipped": self.skipped_count,
