@@ -488,7 +488,7 @@ def _build_visual_content_blocks(
                 if dur <= 15:
                     clip_path = clips_cache / f"clip_{vid_id}_full.mp4"
                     if clip_path.exists() and clip_path.stat().st_size > 500:
-                        blocks.append(f"Video #{item_num:02d} ({dur:.0f}s, FULL clip with audio):")
+                        blocks.append(f"Video #{item_num:02d} ({dur:.0f}s, FULL clip 0-{dur:.0f}s, with audio):")
                         blocks.append({
                             "type": "video_bytes",
                             "mime_type": "video/mp4",
@@ -498,10 +498,19 @@ def _build_visual_content_blocks(
                     clip_len = 5
                     n_clips = max(3, round(dur / 7))
                     n_clips = min(n_clips, 30)
-                    blocks.append(f"Video #{item_num:02d} ({dur:.0f}s total, {n_clips} samples with audio):")
+                    blocks.append(
+                        f"Video #{item_num:02d} ({dur:.0f}s total, {n_clips} samples). "
+                        f"Use the timestamps below to set start_time/end_time in your EDL:"
+                    )
                     for ci in range(n_clips):
+                        clip_start = dur * (ci + 0.5) / n_clips - clip_len / 2
+                        clip_start = max(0, min(clip_start, dur - clip_len))
+                        clip_end = clip_start + clip_len
                         clip_path = clips_cache / f"clip_{vid_id}_{ci}.mp4"
                         if clip_path.exists() and clip_path.stat().st_size > 500:
+                            blocks.append(
+                                f"  Sample {ci+1}/{n_clips} ({clip_start:.0f}-{clip_end:.0f}s):"
+                            )
                             blocks.append({
                                 "type": "video_bytes",
                                 "mime_type": "video/mp4",
