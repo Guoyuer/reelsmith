@@ -442,7 +442,6 @@ def _generate_video_clips_parallel(
     Respects _SHUTDOWN flag — stops spawning new FFmpeg on SIGTERM/SIGINT.
     """
     import os
-    from concurrent.futures import ThreadPoolExecutor, as_completed
     from .media_utils import run_subprocess
 
     _log = log_fn or print
@@ -492,22 +491,14 @@ def _generate_video_clips_parallel(
 
     _log(f"Generating {len(tasks)} video clips (CPU x{max_workers})...")
 
-    # Process in batches — limits orphan FFmpeg on kill to ~batch_size
-    from concurrent.futures import as_completed
-    batch_size = max_workers * 3
-    done = 0
-    try:
-        for batch_start in range(0, len(tasks), batch_size):
-            batch = tasks[batch_start:batch_start + batch_size]
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                futures = {pool.submit(run_subprocess, cmd, capture_output=True): p for p, cmd in batch}
-                for _ in as_completed(futures):
-                    done += 1
-                    if done % 20 == 0 or done == len(tasks):
-                        _log(f"  Video clips: {done}/{len(tasks)}")
-    except (KeyboardInterrupt, SystemExit):
-        _log(f"  Interrupted at {done}/{len(tasks)} clips")
-        raise
+    from .parallel import run_parallel
+
+    def _progress(done, total):
+        if done % 20 == 0 or done == total:
+            _log(f"  Video clips: {done}/{total}")
+
+    parallel_tasks = [(p, lambda cmd=cmd: run_subprocess(cmd, capture_output=True)) for p, cmd in tasks]
+    run_parallel(parallel_tasks, max_workers, progress_fn=_progress)
 
     n_ok = sum(1 for p, _ in tasks if p.exists() and p.stat().st_size > 500)
     _log(f"  Video clips done: {n_ok}/{len(tasks)} OK")

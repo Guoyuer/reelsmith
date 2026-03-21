@@ -9,7 +9,6 @@ import logging
 import os
 import shutil
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -166,18 +165,19 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     clip_results: list[Path | None] = [None] * total_items
     report = RenderReport()
 
+    from .parallel import run_parallel
+
     pbar = tqdm(total=total_items, desc=f"Rendering clips (x{max_workers})", unit="clip",
                 bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
 
-    def _do_render(task):
-        order, seg_idx, item_idx, item, segment = task
+    def _do_render(order, seg_idx, item_idx, item, segment):
         clip_name = f"seg{seg_idx:02d}_item{item_idx:02d}.mp4"
         clip_path = clips_dir / clip_name
 
         if not clip_path.exists():
             source = Path(item.source_file)
             if not source.exists():
-                return order, clip_name, item.source_file, None, "source not found"
+                return clip_name, item.source_file, None, "source not found"
 
             ct = getattr(segment, "color_temp", "neutral") or "neutral"
             if item.media_type == "photo":
@@ -188,27 +188,33 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
                              text_overlay=item.text_overlay, language=lang)
 
         if not clip_path.exists():
-            return order, clip_name, item.source_file, None, "render failed"
-        return order, clip_name, item.source_file, clip_path, ""
+            return clip_name, item.source_file, None, "render failed"
+        return clip_name, item.source_file, clip_path, ""
 
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(_do_render, t): t[0] for t in tasks}
-        for future in as_completed(futures):
-            try:
-                order, clip_name, source_file, clip_path, reason = future.result()
-                if clip_path is None:
-                    report.clips.append(ClipStatus(clip_name, source_file, "skipped", reason))
-                    pbar.write(f"  SKIP: {clip_name} ({reason})")
-                else:
-                    report.clips.append(ClipStatus(clip_name, source_file, "ok"))
-                    clip_results[order] = clip_path
-            except Exception as e:
-                idx = futures[future]
-                report.clips.append(ClipStatus(f"task_{idx}", "", "failed", str(e)))
-                pbar.write(f"  FAIL: task_{idx}: {e}")
-            pbar.update(1)
-            if progress_callback:
-                progress_callback(pbar.n, total_items, "")
+    def _progress(done, total):
+        pbar.n = done
+        pbar.refresh()
+        if progress_callback:
+            progress_callback(done, total, "")
+
+    parallel_tasks = [
+        (t[0], lambda t=t: _do_render(*t))
+        for t in tasks
+    ]
+    results = run_parallel(parallel_tasks, max_workers, progress_fn=_progress)
+
+    for order, result in results:
+        if isinstance(result, Exception):
+            report.clips.append(ClipStatus(f"task_{order}", "", "failed", str(result)))
+            pbar.write(f"  FAIL: task_{order}: {result}")
+        else:
+            clip_name, source_file, clip_path, reason = result
+            if clip_path is None:
+                report.clips.append(ClipStatus(clip_name, source_file, "skipped", reason))
+                pbar.write(f"  SKIP: {clip_name} ({reason})")
+            else:
+                report.clips.append(ClipStatus(clip_name, source_file, "ok"))
+                clip_results[order] = clip_path
 
     pbar.close()
     t_clips = time.monotonic() - t1
