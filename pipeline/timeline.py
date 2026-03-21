@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .media_utils import run_subprocess
+from .encoder import probe_duration as _probe_dur
 
 
 @dataclass
@@ -195,14 +195,5 @@ class Timeline:
         _log("=== End Timeline ===")
 
 
-def _probe_dur(path: Path) -> float:
-    """Get video duration in seconds."""
-    result = run_subprocess(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "csv=p=0", str(path)],
-        capture_output=True, text=True,
-    )
-    try:
-        return float(result.stdout.strip())
-    except ValueError:
-        return 0.0
+
+# _probe_dur is now imported from encoder.probe_duration

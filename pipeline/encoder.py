@@ -175,14 +175,3 @@ def probe_duration(path: Path) -> float:
 def is_portrait(src_w: int, src_h: int) -> bool:
     """Return True if the source is clearly portrait (height > width * 1.2)."""
     return src_w > 0 and src_h > src_w * 1.2
-
-
-# Expose cache dicts for backward compatibility (validation cache-busting)
-@property
-def _PROBE_DIM_CACHE():
-    return _ctx._dim_cache
-
-
-@property
-def _PROBE_DUR_CACHE():
-    return _ctx._dur_cache
