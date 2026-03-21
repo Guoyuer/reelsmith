@@ -74,7 +74,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 
 ## What's still hard-coded
 
-- **Prepare tiering** — face count -> A/B/C/D (but Gemini ignores tiers, judges visually)
+- **Family detection** — family_count from NAS face data, used for Dagster metadata display only (Gemini judges visually)
 - **FFmpeg rendering** — parallel clip assembly from EDL (3 NVENC workers by default, `VLOG_PARALLEL_CLIPS` env var)
 - **Ken Burns effects** — applied per EDL effect field (forced to "none" for videos)
 - **Thumbnail/keyframe generation** — Pillow resize, FFmpeg extraction

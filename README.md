@@ -223,7 +223,7 @@ Quality presets and resulting bitrates:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--family` | auto-detect | Comma-separated family member names for tiering (e.g. `"Yi Zhang,Liang Guo,Yuer Guo"`). Default: auto-detected from NAS face recognition data |
+| `--family` | auto-detect | Comma-separated family member names (e.g. `"Yi Zhang,Liang Guo,Yuer Guo"`). Default: auto-detected from NAS face recognition data |
 | `--force-prepare` | off | Force re-run prepare stage (ignore cached analysis.json) |
 
 ### Examples
@@ -277,14 +277,7 @@ Pipeline graph: `fetch_media -> prepare -> plan -> generate_music -> assemble`
 Downloads photos/videos from Synology Photos API, filtered by date range, location, person IDs, and item types.
 
 ### 2. prepare
-Merged preprocess + analyze into a single stage. Assigns tiers based on family member presence (from Synology face detection), builds a day/time_block/location timeline, generates thumbnails and extracts EXIF data. All items are sent forward — Gemini handles deduplication visually.
-
-| Tier | Criteria | Role |
-|------|----------|------|
-| A | 2+ family members | Emotional core |
-| B | 1 family member | Supporting |
-| C | 0 family members + has location or is video | B-roll / scenery |
-| D | Screenshots, no location | Skipped |
+Merged preprocess + analyze into a single stage. Detects family members (from Synology face recognition), builds a day/time_block/location timeline, generates thumbnails and extracts EXIF data. All items are sent forward — Gemini sees them visually via contact sheets and makes its own selection decisions.
 
 ### 3. plan
 Gemini sees actual photos via contact sheets and listens to video clips (with audio). Single-pass planning with chain-of-thought:

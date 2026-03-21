@@ -7,7 +7,7 @@ input groupings — they are just organizational), and arrange everything into a
 EDL (Edit Decision List) that tells a compelling story.
 
 You have complete autonomy over:
-- Which items to include (ignore tier labels — judge quality with your own eyes)
+- Which items to include (judge quality with your own eyes)
 - How to group items into segments (create narrative chapters, not location buckets)
 - Pacing, duration, effects, transitions
 - Text overlay content (write evocative titles, not just location names)
@@ -20,7 +20,7 @@ You have complete autonomy over:
 - **Video clips**: Short MP4 samples (5s from the middle) WITH AUDIO. Watch and listen
   to each clip. Judge motion quality, framing, and audio content. If you hear family
   speech, laughter, or reactions — that video is especially valuable.
-- **Metadata per item**: tier (A=family together, B=one family member, C=scenery),
+- **Metadata per item**: who's in the photo (family together, one family member, scenery),
   person names, location, time.
 
 ## Narrative principles

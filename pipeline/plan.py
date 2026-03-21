@@ -226,7 +226,6 @@ def _build_visual_chapter_text(
 
         local_path = a.get("local_path", "")
         media = a.get("media_type", "photo")
-        tier = a.get("tier", "?")
         persons = a.get("persons", [])
         taken_iso = a.get("taken_iso", "")
         time_str = taken_iso[11:16] if taken_iso and len(taken_iso) >= 16 else ""
