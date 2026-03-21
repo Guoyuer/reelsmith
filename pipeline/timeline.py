@@ -38,10 +38,11 @@ class Timeline:
     entries: list[TimelineEntry] = field(default_factory=list)
 
     @staticmethod
-    def build(all_clips: list[dict]) -> "Timeline":
-        """Compute timeline from the all_clips list (same structure as assemble uses).
+    def build(all_clips: list[dict], use_xfade: bool = True) -> "Timeline":
+        """Compute timeline from the all_clips list.
 
-        Replicates xfade's exact offset math so video and audio are guaranteed in sync.
+        use_xfade=True: replicates xfade's offset math (clips overlap at transitions).
+        use_xfade=False: simple concatenation (clips placed end-to-end, no overlap).
         """
         tl = Timeline()
 
@@ -63,21 +64,28 @@ class Timeline:
                 keep_audio=clip.get("keep_audio", False),
             ))
 
-        # Compute offsets using xfade's exact algorithm:
-        #   offset[1] = dur[0] - td[1]
-        #   offset[i] = offset[i-1] + dur[i-1] - td[i]   (for i >= 2)
-        #   (but xfade code sets offset = dur[0]-td[1] at i=1, then offset += dur[i]-td[i])
         if len(tl.entries) > 1:
             offset = 0.0
-            for i in range(1, len(tl.entries)):
-                e = tl.entries[i]
-                prev = tl.entries[i - 1]
-                if i == 1:
-                    offset = prev.actual_duration - e.transition_duration
-                e.video_offset = offset
-                e.visible_offset = offset + e.transition_duration
-                e.end_time = offset + e.actual_duration
-                offset += e.actual_duration - e.transition_duration
+            if use_xfade:
+                # xfade: clips overlap by transition_duration
+                for i in range(1, len(tl.entries)):
+                    e = tl.entries[i]
+                    prev = tl.entries[i - 1]
+                    if i == 1:
+                        offset = prev.actual_duration - e.transition_duration
+                    e.video_offset = offset
+                    e.visible_offset = offset + e.transition_duration
+                    e.end_time = offset + e.actual_duration
+                    offset += e.actual_duration - e.transition_duration
+            else:
+                # concat demuxer: clips placed end-to-end, no overlap
+                offset = 0.0
+                for i in range(len(tl.entries)):
+                    e = tl.entries[i]
+                    e.video_offset = offset
+                    e.visible_offset = offset  # no transition overlap
+                    e.end_time = offset + e.actual_duration
+                    offset += e.actual_duration
 
         # Entry 0 always starts at 0
         if tl.entries:
