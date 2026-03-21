@@ -552,11 +552,10 @@ def _build_visual_content_blocks(
     Photos are sent as individual 400px thumbnails (each gets full token budget).
     Videos are concatenated into one mega-preview with burned-in #XX labels.
     """
-    from .media_utils import make_contact_sheet, run_subprocess
+    from .media_utils import run_subprocess
 
     _log = log_fn or print
     blocks: list = []
-    sheets_dir = cfg.contact_sheets_dir
     preview_dir = cfg.preview_clips_dir
     video_entries: list[tuple[int, float, Path]] = []  # (item_num, duration, preview_path)
 
