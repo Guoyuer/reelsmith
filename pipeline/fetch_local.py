@@ -79,11 +79,18 @@ def fetch_local(
             "metadata": {"persons": []},  # no face recognition without NAS
         }
 
-        # Extract GPS location if available
+        # Extract GPS location and reverse geocode
         lat, lon = _extract_gps(src_path)
         if lat is not None and lon is not None:
             entry["latitude"] = lat
             entry["longitude"] = lon
+            try:
+                import reverse_geocode
+                loc = reverse_geocode.get((lat, lon))
+                entry["city"] = loc.get("city", "")
+                entry["country"] = loc.get("country", "")
+            except ImportError:
+                pass
 
         manifest.append(entry)
         if i % 100 == 0 or i == len(files):

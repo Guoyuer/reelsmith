@@ -116,7 +116,7 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
             "persons": item.get("metadata", {}).get("persons", []),
             "country": item.get("country"),
             "first_level": item.get("first_level"),
-            "district": item.get("district"),
+            "district": item.get("district") or item.get("city"),
         }
 
         if not local_path or not local_path.exists():

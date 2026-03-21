@@ -12,6 +12,7 @@ dependencies = [
     "tqdm>=4.60",
     "google-genai>=1.0",
     "pillow-heif>=0.18",
+    "reverse_geocode>=1.0",
 ]
 
 [project.optional-dependencies]

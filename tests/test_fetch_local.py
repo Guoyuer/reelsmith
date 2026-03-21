@@ -236,3 +236,26 @@ class TestFileFiltering:
             result = fetch_local(mock_config, source_dir=str(source_dir))
 
         assert len(result) == 1
+
+
+class TestReverseGeocode:
+    """Test GPS reverse geocoding in fetch_local."""
+
+    def test_singapore_coords(self):
+        """Known Singapore coords → city=Singapore."""
+        try:
+            import reverse_geocode
+            loc = reverse_geocode.get((1.2897, 103.8501))
+            assert loc["city"] == "Singapore"
+            assert loc["country"] == "Singapore"
+        except ImportError:
+            pytest.skip("reverse_geocode not installed")
+
+    def test_no_gps_no_location(self, mock_config, source_dir):
+        """Files without GPS don't get city/country fields."""
+        from pipeline.fetch_local import fetch_local
+        _create_fake_image(source_dir / "no_gps.jpg")
+        with patch("pipeline.fetch_local._extract_date", return_value=None):
+            with patch("pipeline.fetch_local._extract_gps", return_value=(None, None)):
+                result = fetch_local(mock_config, source_dir=str(source_dir))
+        assert "city" not in result[0]
