@@ -203,9 +203,6 @@ def _gemini_call(
             max_output_tokens=16000,
             temperature=0.7,
             media_resolution=types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
-            thinking_config=types.ThinkingConfig(
-                thinking_level="HIGH",
-            ),
         ),
     )
 
@@ -823,7 +820,7 @@ Candidates by day/location:"""
     from .media_utils import strip_markdown_fences
 
     edl_content = _gemini_call(system_prompt, visual_parts, _log,
-                               label="single pass: plan", model="gemini-3.1-flash-lite-preview")
+                               label="single pass: plan", model="gemini-3-flash-preview")
 
     _log(f"=== [Gemini] EDL RESPONSE ({len(edl_content)} chars) ===")
     for line in edl_content.split("\n"):

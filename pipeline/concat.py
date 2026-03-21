@@ -72,12 +72,14 @@ def concatenate(clips: list[dict], output_path: Path,
 
         group_path = tmp_dir / f"_group_{gi}.mp4"
         group[0] = {**group[0], "transition": "cut", "transition_duration": 0.0}
-        if len(group) <= 15:
+        # If group has any cut transitions (beyond first), use demuxer to avoid xfade chain bugs
+        has_internal_cuts = any(c.get("transition") == "cut" for c in group[1:])
+        if has_internal_cuts or len(group) > 15:
+            _log(f"  Group {gi+1}/{len(groups)}: demuxer {len(group)} clips (has cuts)...")
+            concat_demuxer(group, group_path, w, h, fps)
+        else:
             _log(f"  Group {gi+1}/{len(groups)}: xfade {len(group)} clips...")
             concat_xfade(group, group_path, w, h, fps)
-        else:
-            _log(f"  Group {gi+1}/{len(groups)}: demuxer {len(group)} clips...")
-            concat_demuxer(group, group_path, w, h, fps)
 
         if group_path.exists():
             dur = probe_duration(group_path) or sum(c["duration"] for c in group)
@@ -158,9 +160,10 @@ def concat_xfade(clips: list[dict], output_path: Path,
                 f":duration={td}:offset={e.video_offset}{out_label}"
             )
         else:
+            # Hard cut — use minimal crossfade (0.01 causes FFmpeg filter chain bugs)
             filter_parts.append(
                 f"{in_label}[{i}:v]xfade=transition=fade"
-                f":duration=0.01:offset={e.video_offset}{out_label}"
+                f":duration=0.1:offset={e.video_offset}{out_label}"
             )
 
     if not filter_parts:

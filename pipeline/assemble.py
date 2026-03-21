@@ -111,6 +111,12 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     output_dir = cfg.workspace / "output"
     output_path = output_dir / f"vlog_v{version}.mp4"
 
+    # Clean stale clips from previous EDL versions
+    if clips_dir.exists():
+        for old_clip in clips_dir.glob("*.mp4"):
+            old_clip.unlink()
+        _log(f"Cleaned stale clips from {clips_dir}")
+
     # Read render settings from EDL, allow overrides from function args
     w, h = resolution or edl.resolution
     _fps = fps or edl.fps
