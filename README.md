@@ -15,9 +15,8 @@ flowchart LR
 
     subgraph "Dagster Assets (auto-skip if output exists)"
         direction LR
-        FM[fetch_media] --> PP[preprocess]
-        PP --> AN[analyze]
-        AN --> PL[plan]
+        FM[fetch_media] --> PR[prepare]
+        PR --> PL[plan]
         PL --> GM[generate_music]
         GM --> AS[assemble]
     end
@@ -25,8 +24,7 @@ flowchart LR
     MAT --> FM
 
     style FM fill:#42A5F5,color:#fff
-    style PP fill:#66BB6A,color:#fff
-    style AN fill:#FFA726,color:#fff
+    style PR fill:#66BB6A,color:#fff
     style PL fill:#AB47BC,color:#fff
     style GM fill:#EC407A,color:#fff
     style AS fill:#EF5350,color:#fff
@@ -141,6 +139,7 @@ workspace/
       clips/
       output/vlog_v1.mp4, ...    <- versioned outputs
       output/chapters_v1.txt     <- YouTube chapter markers
+      output/ffmpeg_commands.log  <- all FFmpeg commands for debugging
     singapore-cinematic/          <- another run, same source data
       ...
 ```
@@ -187,6 +186,7 @@ python run.py -n <name> full [OPTIONS]
 | `--country` | — | any string | Filter by country (e.g. `Singapore`) |
 | `--district` | — | any string | Filter by district/city (e.g. `"Marina Bay"`) |
 | `--focus` | derived from trip-type | free text | What to emphasize (e.g. `"family happiness; exotic street food"`) |
+| `--lang` | `en` | `en`, `cn`, `both` | Text language for title, overlays, chapters |
 
 **Planning:**
 
@@ -224,7 +224,7 @@ Quality presets and resulting bitrates:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--family` | auto-detect | Comma-separated family member names for tiering (e.g. `"Yi Zhang,Liang Guo,Yuer Guo"`). Default: auto-detected from NAS face recognition data |
-| `--force-analyze` | off | Force re-run analysis (ignore cached `analysis.json`) |
+| `--force-prepare` | off | Force re-run prepare stage (ignore cached analysis.json) |
 
 ### Examples
 
@@ -248,24 +248,10 @@ python run.py -n tokyo full -f 2025-03-01 -t 2025-03-05 \
   --focus "street culture, neon lights, temple serenity"
 ```
 
-**Food tour:**
+**Chinese text overlays:**
 ```bash
-python run.py -n osaka-food full -f 2025-04-10 -t 2025-04-12 \
-  --trip-type food --style upbeat --duration 90 \
-  --focus "street food, ramen, izakaya atmosphere"
-```
-
-**Architecture documentary (master quality):**
-```bash
-python run.py -n barcelona full -f 2025-05-01 -t 2025-05-04 \
-  --trip-type architecture --style cinematic --duration 120 \
-  --focus "Gaudi, Gothic Quarter, modernist facades" --quality 2.0
-```
-
-**Photos only, no music:**
-```bash
-python run.py -n sg-photos full -f 2025-06-13 -t 2025-06-17 \
-  --item-types photo --duration 60 --music none
+python run.py -n sg-cn full -f 2025-06-13 -t 2025-06-17 \
+  --duration 180 --lang cn
 ```
 
 **Re-plan with different style (keeps cached media):**
@@ -277,21 +263,21 @@ python run.py -n singapore plan --style reflective --duration 120
 
 After `python start.py`, open **http://localhost:3000**.
 
-Pipeline graph: `fetch_media -> preprocess -> analyze -> plan -> generate_music -> assemble`
+Pipeline graph: `fetch_media -> prepare -> plan -> generate_music -> assemble`
 
 **Run the full pipeline:** Jobs -> full_pipeline -> Launchpad -> paste config.
 
 **Resume:** Materialize All with defaults — auto-skips stages with existing outputs.
 
-**Monitor progress:** Run event log shows per-item status for every stage, with ETA for analyze and assemble.
+**Monitor progress:** Run event log shows per-item status for every stage, with ETA for prepare and assemble.
 
 ## Pipeline Stages
 
 ### 1. fetch_media
 Downloads photos/videos from Synology Photos API, filtered by date range, location, person IDs, and item types.
 
-### 2. preprocess
-Assigns tiers based on family member presence (from Synology face detection) and builds a day/time_block/location timeline. All items are sent forward — Gemini handles deduplication visually.
+### 2. prepare
+Merged preprocess + analyze into a single stage. Assigns tiers based on family member presence (from Synology face detection), builds a day/time_block/location timeline, generates thumbnails and extracts EXIF data. All items are sent forward — Gemini handles deduplication visually.
 
 | Tier | Criteria | Role |
 |------|----------|------|
@@ -300,27 +286,34 @@ Assigns tiers based on family member presence (from Synology face detection) and
 | C | 0 family members + has location or is video | B-roll / scenery |
 | D | Screenshots, no location | Skipped |
 
-### 3. analyze
-Generates thumbnails for photos (via Pillow) and keyframes for videos (single FFmpeg pass per video). No local AI models needed — Gemini sees the actual images in the plan stage. Fast (~1-2min for 300 items). All results cached per-file in the shared `analysis_cache/` directory.
+### 3. plan
+Gemini sees actual photos via contact sheets and listens to video clips (with audio). Single-pass planning with chain-of-thought:
+- Design narrative arc (4-6 chapters by story beat)
+- See ALL photos/videos, pick items, assign music_mood, set `keep_audio`/`playback_speed`/transitions/color_temp
+- Self-review: check pacing, variety, video/photo balance
 
-### 4. plan
-Gemini sees actual photos via contact sheets and listens to video clips (with audio). 3-pass planning:
+Prompts are externalized to `pipeline/prompts/` for hot-reloading without code changes.
 
-1. **Arc** (text-only) — design narrative structure and chapter themes
-2. **Select** (contact sheets + video clips + metadata) — see ALL photos/videos, pick items, assign music_mood, set `keep_audio`/`playback_speed`/transitions/color_temp
-3. **Review** (selected items at 768px) — refine pacing, check video/photo balance, adjust trim points
+Fault tolerance: auto-retry on parse failure (1 retry), fuzzy path matching for hallucinated file paths, duration check (warns if <80% of target).
 
-Outputs versioned EDL (`edl_v{N}.json`) with: `music_mood` per segment, `narrative_rationale`, video trim points (`start_time`/`end_time`), `keep_audio`, `transcript`, `playback_speed`, transition type, segment `mode` (narrative/montage), and `color_temp`. Requires `GEMINI_API_KEY`.
+Outputs versioned EDL (`edl_v{N}.json`). Render settings (resolution, fps, quality) stored in EDL. Requires `GEMINI_API_KEY`.
 
-### 5. generate_music
+### 4. generate_music
 Generates background music using the EDL's `music_mood` descriptions and `estimated_duration()`. See [Music Generation](#music-generation) for backend options. Saves the music file path back into the EDL. Skipped when `--music none` or a custom file path is provided.
 
-### 6. assemble
-Renders each item as a video clip (Ken Burns effects for photos, trimmed clips for videos with `start_time`/`end_time` and `playback_speed`), applies subtle color grading and per-segment `color_temp`, adds text overlays, concatenates with varied transitions (crossfade, dissolve, smoothleft, smoothright, circlecrop, fade_black, wipe_left — Gemini-driven per segment). Supports montage mode segments (quick-cut bursts). Mixes in the music track with audio ducking (music volume drops during speech clips where `keep_audio=true`). Renders intro/outro title cards. Outputs YouTube chapter markers (`chapters_v{N}.txt`). FFmpeg subprocesses have a 5-minute timeout to prevent hanging on corrupt files.
+### 5. assemble
+Orchestrates 4 phases:
+
+1. **Phase 1**: Parallel clip rendering via `parallel.run_parallel()` — photos get Ken Burns effects, videos trimmed with speed ramps. RenderReport tracks per-clip status.
+2. **Phase 2**: Concatenation with segment-level xfade (groups of ≤10 clips for 4K reliability). Speech track built from measured group durations.
+3. **Phase 3**: Music + speech mixing with audio ducking. Title cards rendered for intro/outro.
+4. **Phase 4**: Output validation — 6 automated checks (file size, duration vs EDL, streams, codec, A/V sync drift, resolution).
+
+All FFmpeg commands logged to `output/ffmpeg_commands.log` and Dagster INFO logs.
 
 ## Trip Types & Scoring
 
-Each trip type has a different narrative guidance that affects how Gemini selects and groups items:
+Each trip type has a different narrative guidance (editable in `pipeline/prompts/narrative_guidance.json`):
 
 | Trip Type | Focus | Narrative guidance |
 |-----------|-------|-------------------|
@@ -342,21 +335,7 @@ The `generate_music` pipeline step creates background music before assembly. Con
 | `/path/to/file` | Custom file | instant | — | — |
 | `none` | No music | — | — | — |
 
-```bash
-# Gemini Lyria RealTime (default — fast, high quality)
-python run.py -n sg full ... --music auto
-
-# Local MusicGen (no API key needed for music, but slow)
-python run.py -n sg full ... --music local
-
-# Custom music file (skip generation entirely)
-python run.py -n sg full ... --music /path/to/soundtrack.mp3
-
-# No music
-python run.py -n sg full ... --music none
-```
-
-Both backends use the `music_mood` from EDL segments (set by Gemini during planning) as the generation prompt, with fallback templates per trip_type + style. Generated tracks are cached in `workspace/music/` — subsequent runs with the same parameters reuse them instantly.
+Both backends use the `music_mood` from EDL segments (set by Gemini during planning) as the generation prompt, with fallback templates per trip_type + style. Generated tracks are cached in `workspace/music/`.
 
 ## Requirements
 
@@ -372,14 +351,12 @@ Optional (installed with `pip install -e ".[music]"` inside the venv):
 
 Other optional extras:
 - **pillow-heif** — HEIC/HEIF photo support (`pip install -e ".[heic]"`)
-- **opencv-python-headless** — face-aware crop in assemble (`pip install -e ".[cv]"`)
 
 ### Platform Notes
 
 | Feature | macOS | Windows | Linux |
 |---------|-------|---------|-------|
 | HEIC photos | Built-in (sips) | `pip install pillow-heif` | `pip install pillow-heif` |
-| MusicGen | Works | Works | Works |
 | FFmpeg | `brew install ffmpeg` | [ffmpeg.org/download](https://ffmpeg.org/download.html) | `apt install ffmpeg` |
 | GPU encoding | VideoToolbox (auto) | NVENC (auto-detected) | NVENC (auto-detected) |
 
@@ -400,23 +377,22 @@ With defaults, no local AI models are needed — everything runs via Gemini API.
 source venv/bin/activate
 
 python -m pytest tests/ -v -m "not integration"  # unit/mocked tests (~1s)
-python -m pytest tests/ -v -m integration         # integration tests (requires FFmpeg + GEMINI_API_KEY)
-python -m pytest tests/ -v                         # all tests
+python -m pytest tests/ -v -m integration         # integration tests (requires FFmpeg)
+python -m pytest tests/ -v                         # all tests (~25s, 200 tests)
 ```
-
-Integration tests for Gemini music generation (`tests/test_music.py::TestFetchMusicGeminiE2E`) require `GEMINI_API_KEY` in `.env` and make real API calls.
 
 ## Key design decisions
 
 - **Dagster asset model** — each stage is a Dagster asset that produces a file. Auto-skips when output exists. Re-materialize from the UI to force re-run + downstream cascade.
-- **Trip-type generalization** — narrative prompts and music prompts all adapt to trip type. The same pipeline handles family trips, solo adventures, food tours, etc.
-- **Gemini visual planning** — Gemini 3 Flash sees actual photos via contact sheets and listens to video clips (with audio) via short MP4 samples. 3-pass planning: arc design -> shot selection -> self-review.
-- **Music as a separate asset** — `generate_music` runs between plan and assemble as its own Dagster step. Plan declares intent (`music_mode=auto`) and mood; `generate_music` produces the audio; assemble mixes it into the video.
-- **Audio ducking** — music volume automatically drops during clips where Gemini detected meaningful speech (`keep_audio=true`), so original audio is clearly audible.
-- **Shared media + analysis cache** — raw files and per-file results are shared across runs. Only plan + assemble re-run.
-- **Per-run isolation** — each run gets its own directory for manifest, EDL, clips, and output.
-- **Interruptible everything** — all FFmpeg calls use `Popen` with signal forwarding and a 5-minute timeout.
-- **EDL is the central artifact** — a JSON file that flows between plan/generate_music/assemble. Changing the edit never re-analyzes media.
+- **Modular assemble** — split into encoder, filters, render, concat, audio modules. assemble.py is pure orchestration (~300 lines).
+- **RenderContext** — per-run state object (quality + caches) replaces scattered module-level globals.
+- **FilterGraph** — typed FFmpeg filter chain builder with label validation, replacing raw string concatenation.
+- **RenderReport** — structured clip status tracking (ok/skipped/failed with reason) replaces bare print statements.
+- **Externalized prompts** — Gemini prompts live in `pipeline/prompts/` as .md/.json files, editable without code changes.
+- **Gemini fault tolerance** — auto-retry on parse failure, fuzzy path matching, duration validation.
+- **Post-assemble validation** — 6 automated checks catch issues that previously required manual debugging.
+- **EDL is self-contained** — render settings (resolution, fps, quality, language) stored in EDL at plan time.
+- **Shared parallel runner** — `parallel.run_parallel()` with batching and interrupt handling, used by both plan and assemble.
 - **Content-aware rendering** — Ken Burns effects for photos (face-aware crop), portrait mode (blurred background + sharp foreground), speed ramps, varied transitions, subtle color grading with per-segment temperature.
 - **YouTube chapter markers** — `chapters_v{N}.txt` output with timestamps for each segment.
-- **HEIC conversion** — Apple HEIC photos are converted via pillow-heif (cross-platform), macOS sips, or ImageMagick, whichever is available.
+- **FFmpeg command logging** — all commands logged at INFO level in Dagster and to `output/ffmpeg_commands.log`.

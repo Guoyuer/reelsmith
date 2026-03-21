@@ -258,10 +258,38 @@ def setup() -> bool:
 # Start / Stop services
 # ---------------------------------------------------------------------------
 
+def _kill_port(port: int) -> None:
+    """Kill any process listening on a port (Windows + Unix)."""
+    if sys.platform == "win32":
+        result = subprocess.run(
+            ["netstat", "-ano"], capture_output=True, text=True,
+        )
+        for line in result.stdout.splitlines():
+            if f":{port}" in line and "LISTENING" in line:
+                pid = line.strip().split()[-1]
+                try:
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", pid],
+                                   capture_output=True)
+                except Exception:
+                    pass
+    else:
+        result = subprocess.run(
+            ["lsof", "-ti", f":{port}"], capture_output=True, text=True,
+        )
+        for pid in result.stdout.strip().split():
+            try:
+                os.kill(int(pid), signal.SIGKILL)
+            except (OSError, ValueError):
+                pass
+
+
 def stop_all() -> None:
     print("Stopping services...")
     for name in ["dagster", "synology_api"]:
         _kill_pid(name)
+    # Also kill by port in case PID tracking missed child processes
+    _kill_port(DAGSTER_PORT)
+    _kill_port(API_PORT)
     if PID_DIR.exists():
         for f in PID_DIR.glob("*.pid"):
             f.unlink(missing_ok=True)
