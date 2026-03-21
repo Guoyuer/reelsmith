@@ -174,6 +174,9 @@ def _gemini_call(
             system_instruction=system,
             max_output_tokens=16000,
             temperature=0.7,
+            thinking_config=types.ThinkingConfig(
+                thinking_level="HIGH",
+            ),
         ),
     )
 
