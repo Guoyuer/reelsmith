@@ -425,6 +425,89 @@ def _build_visual_chapter_text(
     return text, photo_paths, video_items
 
 
+def _detect_preview_encoder() -> list[str]:
+    """Detect GPU encoder for preview clips (480p, fast)."""
+    from .media_utils import run_subprocess
+    try:
+        result = run_subprocess(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            capture_output=True, text=True,
+        )
+        if "h264_nvenc" in (result.stdout or ""):
+            return ["-c:v", "h264_nvenc", "-preset", "p1", "-cq", "28"]
+    except Exception:
+        pass
+    return ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "28"]
+
+
+def _generate_video_clips_parallel(
+    video_items: list[dict], sheets_dir: Path, log_fn=None,
+) -> None:
+    """Generate all preview clips for a batch of videos in parallel."""
+    import os
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from .media_utils import run_subprocess
+
+    _log = log_fn or print
+    encoder = _detect_preview_encoder()
+    is_nvenc = "nvenc" in str(encoder)
+    max_workers = 3 if is_nvenc else max(1, (os.cpu_count() or 4) // 2)
+
+    # Build list of (clip_path, ffmpeg_cmd) for clips that need generating
+    tasks: list[tuple[Path, list[str]]] = []
+    for vi in video_items:
+        vid_id = vi["id"]
+        source = Path(vi.get("local_path", ""))
+        dur = vi.get("video_duration", 0)
+        if not source.exists() or dur <= 0:
+            continue
+
+        if dur <= 15:
+            clip_path = sheets_dir / f"clip_{vid_id}_full.mp4"
+            if not clip_path.exists():
+                tasks.append((clip_path, [
+                    "ffmpeg", "-y", "-i", str(source),
+                    "-vf", "scale=480:-2",
+                    *encoder,
+                    "-c:a", "aac", "-b:a", "64k", "-ac", "1",
+                    str(clip_path),
+                ]))
+        else:
+            clip_len = 5
+            n_clips = max(3, round(dur / 7))
+            n_clips = min(n_clips, 30)
+            for ci in range(n_clips):
+                clip_start = dur * (ci + 0.5) / n_clips - clip_len / 2
+                clip_start = max(0, min(clip_start, dur - clip_len))
+                clip_path = sheets_dir / f"clip_{vid_id}_{ci}.mp4"
+                if not clip_path.exists():
+                    tasks.append((clip_path, [
+                        "ffmpeg", "-y", "-ss", str(clip_start),
+                        "-i", str(source), "-t", str(clip_len),
+                        "-vf", "scale=480:-2",
+                        *encoder,
+                        "-c:a", "aac", "-b:a", "64k", "-ac", "1",
+                        str(clip_path),
+                    ]))
+
+    if not tasks:
+        return
+
+    enc_name = "NVENC" if is_nvenc else "CPU"
+    _log(f"Generating {len(tasks)} video clips ({enc_name}, {max_workers} workers)...")
+
+    done = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(run_subprocess, cmd, capture_output=True): path for path, cmd in tasks}
+        for future in as_completed(futures):
+            done += 1
+            if done % 20 == 0 or done == len(tasks):
+                _log(f"  Video clips: {done}/{len(tasks)}")
+
+    n_ok = sum(1 for p, _ in tasks if p.exists() and p.stat().st_size > 500)
+    _log(f"  Video clips done: {n_ok}/{len(tasks)} OK")
+
+
 def _build_visual_content_blocks(
     preprocessed: dict, analysis_by_id: dict, cfg: Config, log_fn=None,
 ) -> list:
@@ -480,7 +563,10 @@ def _build_visual_content_blocks(
                     })
                     sheet_idx += 1
 
-            # Videos: short (<15s) sent in full, long sent as 3×2s clips
+            # Videos: generate all preview clips in parallel, then build blocks
+            if video_items:
+                _generate_video_clips_parallel(video_items, sheets_dir, _log)
+
             for vi in video_items:
                 vid_id = vi["id"]
                 source = Path(vi.get("local_path", ""))
@@ -491,17 +577,7 @@ def _build_visual_content_blocks(
                 item_num = global_idx + len(photo_paths) + video_items.index(vi)
 
                 if dur <= 15:
-                    # Short video: send full clip so Gemini sees complete interactions
                     clip_path = sheets_dir / f"clip_{vid_id}_full.mp4"
-                    if not clip_path.exists():
-                        run_subprocess(
-                            ["ffmpeg", "-y", "-i", str(source),
-                             "-vf", "scale=480:-2",
-                             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-                             "-c:a", "aac", "-b:a", "64k", "-ac", "1",
-                             str(clip_path)],
-                            capture_output=True,
-                        )
                     if clip_path.exists() and clip_path.stat().st_size > 500:
                         blocks.append(f"Video #{item_num:02d} ({dur:.0f}s, FULL clip with audio):")
                         blocks.append({
@@ -509,39 +585,19 @@ def _build_visual_content_blocks(
                             "mime_type": "video/mp4",
                             "data": clip_path.read_bytes(),
                         })
-                        _log(f"Video #{item_num:02d}: {source.name} (full {dur:.0f}s)")
-                    else:
-                        _log(f"Video #{item_num:02d}: {source.name} (full clip failed)")
                 else:
-                    # Long video: dynamic sampling — target ~50% coverage
                     clip_len = 5
-                    n_clips = max(3, round(dur / 7))  # 1 clip per 7s → ~71% coverage
-                    n_clips = min(n_clips, 30)  # cap at 30 clips
+                    n_clips = max(3, round(dur / 7))
+                    n_clips = min(n_clips, 30)
                     blocks.append(f"Video #{item_num:02d} ({dur:.0f}s total, {n_clips} samples with audio):")
-                    clips_sent = 0
                     for ci in range(n_clips):
-                        # Evenly space clips across the video
-                        clip_start = dur * (ci + 0.5) / n_clips - clip_len / 2
-                        clip_start = max(0, min(clip_start, dur - clip_len))
                         clip_path = sheets_dir / f"clip_{vid_id}_{ci}.mp4"
-                        if not clip_path.exists():
-                            run_subprocess(
-                                ["ffmpeg", "-y", "-ss", str(clip_start),
-                                 "-i", str(source), "-t", str(clip_len),
-                                 "-vf", "scale=480:-2",
-                                 "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-                                 "-c:a", "aac", "-b:a", "64k", "-ac", "1",
-                                 str(clip_path)],
-                                capture_output=True,
-                            )
                         if clip_path.exists() and clip_path.stat().st_size > 500:
                             blocks.append({
                                 "type": "video_bytes",
                                 "mime_type": "video/mp4",
                                 "data": clip_path.read_bytes(),
                             })
-                            clips_sent += 1
-                    _log(f"Video #{item_num:02d}: {source.name} ({clips_sent}/{n_clips} clips, {dur:.0f}s)")
 
             global_idx += n_items
 
