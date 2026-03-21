@@ -216,8 +216,8 @@ def _gemini_call(
     for uf in uploaded_files:
         try:
             client.files.delete(name=uf.name)
-        except Exception:
-            pass
+        except Exception as e:
+            _log(f"  WARNING: Failed to cleanup uploaded file {uf.name}: {e}")
 
     content = response.text or ""
     usage = response.usage_metadata

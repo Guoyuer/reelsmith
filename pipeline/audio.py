@@ -27,7 +27,9 @@ def estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int |
             n_frames = w.getnframes()
             max_frames = min(n_frames, sr * 30)
             raw = w.readframes(max_frames)
-    except Exception:
+    except Exception as e:
+        import warnings
+        warnings.warn(f"BPM estimation: could not read {wav_path}: {e}")
         return None
 
     n_samples = len(raw) // sw

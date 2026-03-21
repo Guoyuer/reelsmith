@@ -493,8 +493,8 @@ def _validate_output_impl(
                       f"Audio/video stream duration mismatch: "
                       f"video={vid_stream_dur:.1f}s, audio={aud_stream_dur:.1f}s "
                       f"(drift={drift:.1f}s) — possible sync issue")
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as e:
+            _warn("av_sync", f"Could not parse stream durations for sync check: {e}")
 
     # --- 6. Resolution check ---
     if has_video_stream:

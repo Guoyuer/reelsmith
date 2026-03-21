@@ -284,7 +284,9 @@ def _read_exif(path) -> dict:
         if iso:
             result["iso"] = int(iso)
         return result
-    except Exception:
+    except Exception as e:
+        import warnings
+        warnings.warn(f"EXIF read failed for {path}: {e}")
         return {}
 
 
