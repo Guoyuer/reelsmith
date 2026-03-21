@@ -20,6 +20,7 @@ from .assemble import assemble as do_assemble
 from .config import Config
 from .edl import EDL
 from .fetch import fetch as do_fetch
+from .fetch_local import fetch_local as do_fetch_local
 from .music import generate_music_for_edl as do_generate_music
 from .plan import plan as do_plan
 from .prepare import prepare as do_prepare
@@ -66,6 +67,7 @@ class WorkspaceIOManager(dg.ConfigurableIOManager):
 class FetchConfig(dg.Config):
     from_date: str = ""
     to_date: str = ""
+    source_dir: str = ""  # local folder path — if set, uses fetch_local instead of NAS
     country: str | None = None
     first_level: str | None = None
     district: str | None = None
@@ -200,25 +202,37 @@ def fetch_media(
         items = json.loads(out.read_text())
         context.log.info(f"Fetch: {len(items)} items (all cached, skipping download)")
     else:
-        if not config.from_date or not config.to_date:
-            raise dg.Failure(
-                description="fetch requires from_date and to_date. "
-                "Use the 'auto' CLI command or set them in the Launchpad."
-            )
-
         cfg = io.config
         existing_before = set(cfg.media_dir.iterdir()) if cfg.media_dir.exists() else set()
-        items = do_fetch(
-            cfg,
-            from_date=config.from_date,
-            to_date=config.to_date,
-            country=config.country,
-            first_level=config.first_level,
-            district=config.district,
-            person_ids=config.person_ids,
-            item_types=config.item_types,
-            log_fn=context.log.info,
-        )
+
+        if config.source_dir:
+            # Local folder mode — scan directory, extract EXIF
+            context.log.info(f"Fetching from local folder: {config.source_dir}")
+            items = do_fetch_local(
+                cfg,
+                source_dir=config.source_dir,
+                from_date=config.from_date or None,
+                to_date=config.to_date or None,
+                log_fn=context.log.info,
+            )
+        else:
+            # NAS mode — fetch from Synology Photos API
+            if not config.from_date or not config.to_date:
+                raise dg.Failure(
+                    description="fetch requires from_date and to_date (or --source for local folder). "
+                )
+            items = do_fetch(
+                cfg,
+                from_date=config.from_date,
+                to_date=config.to_date,
+                country=config.country,
+                first_level=config.first_level,
+                district=config.district,
+                person_ids=config.person_ids,
+                item_types=config.item_types,
+                log_fn=context.log.info,
+            )
+
         existing_after = set(cfg.media_dir.iterdir()) if cfg.media_dir.exists() else set()
         newly_fetched = len(existing_after - existing_before)
         context.log.info(f"Fetched {len(items)} items ({newly_fetched} new, {len(items) - newly_fetched} cached)")

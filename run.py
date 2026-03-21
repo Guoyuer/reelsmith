@@ -112,8 +112,9 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
 # ---------------------------------------------------------------------------
 
 @cli.command()
-@click.option("-f", "--from-date", required=True, help="Start date (YYYY-MM-DD)")
-@click.option("-t", "--to-date", required=True, help="End date (YYYY-MM-DD)")
+@click.option("-f", "--from-date", default="", help="Start date (YYYY-MM-DD)")
+@click.option("-t", "--to-date", default="", help="End date (YYYY-MM-DD)")
+@click.option("--source", default="", help="Local folder of photos/videos (alternative to NAS, no API needed)")
 @click.option("--duration", default=60, type=int, help="Target vlog length in seconds")
 @click.option("--trip-type", default="family",
               type=click.Choice(["family", "solo", "food", "adventure", "architecture", "general"]))
@@ -139,16 +140,21 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
 @click.option("--timezone", "--tz", "tz_offset", default=None, type=int,
               help="UTC offset in hours for day grouping (default: system local timezone, e.g. -5 for NYC, 8 for SGT)")
 @click.pass_context
-def full(ctx, from_date, to_date, duration, trip_type, style, focus,
+def full(ctx, from_date, to_date, source, duration, trip_type, style, focus,
          item_types, music, width, height, fps, quality,
          country, district, force_prepare, family, lang, tz_offset):
     """Run the full pipeline end-to-end."""
+    if not source and (not from_date or not to_date):
+        raise click.UsageError("Either --source (local folder) or -f/-t (date range for NAS) is required.")
+
     type_list = _parse_item_types(item_types) if item_types else None
 
     config: dict = {"ops": {}}
 
     # Fetch
     fetch_cfg: dict = {"from_date": from_date, "to_date": to_date, "force": True}
+    if source:
+        fetch_cfg["source_dir"] = source
     if country:
         fetch_cfg["country"] = country
     if district:
