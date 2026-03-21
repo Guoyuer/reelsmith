@@ -239,7 +239,7 @@ def _build_visual_chapter_text(
         elif persons:
             who = f"people: {','.join(persons[:3])}"
         else:
-            who = "scenery/no people"
+            who = "unknown"
         parts = [f"{label}: {who}"]
         if time_str:
             parts.append(f"time={time_str}")
