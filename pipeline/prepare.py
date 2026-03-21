@@ -62,6 +62,12 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
         item["family_count"] = len(family_in_photo)
         item["family_names"] = family_in_photo
 
+    # --- Dedup burst photos ---
+    before = len(manifest)
+    manifest = _dedup_burst_photos(manifest, _log)
+    if before != len(manifest):
+        _log(f"Dedup: {before} → {len(manifest)} items ({before - len(manifest)} burst duplicates removed)")
+
     # --- Build timeline ---
     if tz_hours is not None:
         tz = timezone(timedelta(hours=tz_hours))
@@ -163,6 +169,136 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _dedup_burst_photos(items: list[dict], log_fn=None) -> list[dict]:
+    """Remove near-identical burst photos using time grouping + histogram similarity.
+
+    Only deduplicates photos — videos pass through untouched.
+    Two-pass approach:
+    1. Group consecutive photos taken within 10 seconds (burst detection)
+    2. Within each burst, compare PIL histograms. Similarity > 0.92 = duplicate.
+       Keep the best (highest family_count, then largest filesize).
+
+    Returns the filtered item list. Logs removed items for transparency.
+    """
+    _log = log_fn or print
+
+    # Separate photos and non-photos
+    photos = []
+    non_photos = []
+    for item in items:
+        suffix = Path(item.get("local_path", "")).suffix.lower()
+        if suffix in PHOTO_EXTENSIONS:
+            photos.append(item)
+        else:
+            non_photos.append(item)
+
+    if len(photos) < 2:
+        return items
+
+    # Sort photos by takentime
+    photos.sort(key=lambda x: x.get("takentime") or 0)
+
+    # Pass 1: group consecutive photos within 10 seconds
+    bursts: list[list[dict]] = [[photos[0]]]
+    for p in photos[1:]:
+        prev_t = bursts[-1][-1].get("takentime") or 0
+        curr_t = p.get("takentime") or 0
+        if curr_t - prev_t <= 10:
+            bursts[-1].append(p)
+        else:
+            bursts.append([p])
+
+    # Pass 2: within each burst, compare histograms and keep best
+    kept = []
+    removed_count = 0
+    for burst in bursts:
+        if len(burst) <= 1:
+            kept.extend(burst)
+            continue
+
+        # Compute histograms (pillow-heif handles HEIC)
+        hists = []
+        for p in burst:
+            h = _photo_histogram(Path(p.get("local_path", "")))
+            hists.append(h)
+
+        # Cluster similar photos within the burst
+        used = [False] * len(burst)
+        for i in range(len(burst)):
+            if used[i]:
+                continue
+            cluster = [i]
+            used[i] = True
+            if hists[i] is not None:
+                for j in range(i + 1, len(burst)):
+                    if used[j] or hists[j] is None:
+                        continue
+                    sim = _histogram_similarity(hists[i], hists[j])
+                    if sim > 0.92:
+                        cluster.append(j)
+                        used[j] = True
+
+            # Keep the best from this cluster
+            best_idx = max(cluster, key=lambda k: (
+                burst[k].get("family_count", 0),
+                burst[k].get("filesize", 0),
+            ))
+            kept.append(burst[best_idx])
+            if len(cluster) > 1:
+                removed_names = [burst[k]["filename"] for k in cluster if k != best_idx]
+                removed_count += len(removed_names)
+                _log(f"  Dedup: kept {burst[best_idx]['filename']}, "
+                     f"removed {len(removed_names)} similar: {', '.join(removed_names[:3])}"
+                     f"{'...' if len(removed_names) > 3 else ''}")
+
+    # Restore original order (by id) and add back non-photos
+    result = kept + non_photos
+    return result
+
+
+def _photo_histogram(path: Path) -> list[int] | None:
+    """Compute RGB histogram for a photo. Uses FFmpeg for HEIC conversion."""
+    from PIL import Image as _Img
+
+    # Try PIL directly first (handles JPEG, PNG, etc.)
+    try:
+        img = _Img.open(path).convert("RGB").resize((64, 64))
+        return img.histogram()
+    except Exception:
+        pass
+
+    # PIL failed — use FFmpeg to extract a single frame as JPEG
+    tmp = path.parent / f"_hist_{path.stem}.jpg"
+    try:
+        run_subprocess(
+            ["ffmpeg", "-y", "-i", str(path), "-vframes", "1",
+             "-vf", "scale=64:64", "-q:v", "5", str(tmp)],
+            capture_output=True, timeout=10,
+        )
+        if tmp.exists() and tmp.stat().st_size > 0:
+            img = _Img.open(tmp).convert("RGB")
+            hist = img.histogram()
+            tmp.unlink(missing_ok=True)
+            return hist
+    except Exception:
+        pass
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+    return None
+
+
+def _histogram_similarity(h1: list[int], h2: list[int]) -> float:
+    """Cosine similarity between two PIL histograms."""
+    import math
+    dot = sum(a * b for a, b in zip(h1, h2))
+    mag1 = math.sqrt(sum(a * a for a in h1))
+    mag2 = math.sqrt(sum(b * b for b in h2))
+    if mag1 == 0 or mag2 == 0:
+        return 0.0
+    return dot / (mag1 * mag2)
+
 
 def _detect_family(manifest: list[dict], top_n: int = 5) -> list[str]:
     """Auto-detect the most frequent persons as family members."""

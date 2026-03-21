@@ -156,8 +156,8 @@ class TestAnalyzeProgressCallback:
         img1 = _make_tiny_image(cfg.media_dir / "109_a.jpg")
         img2 = _make_tiny_image(cfg.media_dir / "110_b.jpg")
         items = [
-            _make_item(109, "a.jpg", str(img1), family_count=2),
-            _make_item(110, "b.jpg", str(img2), family_count=1),
+            _make_item(109, "a.jpg", str(img1), family_count=2, takentime=1700000000),
+            _make_item(110, "b.jpg", str(img2), family_count=1, takentime=1700000100),  # 100s apart, no burst
         ]
         _write_manifest(cfg, items)
 
