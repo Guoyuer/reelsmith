@@ -496,10 +496,14 @@ def _concat_previews(
             f.write(f"duration {dur}\n")
 
     _log(f"Concatenating into mega-preview...")
+    # Re-encode again (not -c copy) — even labeled clips have 1fps timestamp issues
     run_subprocess([
         "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-        "-i", str(list_file), "-c", "copy", str(output_path),
-    ], capture_output=True, timeout=120)
+        "-i", str(list_file),
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "40",
+        "-c:a", "aac", "-b:a", "64k", "-ac", "1",
+        str(output_path),
+    ], capture_output=True, timeout=300)
 
     # Cleanup temp files
     import shutil
@@ -641,28 +645,27 @@ def _build_visual_content_blocks(
     if n_text_blocks == 0:
         raise RuntimeError("No text blocks generated — check analysis_by_id key types")
     if n_images == 0:
-        _log("WARNING: No contact sheets generated — photos may be missing from plan")
+        raise RuntimeError("No contact sheets generated — no photos found")
 
-    # 2. Text metadata item count must match contact sheet + video counts
-    # Count items referenced in text blocks
+    # 2. Count items referenced in text metadata
     import re
     text_item_nums = set()
     for b in blocks:
         if isinstance(b, str):
             text_item_nums.update(int(m) for m in re.findall(r"#(\d+):", b))
+    if len(text_item_nums) == 0:
+        raise RuntimeError("No items (#XX) found in text metadata")
 
-    # Count items in contact sheet labels
-    # (labels are baked into images, can't read them — trust they match)
-
-    # Count video entries that made it into mega-preview
+    # 3. Video labels must match text metadata
     video_nums_in_mega = {num for num, _, _ in video_entries} if video_entries else set()
-
-    # 3. Video label numbers must be in text metadata
     missing_in_text = video_nums_in_mega - text_item_nums
     if missing_in_text:
-        _log(f"WARNING: {len(missing_in_text)} video labels not found in text metadata: {sorted(missing_in_text)[:10]}")
+        raise RuntimeError(
+            f"{len(missing_in_text)} video labels not in text metadata: "
+            f"{sorted(missing_in_text)[:10]}. Numbering out of sync."
+        )
 
-    # 4. All source paths in text metadata must exist
+    # 4. All source paths must exist
     path_pattern = re.compile(r"path=(\S+)")
     missing_files = []
     for b in blocks:
@@ -672,10 +675,30 @@ def _build_visual_content_blocks(
                 if not p.exists():
                     missing_files.append(str(p))
     if missing_files:
-        _log(f"WARNING: {len(missing_files)} source files in metadata don't exist: {missing_files[:5]}")
+        raise RuntimeError(
+            f"{len(missing_files)} source files don't exist: {missing_files[:5]}"
+        )
 
-    _log(f"Validation: {n_text_blocks} text, {n_images} images, {n_videos} video(s), "
-         f"{len(text_item_nums)} items referenced, {len(video_nums_in_mega)} video labels")
+    # 5. Payload size check (inline base64 limit ~75MB raw)
+    inline_bytes = sum(
+        len(b.get("data", b"")) for b in blocks
+        if isinstance(b, dict) and b.get("type") == "image_bytes"
+    )
+    if inline_bytes > 75 * 1024 * 1024:
+        raise RuntimeError(
+            f"Inline image payload {inline_bytes / 1024 / 1024:.0f}MB exceeds ~75MB limit "
+            f"(100MB base64). Reduce contact sheet quality or count."
+        )
+
+    # 6. Video payload check
+    video_bytes = sum(
+        len(b.get("data", b"")) for b in blocks
+        if isinstance(b, dict) and b.get("type") == "video_bytes"
+    )
+
+    _log(f"Validation OK: {n_text_blocks} text, {n_images} images ({inline_bytes / 1024 / 1024:.1f}MB), "
+         f"{n_videos} video ({video_bytes / 1024 / 1024:.1f}MB), "
+         f"{len(text_item_nums)} items, {len(video_nums_in_mega)} video labels")
 
     return blocks
 
