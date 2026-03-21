@@ -142,21 +142,11 @@ def _md_table(headers: list[str], rows: list[list]) -> str:
 
 
 def _preprocess_metadata(data: dict, extra: dict | None = None) -> dict:
-    tc = data.get("tier_counts", {})
     timeline = data.get("timeline", [])
     meta: dict = {
-        "total_items": dg.MetadataValue.int(data.get("total_items", 0)),
-        "selected_items": dg.MetadataValue.int(data.get("selected_items", 0)),
         "family_members": dg.MetadataValue.md(
             ", ".join(data.get("family_names", [])) or "(none detected)"
         ),
-        "tiers": dg.MetadataValue.md(_md_table(
-            ["Tier", "Count", "Description"],
-            [["A", tc.get("A", 0), "Family together"],
-             ["B", tc.get("B", 0), "One family member"],
-             ["C", tc.get("C", 0), "Scene / B-roll"],
-             ["D", tc.get("D", 0), "Skipped"]],
-        )),
         "timeline_days": dg.MetadataValue.int(len(timeline)),
         "chapters": dg.MetadataValue.int(sum(len(d.get("chapters", [])) for d in timeline)),
     }
@@ -165,7 +155,7 @@ def _preprocess_metadata(data: dict, extra: dict | None = None) -> dict:
             ["Day", "Chapters", "Items"],
             [[f"{d.get('date','?')} ({d.get('day_name','?')})",
               len(d.get("chapters", [])),
-              sum(c.get("count", 0) for c in d.get("chapters", []))]
+              len([item_id for c in d.get("chapters", []) for item_id in c.get("item_ids", [])])]
              for d in timeline],
         ))
     if extra:
@@ -174,22 +164,14 @@ def _preprocess_metadata(data: dict, extra: dict | None = None) -> dict:
 
 
 def _analyze_metadata(results: list[dict], out: str, extra: dict | None = None) -> dict:
-    ok = sum(1 for r in results if r.get("vision"))
-    scored = sorted(
-        (r for r in results if r.get("vision")),
-        key=lambda r: r["vision"].get("togetherness", 0) + r["vision"].get("genuine_emotion", 0),
-        reverse=True,
-    )
+    n_photos = sum(1 for r in results if r.get("media_type") == "photo")
+    n_videos = len(results) - n_photos
+    n_family = sum(1 for r in results if r.get("family_count", 0) >= 1)
     meta = {
         "items_analyzed": dg.MetadataValue.int(len(results)),
-        "with_vision": dg.MetadataValue.int(ok),
-        "top_scored": dg.MetadataValue.md(_md_table(
-            ["File", "Tier", "Together", "Emotion", "Quality", "Description"],
-            [[r["filename"][:30], r.get("tier", "?"),
-              r["vision"].get("togetherness", "-"), r["vision"].get("genuine_emotion", "-"),
-              r["vision"].get("visual_quality", "-"), r["vision"].get("description", "")]
-             for r in list(scored)[:10]],
-        )),
+        "photos": dg.MetadataValue.int(n_photos),
+        "videos": dg.MetadataValue.int(n_videos),
+        "with_family": dg.MetadataValue.int(n_family),
         "analysis_path": dg.MetadataValue.path(out),
     }
     if extra:
@@ -311,7 +293,6 @@ def prepare(
     return dg.MaterializeResult(metadata={
         "items": dg.MetadataValue.int(n_items),
         "family": dg.MetadataValue.text(family),
-        "tiers": dg.MetadataValue.text(str(result.get("tier_counts", {}))),
         "duration_min": dg.MetadataValue.float(elapsed),
     })
 

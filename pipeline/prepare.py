@@ -1,7 +1,7 @@
 """Stage 2: Prepare media for visual planning.
 
 Merges preprocess + analyze into one stage:
-- Family member auto-detection + tier assignment
+- Family member auto-detection + family_count per item
 - Timeline construction (day → time_block → location)
 - Photo thumbnails (512px, cached)
 - EXIF extraction (cached)
@@ -41,7 +41,7 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
             **_kwargs) -> dict:
     """Prepare all media for Gemini visual planning.
 
-    1. Read manifest, detect family, assign tiers, build timeline
+    1. Read manifest, detect family, build timeline
     2. Generate thumbnails + EXIF for photos, probe duration for videos
     3. Save preprocessed.json + analysis.json
     """
@@ -49,7 +49,7 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
     cfg.ensure_dirs()
     manifest = json.loads((cfg.workspace / "manifest.json").read_text())
 
-    # --- Family detection + tier assignment ---
+    # --- Family detection ---
     if not family_names:
         family_names = _detect_family(manifest)
     _log(f"Family members: {family_names}")
@@ -60,34 +60,12 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
         item["family_count"] = len(family_in_photo)
         item["family_names"] = family_in_photo
 
-        fname_lower = item["filename"].lower()
-        is_skip = any(fname_lower.startswith(p) for p in SKIP_PREFIXES)
-        is_video = item.get("item_type") in (1, 3, 6)
-
-        if is_skip:
-            item["tier"] = "D"
-        elif len(family_in_photo) >= 2:
-            item["tier"] = "A"
-        elif len(family_in_photo) == 1:
-            item["tier"] = "B"
-        elif is_video or item.get("district") or item.get("first_level") or item.get("country"):
-            item["tier"] = "C"
-        else:
-            item["tier"] = "D"
-
     # --- Build timeline ---
     timeline = _build_timeline(manifest)
-    tier_counts: dict[str, int] = defaultdict(int)
-    for item in manifest:
-        tier_counts[item["tier"]] += 1
 
     preprocessed = {
         "family_names": family_names,
-        "total_items": len(manifest),
-        "selected_items": len(manifest),
-        "tier_counts": dict(tier_counts),
         "timeline": timeline,
-        "items": manifest,
     }
     pp_path = cfg.workspace / "preprocessed.json"
     pp_path.write_text(json.dumps(preprocessed, indent=2))
@@ -126,17 +104,13 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
             "filename": item["filename"],
             "local_path": item.get("local_path", ""),
             "media_type": "video" if is_video else "photo",
-            "item_type": item.get("item_type", 0),
-            "takentime": item.get("takentime"),
             "taken_iso": item.get("taken_iso"),
             "duration_ms": item.get("duration"),
-            "tier": item["tier"],
             "family_count": item.get("family_count", 0),
-            "family_names": item.get("family_names", []),
+            "persons": item.get("metadata", {}).get("persons", []),
             "country": item.get("country"),
             "first_level": item.get("first_level"),
             "district": item.get("district"),
-            "persons": item.get("metadata", {}).get("persons", []),
         }
 
         if not local_path or not local_path.exists():
@@ -223,9 +197,7 @@ def _build_timeline(items: list[dict]) -> list[dict]:
             "item_id": item["id"],
             "time_block": block,
             "location": location,
-            "tier": item["tier"],
-            "family_count": item["family_count"],
-            "time": dt.strftime("%H:%M"),
+            "family_count": item.get("family_count", 0),
         })
 
     timeline = []
@@ -243,13 +215,10 @@ def _build_timeline(items: list[dict]) -> list[dict]:
         for (block, location), chapter_items in sorted(
             seen_chapters.items(), key=lambda x: block_order.get(x[0][0], 9)
         ):
-            a_count = sum(1 for i in chapter_items if i["tier"] == "A")
             chapters.append({
                 "time_block": block,
                 "location": location,
                 "item_ids": [i["item_id"] for i in chapter_items],
-                "count": len(chapter_items),
-                "family_together": a_count,
             })
 
         dt_obj = datetime.strptime(day, "%Y-%m-%d")
@@ -279,12 +248,10 @@ def _prepare_video(entry, item_id, local_path, cache_file, log_fn, i, total):
         total_dur = 10.0
 
     entry["video_duration"] = round(total_dur, 1)
-    n_scenes = max(1, int(total_dur / 5))
-    entry["scenes"] = [{"scene_index": idx} for idx in range(n_scenes)]
 
-    cache_entry = {"video_duration": round(total_dur, 1), "scenes": entry["scenes"]}
+    cache_entry = {"video_duration": round(total_dur, 1)}
     cache_file.write_text(json.dumps(cache_entry, indent=2))
-    log_fn(f"[{i}/{total}] {entry['filename']} — {total_dur:.0f}s, {n_scenes} scenes")
+    log_fn(f"[{i}/{total}] {entry['filename']} — {total_dur:.0f}s")
 
 
 def _read_exif(path) -> dict:

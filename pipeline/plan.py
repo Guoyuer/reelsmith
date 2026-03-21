@@ -231,7 +231,7 @@ def _build_visual_chapter_text(
         time_str = taken_iso[11:16] if taken_iso and len(taken_iso) >= 16 else ""
 
         label = f"#{idx:02d}"
-        # Describe who's in the photo instead of abstract tiers
+        # Describe who's in the photo
         if a.get("family_count", 0) >= 2:
             who = f"family together ({','.join(persons[:3])})" if persons else "family together"
         elif a.get("family_count", 0) == 1:
@@ -244,14 +244,18 @@ def _build_visual_chapter_text(
         if time_str:
             parts.append(f"time={time_str}")
 
+        # Per-item location (helps Gemini with text overlays)
+        item_loc = a.get("district") or a.get("first_level") or a.get("country")
+        if item_loc:
+            parts.append(f"at={item_loc}")
+
         if media == "video":
-            dur_ms = a.get("duration_ms")
-            dur_s = f"{dur_ms / 1000:.0f}s" if dur_ms else "?"
-            n_scenes = len(a.get("scenes", []))
-            parts.append(f"video={dur_s} scenes={n_scenes}")
+            # Prefer ffprobe duration over manifest duration_ms
+            dur = a.get("video_duration") or (a.get("duration_ms", 0) / 1000)
+            dur_s = f"{dur:.0f}s" if dur else "?"
+            parts.append(f"video={dur_s}")
             video_items.append(a)
         else:
-            # Add EXIF camera metadata (cached from analyze stage)
             exif_data = a.get("exif", {})
             if exif_data:
                 exif_parts = []

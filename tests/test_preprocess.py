@@ -1,4 +1,4 @@
-"""Tests for pipeline.preprocess — tier assignment, clustering, timeline."""
+"""Tests for pipeline.prepare — family detection, timeline, integration."""
 
 from __future__ import annotations
 
@@ -43,12 +43,12 @@ def _make_item(
 
 
 # -----------------------------------------------------------------------
-# Tier assignment tests
+# Family count tests
 # -----------------------------------------------------------------------
 
 
-class TestTierAssignment:
-    """Test _assign_tier logic (exercised via preprocess())."""
+class TestFamilyCount:
+    """Test family_count assignment in prepare()."""
 
     def _run_preprocess(self, items: list[dict], tmp_path: Path) -> dict:
         """Write manifest and run preprocess, returning the result."""
@@ -60,50 +60,34 @@ class TestTierAssignment:
         with patch.dict(os.environ, {}, clear=True), \
              patch("pipeline.config.load_dotenv"):
             cfg = Config.load(workspace=str(ws))
-        return preprocess(cfg, family_names=["Alice", "Bob"])
+        preprocess(cfg, family_names=["Alice", "Bob"])
+        # Read the analysis.json to check items
+        analysis = json.loads((ws / "analysis.json").read_text())
+        return analysis
 
-    def test_tier_a_two_family(self, tmp_path: Path):
-        """Item with 2+ family persons gets tier A."""
+    def test_two_family_members(self, tmp_path: Path):
+        """Item with 2 family persons gets family_count=2."""
         items = [_make_item(1, persons=["Alice", "Bob"])]
-        result = self._run_preprocess(items, tmp_path)
-        assert result["items"][0]["tier"] == "A"
+        analysis = self._run_preprocess(items, tmp_path)
+        assert analysis[0]["family_count"] == 2
 
-    def test_tier_b_one_family(self, tmp_path: Path):
-        """Item with exactly 1 family person gets tier B."""
+    def test_one_family_member(self, tmp_path: Path):
+        """Item with 1 family person gets family_count=1."""
         items = [_make_item(1, persons=["Alice"])]
-        result = self._run_preprocess(items, tmp_path)
-        assert result["items"][0]["tier"] == "B"
+        analysis = self._run_preprocess(items, tmp_path)
+        assert analysis[0]["family_count"] == 1
 
-    def test_tier_c_no_family_with_location(self, tmp_path: Path):
-        """Item with 0 family but has district gets tier C."""
-        items = [_make_item(1, persons=[], district="Marina Bay")]
-        result = self._run_preprocess(items, tmp_path)
-        assert result["items"][0]["tier"] == "C"
+    def test_no_family(self, tmp_path: Path):
+        """Item with no family persons gets family_count=0."""
+        items = [_make_item(1, persons=["Stranger"])]
+        analysis = self._run_preprocess(items, tmp_path)
+        assert analysis[0]["family_count"] == 0
 
-    def test_tier_c_country_only(self, tmp_path: Path):
-        """Item with 0 family but has country gets tier C."""
-        items = [_make_item(1, persons=[], country="Singapore")]
-        result = self._run_preprocess(items, tmp_path)
-        assert result["items"][0]["tier"] == "C"
-
-    def test_tier_d_screenshot(self, tmp_path: Path):
-        """Screenshot filename gets tier D regardless of persons."""
-        items = [_make_item(1, filename="Screenshot_20231114.png",
-                            persons=["Alice", "Bob"])]
-        result = self._run_preprocess(items, tmp_path)
-        assert result["items"][0]["tier"] == "D"
-
-    def test_tier_d_no_family_no_location(self, tmp_path: Path):
-        """Item with no family and no location gets tier D."""
+    def test_no_persons(self, tmp_path: Path):
+        """Item with empty persons gets family_count=0."""
         items = [_make_item(1, persons=[])]
-        result = self._run_preprocess(items, tmp_path)
-        assert result["items"][0]["tier"] == "D"
-
-    def test_screen_prefix_is_skip(self, tmp_path: Path):
-        """Filename starting with 'screen_' triggers tier D."""
-        items = [_make_item(1, filename="screen_recording.mp4")]
-        result = self._run_preprocess(items, tmp_path)
-        assert result["items"][0]["tier"] == "D"
+        analysis = self._run_preprocess(items, tmp_path)
+        assert analysis[0]["family_count"] == 0
 
 
 # -----------------------------------------------------------------------
@@ -118,30 +102,21 @@ class TestTierAssignment:
 
 class TestDetectFamily:
     def test_returns_top_persons(self):
-        """Most frequent persons above threshold are returned."""
-        manifest = [
-            _make_item(i, persons=["Alice", "Bob"])
-            for i in range(100)
-        ] + [
-            _make_item(200, persons=["Stranger"]),
-        ]
-        result = _detect_family(manifest)
+        """Most frequently appearing persons should be detected as family."""
+        items = [
+            _make_item(i, persons=["Alice", "Bob"]) for i in range(20)
+        ] + [_make_item(99, persons=["Stranger"])]
+        result = _detect_family(items)
         assert "Alice" in result
         assert "Bob" in result
-        # Stranger only appears once, well below 3% of 101
         assert "Stranger" not in result
 
     def test_empty_manifest(self):
-        """Empty manifest returns empty list."""
         assert _detect_family([]) == []
 
     def test_respects_top_n(self):
-        """top_n limits the number of returned names."""
-        manifest = [
-            _make_item(i, persons=["A", "B", "C", "D", "E", "F"])
-            for i in range(200)
-        ]
-        result = _detect_family(manifest, top_n=3)
+        items = [_make_item(i, persons=[f"P{i % 6}"]) for i in range(60)]
+        result = _detect_family(items, top_n=3)
         assert len(result) <= 3
 
 
@@ -153,16 +128,10 @@ class TestDetectFamily:
 class TestBuildTimeline:
     def test_groups_by_day(self):
         """Items on different days produce separate timeline entries."""
-        base = 1700000000  # 2023-11-14
+        base = 1700000000
         items = [
-            {
-                "id": 1, "takentime": base, "tier": "A",
-                "family_count": 2, "district": "Marina Bay",
-            },
-            {
-                "id": 2, "takentime": base + 86400, "tier": "B",
-                "family_count": 1, "district": "Orchard",
-            },
+            {"id": 1, "takentime": base, "family_count": 2, "district": "Marina Bay"},
+            {"id": 2, "takentime": base + 86400, "family_count": 1, "district": "Orchard"},
         ]
         timeline = _build_timeline(items)
         assert len(timeline) == 2
@@ -171,54 +140,35 @@ class TestBuildTimeline:
 
     def test_groups_by_time_block_and_location(self):
         """Items in the same day but different locations get separate chapters."""
-        # 2023-11-14 morning SGT: ~06:00 SGT = 1699916400 UTC
-        # takentime in UTC; SGT = UTC+8
-        # We need hour >= 12 and < 17 in SGT for afternoon
-        base = 1700000000  # This is ~22:13 SGT Nov 14 -> evening block
+        base = 1700000000
         items = [
-            {
-                "id": 1, "takentime": base, "tier": "A",
-                "family_count": 2, "district": "Marina Bay",
-            },
-            {
-                "id": 2, "takentime": base + 60, "tier": "B",
-                "family_count": 1, "district": "Chinatown",
-            },
+            {"id": 1, "takentime": base, "family_count": 2, "district": "Marina Bay"},
+            {"id": 2, "takentime": base + 60, "family_count": 1, "district": "Chinatown"},
         ]
         timeline = _build_timeline(items)
         assert len(timeline) == 1
-        # Two different locations = two chapters
         assert len(timeline[0]["chapters"]) == 2
 
     def test_items_without_takentime_skipped(self):
         """Items missing takentime are excluded from the timeline."""
         items = [
-            {"id": 1, "takentime": None, "tier": "A", "family_count": 2},
-            {"id": 2, "tier": "B", "family_count": 1},  # no takentime key
+            {"id": 1, "takentime": None, "family_count": 2},
+            {"id": 2, "family_count": 1},  # no takentime key
         ]
         timeline = _build_timeline(items)
         assert len(timeline) == 0
 
-    def test_chapter_family_together_count(self):
-        """Chapter family_together count reflects tier A items."""
+    def test_chapter_has_item_ids(self):
+        """Chapters should contain item_ids list."""
         base = 1700000000
         items = [
-            {
-                "id": 1, "takentime": base, "tier": "A",
-                "family_count": 2, "district": "Marina Bay",
-            },
-            {
-                "id": 2, "takentime": base + 60, "tier": "B",
-                "family_count": 1, "district": "Marina Bay",
-            },
-            {
-                "id": 3, "takentime": base + 120, "tier": "A",
-                "family_count": 3, "district": "Marina Bay",
-            },
+            {"id": 1, "takentime": base, "family_count": 2, "district": "Marina Bay"},
+            {"id": 2, "takentime": base + 60, "family_count": 1, "district": "Marina Bay"},
         ]
         timeline = _build_timeline(items)
         chapter = timeline[0]["chapters"][0]
-        assert chapter["family_together"] == 2  # items 1 and 3 are tier A
+        assert "item_ids" in chapter
+        assert set(chapter["item_ids"]) == {1, 2}
 
 
 # -----------------------------------------------------------------------
@@ -239,19 +189,10 @@ class TestPreprocessIntegration:
 
         result = preprocess(cfg, family_names=["Alice", "Bob"])
 
-        # Output file written
         out_path = ws / "preprocessed.json"
         assert out_path.exists()
 
-        # Round-trip through the file
         saved = json.loads(out_path.read_text())
         assert saved["family_names"] == ["Alice", "Bob"]
-        assert saved["total_items"] == len(sample_manifest)
-        assert saved["selected_items"] <= saved["total_items"]
         assert "timeline" in saved
-        assert len(saved["timeline"]) >= 1  # at least one day
-        assert all(item["tier"] in ("A", "B", "C", "D") for item in saved["items"])
-
-        # Verify function return matches the saved file
-        assert result["total_items"] == saved["total_items"]
-        assert result["selected_items"] == saved["selected_items"]
+        assert len(saved["timeline"]) >= 1

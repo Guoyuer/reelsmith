@@ -35,11 +35,10 @@ def _write_manifest(cfg, items: list[dict]) -> None:
     (cfg.workspace / "manifest.json").write_text(json.dumps(items))
 
 
-def _make_item(item_id: int, tier: str, filename: str, local_path: str,
+def _make_item(item_id: int, filename: str, local_path: str,
                family_count: int = 0, **extra) -> dict:
     item = {
         "id": item_id,
-        "tier": tier,
         "filename": filename,
         "local_path": local_path,
         "family_count": family_count,
@@ -49,12 +48,12 @@ def _make_item(item_id: int, tier: str, filename: str, local_path: str,
     return item
 
 
-class TestAnalyzeIncludesAllTiers:
-    def test_tier_d_included(self, mock_config):
-        """All tiers including D are analyzed (Gemini decides what to use)."""
+class TestAnalyzeIncludesAllItems:
+    def test_all_items_analyzed(self, mock_config):
+        """All items are analyzed regardless of family_count."""
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "100_photo.jpg")
-        items = [_make_item(100, "D", "photo.jpg", str(img))]
+        items = [_make_item(100, "photo.jpg", str(img))]
         _write_manifest(cfg, items)
 
         analyze(cfg)
@@ -66,7 +65,7 @@ class TestAnalyzeResumesFromExisting:
     def test_analyze_resumes_from_existing(self, mock_config):
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "101_photo.jpg")
-        items = [_make_item(101, "A", "photo.jpg", str(img), family_count=2)]
+        items = [_make_item(101, "photo.jpg", str(img), family_count=2)]
         _write_manifest(cfg, items)
 
         existing = [{"id": 101, "filename": "photo.jpg", "local_path": str(img),
@@ -83,7 +82,7 @@ class TestAnalyzeUsesSharedCache:
     def test_analyze_uses_shared_cache(self, mock_config):
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "102_photo.jpg")
-        items = [_make_item(102, "B", "photo.jpg", str(img), family_count=1)]
+        items = [_make_item(102, "photo.jpg", str(img), family_count=1)]
         _write_manifest(cfg, items)
 
         cache_entry = {"thumbnail_path": "/fake/thumb.jpg"}
@@ -99,7 +98,7 @@ class TestAnalyzeSavesToSharedCache:
     def test_analyze_saves_to_shared_cache(self, mock_config):
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "103_photo.jpg")
-        items = [_make_item(103, "A", "photo.jpg", str(img), family_count=2)]
+        items = [_make_item(103, "photo.jpg", str(img), family_count=2)]
         _write_manifest(cfg, items)
 
         analyze(cfg)
@@ -119,7 +118,7 @@ class TestAnalyzeExifCaching:
         img = Image.new("RGB", (100, 100), (200, 100, 50))
         img.save(str(img_path), "JPEG")
 
-        items = [_make_item(200, "A", "photo.jpg", str(img_path), family_count=2)]
+        items = [_make_item(200, "photo.jpg", str(img_path), family_count=2)]
         _write_manifest(cfg, items)
 
         analyze(cfg)
@@ -136,7 +135,7 @@ class TestAnalyzeExifCaching:
         """When cache has EXIF data, it should appear in results."""
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "201_photo.jpg")
-        items = [_make_item(201, "B", "photo.jpg", str(img), family_count=1)]
+        items = [_make_item(201, "photo.jpg", str(img), family_count=1)]
         _write_manifest(cfg, items)
 
         # Pre-populate cache with EXIF
@@ -157,8 +156,8 @@ class TestAnalyzeProgressCallback:
         img1 = _make_tiny_image(cfg.media_dir / "109_a.jpg")
         img2 = _make_tiny_image(cfg.media_dir / "110_b.jpg")
         items = [
-            _make_item(109, "A", "a.jpg", str(img1), family_count=2),
-            _make_item(110, "B", "b.jpg", str(img2), family_count=1),
+            _make_item(109, "a.jpg", str(img1), family_count=2),
+            _make_item(110, "b.jpg", str(img2), family_count=1),
         ]
         _write_manifest(cfg, items)
 

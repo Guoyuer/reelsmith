@@ -98,19 +98,9 @@ def sample_manifest() -> list[dict]:
 
 @pytest.fixture
 def sample_preprocessed() -> dict:
-    """Preprocessed data with family names, tiered items, 2-day timeline."""
+    """Preprocessed data with family names and 2-day timeline."""
     return {
         "family_names": ["Alice", "Bob"],
-        "total_items": 6,
-        "selected_items": 5,
-        "tier_counts": {"A": 2, "B": 1, "C": 1, "D": 1},
-        "items": [
-            {"id": 1, "tier": "A", "family_count": 2, "filename": "IMG_001.jpg"},
-            {"id": 2, "tier": "B", "family_count": 1, "filename": "IMG_002.jpg"},
-            {"id": 3, "tier": "C", "family_count": 0, "filename": "VID_003.mp4"},
-            {"id": 5, "tier": "D", "family_count": 0, "filename": "Screenshot_20231114.png"},
-            {"id": 6, "tier": "A", "family_count": 3, "filename": "IMG_006.jpg"},
-        ],
         "timeline": [
             {
                 "date": "2023-11-14",
@@ -120,18 +110,13 @@ def sample_preprocessed() -> dict:
                         "time_block": "afternoon",
                         "location": "Marina Bay",
                         "item_ids": [1, 2],
-                        "count": 2,
-                        "family_together": 1,
                     },
                     {
                         "time_block": "afternoon",
                         "location": "Chinatown",
                         "item_ids": [3],
-                        "count": 1,
-                        "family_together": 0,
                     },
                 ],
-                "total_items": 3,
             },
             {
                 "date": "2023-11-15",
@@ -141,11 +126,8 @@ def sample_preprocessed() -> dict:
                         "time_block": "afternoon",
                         "location": "Orchard",
                         "item_ids": [6],
-                        "count": 1,
-                        "family_together": 1,
                     },
                 ],
-                "total_items": 1,
             },
         ],
     }
