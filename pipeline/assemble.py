@@ -241,12 +241,21 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
                 transition = "cut"
                 td = 0.0
 
+            # Crossfades involving photos cause visible ghosting (static
+            # content blends poorly); switch to fadeblack for clean transitions.
+            prev_is_photo = all_clips and all_clips[-1].get("media_type") == "photo"
+            if ((item.media_type == "photo" or prev_is_photo)
+                    and transition not in ("cut", "fade_black")):
+                transition = "fade_black"
+                td = min(td, 0.4)
+
             all_clips.append({
                 "path": clip_path,
                 "duration": item.display_duration,
                 "transition": transition,
                 "transition_duration": td,
                 "keep_audio": item.keep_audio,
+                "media_type": item.media_type,
             })
 
     if not all_clips:

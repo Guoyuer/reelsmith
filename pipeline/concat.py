@@ -145,7 +145,7 @@ def concat_xfade(clips: list[dict], output_path: Path,
         e = timeline.entries[i]
         xfade_transition = {
             "crossfade": "fade", "fade_black": "fadeblack",
-            "wipe_left": "wipeleft", "dissolve": "dissolve",
+            "wipe_left": "wipeleft", "dissolve": "fade",
             "smoothleft": "smoothleft", "smoothright": "smoothright",
             "circlecrop": "circlecrop", "cut": "fade",
         }.get(e.transition, "fade")
