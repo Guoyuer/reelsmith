@@ -125,26 +125,31 @@ python start.py stop
 
 ```
 workspace/
-  media/                          <- shared: raw photos/videos (downloaded once)
-  analysis_cache/                 <- shared: per-file vision results ({item_id}.json)
-  keyframes/                      <- shared: extracted video keyframes
-  music/                          <- shared: generated music tracks (cached)
+  ── Shared across all runs (cached, reused) ──
+  media/                          <- raw photos/videos from NAS (downloaded once)
+  analysis_cache/                 <- per-file prepare results ({item_id}.json)
+  thumbnails/                     <- 600px JPEG thumbnails for contact sheets
+  contact_sheets/                 <- grid images (6 photos/sheet) sent to Gemini
+  preview_clips/                  <- 320p 10fps MP4 clips sent to Gemini
+  music/                          <- generated music tracks (Lyria/MusicGen)
+
+  ── Per-run (isolated pipeline outputs) ──
   runs/
-    singapore/                    <- per-run: isolated pipeline outputs
-      manifest.json
-      preprocessed.json
-      analysis.json
-      edl_v1.json, edl_v2.json   <- versioned EDLs
-      contact_sheets/             <- contact sheet grids sent to Gemini
-      clips/
-      output/vlog_v1.mp4, ...    <- versioned outputs
-      output/chapters_v1.txt     <- YouTube chapter markers
-      output/ffmpeg_commands.log  <- all FFmpeg commands for debugging
-    singapore-cinematic/          <- another run, same source data
+    singapore/
+      manifest.json               <- fetched items from NAS
+      preprocessed.json            <- family names + timeline
+      analysis.json                <- per-item metadata (media type, duration, EXIF)
+      edl_v1.json, edl_v2.json    <- versioned EDLs from Gemini
+      clips/                       <- 4K rendered clips (Phase 1 intermediates)
+      output/
+        vlog_v1.mp4               <- final rendered vlog
+        chapters_v1.txt           <- YouTube chapter markers
+        ffmpeg_commands.log       <- all FFmpeg commands for debugging
+    singapore-cinematic/           <- another run, same source data
       ...
 ```
 
-Media files, analysis results, and music tracks are shared across runs. A second run for the same trip reuses all downloads and music — only plan + assemble re-run.
+Shared files are reused across runs — a second run for the same trip skips media download, thumbnails, and preview clip generation. Only plan + assemble re-run.
 
 ## Usage
 
