@@ -119,40 +119,67 @@ def _gemini_call(
         )
     client = genai.Client(api_key=api_key)
 
-    # Build content parts with per-part media_resolution control
-    # Images at MEDIUM (560 tokens) — good detail at half the cost of HIGH
-    # Video at LOW (70 tokens/frame) — motion + audio assessment doesn't need high res
-    parts = []
+    # First pass: calculate total media size to decide inline vs Files API
     n_text = 0
     n_media = 0
     text_chars = 0
     media_bytes_total = 0
     for p in user_parts:
         if isinstance(p, str):
-            parts.append(types.Part(text=p))
             n_text += 1
             text_chars += len(p)
         elif isinstance(p, dict) and p.get("type") in ("image_bytes", "audio_bytes", "video_bytes"):
-            is_video = p.get("type") == "video_bytes"
-            res = types.MediaResolution.MEDIA_RESOLUTION_LOW if is_video \
-                else types.MediaResolution.MEDIA_RESOLUTION_MEDIUM
-            parts.append(types.Part(
-                inline_data=types.Blob(
-                    mime_type=p.get("mime_type", "image/jpeg"),
-                    data=p["data"],
-                ),
-                media_resolution=res,
-            ))
             n_media += 1
-            media_bytes_total += len(p["data"])
+            media_bytes_total += len(p.get("data", b""))
+
+    # Use Files API for large payloads (>20MB inline limit)
+    use_files_api = media_bytes_total > 20 * 1024 * 1024
+    uploaded_files = []  # track for cleanup
+
+    parts = []
+    for p in user_parts:
+        if isinstance(p, str):
+            parts.append(types.Part(text=p))
+        elif isinstance(p, dict) and p.get("type") in ("image_bytes", "audio_bytes", "video_bytes"):
+            is_video = p.get("type") == "video_bytes"
+            mime = p.get("mime_type", "image/jpeg")
+
+            if use_files_api:
+                # Write to temp file, upload via Files API
+                import tempfile
+                suffix = ".mp4" if is_video else (".wav" if "audio" in p.get("type", "") else ".jpg")
+                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
+                    tf.write(p["data"])
+                    tf_path = tf.name
+                try:
+                    uploaded = client.files.upload(file=tf_path)
+                    uploaded_files.append(uploaded)
+                    parts.append(types.Part(
+                        file_data=types.FileData(
+                            file_uri=uploaded.uri,
+                            mime_type=mime,
+                        ),
+                    ))
+                finally:
+                    Path(tf_path).unlink(missing_ok=True)
+            else:
+                res = types.MediaResolution.MEDIA_RESOLUTION_LOW if is_video \
+                    else types.MediaResolution.MEDIA_RESOLUTION_MEDIUM
+                parts.append(types.Part(
+                    inline_data=types.Blob(mime_type=mime, data=p["data"]),
+                    media_resolution=res,
+                ))
         elif isinstance(p, types.Part):
             parts.append(p)
 
+    upload_method = "Files API" if use_files_api else "inline"
     _log(f"=== [Gemini] API Call: {label} ===")
     _log(f"  Model: {model}")
     _log(f"  System prompt: {len(system)} chars")
     _log(f"  Input: {n_text} text parts ({text_chars} chars), "
-         f"{n_media} media files ({media_bytes_total / 1024 / 1024:.1f}MB)")
+         f"{n_media} media files ({media_bytes_total / 1024 / 1024:.1f}MB, {upload_method})")
+    if use_files_api:
+        _log(f"  Uploaded {len(uploaded_files)} files via Files API")
     # Log system prompt (truncated for readability)
     for line in system.split("\n")[:5]:
         _log(f"  [system] {line}")
@@ -184,6 +211,14 @@ def _gemini_call(
     )
 
     elapsed = _time.monotonic() - t0
+
+    # Cleanup uploaded files (auto-deleted after 48h, but clean up proactively)
+    for uf in uploaded_files:
+        try:
+            client.files.delete(name=uf.name)
+        except Exception:
+            pass
+
     content = response.text or ""
     usage = response.usage_metadata
     input_tokens = usage.prompt_token_count or 0
