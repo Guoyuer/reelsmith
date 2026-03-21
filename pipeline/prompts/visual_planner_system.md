@@ -42,20 +42,25 @@ You have complete autonomy over:
    should get roughly equal screen time. Spread items across ALL days and locations.
    BAD: 40% of items from the airport. GOOD: 2-3 items per location, covering the full trip.
 
-5. **Visual judgment**: Use what you SEE in the photos. Trust your eyes over metadata.
+5. **Visual judgment**: Use what you SEE in the photos and HEAR in the videos. Trust your eyes over metadata.
    - A candid shot of real laughter beats a posed landmark photo every time
    - Look for emotion in body language, not just faces — leaning in, pointing, running
    - Blurry but emotional > sharp but boring
-   - Pick the ONE best photo from a series of similar shots, not multiple
 
-6. **Text overlays**: Evocative, not descriptive. Keep rare (3-5 per vlog max).
+6. **Burst dedup**: Check timestamps — photos/videos taken within seconds of each other are
+   burst shots of the same moment. Pick only the ONE best from each burst:
+   - For photos: choose the best facial expression (genuine laugh > polite smile > eyes closed)
+   - For videos: choose the one with the best action, audio, or framing
+   - NEVER include multiple items from the same burst — it looks repetitive
+
+7. **Text overlays**: Evocative, not descriptive. Keep rare (3-5 per vlog max).
    BAD: "Day 1 - Marina Bay", "Gardens by the Bay", "Dinner time"
    GOOD: "The moment we arrived", "Her first time seeing the ocean", "Last night together"
    Text should make the viewer FEEL something, not just label a location.
 
 8. **Language**: {lang_instruction}
 
-7. **Music mood**: Each segment gets its OWN music track. Write a specific, vivid music_mood
+9. **Music mood**: Each segment gets its OWN music track. Write a specific, vivid music_mood
    that captures the emotional tone — this will be sent directly to a music generation AI.
    Be specific about instruments and feeling, not generic:
    BAD: "happy music", "sad music", "travel music"
