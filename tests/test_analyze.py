@@ -9,7 +9,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PIL import Image
 
-from pipeline.analyze import analyze
+from pipeline.prepare import prepare as _prepare
+
+
+def analyze(cfg, **kwargs):
+    """Wrapper: calls prepare() and returns analysis results."""
+    _prepare(cfg, **kwargs)
+    return json.loads((cfg.workspace / "analysis.json").read_text())
 
 
 def _make_tiny_image(path: Path, size=(160, 90)) -> Path:
@@ -19,16 +25,14 @@ def _make_tiny_image(path: Path, size=(160, 90)) -> Path:
     return path
 
 
-def _write_preprocessed(cfg, items: list[dict]) -> None:
-    data = {
-        "family_names": ["Alice", "Bob"],
-        "total_items": len(items),
-        "selected_items": len(items),
-        "tier_counts": {},
-        "items": items,
-        "timeline": [],
-    }
-    (cfg.workspace / "preprocessed.json").write_text(json.dumps(data))
+def _write_manifest(cfg, items: list[dict]) -> None:
+    """Write items as manifest.json (prepare reads this, not preprocessed.json)."""
+    # Add fields that prepare expects from manifest
+    for item in items:
+        item.setdefault("metadata", {"persons": []})
+        item.setdefault("takentime", 1700000000)
+        item.setdefault("item_type", 0)
+    (cfg.workspace / "manifest.json").write_text(json.dumps(items))
 
 
 def _make_item(item_id: int, tier: str, filename: str, local_path: str,
@@ -51,9 +55,10 @@ class TestAnalyzeIncludesAllTiers:
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "100_photo.jpg")
         items = [_make_item(100, "D", "photo.jpg", str(img))]
-        _write_preprocessed(cfg, items)
+        _write_manifest(cfg, items)
 
-        results = analyze(cfg)
+        analyze(cfg)
+        results = json.loads((cfg.workspace / "analysis.json").read_text())
         assert len(results) == 1
 
 
@@ -62,13 +67,14 @@ class TestAnalyzeResumesFromExisting:
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "101_photo.jpg")
         items = [_make_item(101, "A", "photo.jpg", str(img), family_count=2)]
-        _write_preprocessed(cfg, items)
+        _write_manifest(cfg, items)
 
         existing = [{"id": 101, "filename": "photo.jpg", "local_path": str(img),
                      "vision": {"description": "already analyzed"}}]
         (cfg.workspace / "analysis.json").write_text(json.dumps(existing))
 
-        results = analyze(cfg)
+        analyze(cfg)
+        results = json.loads((cfg.workspace / "analysis.json").read_text())
         assert len(results) == 1
         assert results[0]["vision"]["description"] == "already analyzed"
 
@@ -78,12 +84,13 @@ class TestAnalyzeUsesSharedCache:
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "102_photo.jpg")
         items = [_make_item(102, "B", "photo.jpg", str(img), family_count=1)]
-        _write_preprocessed(cfg, items)
+        _write_manifest(cfg, items)
 
         cache_entry = {"thumbnail_path": "/fake/thumb.jpg"}
         (cfg.cache_dir / "102.json").write_text(json.dumps(cache_entry))
 
-        results = analyze(cfg)
+        analyze(cfg)
+        results = json.loads((cfg.workspace / "analysis.json").read_text())
         assert len(results) == 1
         assert results[0]["thumbnail_path"] == "/fake/thumb.jpg"
 
@@ -93,7 +100,7 @@ class TestAnalyzeSavesToSharedCache:
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "103_photo.jpg")
         items = [_make_item(103, "A", "photo.jpg", str(img), family_count=2)]
-        _write_preprocessed(cfg, items)
+        _write_manifest(cfg, items)
 
         analyze(cfg)
 
@@ -113,9 +120,10 @@ class TestAnalyzeExifCaching:
         img.save(str(img_path), "JPEG")
 
         items = [_make_item(200, "A", "photo.jpg", str(img_path), family_count=2)]
-        _write_preprocessed(cfg, items)
+        _write_manifest(cfg, items)
 
-        results = analyze(cfg)
+        analyze(cfg)
+        results = json.loads((cfg.workspace / "analysis.json").read_text())
         assert len(results) == 1
 
         # Cache should exist with thumbnail
@@ -129,7 +137,7 @@ class TestAnalyzeExifCaching:
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "201_photo.jpg")
         items = [_make_item(201, "B", "photo.jpg", str(img), family_count=1)]
-        _write_preprocessed(cfg, items)
+        _write_manifest(cfg, items)
 
         # Pre-populate cache with EXIF
         cache_data = {
@@ -138,7 +146,8 @@ class TestAnalyzeExifCaching:
         }
         (cfg.cache_dir / "201.json").write_text(json.dumps(cache_data))
 
-        results = analyze(cfg)
+        analyze(cfg)
+        results = json.loads((cfg.workspace / "analysis.json").read_text())
         assert results[0].get("exif") == {"focal_length": 24.0, "aperture": 1.4, "iso": 100}
 
 
@@ -151,7 +160,7 @@ class TestAnalyzeProgressCallback:
             _make_item(109, "A", "a.jpg", str(img1), family_count=2),
             _make_item(110, "B", "b.jpg", str(img2), family_count=1),
         ]
-        _write_preprocessed(cfg, items)
+        _write_manifest(cfg, items)
 
         callback_args = []
         analyze(cfg, progress_callback=lambda c, t, n: callback_args.append((c, t, n)))

@@ -16,14 +16,13 @@ from pathlib import Path
 
 import dagster as dg
 
-from .analyze import analyze as do_analyze
 from .assemble import assemble as do_assemble
 from .config import Config
 from .edl import EDL
 from .fetch import fetch as do_fetch
 from .music import generate_music_for_edl as do_generate_music
 from .plan import plan as do_plan
-from .preprocess import preprocess as do_preprocess
+from .prepare import prepare as do_prepare
 
 
 # ---------------------------------------------------------------------------
@@ -75,12 +74,8 @@ class FetchConfig(dg.Config):
     force: bool = False
 
 
-class PreprocessConfig(dg.Config):
+class PrepareConfig(dg.Config):
     family_names: list[str] | None = None
-    force: bool = False
-
-
-class AnalyzeConfig(dg.Config):
     force: bool = False
 
 
@@ -269,99 +264,52 @@ def fetch_media(
 @dg.asset(
     group_name="vlog",
 )
-def preprocess(
+def prepare(
     context: dg.AssetExecutionContext,
     fetch_media,
-    config: PreprocessConfig,
+    config: PrepareConfig,
 ) -> dg.MaterializeResult:
-    """Tier by family presence, build timeline."""
+    """Prepare media: family detection, timeline, thumbnails, EXIF, video metadata."""
     io = context.resources.io_manager
-    out = Path(io.workspace_path) / "preprocessed.json"
-
+    analysis_path = Path(io.workspace_path) / "analysis.json"
     manifest_path = Path(io.workspace_path) / "manifest.json"
-    stale = (manifest_path.exists() and out.exists()
-             and manifest_path.stat().st_mtime > out.stat().st_mtime)
+
+    stale = (manifest_path.exists() and analysis_path.exists()
+             and manifest_path.stat().st_mtime > analysis_path.stat().st_mtime)
     if stale:
-        context.log.info("Manifest is newer than preprocessed.json — re-preprocessing")
+        context.log.info("Manifest is newer — re-preparing")
 
-    if not config.force and not stale and out.exists():
-        data = json.loads(out.read_text())
-        for i, it in enumerate(data.get("items", []), 1):
-            context.log.info(
-                f"[{i}/{len(data.get('items', []))}] {it.get('filename', '?')}: "
-                f"tier {it.get('tier', '?')} (family: {it.get('family_count', 0)})"
-            )
-        context.log.info(f"Preprocess complete: {data.get('selected_items', 0)} items")
-        return dg.MaterializeResult(
-            metadata=_preprocess_metadata(data, {
-                "status": dg.MetadataValue.text("finished"),
-            })
-        )
-
-    result = do_preprocess(io.config, family_names=config.family_names,
-                           log_fn=context.log.info)
-    context.log.info(
-        f"Preprocessed: {result['selected_items']}/{result['total_items']} items, "
-        f"tiers: {result['tier_counts']}"
-    )
-    return dg.MaterializeResult(metadata=_preprocess_metadata(result))
-
-
-@dg.asset(
-    group_name="vlog",
-)
-def analyze(
-    context: dg.AssetExecutionContext,
-    preprocess,
-    config: AnalyzeConfig,
-) -> dg.MaterializeResult:
-    """Generate thumbnails and keyframes for Gemini visual planning."""
-    io = context.resources.io_manager
-    out = Path(io.workspace_path) / "analysis.json"
-
-    pp_path = Path(io.workspace_path) / "preprocessed.json"
-    stale = (pp_path.exists() and out.exists()
-             and pp_path.stat().st_mtime > out.stat().st_mtime)
-    if stale:
-        context.log.info("preprocessed.json is newer than analysis.json — re-analyzing")
-
-    if not config.force and not stale and out.exists():
-        results = json.loads(out.read_text())
-        videos = sum(1 for r in results if r.get("media_type") == "video")
-        photos = len(results) - videos
-        context.log.info(f"Analyze complete: {len(results)} items ({photos} photos, {videos} videos) — all cached")
-        return dg.MaterializeResult(
-            metadata=_analyze_metadata(results, str(out), {
-                "status": dg.MetadataValue.text("finished"),
-                "from_cache": dg.MetadataValue.int(len(results)),
-                "newly_analyzed": dg.MetadataValue.int(0),
-            })
-        )
-
-    existing_count = 0
-    if out.exists():
-        existing_count = sum(1 for r in json.loads(out.read_text()) if r.get("vision"))
+    if not config.force and not stale and analysis_path.exists():
+        results = json.loads(analysis_path.read_text())
+        n_photos = sum(1 for r in results if r.get("media_type") == "photo")
+        n_videos = len(results) - n_photos
+        context.log.info(f"Prepare complete: {len(results)} items ({n_photos} photos, {n_videos} videos) — cached")
+        return dg.MaterializeResult(metadata={
+            "items": dg.MetadataValue.int(len(results)),
+            "photos": dg.MetadataValue.int(n_photos),
+            "videos": dg.MetadataValue.int(n_videos),
+            "status": dg.MetadataValue.text("finished (cached)"),
+        })
 
     t0 = time.monotonic()
-    results = do_analyze(
+    result = do_prepare(
         io.config,
+        family_names=config.family_names,
+        force=config.force,
         progress_callback=_progress_cb(context, t0, granularity=20),
         log_fn=context.log.info,
     )
-    ok = sum(1 for r in results if r.get("vision"))
-    newly = ok - existing_count
-    context.log.info(
-        f"Analysis complete: {ok}/{len(results)} with vision — "
-        f"{ok - newly} from cache, {newly} newly analyzed"
-    )
+    elapsed = round((time.monotonic() - t0) / 60, 1)
+    n_items = result.get("selected_items", 0)
+    family = ", ".join(result.get("family_names", [])) or "(none detected)"
+    context.log.info(f"Prepared {n_items} items in {elapsed}min, family: {family}")
 
-    return dg.MaterializeResult(
-        metadata=_analyze_metadata(results, str(out), {
-            "from_cache": dg.MetadataValue.int(ok - newly),
-            "newly_analyzed": dg.MetadataValue.int(newly),
-            "duration_min": dg.MetadataValue.float(round((time.monotonic() - t0) / 60, 1)),
-        })
-    )
+    return dg.MaterializeResult(metadata={
+        "items": dg.MetadataValue.int(n_items),
+        "family": dg.MetadataValue.text(family),
+        "tiers": dg.MetadataValue.text(str(result.get("tier_counts", {}))),
+        "duration_min": dg.MetadataValue.float(elapsed),
+    })
 
 
 @dg.asset(
@@ -369,7 +317,7 @@ def analyze(
 )
 def plan(
     context: dg.AssetExecutionContext,
-    analyze,
+    prepare,
     config: PlanConfig,
 ) -> dg.MaterializeResult:
     """Generate edit decision list via Gemini visual planner. Always re-plans (versioned)."""
@@ -524,7 +472,7 @@ full_pipeline = dg.define_asset_job(
 )
 
 defs = dg.Definitions(
-    assets=[fetch_media, preprocess, analyze, plan, generate_music, assemble],
+    assets=[fetch_media, prepare, plan, generate_music, assemble],
     jobs=[full_pipeline],
     resources={
         "io_manager": WorkspaceIOManager(base_dir="./workspace", run_name="default"),

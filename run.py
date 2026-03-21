@@ -102,7 +102,7 @@ def _parse_item_types(value: str) -> list[int]:
               help="Run name (subdirectory under workspace/runs/)")
 @click.pass_context
 def cli(ctx: click.Context, run_name: str | None) -> None:
-    """Automated vlog pipeline: fetch → preprocess → analyze → plan → assemble."""
+    """Automated vlog pipeline: fetch → prepare → plan → generate_music → assemble."""
     ctx.ensure_object(dict)
     ctx.obj["run_name"] = run_name
 
@@ -131,7 +131,7 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
               help="Bitrate multiplier: 0.5=smaller files, 1.0=YouTube quality (default), 2.0=master quality")
 @click.option("--country", default=None, help="Filter by country")
 @click.option("--district", default=None, help="Filter by district/city")
-@click.option("--force-analyze", is_flag=True, help="Force re-analyze (ignore cached)")
+@click.option("--force-prepare", is_flag=True, help="Force re-prepare (ignore cached)")
 @click.option("--lang", default="en", type=click.Choice(["en", "cn", "both"]),
               help="Text language: en=English (default), cn=Chinese, both=bilingual")
 @click.option("--family", default=None,
@@ -139,7 +139,7 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
 @click.pass_context
 def full(ctx, from_date, to_date, duration, trip_type, style, focus,
          item_types, music, width, height, fps, quality,
-         country, district, force_analyze, family, lang):
+         country, district, force_prepare, family, lang):
     """Run the full pipeline end-to-end."""
     type_list = _parse_item_types(item_types) if item_types else None
 
@@ -155,16 +155,11 @@ def full(ctx, from_date, to_date, duration, trip_type, style, focus,
         fetch_cfg["item_types"] = type_list
     config["ops"]["fetch_media"] = {"config": fetch_cfg}
 
-    # Preprocess
-    preprocess_cfg: dict = {}
+    # Prepare
+    prepare_cfg: dict = {"force": force_prepare}
     if family:
-        preprocess_cfg["family_names"] = [n.strip() for n in family.split(",")]
-    config["ops"]["preprocess"] = {"config": preprocess_cfg}
-
-    # Analyze
-    config["ops"]["analyze"] = {"config": {
-        "force": force_analyze,
-    }}
+        prepare_cfg["family_names"] = [n.strip() for n in family.split(",")]
+    config["ops"]["prepare"] = {"config": prepare_cfg}
 
     # Plan
     plan_cfg: dict = {

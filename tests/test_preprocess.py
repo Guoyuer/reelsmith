@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from pipeline.config import Config
-from pipeline.preprocess import _build_timeline, _detect_family, preprocess
+from pipeline.prepare import _build_timeline, _detect_family, prepare as preprocess
 
 
 # -----------------------------------------------------------------------

@@ -54,15 +54,15 @@ class TestAssetGraph:
 
         specs = defs.resolve_all_asset_specs()
         keys = {s.key.path[-1] for s in specs}
-        assert keys == {"fetch_media", "preprocess", "analyze", "plan", "generate_music", "assemble"}
+        assert keys == {"fetch_media", "prepare", "plan", "generate_music", "assemble"}
 
-    def test_plan_depends_on_analyze(self):
+    def test_plan_depends_on_prepare(self):
         from pipeline.definitions import defs
 
         specs = {s.key.path[-1]: s for s in defs.resolve_all_asset_specs()}
         plan_spec = specs["plan"]
         dep_keys = {d.asset_key.path[-1] for d in plan_spec.deps}
-        assert "analyze" in dep_keys
+        assert "prepare" in dep_keys
 
 
 # ---------------------------------------------------------------------------
@@ -93,22 +93,20 @@ class TestFetchMediaAsset:
 class TestAnalyzeProgressCallback:
     def test_callback_invoked(self, tmp_path):
         """analyze() should invoke progress_callback when provided."""
-        from pipeline.analyze import analyze
+        from pipeline.prepare import prepare as analyze
         from pipeline.config import Config
 
         ws = _make_workspace(tmp_path)
 
-        preprocessed = {
-            "family_names": [],
-            "items": [
-                {
-                    "id": 999, "tier": "C", "filename": "test.jpg",
-                    "local_path": str(tmp_path / "media" / "test.jpg"),
-                    "family_count": 0,
-                }
-            ],
-        }
-        (tmp_path / "preprocessed.json").write_text(json.dumps(preprocessed))
+        manifest = [
+            {
+                "id": 999, "filename": "test.jpg",
+                "local_path": str(tmp_path / "media" / "test.jpg"),
+                "item_type": 0, "takentime": 1700000000,
+                "metadata": {"persons": []},
+            }
+        ]
+        (tmp_path / "manifest.json").write_text(json.dumps(manifest))
 
         from PIL import Image
         img = Image.new("RGB", (100, 100), "blue")
