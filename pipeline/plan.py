@@ -303,25 +303,6 @@ def _build_visual_chapter_text(
     return text, photo_paths, video_items
 
 
-def _preview_encoder(log_fn=None) -> list[str]:
-    """Encoder for 480p preview clips. Prefers NVENC GPU, falls back to CPU."""
-    _log = log_fn or (lambda x: None)
-    from .media_utils import run_subprocess
-    try:
-        test = run_subprocess(
-            ["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=s=480x270:d=0.1:r=15",
-             "-c:v", "hevc_nvenc", "-preset", "fast", "-f", "null", "-"],
-            capture_output=True, text=True,
-        )
-        if test.returncode == 0:
-            _log("Preview encoder: HEVC NVENC")
-            return ["-c:v", "hevc_nvenc", "-preset", "fast", "-cq", "28"]
-        _log(f"NVENC test failed (rc={test.returncode}): {(test.stderr or '')[-100:]}")
-    except Exception as e:
-        _log(f"NVENC test error: {e}")
-    _log("Preview encoder: CPU (libx264)")
-    return ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "28"]
-
 
 def _generate_video_clips_parallel(
     video_items: list[dict], sheets_dir: Path, log_fn=None,

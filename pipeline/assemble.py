@@ -164,7 +164,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
             if not source.exists():
                 return clip_name, item.source_file, None, "source not found"
 
-            ct = getattr(segment, "color_temp", "neutral") or "neutral"
+            ct = getattr(segment, "color_temp", "neutral")
             if item.media_type == "photo":
                 render_photo(item, clip_path, w, h, _fps, color_temp=ct,
                              text_overlay=item.text_overlay, language=lang)

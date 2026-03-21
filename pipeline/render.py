@@ -119,7 +119,7 @@ def render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
 
     audio_args = ["-c:a", "aac", "-b:a", "192k"] if item.keep_audio else ["-an"]
 
-    speed = getattr(item, "playback_speed", 1.0) or 1.0
+    speed = getattr(item, "playback_speed", 1.0)
     speed_vf = f",setpts={1/speed:.4f}*PTS" if speed != 1.0 else ""
     speed_af = f"-af atempo={speed}" if speed != 1.0 and item.keep_audio else ""
 

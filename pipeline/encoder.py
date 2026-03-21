@@ -152,17 +152,6 @@ def get_encoder(width: int = 3840, height: int = 2160, fps: int = 60) -> list[st
     return _ctx.get_encoder(width, height, fps)
 
 
-def set_quality(q: float) -> None:
-    """Deprecated — use init_context() instead."""
-    global _ctx
-    _ctx = RenderContext(quality=q)
-
-
-def clear_caches() -> None:
-    """Deprecated — use init_context() instead."""
-    _ctx._dim_cache.clear()
-    _ctx._dur_cache.clear()
-
 
 def probe_dimensions(path: Path) -> tuple[int, int]:
     return _ctx.probe_dimensions(path)
