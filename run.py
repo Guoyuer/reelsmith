@@ -227,6 +227,7 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
                 progress_callback=_progress_cb(logger, "Assemble", t0),
                 skip_broken=ac.get("skip_broken", False),
                 quality=ac.get("quality", 1.0),
+                log_fn=log,
             )
 
             dur = time.monotonic() - t0

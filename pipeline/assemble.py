@@ -96,12 +96,13 @@ class RenderReport:
 
 def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_broken: bool = False,
              resolution: tuple[int, int] | None = None, fps: int | None = None,
-             quality: float = 1.0) -> tuple[Path, list[dict]]:
+             quality: float = 1.0, log_fn=None) -> tuple[Path, list[dict]]:
     """Read latest edl_v{N}.json and render the vlog video.
 
     Returns (output_path, validation_issues) where validation_issues is a list
     of dicts with keys: level ("error"/"warning"), check, message.
     """
+    _log = log_fn or print
     cfg.ensure_dirs()
     from .edl import load_latest_edl
     edl, _ = load_latest_edl(cfg)
@@ -205,7 +206,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
     pbar.close()
     t_clips = time.monotonic() - t1
-    print(f"Phase 1 (clips): {t_clips:.1f}s ({max_workers} workers, {report.summary()})")
+    _log(f"Phase 1 (clips): {t_clips:.1f}s ({max_workers} workers, {report.summary()})")
 
     if report.failed_count + report.skipped_count > 0 and not skip_broken:
         raise RuntimeError(f"Clip rendering issues: {report.summary()}")
@@ -271,10 +272,10 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
     # Phase 2: Concatenate with transitions (video only)
     t2 = time.monotonic()
-    print(f"Concatenating {len(all_clips)} clips...")
+    _log(f"Concatenating {len(all_clips)} clips...")
     no_music_path = output_dir / f"vlog_v{version}_nomix.mp4"
     concatenate(all_clips, no_music_path, w, h, _fps)
-    print(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
+    _log(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
 
     # Phase 2b: Build speech audio track using Timeline as single source of truth
     from .timeline import Timeline
@@ -294,7 +295,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
         speech_audio_path = output_dir / f"vlog_v{version}_speech.wav"
         build_speech_track(speech_clips, video_dur, speech_audio_path)
-        print(f"Speech track: {len(speech_clips)} clips at "
+        _log(f"Speech track: {len(speech_clips)} clips at "
               f"{', '.join(f'{o:.1f}s' for o, _ in speech_clips)}")
 
     speech_ranges = tl.speech_ranges()
@@ -308,7 +309,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     if edl.music and Path(edl.music.file).exists():
         music_dur = probe_duration(Path(edl.music.file))
         video_dur = probe_duration(no_music_path)
-        print(f"Mixing music: video={video_dur:.1f}s, music={music_dur:.1f}s, "
+        _log(f"Mixing music: video={video_dur:.1f}s, music={music_dur:.1f}s, "
               f"volume={edl.music.volume}, fade_in={edl.music.fade_in}s, fade_out={edl.music.fade_out}s")
         add_music(no_music_path, edl.music, output_path,
                   speech_ranges=speech_ranges, speech_audio=speech_audio_path)
@@ -330,11 +331,11 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
         speech_audio_path.unlink(missing_ok=True)
     else:
         shutil.move(str(no_music_path), str(output_path))
-    print(f"Phase 3 (audio): {time.monotonic() - t3:.1f}s")
+    _log(f"Phase 3 (audio): {time.monotonic() - t3:.1f}s")
 
     duration = probe_duration(output_path)
     total_time = time.monotonic() - t1
-    print(f"Done: {output_path} ({duration:.1f}s, rendered in {total_time:.0f}s)")
+    _log(f"Done: {output_path} ({duration:.1f}s, rendered in {total_time:.0f}s)")
 
     # Generate YouTube chapter markers (using Timeline offsets)
     chapters_path = output_dir / f"chapters_v{version}.txt"
@@ -347,25 +348,25 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     warnings = [i for i in validation_issues if i["level"] == "warning"]
 
     if warnings:
-        print(f"Validation: {len(warnings)} warning(s)")
+        _log(f"Validation: {len(warnings)} warning(s)")
         for issue in warnings:
-            print(f"  WARNING [{issue['check']}]: {issue['message']}")
+            _log(f"  WARNING [{issue['check']}]: {issue['message']}")
     if errors:
-        print(f"Validation: {len(errors)} error(s)")
+        _log(f"Validation: {len(errors)} error(s)")
         for issue in errors:
-            print(f"  ERROR [{issue['check']}]: {issue['message']}")
+            _log(f"  ERROR [{issue['check']}]: {issue['message']}")
         raise RuntimeError(
             f"Output validation failed with {len(errors)} error(s): "
             + "; ".join(i["message"] for i in errors)
         )
 
     if not validation_issues:
-        print("Validation: all checks passed")
+        _log("Validation: all checks passed")
 
     # Clean up file handler
     ffmpeg_log.removeHandler(_fh)
     _fh.close()
-    print(f"FFmpeg commands logged to: {log_path}")
+    _log(f"FFmpeg commands logged to: {log_path}")
 
     return output_path, validation_issues
 
