@@ -36,11 +36,13 @@ def _setup_logging(run_name: str) -> logging.Logger:
     console.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S"))
     logger.addHandler(console)
 
-    # File
+    # File — one log per run, timestamped
     from pipeline.config import Config
     log_dir = Path(Config.run_workspace(run_name=run_name))
     log_dir.mkdir(parents=True, exist_ok=True)
-    fh = logging.FileHandler(log_dir / "run.log", mode="a", encoding="utf-8")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = log_dir / f"run_{ts}.log"
+    fh = logging.FileHandler(log_file, mode="w", encoding="utf-8")
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
     logger.addHandler(fh)

@@ -204,7 +204,7 @@ def _gemini_call(
             temperature=0.7,
             media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
             thinking_config=types.ThinkingConfig(
-                thinking_level="HIGH",
+                thinking_level="MINIMAL",
             ),
         ),
     )
@@ -577,8 +577,7 @@ def _build_visual_content_blocks(
             global_idx += n_items
 
     # Build one concatenated mega-preview from all video previews
-    # TODO: re-enable after photos-only iteration works
-    if False and video_entries:
+    if video_entries:
         mega_path = preview_dir / "_mega_preview.mp4"
         offset_table, mega_path = _concat_previews(video_entries, mega_path, _log)
 
