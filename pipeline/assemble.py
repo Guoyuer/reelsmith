@@ -493,30 +493,41 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
                 "transition": "fade_black", "transition_duration": 1.0,
             })
 
-    # Build Timeline — single source of truth for all clip timing
-    # Timeline replicates _concatenate's exact segment-level xfade logic
-    from .timeline import Timeline
-    tl = Timeline.build(all_clips)
-    tl.dump(log_fn=print)
-
     # Phase 2: Concatenate with transitions (video only)
     t2 = time.monotonic()
     print(f"Concatenating {len(all_clips)} clips...")
     no_music_path = output_dir / f"vlog_v{version}_nomix.mp4"
-    _concatenate(all_clips, no_music_path, timeline=tl)
+    _concatenate(all_clips, no_music_path)
     print(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
 
-    # Phase 2b: Build speech audio track using Timeline offsets
+    # Phase 2b: Build speech audio track
+    # Use ACTUAL rendered clip positions by probing group durations,
+    # not mathematical estimates (which drift due to xfade frame rounding).
     speech_audio_path = None
-    speech_entries = tl.speech_entries()
-    speech_ranges = tl.speech_ranges()
-    if speech_entries:
+    speech_ka_indices = [i for i, c in enumerate(all_clips) if c.get("keep_audio")]
+    if speech_ka_indices:
+        # Compute actual clip offsets from rendered group durations
+        actual_offsets = _compute_actual_offsets(all_clips, output_dir)
         video_dur = _probe_duration(no_music_path)
+
+        speech_clips = []
+        speech_ranges = []
+        for i in speech_ka_indices:
+            offset = actual_offsets[i]
+            dur = _probe_duration(all_clips[i]["path"]) or all_clips[i]["duration"]
+            speech_clips.append((offset, all_clips[i]["path"]))
+            speech_ranges.append((offset, offset + dur))
+
         speech_audio_path = output_dir / f"vlog_v{version}_speech.wav"
-        speech_clips = [(e.visible_offset, e.path) for e in speech_entries]
         _build_speech_track(speech_clips, video_dur, speech_audio_path)
-        print(f"Speech track: {len(speech_entries)} clips at "
-              f"{', '.join(f'{e.visible_offset:.1f}s' for e in speech_entries)}")
+        print(f"Speech track: {len(speech_clips)} clips at "
+              f"{', '.join(f'{o:.1f}s' for o, _ in speech_clips)}")
+    else:
+        speech_ranges = []
+
+    # Cleanup temp group files (no longer needed after speech offsets computed)
+    for gf in output_dir.glob("_group_*.mp4"):
+        gf.unlink(missing_ok=True)
 
     # Phase 3: Mix music + speech
     t3 = time.monotonic()
@@ -907,6 +918,81 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
 
 
 
+def _compute_actual_offsets(all_clips: list[dict], output_dir: Path) -> list[float]:
+    """Compute actual clip start times from rendered group files.
+
+    Instead of mathematically estimating xfade durations (which drift),
+    this reads the actual rendered group files and uses their measured
+    durations to compute cumulative offsets.
+    """
+    MAX_GROUP = 10
+
+    # Split into groups (same logic as _concatenate)
+    groups: list[list[int]] = [[0]]  # indices into all_clips
+    for i in range(1, len(all_clips)):
+        should_split = (
+            len(groups[-1]) >= MAX_GROUP
+            or (len(groups[-1]) >= MAX_GROUP - 3
+                and all_clips[i].get("transition") == "fade_black")
+        )
+        if should_split:
+            groups.append([])
+        groups[-1].append(i)
+
+    # For each group, get its actual rendered duration from the group file
+    # (rendered during _concatenate and still on disk, or compute from clips)
+    offsets = [0.0] * len(all_clips)
+    global_offset = 0.0
+
+    for group_indices in groups:
+        # Within each group: xfade offsets
+        # The actual group duration was probed by _concatenate.
+        # For speech placement, we need per-clip offsets within the group.
+        # Use xfade's formula within the group, but anchor to the
+        # measured global_offset (not the computed one).
+        group_clips = [all_clips[i] for i in group_indices]
+        group_durs = [_probe_duration(c["path"]) or c["duration"] for c in group_clips]
+
+        if len(group_indices) == 1:
+            offsets[group_indices[0]] = global_offset
+            global_offset += group_durs[0]
+        else:
+            # Within-group xfade: replicate _concat_xfade's offset math
+            local_offset = 0.0
+            for pos, idx in enumerate(group_indices):
+                td = all_clips[idx].get("transition_duration", 0.0)
+                if all_clips[idx].get("transition") == "cut" or pos == 0:
+                    td = 0.0  # first clip in group has td stripped by _concatenate
+
+                if pos == 0:
+                    offsets[idx] = global_offset
+                elif pos == 1:
+                    local_offset = group_durs[0] - td
+                    offsets[idx] = global_offset + local_offset
+                else:
+                    offsets[idx] = global_offset + local_offset
+
+                if pos >= 1:
+                    local_offset += group_durs[pos] - td
+
+            # Advance global_offset by the ACTUAL group duration
+            # Use the group file if it exists, otherwise compute
+            gi = groups.index(group_indices)
+            group_file = output_dir / f"_group_{gi}.mp4"
+            if group_file.exists():
+                group_dur = _probe_duration(group_file)
+            else:
+                # Compute: sum of durs minus overlaps
+                group_dur = sum(group_durs)
+                for pos in range(1, len(group_indices)):
+                    td = all_clips[group_indices[pos]].get("transition_duration", 0.0)
+                    if all_clips[group_indices[pos]].get("transition") != "cut":
+                        group_dur -= td
+            global_offset += group_dur
+
+    return offsets
+
+
 def _concatenate(clips: list[dict], output_path: Path, timeline=None) -> None:
     """Concatenate clips with transitions (video only). Speech handled separately.
 
@@ -990,11 +1076,8 @@ def _concatenate(clips: list[dict], output_path: Path, timeline=None) -> None:
         print(f"  Joining {len(group_files)} groups via demuxer...")
         _concat_demuxer(group_files, output_path)
 
-    # Cleanup temp group files
-    for gf in group_files:
-        p = gf["path"]
-        if p.name.startswith("_group_"):
-            p.unlink(missing_ok=True)
+    # Keep group files — needed by _compute_actual_offsets for speech sync.
+    # Cleaned up after speech track is built.
 
 
 def _concat_demuxer(clips: list[dict], output_path: Path) -> None:
