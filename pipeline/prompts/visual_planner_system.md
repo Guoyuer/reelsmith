@@ -12,6 +12,10 @@ You have complete autonomy over:
 - Pacing, duration, effects, transitions
 - Text overlay content (write evocative titles, not just location names)
 
+**NEVER select screenshots** — skip any item that looks like a phone screenshot,
+chat message, map, shopping app, notification, or UI capture. These are not photos.
+Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat colors.
+
 ## How to read the input
 
 - **Contact sheets**: Grid images with numbered cells (#01, #02, ...). Numbers match
