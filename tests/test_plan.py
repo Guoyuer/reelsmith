@@ -154,16 +154,18 @@ class TestVisualSystemPrompt:
 # ---------------------------------------------------------------------------
 
 class TestBuildVisualChapterText:
-    def test_returns_text_photos_videos(self):
-        text, photos, videos = _build_visual_chapter_text(
+    def test_returns_text_photos_labels_videos(self):
+        text, photos, labels, videos = _build_visual_chapter_text(
             SAMPLE_CHAPTER, SAMPLE_DAY, SAMPLE_ANALYSIS, start_idx=1,
         )
         assert isinstance(text, str)
         assert isinstance(photos, list)
+        assert isinstance(labels, list)
         assert isinstance(videos, list)
+        assert len(labels) == len(photos)
 
     def test_header_contains_day_and_location(self):
-        text, _, _ = _build_visual_chapter_text(
+        text, _, _, _ = _build_visual_chapter_text(
             SAMPLE_CHAPTER, SAMPLE_DAY, SAMPLE_ANALYSIS, start_idx=1,
         )
         assert "Friday" in text
@@ -171,33 +173,43 @@ class TestBuildVisualChapterText:
         assert "Marina Bay" in text
 
     def test_separates_photos_and_videos(self):
-        _, photos, videos = _build_visual_chapter_text(
+        _, photos, labels, videos = _build_visual_chapter_text(
             SAMPLE_CHAPTER, SAMPLE_DAY, SAMPLE_ANALYSIS, start_idx=1,
         )
         assert len(photos) == 2  # items 1 and 3 are photos
         assert len(videos) == 1  # item 2 is video
 
+    def test_labels_skip_video_numbers(self):
+        """Photo labels must match text metadata, skipping video indices."""
+        # Items: 1(photo), 2(video), 3(photo) starting at idx=1
+        # Text: #01=photo1, #02=video2, #03=photo3
+        # Photo labels should be: ["#01", "#03"] — skipping #02 (video)
+        _, _, labels, _ = _build_visual_chapter_text(
+            SAMPLE_CHAPTER, SAMPLE_DAY, SAMPLE_ANALYSIS, start_idx=1,
+        )
+        assert labels == ["#01", "#03"]
+
     def test_family_label_for_tier_a(self):
-        text, _, _ = _build_visual_chapter_text(
+        text, _, _, _ = _build_visual_chapter_text(
             SAMPLE_CHAPTER, SAMPLE_DAY, SAMPLE_ANALYSIS, start_idx=1,
         )
         assert "family together" in text
         assert "Alice" in text
 
     def test_video_duration_included(self):
-        text, _, _ = _build_visual_chapter_text(
+        text, _, _, _ = _build_visual_chapter_text(
             SAMPLE_CHAPTER, SAMPLE_DAY, SAMPLE_ANALYSIS, start_idx=1,
         )
         assert "video=45s" in text
 
     def test_location_included(self):
-        text, _, _ = _build_visual_chapter_text(
+        text, _, _, _ = _build_visual_chapter_text(
             SAMPLE_CHAPTER, SAMPLE_DAY, SAMPLE_ANALYSIS, start_idx=1,
         )
         assert "at=Marina Bay" in text
 
     def test_exif_included(self):
-        text, _, _ = _build_visual_chapter_text(
+        text, _, _, _ = _build_visual_chapter_text(
             SAMPLE_CHAPTER, SAMPLE_DAY, SAMPLE_ANALYSIS, start_idx=1,
         )
         assert "24mm" in text
@@ -205,13 +217,13 @@ class TestBuildVisualChapterText:
         assert "ISO100" in text
 
     def test_path_included(self):
-        text, _, _ = _build_visual_chapter_text(
+        text, _, _, _ = _build_visual_chapter_text(
             SAMPLE_CHAPTER, SAMPLE_DAY, SAMPLE_ANALYSIS, start_idx=1,
         )
         assert "path=/media/1_IMG_001.jpg" in text
 
     def test_numbering_starts_at_start_idx(self):
-        text, _, _ = _build_visual_chapter_text(
+        text, _, _, _ = _build_visual_chapter_text(
             SAMPLE_CHAPTER, SAMPLE_DAY, SAMPLE_ANALYSIS, start_idx=10,
         )
         assert "#10:" in text
@@ -219,13 +231,14 @@ class TestBuildVisualChapterText:
 
     def test_missing_item_skipped(self):
         chapter = {"item_ids": [1, 999], "location": "X", "time_block": "morning"}
-        text, photos, _ = _build_visual_chapter_text(
+        _, photos, labels, _ = _build_visual_chapter_text(
             chapter, SAMPLE_DAY, SAMPLE_ANALYSIS, start_idx=1,
         )
-        assert len(photos) == 1  # only item 1 exists
+        assert len(photos) == 1
+        assert len(labels) == 1
 
     def test_media_count_in_header(self):
-        text, _, _ = _build_visual_chapter_text(
+        text, _, _, _ = _build_visual_chapter_text(
             SAMPLE_CHAPTER, SAMPLE_DAY, SAMPLE_ANALYSIS, start_idx=1,
         )
         assert "2 photos" in text

@@ -270,6 +270,7 @@ def _build_visual_chapter_text(
     """
     lines = []
     photo_paths = []
+    photo_labels = []  # matching labels for contact sheet (same index as photo_paths)
     video_items = []
     idx = start_idx
 
@@ -304,7 +305,6 @@ def _build_visual_chapter_text(
             parts.append(f"at={item_loc}")
 
         if media == "video":
-            # Prefer ffprobe duration over manifest duration_ms
             dur = a.get("video_duration") or (a.get("duration_ms", 0) / 1000)
             dur_s = f"{dur:.0f}s" if dur else "?"
             parts.append(f"video={dur_s}")
@@ -322,6 +322,7 @@ def _build_visual_chapter_text(
                 if exif_parts:
                     parts.append(" ".join(exif_parts))
             photo_paths.append(Path(local_path))
+            photo_labels.append(label)  # keep label in sync with photo_paths
 
         parts.append(f"path={local_path}")
         lines.append(" ".join(parts))
@@ -335,7 +336,7 @@ def _build_visual_chapter_text(
     media_note = f"{n_photos} photos" + (f", {n_vids} videos" if n_vids else "")
     header = f"\n--- {day['day_name']} {day['date']}, {block} near {loc} ({media_note}) ---"
     text = header + "\n" + "\n".join(lines)
-    return text, photo_paths, video_items
+    return text, photo_paths, photo_labels, video_items
 
 
 
@@ -424,7 +425,7 @@ def _build_visual_content_blocks(
 
     for day in preprocessed["timeline"]:
         for chapter in day["chapters"]:
-            text, photo_paths, video_items = _build_visual_chapter_text(
+            text, photo_paths, photo_labels, video_items = _build_visual_chapter_text(
                 chapter, day, analysis_by_id, global_idx,
             )
             n_items = len(photo_paths) + len(video_items)
@@ -433,7 +434,7 @@ def _build_visual_content_blocks(
 
             blocks.append(text)
 
-            # Contact sheet for photos
+            # Contact sheet for photos — labels must match text metadata numbering
             if photo_paths:
                 thumb_paths = []
                 for p in photo_paths:
@@ -444,14 +445,15 @@ def _build_visual_content_blocks(
                 sheet_name = f"{day['date']}_{chapter.get('time_block', 'x')}_{loc_safe}.jpg"
                 sheet_path = sheets_dir / sheet_name
 
-                max_per_sheet = 6
+                max_per_sheet = 12
                 sheet_idx = 0
                 for chunk_start in range(0, len(thumb_paths), max_per_sheet):
                     chunk = thumb_paths[chunk_start:chunk_start + max_per_sheet]
-                    chunk_labels = [f"#{global_idx + chunk_start + i:02d}" for i in range(len(chunk))]
+                    chunk_labels = photo_labels[chunk_start:chunk_start + len(chunk)]
                     s_path = sheets_dir / f"{sheet_name.replace('.jpg', '')}_{sheet_idx}.jpg" if len(thumb_paths) > max_per_sheet else sheet_path
-                    make_contact_sheet(chunk, s_path, cell_size=600, columns=3, labels=chunk_labels)
-                    _log(f"Contact sheet: {s_path.name} ({len(chunk)} photos)")
+                    if not s_path.exists():
+                        make_contact_sheet(chunk, s_path, cell_size=600, columns=4, labels=chunk_labels)
+                        _log(f"Contact sheet: {s_path.name} ({len(chunk)} photos)")
                     blocks.append({
                         "type": "image_bytes",
                         "mime_type": "image/jpeg",
