@@ -36,7 +36,7 @@ class TestConfigLoadDefaults:
         expected_base = tmp_path / "workspace"
         assert cfg.media_dir == expected_base / "media"
         assert cfg.cache_dir == expected_base / "analysis_cache"
-        assert cfg.keyframes_dir == expected_base / "keyframes"
+        assert cfg.thumbnails_dir == expected_base / "thumbnails"
 
     @patch.dict(os.environ, {}, clear=True)
     def test_custom_workspace_uses_self_for_shared(self, tmp_path: Path):
@@ -78,7 +78,10 @@ class TestEnsureDirs:
         assert (Path(ws) / "output").is_dir()
         assert cfg.media_dir.is_dir()
         assert cfg.cache_dir.is_dir()
-        assert cfg.keyframes_dir.is_dir()
+        assert cfg.thumbnails_dir.is_dir()
+        assert cfg.contact_sheets_dir.is_dir()
+        assert cfg.preview_clips_dir.is_dir()
+        assert cfg.music_dir.is_dir()
 
     @patch.dict(os.environ, {}, clear=True)
     def test_idempotent(self, tmp_path: Path):

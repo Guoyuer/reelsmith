@@ -175,7 +175,6 @@ def mock_config(tmp_path: Path) -> Config:
         workspace=tmp_path / "workspace",
         media_dir=tmp_path / "workspace" / "media",
         cache_dir=tmp_path / "workspace" / "analysis_cache",
-        keyframes_dir=tmp_path / "workspace" / "keyframes",
     )
     cfg.ensure_dirs()
     return cfg

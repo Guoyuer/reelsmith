@@ -14,7 +14,6 @@ class Config:
     # Shared directories (across all runs)
     media_dir: Path = Path("./workspace/media")
     cache_dir: Path = Path("./workspace/analysis_cache")
-    keyframes_dir: Path = Path("./workspace/keyframes")
     thumbnails_dir: Path = Path("./workspace/thumbnails")
     contact_sheets_dir: Path = Path("./workspace/contact_sheets")
     preview_clips_dir: Path = Path("./workspace/preview_clips")
@@ -38,7 +37,6 @@ class Config:
             workspace=ws,
             media_dir=base / "media",
             cache_dir=base / "analysis_cache",
-            keyframes_dir=base / "keyframes",
             thumbnails_dir=base / "thumbnails",
             contact_sheets_dir=base / "contact_sheets",
             preview_clips_dir=base / "preview_clips",
@@ -52,7 +50,6 @@ class Config:
             self.workspace / "output",
             self.media_dir,
             self.cache_dir,
-            self.keyframes_dir,
             self.thumbnails_dir,
             self.contact_sheets_dir,
             self.preview_clips_dir,
