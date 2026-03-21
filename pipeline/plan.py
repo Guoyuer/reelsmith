@@ -378,13 +378,12 @@ def _has_dense_keyframes(source: Path, duration: float) -> bool:
 
 def _generate_video_previews(
     video_items: list[dict], preview_dir: Path, log_fn=None,
-    *, vid_id_to_num: dict[str, int] | None = None,
 ) -> None:
     """Generate one full-length preview per video (360p 1fps + audio).
 
     Gemini processes video at 1fps internally — sending 1fps means zero
     wasted frames. Full-length means 100% coverage (vs 71% with clips).
-    Burns item number (#XX) into video for Gemini to match with text metadata.
+    Labels are burned during mega-preview concat, not here (keeps cache stable).
     """
     import os
     from .media_utils import run_subprocess
@@ -397,10 +396,13 @@ def _generate_video_previews(
     encoder = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "40"]
     max_workers = max(4, (os.cpu_count() or 4) // 2)
 
-    # Clean orphaned previews from previous runs (different ID schemes)
+    # Clean orphaned previews from previous runs
     current_ids = {str(vi["id"]) for vi in video_items}
     for old in preview_dir.glob("preview_*.mp4"):
-        pid = old.stem.replace("preview_", "")
+        if old.name.startswith("_"):
+            continue  # skip _mega_preview
+        # Extract vid_id from preview_{vid_id}.mp4 or legacy preview_{vid_id}_n{num}.mp4
+        pid = old.stem.replace("preview_", "").split("_n")[0]
         if pid not in current_ids:
             old.unlink()
 
@@ -412,15 +414,6 @@ def _generate_video_previews(
         if not source.exists() or dur <= 0:
             continue
 
-        # Label: burn item number into video if mapping available
-        item_num = (vid_id_to_num or {}).get(str(vid_id))
-        label_filter = ""
-        if item_num is not None:
-            label_text = f"\\#%d" % item_num  # escaped for FFmpeg
-            label_filter = (f",drawtext=text='{label_text}'"
-                           f":fontsize=28:fontcolor=yellow"
-                           f":box=1:boxcolor=black@0.8:boxborderw=6:x=8:y=6")
-
         preview_path = preview_dir / f"preview_{vid_id}.mp4"
         if not preview_path.exists():
             # Use -skip_frame nokey when keyframe interval <= 2s (most phone/drone videos).
@@ -430,7 +423,7 @@ def _generate_video_previews(
                 "ffmpeg", "-y",
                 "-hwaccel", "auto", *skip,
                 "-i", str(source),
-                "-vf", f"fps=1,scale=360:-2{label_filter}",
+                "-vf", "fps=1,scale=360:-2",
                 *encoder,
                 "-c:a", "aac", "-b:a", "64k", "-ac", "1",
                 str(preview_path),
@@ -462,39 +455,55 @@ def _concat_previews(
     output_path: Path,
     log_fn=None,
 ) -> tuple[list[tuple[int, float, float]], Path]:
-    """Concatenate video previews into one mega-preview via FFmpeg concat demuxer.
+    """Concatenate video previews into one mega-preview with burned-in labels.
 
-    Returns (offset_table, output_path) where offset_table is
-    [(item_num, original_duration, offset_in_mega), ...].
+    Each clip is re-encoded with its #XX label, then concatenated.
+    Re-encoding also fixes 1fps timestamp bugs (concat demuxer -c copy fails).
+
+    Returns (offset_table, output_path).
     """
     import tempfile
     from .media_utils import run_subprocess
 
     _log = log_fn or print
+    tmp_dir = Path(tempfile.mkdtemp(prefix="mega_"))
 
-    # Build concat list file with explicit durations (prevents timestamp drift)
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-        for _, dur, preview_path in video_entries:
-            safe_path = str(preview_path.resolve()).replace("\\", "/")
-            f.write(f"file '{safe_path}'\n")
+    # Step 1: Re-encode each clip with label (parallel-safe, fast at 360p 1fps)
+    _log(f"Labeling {len(video_entries)} previews...")
+    labeled_paths = []
+    for i, (item_num, dur, preview_path) in enumerate(video_entries):
+        labeled = tmp_dir / f"labeled_{i:04d}.mp4"
+        label_text = f"\\#{item_num}"
+        run_subprocess([
+            "ffmpeg", "-y", "-i", str(preview_path),
+            "-vf", (f"drawtext=text='{label_text}'"
+                    f":fontsize=28:fontcolor=yellow"
+                    f":box=1:boxcolor=black@0.8:boxborderw=6:x=8:y=6"),
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "40",
+            "-c:a", "aac", "-b:a", "64k", "-ac", "1",
+            str(labeled),
+        ], capture_output=True, timeout=30)
+        labeled_paths.append((labeled, dur))
+        if (i + 1) % 20 == 0 or i + 1 == len(video_entries):
+            _log(f"  Labeled: {i + 1}/{len(video_entries)}")
+
+    # Step 2: Concat labeled clips (copy mode is safe after re-encode)
+    list_file = tmp_dir / "concat.txt"
+    with open(list_file, "w") as f:
+        for labeled, dur in labeled_paths:
+            safe = str(labeled.resolve()).replace("\\", "/")
+            f.write(f"file '{safe}'\n")
             f.write(f"duration {dur}\n")
-        list_path = f.name
 
-    try:
-        _log(f"Concatenating {len(video_entries)} previews into mega-preview...")
-        # Re-encode (not -c copy) — 1fps videos have timestamp bugs with concat demuxer copy mode
-        result = run_subprocess(
-            ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-             "-i", list_path,
-             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "40",
-             "-c:a", "aac", "-b:a", "64k", "-ac", "1",
-             str(output_path)],
-            capture_output=True, timeout=300,
-        )
-        if result.returncode != 0:
-            _log(f"  WARNING: concat failed: {(result.stderr or b'').decode()[-300:]}")
-    finally:
-        Path(list_path).unlink(missing_ok=True)
+    _log(f"Concatenating into mega-preview...")
+    run_subprocess([
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+        "-i", str(list_file), "-c", "copy", str(output_path),
+    ], capture_output=True, timeout=120)
+
+    # Cleanup temp files
+    import shutil
+    shutil.rmtree(tmp_dir, ignore_errors=True)
 
     # Build offset table
     offset = 0.0
@@ -506,7 +515,7 @@ def _concat_previews(
     size_mb = output_path.stat().st_size / 1024 / 1024 if output_path.exists() else 0
     _log(f"  Mega-preview: {len(video_entries)} videos, {offset:.0f}s total, {size_mb:.1f}MB")
 
-    # Validate: actual duration must match expected
+    # Validate duration
     if output_path.exists():
         r = run_subprocess(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -516,8 +525,7 @@ def _concat_previews(
         actual_dur = float(r.stdout.strip()) if r.stdout.strip() else 0
         if abs(actual_dur - offset) > 5:
             raise RuntimeError(
-                f"Mega-preview duration mismatch: expected {offset:.0f}s, got {actual_dur:.0f}s. "
-                f"Concat demuxer timestamp bug."
+                f"Mega-preview duration mismatch: expected {offset:.0f}s, got {actual_dur:.0f}s"
             )
         _log(f"  Duration verified: {actual_dur:.0f}s (expected {offset:.0f}s)")
 
@@ -544,19 +552,7 @@ def _build_visual_content_blocks(
 
     global_idx = 1  # continuous numbering across chapters
 
-    # Pre-compute vid_id → item_num mapping (must match text metadata numbering)
-    vid_id_to_num: dict[str, int] = {}
-    idx = 1
-    for day in preprocessed["timeline"]:
-        for chapter in day["chapters"]:
-            ids = chapter.get("item_ids", [])
-            for item_id in ids:
-                a = analysis_by_id.get(str(item_id))
-                if a and a.get("media_type") == "video":
-                    vid_id_to_num[str(a["id"])] = idx
-                idx += 1
-
-    # Pre-generate ALL video previews with burned-in labels
+    # Pre-generate ALL video previews (no labels — labels added during concat)
     all_video_items = []
     for day in preprocessed["timeline"]:
         for chapter in day["chapters"]:
@@ -565,7 +561,7 @@ def _build_visual_content_blocks(
                 if a and a.get("media_type") == "video":
                     all_video_items.append(a)
     if all_video_items:
-        _generate_video_previews(all_video_items, preview_dir, _log, vid_id_to_num=vid_id_to_num)
+        _generate_video_previews(all_video_items, preview_dir, _log)
 
     for day in preprocessed["timeline"]:
         for chapter in day["chapters"]:
