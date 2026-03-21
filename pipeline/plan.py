@@ -432,15 +432,8 @@ def _build_visual_chapter_text(
     return text, photo_paths, video_items
 
 
-_PREVIEW_ENCODER_CACHE: list[str] | None = None
-
-
 def _preview_encoder(log_fn=None) -> list[str]:
     """Encoder for 480p preview clips. Prefers NVENC GPU, falls back to CPU."""
-    global _PREVIEW_ENCODER_CACHE
-    if _PREVIEW_ENCODER_CACHE is not None:
-        return _PREVIEW_ENCODER_CACHE
-
     _log = log_fn or (lambda x: None)
     from .media_utils import run_subprocess
     try:
@@ -450,15 +443,13 @@ def _preview_encoder(log_fn=None) -> list[str]:
             capture_output=True, text=True,
         )
         if test.returncode == 0:
-            _PREVIEW_ENCODER_CACHE = ["-c:v", "hevc_nvenc", "-preset", "fast", "-cq", "28"]
             _log("Preview encoder: HEVC NVENC")
-            return _PREVIEW_ENCODER_CACHE
+            return ["-c:v", "hevc_nvenc", "-preset", "fast", "-cq", "28"]
         _log(f"NVENC test failed (rc={test.returncode}): {(test.stderr or '')[-100:]}")
     except Exception as e:
         _log(f"NVENC test error: {e}")
-    _PREVIEW_ENCODER_CACHE = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "28"]
     _log("Preview encoder: CPU (libx264)")
-    return _PREVIEW_ENCODER_CACHE
+    return ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "28"]
 
 
 import signal
