@@ -202,11 +202,21 @@ def make_contact_sheet(
             import warnings
             warnings.warn(f"Contact sheet: could not load {img_path}: {e}")
 
-        # Draw label
+        # Draw label — large, high-contrast, top-left corner for visibility
         label = labels[idx] if idx < len(labels) else ""
         if label:
-            draw.rectangle([x, y + cell_size - 20, x + 40, y + cell_size], fill=(0, 0, 0, 180))
-            draw.text((x + 4, y + cell_size - 18), label, fill="white")
+            # Use a larger font if available
+            try:
+                from PIL import ImageFont
+                font = ImageFont.truetype("arial.ttf", 20)
+            except (OSError, ImportError):
+                font = ImageDraw.getfont()
+            bbox = draw.textbbox((0, 0), label, font=font)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            pad = 4
+            draw.rectangle([x, y, x + tw + pad * 2, y + th + pad * 2],
+                           fill=(0, 0, 0, 200))
+            draw.text((x + pad, y + pad), label, fill="yellow", font=font)
 
     sheet.save(output_path, "JPEG", quality=88)
     return output_path
