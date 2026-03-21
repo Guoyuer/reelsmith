@@ -433,8 +433,18 @@ def _build_visual_chapter_text(
 
 
 def _preview_encoder() -> list[str]:
-    """Encoder for 480p preview clips. Uses CPU — fast enough at this resolution
-    and avoids NVENC session limits when generating hundreds of clips in parallel."""
+    """Encoder for 480p preview clips. Prefers NVENC GPU, falls back to CPU."""
+    from .media_utils import run_subprocess
+    try:
+        test = run_subprocess(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=s=480x270:d=0.1:r=15",
+             "-c:v", "h264_nvenc", "-preset", "fast", "-f", "null", "-"],
+            capture_output=True, text=True,
+        )
+        if test.returncode == 0:
+            return ["-c:v", "h264_nvenc", "-preset", "fast", "-cq", "28"]
+    except Exception:
+        pass
     return ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "28"]
 
 
@@ -448,7 +458,10 @@ def _generate_video_clips_parallel(
 
     _log = log_fn or print
     encoder = _preview_encoder()
-    max_workers = max(2, (os.cpu_count() or 4) // 2)
+    is_nvenc = "nvenc" in str(encoder)
+    # NVENC: limit to 2 workers (consumer GPUs have 3-5 session limit,
+    # leave headroom for other processes). CPU: use half of cores.
+    max_workers = 2 if is_nvenc else max(2, (os.cpu_count() or 4) // 2)
 
     # Build list of (clip_path, ffmpeg_cmd) for clips that need generating
     tasks: list[tuple[Path, list[str]]] = []
