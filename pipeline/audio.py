@@ -257,26 +257,38 @@ def add_music(video_path: Path, music, output_path: Path, *,
     run_subprocess(cmd, capture_output=True)
 
 
-def write_chapters(edl: EDL, clips: list[dict], out_path: Path) -> None:
-    """Write YouTube-compatible chapter markers from EDL segments."""
-    lines = []
-    offset = 0.0
-    clip_idx = 0
+def write_chapters(edl: EDL, all_clips: list[dict], out_path: Path,
+                    timeline=None) -> None:
+    """Write YouTube-compatible chapter markers from EDL segments.
 
-    has_intro = edl.intro_style != "none"
-    if has_intro and clips:
-        offset = clips[0]["duration"]
-        clip_idx = 1
-
-    for seg in edl.segments:
-        minutes = int(offset) // 60
-        seconds = int(offset) % 60
-        lines.append(f"{minutes}:{seconds:02d} {seg.name}")
-        for item in seg.items:
-            if clip_idx < len(clips):
-                td = clips[clip_idx].get("transition_duration", 0.0)
-                offset += clips[clip_idx]["duration"] - td
-                clip_idx += 1
+    Uses Timeline offsets when available (single source of truth).
+    Falls back to clip-based accumulation if no timeline provided.
+    """
+    if timeline is not None:
+        chapters = timeline.chapter_offsets(edl, all_clips)
+        lines = []
+        for offset, name in chapters:
+            minutes = int(offset) // 60
+            seconds = int(offset) % 60
+            lines.append(f"{minutes}:{seconds:02d} {name}")
+    else:
+        # Fallback: accumulate from clip durations
+        lines = []
+        offset = 0.0
+        clip_idx = 0
+        has_intro = edl.intro_style != "none"
+        if has_intro and all_clips:
+            offset = all_clips[0]["duration"]
+            clip_idx = 1
+        for seg in edl.segments:
+            minutes = int(offset) // 60
+            seconds = int(offset) % 60
+            lines.append(f"{minutes}:{seconds:02d} {seg.name}")
+            for item in seg.items:
+                if clip_idx < len(all_clips):
+                    td = all_clips[clip_idx].get("transition_duration", 0.0)
+                    offset += all_clips[clip_idx]["duration"] - td
+                    clip_idx += 1
 
     out_path.write_text("\n".join(lines))
     print(f"YouTube chapters: {out_path.name} ({len(lines)} chapters)")

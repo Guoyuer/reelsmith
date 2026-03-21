@@ -16,7 +16,7 @@ from typing import Literal
 from tqdm import tqdm
 
 from .audio import add_music, beat_snap_edl, build_speech_track, estimate_bpm, write_chapters
-from .concat import compute_actual_offsets, concat_xfade, concatenate
+from .concat import concatenate
 from .config import Config
 from .edl import EDL, EditItem
 from .encoder import (
@@ -271,30 +271,31 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     t2 = time.monotonic()
     print(f"Concatenating {len(all_clips)} clips...")
     no_music_path = output_dir / f"vlog_v{version}_nomix.mp4"
-    concatenate(all_clips, no_music_path)
+    concatenate(all_clips, no_music_path, w, h, _fps)
     print(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
 
-    # Phase 2b: Build speech audio track
+    # Phase 2b: Build speech audio track using Timeline as single source of truth
+    from .timeline import Timeline
+
+    # Build timeline with MEASURED group durations (fixes speech sync drift)
+    tl = Timeline.build_actual(all_clips, output_dir)
+    tl.dump(log_fn=print)
+
     speech_audio_path = None
     speech_ka_indices = [i for i, c in enumerate(all_clips) if c.get("keep_audio")]
     if speech_ka_indices:
-        actual_offsets = compute_actual_offsets(all_clips, output_dir)
         video_dur = probe_duration(no_music_path)
 
         speech_clips = []
-        speech_ranges = []
-        for i in speech_ka_indices:
-            offset = actual_offsets[i]
-            dur = probe_duration(all_clips[i]["path"]) or all_clips[i]["duration"]
-            speech_clips.append((offset, all_clips[i]["path"]))
-            speech_ranges.append((offset, offset + dur))
+        for e in tl.speech_entries():
+            speech_clips.append((e.video_offset, e.path))
 
         speech_audio_path = output_dir / f"vlog_v{version}_speech.wav"
         build_speech_track(speech_clips, video_dur, speech_audio_path)
         print(f"Speech track: {len(speech_clips)} clips at "
               f"{', '.join(f'{o:.1f}s' for o, _ in speech_clips)}")
-    else:
-        speech_ranges = []
+
+    speech_ranges = tl.speech_ranges()
 
     # Cleanup temp group files
     for gf in output_dir.glob("_group_*.mp4"):
@@ -333,9 +334,9 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     total_time = time.monotonic() - t1
     print(f"Done: {output_path} ({duration:.1f}s, rendered in {total_time:.0f}s)")
 
-    # Generate YouTube chapter markers
+    # Generate YouTube chapter markers (using Timeline offsets)
     chapters_path = output_dir / f"chapters_v{version}.txt"
-    write_chapters(edl, all_clips, chapters_path)
+    write_chapters(edl, all_clips, chapters_path, timeline=tl)
 
     # Phase 4: Validate output
     has_speech = bool(speech_ka_indices)

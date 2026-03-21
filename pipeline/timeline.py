@@ -29,29 +29,51 @@ class TimelineEntry:
     end_time: float = 0.0              # when clip ends in the timeline
 
 
+MAX_GROUP = 10
+
+
+def _partition_indices(entries: list[TimelineEntry]) -> list[list[int]]:
+    """Partition entry indices into groups of <= MAX_GROUP.
+
+    Shared by Timeline.build and Timeline.build_actual so group boundaries
+    are always identical to concat.py's _partition_into_groups.
+    """
+    if not entries:
+        return []
+    groups: list[list[int]] = [[0]]
+    for i in range(1, len(entries)):
+        should_split = (
+            len(groups[-1]) >= MAX_GROUP
+            or (len(groups[-1]) >= MAX_GROUP - 3
+                and entries[i].transition == "fade_black")
+        )
+        if should_split:
+            groups.append([])
+        groups[-1].append(i)
+    return groups
+
+
 @dataclass
 class Timeline:
     """Ordered list of clips with computed timing.
 
-    Build once from all_clips, then use for all offset-dependent operations.
+    Build once from all_clips, then use for all offset-dependent operations:
+    - concat_xfade: video_offset per entry
+    - speech track: visible_offset for keep_audio clips
+    - music ducking: speech_ranges()
+    - chapter markers: chapter_offsets()
     """
     entries: list[TimelineEntry] = field(default_factory=list)
 
     @staticmethod
     def build(all_clips: list[dict]) -> "Timeline":
-        """Compute timeline matching _concatenate's exact behavior.
+        """Compute timeline from clip metadata (mathematical estimate).
 
-        _concatenate splits clips into groups at fade_black boundaries.
-        Within each group: xfade (clips overlap by transition_duration).
-        Between groups: demuxer (end-to-end, no overlap).
-
-        For xfade groups, we replicate the exact offset formula from _concat_xfade:
-          offset[1] = dur[0] - td[1]
-          offset[i+1] = offset[i] + dur[i] - td[i]
+        Uses probed clip durations and transition_duration to compute offsets.
+        For more accurate results after rendering, use build_actual().
         """
         tl = Timeline()
 
-        # Probe actual durations
         for i, clip in enumerate(all_clips):
             dur = _probe_dur(clip["path"]) or clip["duration"]
             td = clip.get("transition_duration", 0.0)
@@ -69,83 +91,109 @@ class Timeline:
                 keep_audio=clip.get("keep_audio", False),
             ))
 
-        if len(tl.entries) <= 1:
-            if tl.entries:
-                tl.entries[0].video_offset = 0.0
-                tl.entries[0].visible_offset = 0.0
-                tl.entries[0].end_time = tl.entries[0].actual_duration
-            return tl
+        tl._compute_offsets()
+        return tl
 
-        # Split into groups of ≤15 (same logic as _concatenate)
-        MAX_GROUP = 10
-        groups: list[list[int]] = [[0]]
-        for i in range(1, len(tl.entries)):
-            should_split = (
-                len(groups[-1]) >= MAX_GROUP
-                or (len(groups[-1]) >= MAX_GROUP - 3
-                    and tl.entries[i].transition == "fade_black")
-            )
-            if should_split:
-                groups.append([])
-            groups[-1].append(i)
+    @staticmethod
+    def build_actual(all_clips: list[dict], output_dir: Path) -> "Timeline":
+        """Compute timeline using MEASURED group file durations.
 
-        # Process each group
+        After concatenate() renders group files (_group_0.mp4, etc.),
+        this reads their actual durations instead of estimating mathematically.
+        This fixes speech sync drift caused by xfade frame rounding.
+        """
+        tl = Timeline()
+
+        for i, clip in enumerate(all_clips):
+            dur = _probe_dur(clip["path"]) or clip["duration"]
+            td = clip.get("transition_duration", 0.0)
+            tr = clip.get("transition", "cut")
+            if tr == "cut":
+                td = 0.0
+
+            tl.entries.append(TimelineEntry(
+                index=i,
+                path=clip["path"],
+                actual_duration=dur,
+                edl_duration=clip["duration"],
+                transition=tr,
+                transition_duration=td,
+                keep_audio=clip.get("keep_audio", False),
+            ))
+
+        tl._compute_offsets_actual(output_dir)
+        return tl
+
+    def _compute_offsets(self) -> None:
+        """Compute offsets from clip durations (mathematical estimate)."""
+        if not self.entries:
+            return
+        if len(self.entries) == 1:
+            self.entries[0].video_offset = 0.0
+            self.entries[0].visible_offset = 0.0
+            self.entries[0].end_time = self.entries[0].actual_duration
+            return
+
+        groups = _partition_indices(self.entries)
         global_offset = 0.0
         for group_indices in groups:
-            group_size = len(group_indices)
+            self._compute_group_offsets(group_indices, global_offset)
+            group_dur = sum(self.entries[gi].actual_duration for gi in group_indices)
+            group_overlap = sum(self.entries[gi].transition_duration for gi in group_indices[1:])
+            global_offset = self.entries[group_indices[0]].video_offset + group_dur - group_overlap
 
-            if group_size == 1:
-                # Single clip: no xfade
-                e = tl.entries[group_indices[0]]
-                e.video_offset = global_offset
-                e.visible_offset = global_offset
-                e.end_time = global_offset + e.actual_duration
-                global_offset += e.actual_duration
-                continue
+    def _compute_offsets_actual(self, output_dir: Path) -> None:
+        """Compute offsets using measured group file durations."""
+        if not self.entries:
+            return
+        if len(self.entries) == 1:
+            self.entries[0].video_offset = 0.0
+            self.entries[0].visible_offset = 0.0
+            self.entries[0].end_time = self.entries[0].actual_duration
+            return
 
-            # Multi-clip group: xfade within group
-            # _concatenate sets group[0].transition = "cut", td = 0
-            # Then runs _concat_xfade on the group.
-            # Replicate _concat_xfade's exact offset math:
+        groups = _partition_indices(self.entries)
+        global_offset = 0.0
+        for gi, group_indices in enumerate(groups):
+            self._compute_group_offsets(group_indices, global_offset)
 
-            # First clip in group starts at global_offset
-            first = tl.entries[group_indices[0]]
-            first.video_offset = global_offset
-            first.visible_offset = global_offset
-            first.end_time = global_offset + first.actual_duration
+            # Use ACTUAL rendered group duration if file exists
+            group_file = output_dir / f"_group_{gi}.mp4"
+            if group_file.exists():
+                global_offset += _probe_dur(group_file)
+            else:
+                group_dur = sum(self.entries[idx].actual_duration for idx in group_indices)
+                group_overlap = sum(self.entries[idx].transition_duration for idx in group_indices[1:])
+                global_offset += group_dur - group_overlap
 
-            # xfade offsets within the group (relative to group start)
-            local_offset = 0.0
-            for pos in range(1, group_size):
-                idx = group_indices[pos]
-                e = tl.entries[idx]
-                prev = tl.entries[group_indices[pos - 1]]
-                # td for within-group clips (fade_black was stripped by _concatenate)
-                td = e.transition_duration
+    def _compute_group_offsets(self, group_indices: list[int], global_offset: float) -> None:
+        """Compute per-clip offsets within a single group."""
+        if len(group_indices) == 1:
+            e = self.entries[group_indices[0]]
+            e.video_offset = global_offset
+            e.visible_offset = global_offset
+            e.end_time = global_offset + e.actual_duration
+            return
 
-                if pos == 1:
-                    local_offset = prev.actual_duration - td
-                # else: local_offset already accumulated
+        first = self.entries[group_indices[0]]
+        first.video_offset = global_offset
+        first.visible_offset = global_offset
+        first.end_time = global_offset + first.actual_duration
 
-                e.video_offset = global_offset + local_offset
-                e.visible_offset = e.video_offset + td
-                e.end_time = e.video_offset + e.actual_duration
+        local_offset = 0.0
+        for pos in range(1, len(group_indices)):
+            idx = group_indices[pos]
+            e = self.entries[idx]
+            td = e.transition_duration
 
-                local_offset += e.actual_duration - td
+            if pos == 1:
+                local_offset = first.actual_duration - td
 
-            # Advance global_offset by the group's total rendered duration
-            # group_rendered_dur = local_offset after last clip = final xfade offset + last dur
-            global_offset += local_offset + first.actual_duration
-            # Wait — local_offset starts at dur[0]-td[1] and accumulates dur[i]-td[i].
-            # So local_offset = sum(dur[0..N-1]) - sum(td[1..N-1]) - td[1]
-            # Hmm, this double-counts. Let me just compute:
-            # group_dur = sum(all durs) - sum(all tds except first clip)
-            # first clip's td is 0 (set by _concatenate)
-            group_dur = sum(tl.entries[gi].actual_duration for gi in group_indices)
-            group_overlap = sum(tl.entries[gi].transition_duration for gi in group_indices[1:])
-            global_offset = first.video_offset + group_dur - group_overlap
+            e.video_offset = global_offset + local_offset
+            e.visible_offset = e.video_offset + td
+            e.end_time = e.video_offset + e.actual_duration
 
-        return tl
+            local_offset += e.actual_duration - td
 
     def total_duration(self) -> float:
         """Estimated total duration of the concatenated video."""
@@ -159,11 +207,7 @@ class Timeline:
         return [e for e in self.entries if e.keep_audio]
 
     def speech_ranges(self) -> list[tuple[float, float]]:
-        """Time ranges where speech audio plays (for music ducking).
-
-        Uses visible_offset (after transition) so ducking aligns with
-        when the viewer actually sees/hears the clip.
-        """
+        """Time ranges where speech audio plays (for music ducking)."""
         ranges = []
         for e in self.speech_entries():
             start = e.visible_offset
@@ -171,6 +215,29 @@ class Timeline:
             if end > start:
                 ranges.append((start, end))
         return ranges
+
+    def chapter_offsets(self, edl, all_clips: list[dict]) -> list[tuple[float, str]]:
+        """Compute chapter timestamps from segment boundaries.
+
+        Returns list of (offset_seconds, segment_name) pairs.
+        """
+        chapters = []
+        clip_idx = 0
+
+        # Skip intro clip if present
+        has_intro = edl.intro_style != "none"
+        if has_intro and self.entries:
+            clip_idx = 1
+
+        for seg in edl.segments:
+            if clip_idx < len(self.entries):
+                offset = self.entries[clip_idx].video_offset
+            else:
+                offset = self.total_duration()
+            chapters.append((offset, seg.name))
+            clip_idx += len(seg.items)
+
+        return chapters
 
     def xfade_offsets(self) -> list[float]:
         """Offsets for the xfade filter chain (video_offset per clip)."""
@@ -193,7 +260,3 @@ class Timeline:
         if sr:
             _log(f"Speech: {', '.join(f'{s:.1f}-{e:.1f}s' for s, e in sr)}")
         _log("=== End Timeline ===")
-
-
-
-# _probe_dur is now imported from encoder.probe_duration
