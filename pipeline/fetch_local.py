@@ -8,7 +8,6 @@ the pipeline. Alternative to fetch.py (Synology NAS).
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -38,7 +37,6 @@ def fetch_local(
     if not source.is_dir():
         raise FileNotFoundError(f"Source directory not found: {source}")
 
-    raw_dir = cfg.media_dir
     all_extensions = PHOTO_EXTENSIONS | VIDEO_EXTENSIONS
 
     # Parse date filters
@@ -83,19 +81,11 @@ def fetch_local(
         if date_to and taken_dt > date_to:
             continue
 
-        # Generate a stable ID from the file path
+        # Stable ID from file path (deterministic across runs)
         item_id = abs(hash(str(src_path))) % (10**8)
-
-        # Link/copy file into media dir (if not already there)
         filename = src_path.name
-        dest = raw_dir / f"{item_id}_{filename}"
-        if not dest.exists():
-            try:
-                os.link(str(src_path), str(dest))  # hard link (no copy, instant)
-            except (OSError, PermissionError):
-                import shutil
-                shutil.copy2(str(src_path), str(dest))  # fallback: copy
 
+        # Point directly to source file — no copying or linking
         entry = {
             "id": item_id,
             "filename": filename,
@@ -103,7 +93,7 @@ def fetch_local(
             "takentime": takentime,
             "taken_iso": taken_iso,
             "filesize": src_path.stat().st_size,
-            "local_path": str(dest),
+            "local_path": str(src_path),
             "metadata": {"persons": []},  # no face recognition without NAS
         }
 
