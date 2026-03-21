@@ -10,7 +10,9 @@ import os
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from tqdm import tqdm
 
@@ -34,6 +36,56 @@ from .filters import (
 )
 from .media_utils import run_subprocess
 from .render import render_photo, render_video, render_title_card
+
+
+# ---------------------------------------------------------------------------
+# Render report — structured clip status tracking (replaces bare print/list)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ClipStatus:
+    """Status of a single clip render."""
+    clip_name: str
+    source_file: str
+    status: Literal["ok", "skipped", "failed"] = "ok"
+    reason: str = ""
+
+
+@dataclass
+class RenderReport:
+    """Tracks clip rendering outcomes for structured reporting."""
+    clips: list[ClipStatus] = field(default_factory=list)
+
+    @property
+    def ok_count(self) -> int:
+        return sum(1 for c in self.clips if c.status == "ok")
+
+    @property
+    def skipped_count(self) -> int:
+        return sum(1 for c in self.clips if c.status == "skipped")
+
+    @property
+    def failed_count(self) -> int:
+        return sum(1 for c in self.clips if c.status == "failed")
+
+    def summary(self) -> str:
+        parts = [f"{self.ok_count}/{len(self.clips)} OK"]
+        if self.skipped_count:
+            skipped = [c for c in self.clips if c.status == "skipped"]
+            parts.append(f"{self.skipped_count} skipped ({', '.join(c.clip_name for c in skipped)})")
+        if self.failed_count:
+            failed = [c for c in self.clips if c.status == "failed"]
+            parts.append(f"{self.failed_count} failed ({', '.join(f'{c.clip_name}: {c.reason}' for c in failed)})")
+        return ", ".join(parts)
+
+    def to_dagster_metadata(self) -> dict:
+        """Convert to dict suitable for Dagster MetadataValue."""
+        return {
+            "clips_ok": self.ok_count,
+            "clips_skipped": self.skipped_count,
+            "clips_failed": self.failed_count,
+            "clip_details": self.summary(),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +161,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
     total_items = len(tasks)
     clip_results: list[Path | None] = [None] * total_items
-    failed_clips: list[str] = []
+    report = RenderReport()
 
     pbar = tqdm(total=total_items, desc=f"Rendering clips (x{max_workers})", unit="clip",
                 bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
@@ -122,7 +174,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
         if not clip_path.exists():
             source = Path(item.source_file)
             if not source.exists():
-                return order, clip_name, None
+                return order, clip_name, item.source_file, None, "source not found"
 
             ct = getattr(segment, "color_temp", "neutral") or "neutral"
             if item.media_type == "photo":
@@ -133,34 +185,34 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
                              text_overlay=item.text_overlay, language=lang)
 
         if not clip_path.exists():
-            return order, clip_name, None
-        return order, clip_name, clip_path
+            return order, clip_name, item.source_file, None, "render failed"
+        return order, clip_name, item.source_file, clip_path, ""
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_do_render, t): t[0] for t in tasks}
         for future in as_completed(futures):
             try:
-                order, clip_name, clip_path = future.result()
+                order, clip_name, source_file, clip_path, reason = future.result()
                 if clip_path is None:
-                    failed_clips.append(clip_name)
-                    pbar.write(f"  SKIP: {clip_name}")
+                    report.clips.append(ClipStatus(clip_name, source_file, "skipped", reason))
+                    pbar.write(f"  SKIP: {clip_name} ({reason})")
                 else:
+                    report.clips.append(ClipStatus(clip_name, source_file, "ok"))
                     clip_results[order] = clip_path
             except Exception as e:
                 idx = futures[future]
-                pbar.write(f"  ERROR ({idx}): {e}")
-                failed_clips.append(f"task_{idx}")
+                report.clips.append(ClipStatus(f"task_{idx}", "", "failed", str(e)))
+                pbar.write(f"  FAIL: task_{idx}: {e}")
             pbar.update(1)
             if progress_callback:
                 progress_callback(pbar.n, total_items, "")
 
     pbar.close()
     t_clips = time.monotonic() - t1
-    print(f"Phase 1 (clips): {t_clips:.1f}s ({max_workers} workers, "
-          f"{total_items - len(failed_clips)}/{total_items} OK)")
+    print(f"Phase 1 (clips): {t_clips:.1f}s ({max_workers} workers, {report.summary()})")
 
-    if failed_clips and not skip_broken:
-        raise RuntimeError(f"Failed to render {len(failed_clips)} clips: {', '.join(failed_clips)}")
+    if report.failed_count + report.skipped_count > 0 and not skip_broken:
+        raise RuntimeError(f"Clip rendering issues: {report.summary()}")
 
     # Build all_clips list with transitions (must be in order)
     all_clips: list[dict] = []
