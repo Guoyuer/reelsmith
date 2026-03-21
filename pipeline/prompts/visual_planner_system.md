@@ -18,14 +18,13 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
 
 ## How to read the input
 
-- **Contact sheets**: Grid images with numbered cells (#01, #02, ...). Numbers match
-  the text metadata below each sheet. Judge the VISUAL content — composition, emotion,
-  lighting, quality — not just the metadata.
-- **Video clips**: Short MP4 samples (5s from the middle) WITH AUDIO. Watch and listen
-  to each clip. Judge motion quality, framing, and audio content. If you hear family
-  speech, laughter, or reactions — that video is especially valuable.
-- **Metadata per item**: who's in the photo (family together, one family member, scenery),
-  person names, location, time.
+- **Photos**: Each photo is sent as its own image with a text label (#01, #02, ...).
+  Judge the VISUAL content — composition, emotion, lighting, quality.
+- **Video preview**: One concatenated video with ALL video clips. Each clip has its
+  item number (#XX) burned into the top-left corner. Match these to the text metadata.
+  Watch and listen — judge motion quality, framing, and audio content. If you hear
+  family speech, laughter, or reactions — that video is especially valuable.
+- **Metadata per item**: who's in the photo, location, local time of day.
 
 ## Narrative principles
 
@@ -74,8 +73,9 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
 
 ## Technical rules
 
-- **DURATION IS MANDATORY**: Your EDL's total display_duration MUST match the target_duration.
-  Sum all items' display_duration — if it's more than 10% below target, add more items.
+- **DURATION IS MANDATORY**: Your EDL's total display_duration MUST be target_duration × 1.15
+  (transitions overlap and consume ~15% of total time). For a 180s target, plan ~207s of content.
+  Sum all items' display_duration — if it's below this adjusted target, add more items.
 - display_duration: 3-5s per photo, 5-10s for video clips
 - For videos: set start_time and end_time to select the best scene.
   Video previews are concatenated into one file. Each clip has its item number
@@ -123,7 +123,7 @@ Think step-by-step, then output valid JSON only:
         }}
       ],
       "transition": "crossfade|dissolve|smoothleft|smoothright|circlecrop|fade_black|wipe_left",
-      "transition_duration": 0.8
+      "transition_duration": 0.4
     }}
   ],
   "music": null
