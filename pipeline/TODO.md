@@ -2,20 +2,20 @@
 
 ## Completed
 
-- [x] **Merge preprocess + analyze → prepare** — single prepare stage (5 assets instead of 6)
-- [x] **A8. Split monolithic assemble.py** — encoder.py, filters.py, render.py, concat.py, audio.py
-- [x] **A5. Integration tests** — 200 tests covering BPM, beat sync, Timeline, xfade, speech, music, e2e render
-- [x] **A2. Remove global state** — RenderContext dataclass replaces 4 scattered globals
-- [x] **A6. Consistent error handling** — ClipStatus/RenderReport with per-clip status tracking
-- [x] **A4. Config pass-through** — render settings (quality) stored in EDL, read by assemble
-- [x] ~~**A1. FFmpeg filter abstraction**~~ — Added then removed. FilterGraph wrapped raw strings in objects without catching real bugs. Deleted.
-- [x] **A3. Shared parallel utility** — parallel.run_parallel() replaces duplicate ThreadPoolExecutor patterns
-- [x] **Issue #2. Gemini fault tolerance** — auto-retry, fuzzy path matching, duration check
-- [x] **Issue #5. Post-assemble validation** — 6 automated checks (file, duration, streams, codec, sync, resolution)
-- [x] **Issue #7. Externalize prompts** — pipeline/prompts/ with .md/.json files
-- [x] **Remove tier concept** — replaced with family_count, "unknown" label for missing data
-- [x] **FFmpeg command logging** — all commands logged to Dagster INFO + output/ffmpeg_commands.log
-- [x] **Comprehensive Gemini logging** — full I/O logged with [Gemini] prefix
+- **Merge preprocess + analyze → prepare** — single prepare stage (5 assets instead of 6)
+- **A8. Split monolithic assemble.py** — encoder.py, filters.py, render.py, concat.py, audio.py
+- **A5. Integration tests** — 200 tests covering BPM, beat sync, Timeline, xfade, speech, music, e2e render
+- **A2. Remove global state** — RenderContext dataclass replaces 4 scattered globals
+- **A6. Consistent error handling** — ClipStatus/RenderReport with per-clip status tracking
+- **A4. Config pass-through** — render settings (quality) stored in EDL, read by assemble
+- ~~**A1. FFmpeg filter abstraction**~~ — Added then removed. FilterGraph wrapped raw strings in objects without catching real bugs. Deleted.
+- **A3. Shared parallel utility** — parallel.run_parallel() replaces duplicate ThreadPoolExecutor patterns
+- **Issue #2. Gemini fault tolerance** — auto-retry, fuzzy path matching, duration check
+- **Issue #5. Post-assemble validation** — 6 automated checks (file, duration, streams, codec, sync, resolution)
+- **Issue #7. Externalize prompts** — pipeline/prompts/ with .md/.json files
+- **Remove tier concept** — replaced with family_count, "unknown" label for missing data
+- **FFmpeg command logging** — all commands logged to Dagster INFO + output/ffmpeg_commands.log
+- **Comprehensive Gemini logging** — full I/O logged with [Gemini] prefix
 
 ---
 
@@ -73,6 +73,7 @@ in `media_utils.py:_zoompan_filter`. FFmpeg zoompan evaluates expressions per fr
 Current ducking is a hard step function — instant volume jump at speech boundaries sounds amateur.
 
 **Fix**: Replace `if(between(t,start,end), duck, full)` with gradual ramps:
+
 - 300ms attack (fade-down before speech starts)
 - 1000ms release (fade-up after speech ends)
 In `audio.py:add_music` volume expression.
@@ -138,6 +139,7 @@ Achievable in FFmpeg filter chain in `render.py:render_title_card`.
 ### E1. Unify clip timing to one source of truth
 
 Three independent offset implementations must agree:
+
 - `timeline.py:Timeline.build()` — used by `concat_xfade`
 - `concat.py:compute_actual_offsets()` — used by assemble for speech
 - `audio.py:write_chapters()` — its own accumulation loop
@@ -150,7 +152,7 @@ should read from Timeline, not re-derive offsets.
 `render_video` at speed=0.5 produces a 20s clip from a 10s source, but `edl.estimated_duration()`
 and timeline placement use `display_duration` without speed adjustment.
 
-**Fix**: Either adjust `display_duration` in plan post-processing, or account for speed in
+**Fix**: Either adjust `display_duration` in plan post-processing, or account for speed incon  
 `estimated_duration()` and timeline building.
 
 ### E3. `highlight_montage` and `last_hero` styles: implement or remove
