@@ -494,14 +494,10 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
             })
 
     # Build Timeline — single source of truth for all clip timing
-    # Must match the concat method: xfade (overlapping) vs demuxer (end-to-end)
+    # Timeline replicates _concatenate's exact segment-level xfade logic
     from .timeline import Timeline
-    all_cuts = all(c.get("transition") == "cut" for c in all_clips)
-    use_xfade = len(all_clips) <= 30 and not all_cuts
-    tl = Timeline.build(all_clips, use_xfade=use_xfade)
+    tl = Timeline.build(all_clips)
     tl.dump(log_fn=print)
-    if not use_xfade:
-        print(f"  NOTE: using concat demuxer (no transitions)")
 
     # Phase 2: Concatenate with transitions (video only)
     t2 = time.monotonic()
@@ -926,12 +922,17 @@ def _concatenate(clips: list[dict], output_path: Path, timeline=None) -> None:
         _concat_demuxer(clips, output_path)
         return
 
-    # Split clips into groups at segment boundaries (fade_black transitions)
-    # Each group gets xfade internally, then groups are concat-demuxed together.
-    # This keeps each xfade chain short (≤15 clips) for 4K reliability.
+    # Split clips into groups of ≤15 for 4K xfade reliability.
+    # Prefer splitting at fade_black boundaries (segment transitions).
+    MAX_GROUP = 10
     groups: list[list[dict]] = [[]]
     for i, clip in enumerate(clips):
-        if i > 0 and clip.get("transition") == "fade_black":
+        should_split = (
+            len(groups[-1]) >= MAX_GROUP
+            or (len(groups[-1]) >= MAX_GROUP - 3 and i > 0
+                and clip.get("transition") == "fade_black")
+        )
+        if should_split and i > 0:
             groups.append([])
         groups[-1].append(clip)
 
