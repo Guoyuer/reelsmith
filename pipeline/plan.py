@@ -432,8 +432,16 @@ def _build_visual_chapter_text(
     return text, photo_paths, video_items
 
 
-def _preview_encoder() -> list[str]:
+_PREVIEW_ENCODER_CACHE: list[str] | None = None
+
+
+def _preview_encoder(log_fn=None) -> list[str]:
     """Encoder for 480p preview clips. Prefers NVENC GPU, falls back to CPU."""
+    global _PREVIEW_ENCODER_CACHE
+    if _PREVIEW_ENCODER_CACHE is not None:
+        return _PREVIEW_ENCODER_CACHE
+
+    _log = log_fn or (lambda x: None)
     from .media_utils import run_subprocess
     try:
         test = run_subprocess(
@@ -442,10 +450,15 @@ def _preview_encoder() -> list[str]:
             capture_output=True, text=True,
         )
         if test.returncode == 0:
-            return ["-c:v", "hevc_nvenc", "-preset", "fast", "-cq", "28"]
-    except Exception:
-        pass
-    return ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "28"]
+            _PREVIEW_ENCODER_CACHE = ["-c:v", "hevc_nvenc", "-preset", "fast", "-cq", "28"]
+            _log("Preview encoder: HEVC NVENC")
+            return _PREVIEW_ENCODER_CACHE
+        _log(f"NVENC test failed (rc={test.returncode}): {(test.stderr or '')[-100:]}")
+    except Exception as e:
+        _log(f"NVENC test error: {e}")
+    _PREVIEW_ENCODER_CACHE = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "28"]
+    _log("Preview encoder: CPU (libx264)")
+    return _PREVIEW_ENCODER_CACHE
 
 
 def _generate_video_clips_parallel(
@@ -457,7 +470,7 @@ def _generate_video_clips_parallel(
     from .media_utils import run_subprocess
 
     _log = log_fn or print
-    encoder = _preview_encoder()
+    encoder = _preview_encoder(log_fn=_log)
     is_nvenc = "nvenc" in str(encoder)
     # NVENC: limit to 2 workers (consumer GPUs have 3-5 session limit,
     # leave headroom for other processes). CPU: use half of cores.
