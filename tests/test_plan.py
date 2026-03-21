@@ -624,3 +624,25 @@ class TestContentBlockValidation:
         texts = [b for b in blocks if isinstance(b, str)]
         assert len(texts) >= 1
         assert "#01" in texts[0]  # item numbering starts at 1
+
+
+class TestLocalTimeConversion:
+    """Test that metadata shows local time, not UTC."""
+
+    def test_utc_to_local_time(self):
+        """taken_iso in UTC is converted to local time with tz_hours."""
+        text, _, _, _ = _build_visual_chapter_text(
+            SAMPLE_CHAPTER, SAMPLE_DAY, SAMPLE_ANALYSIS, start_idx=1,
+            tz_hours=8,
+        )
+        # SAMPLE_ANALYSIS item 1 has taken_iso=2025-06-13T14:30:00 (UTC)
+        # With tz_hours=8, local time = 22:30
+        assert "22:30" in text
+
+    def test_zero_tz_keeps_utc(self):
+        """tz_hours=0 keeps UTC time."""
+        text, _, _, _ = _build_visual_chapter_text(
+            SAMPLE_CHAPTER, SAMPLE_DAY, SAMPLE_ANALYSIS, start_idx=1,
+            tz_hours=0,
+        )
+        assert "14:30" in text

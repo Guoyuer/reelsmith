@@ -360,6 +360,7 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
                 resolution=(pc.get("width", 3840), pc.get("height", 2160)),
                 fps=pc.get("fps", 60),
                 quality=pc.get("quality", 1.0),
+                tz_hours=pc.get("tz_offset"),
                 log_fn=log,
             )
 
@@ -570,6 +571,8 @@ def full(ctx, from_date, to_date, source, duration, trip_type, style, focus,
         "width": width, "height": height, "fps": fps,
         "quality": quality,
     }
+    if tz_offset is not None:
+        plan_cfg["tz_offset"] = tz_offset
     music_backend = "gemini"
     if music == "local":
         plan_cfg["music_file"] = "auto"

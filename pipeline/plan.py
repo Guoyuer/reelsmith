@@ -264,6 +264,7 @@ def _visual_system_prompt(trip_type: str, language: str = "en") -> str:
 
 def _build_visual_chapter_text(
     chapter: dict, day: dict, analysis_by_id: dict, start_idx: int,
+    *, tz_hours: int = 0,
 ) -> tuple[str, list[Path], list[dict]]:
     """Build text metadata for a chapter and collect image paths.
 
@@ -287,7 +288,15 @@ def _build_visual_chapter_text(
         media = a.get("media_type", "photo")
         persons = a.get("persons", [])
         taken_iso = a.get("taken_iso", "")
-        time_str = taken_iso[11:16] if taken_iso and len(taken_iso) >= 16 else ""
+        time_str = ""
+        if taken_iso and len(taken_iso) >= 16:
+            try:
+                from datetime import datetime, timedelta, timezone as tz
+                dt = datetime.fromisoformat(taken_iso.replace("Z", "+00:00"))
+                local_dt = dt + timedelta(hours=tz_hours)
+                time_str = local_dt.strftime("%H:%M")
+            except Exception:
+                time_str = taken_iso[11:16]
 
         label = f"#{idx:02d}"
         # Describe who's in the photo
@@ -538,6 +547,7 @@ def _concat_previews(
 
 def _build_visual_content_blocks(
     preprocessed: dict, analysis_by_id: dict, cfg: Config, log_fn=None,
+    *, tz_hours: int = 0,
 ) -> list:
     """Build multimodal parts: interleaved text + contact sheets + full video previews.
 
@@ -571,6 +581,7 @@ def _build_visual_content_blocks(
         for chapter in day["chapters"]:
             text, photo_paths, photo_labels, video_items = _build_visual_chapter_text(
                 chapter, day, analysis_by_id, global_idx,
+                tz_hours=tz_hours,
             )
             n_items = len(photo_paths) + len(video_items)
             if n_items == 0:
@@ -712,7 +723,8 @@ def _plan_visual(
     cfg: Config, preprocessed: dict, analysis_by_id: dict,
     analysis_items: list[dict],
     style: str, target_duration: int, focus: str,
-    trip_type: str = "family", language: str = "en", log_fn=None,
+    trip_type: str = "family", language: str = "en",
+    tz_hours: int | None = None, log_fn=None,
 ) -> EDL:
     """Single-pass Gemini planning with chain-of-thought.
 
@@ -756,7 +768,12 @@ def _plan_visual(
     _log("=== SINGLE-PASS PLANNING ===")
 
     _log("Building contact sheets (12/sheet @ 600px) and concatenated video preview...")
-    content_blocks = _build_visual_content_blocks(preprocessed, analysis_by_id, cfg, _log)
+    # Use tz from CLI, preprocessed, or system default
+    import time as _t
+    if tz_hours is None:
+        tz_hours = preprocessed.get("tz_hours", -(_t.timezone // 3600))
+
+    content_blocks = _build_visual_content_blocks(preprocessed, analysis_by_id, cfg, _log, tz_hours=tz_hours)
     n_img = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "image_bytes")
     n_vid_clips = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "video_bytes")
     n_text = sum(1 for b in content_blocks if isinstance(b, str))
@@ -984,6 +1001,7 @@ def plan(
     resolution: tuple[int, int] = (3840, 2160),
     fps: int = 60,
     quality: float = 1.0,
+    tz_hours: int | None = None,
     log_fn=None,
 ) -> tuple[EDL, int]:
     """Generate an EDL from preprocessed + analysis data using the visual planner."""
@@ -1007,7 +1025,7 @@ def plan(
     edl = _plan_visual(cfg, preprocessed, analysis_by_id, analysis_items,
                        style=style, target_duration=target_duration,
                        focus=effective_focus, trip_type=trip_type,
-                       language=language, log_fn=_log)
+                       language=language, tz_hours=tz_hours, log_fn=_log)
 
     # Post-process: force effect="none" on video items (Ken Burns fights native motion)
     for seg in edl.segments:
