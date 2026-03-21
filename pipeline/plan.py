@@ -492,33 +492,19 @@ def _generate_video_clips_parallel(
 
     _log(f"Generating {len(tasks)} video clips (CPU x{max_workers})...")
 
-    # Feed tasks one at a time — at most max_workers FFmpeg processes alive.
-    # When process is killed, only max_workers subprocesses are orphaned, not hundreds.
-    from concurrent.futures import wait, FIRST_COMPLETED
+    # Process in batches of max_workers*3 — fast (all submitted at once per batch)
+    # but limits orphan FFmpeg processes on kill to ~max_workers*3
+    from concurrent.futures import as_completed
+    batch_size = max_workers * 3
     done = 0
-    task_iter = iter(tasks)
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        pending: set = set()
-        # Seed initial batch
-        for _ in range(max_workers):
-            try:
-                _, cmd = next(task_iter)
-                pending.add(pool.submit(run_subprocess, cmd, capture_output=True))
-            except StopIteration:
-                break
-
-        while pending:
-            completed, pending = wait(pending, return_when=FIRST_COMPLETED)
-            done += len(completed)
-            if done % 20 == 0 or done >= len(tasks):
-                _log(f"  Video clips: {done}/{len(tasks)}")
-            # Feed next tasks
-            for _ in range(len(completed)):
-                try:
-                    _, cmd = next(task_iter)
-                    pending.add(pool.submit(run_subprocess, cmd, capture_output=True))
-                except StopIteration:
-                    break
+    for batch_start in range(0, len(tasks), batch_size):
+        batch = tasks[batch_start:batch_start + batch_size]
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(run_subprocess, cmd, capture_output=True): p for p, cmd in batch}
+            for _ in as_completed(futures):
+                done += 1
+                if done % 20 == 0 or done == len(tasks):
+                    _log(f"  Video clips: {done}/{len(tasks)}")
 
     n_ok = sum(1 for p, _ in tasks if p.exists() and p.stat().st_size > 500)
     _log(f"  Video clips done: {n_ok}/{len(tasks)} OK")
