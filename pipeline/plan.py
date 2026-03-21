@@ -427,18 +427,9 @@ def _build_visual_chapter_text(
     return text, photo_paths, video_items
 
 
-def _detect_preview_encoder() -> list[str]:
-    """Detect GPU encoder for preview clips (480p, fast)."""
-    from .media_utils import run_subprocess
-    try:
-        result = run_subprocess(
-            ["ffmpeg", "-hide_banner", "-encoders"],
-            capture_output=True, text=True,
-        )
-        if "h264_nvenc" in (result.stdout or ""):
-            return ["-c:v", "h264_nvenc", "-preset", "p1", "-cq", "28"]
-    except Exception:
-        pass
+def _preview_encoder() -> list[str]:
+    """Encoder for 480p preview clips. Uses CPU — fast enough at this resolution
+    and avoids NVENC session limits when generating hundreds of clips in parallel."""
     return ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "28"]
 
 
@@ -451,9 +442,8 @@ def _generate_video_clips_parallel(
     from .media_utils import run_subprocess
 
     _log = log_fn or print
-    encoder = _detect_preview_encoder()
-    is_nvenc = "nvenc" in str(encoder)
-    max_workers = 3 if is_nvenc else max(1, (os.cpu_count() or 4) // 2)
+    encoder = _preview_encoder()
+    max_workers = max(2, (os.cpu_count() or 4) // 2)
 
     # Build list of (clip_path, ffmpeg_cmd) for clips that need generating
     tasks: list[tuple[Path, list[str]]] = []
@@ -495,8 +485,7 @@ def _generate_video_clips_parallel(
     if not tasks:
         return
 
-    enc_name = "NVENC" if is_nvenc else "CPU"
-    _log(f"Generating {len(tasks)} video clips ({enc_name}, {max_workers} workers)...")
+    _log(f"Generating {len(tasks)} video clips (CPU, {max_workers} workers)...")
 
     done = 0
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -527,6 +516,17 @@ def _build_visual_content_blocks(
     sheets_dir.mkdir(parents=True, exist_ok=True)
 
     global_idx = 1  # continuous numbering across chapters
+
+    # Pre-generate ALL video clips in one parallel batch (not per-chapter)
+    all_video_items = []
+    for day in preprocessed["timeline"]:
+        for chapter in day["chapters"]:
+            for item_id in chapter.get("item_ids", []):
+                a = analysis_by_id.get(item_id)
+                if a and a.get("media_type") == "video":
+                    all_video_items.append(a)
+    if all_video_items:
+        _generate_video_clips_parallel(all_video_items, sheets_dir, _log)
 
     for day in preprocessed["timeline"]:
         for chapter in day["chapters"]:
@@ -565,10 +565,7 @@ def _build_visual_content_blocks(
                     })
                     sheet_idx += 1
 
-            # Videos: generate all preview clips in parallel, then build blocks
-            if video_items:
-                _generate_video_clips_parallel(video_items, sheets_dir, _log)
-
+            # Videos: clips already generated in batch above, just build blocks
             for vi in video_items:
                 vid_id = vi["id"]
                 source = Path(vi.get("local_path", ""))
