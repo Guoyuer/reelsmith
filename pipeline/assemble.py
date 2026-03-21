@@ -912,15 +912,78 @@ def _render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
 
 
 def _concatenate(clips: list[dict], output_path: Path, timeline=None) -> None:
-    """Concatenate clips with transitions (video only). Speech handled separately."""
+    """Concatenate clips with transitions (video only). Speech handled separately.
+
+    For reliability at high resolutions, splits into segments and xfades
+    within each segment, then concats segments via demuxer.
+    """
     if len(clips) == 1:
         shutil.copy(str(clips[0]["path"]), str(output_path))
         return
 
-    if len(clips) > 30 or all(c.get("transition") == "cut" for c in clips):
+    all_cuts = all(c.get("transition") == "cut" for c in clips)
+    if all_cuts:
         _concat_demuxer(clips, output_path)
-    else:
+        return
+
+    # Split clips into groups at segment boundaries (fade_black transitions)
+    # Each group gets xfade internally, then groups are concat-demuxed together.
+    # This keeps each xfade chain short (≤15 clips) for 4K reliability.
+    groups: list[list[dict]] = [[]]
+    for i, clip in enumerate(clips):
+        if i > 0 and clip.get("transition") == "fade_black":
+            groups.append([])
+        groups[-1].append(clip)
+
+    # If only one group and small enough, do single xfade
+    if len(groups) == 1 and len(clips) <= 15:
         _concat_xfade(clips, output_path, timeline=timeline)
+        return
+
+    # Render each group with xfade, then concat groups
+    group_files: list[dict] = []
+    tmp_dir = output_path.parent
+    for gi, group in enumerate(groups):
+        if len(group) == 1:
+            group_files.append({"path": group[0]["path"], "duration": group[0]["duration"],
+                                "transition": "cut", "transition_duration": 0.0})
+            continue
+
+        group_path = tmp_dir / f"_group_{gi}.mp4"
+        # First clip in each group (except group 0) has fade_black transition
+        # For xfade within the group, set first clip's transition to "cut"
+        group[0] = {**group[0], "transition": "cut", "transition_duration": 0.0}
+        if len(group) <= 15:
+            _concat_xfade(group, group_path)
+        else:
+            _concat_demuxer(group, group_path)
+
+        if group_path.exists():
+            dur = _probe_duration(group_path) or sum(c["duration"] for c in group)
+            group_files.append({"path": group_path, "duration": dur,
+                                "transition": "cut", "transition_duration": 0.0})
+        else:
+            # xfade failed — fall back to demuxer for this group
+            _concat_demuxer(group, group_path)
+            if group_path.exists():
+                dur = _probe_duration(group_path) or sum(c["duration"] for c in group)
+                group_files.append({"path": group_path, "duration": dur,
+                                    "transition": "cut", "transition_duration": 0.0})
+
+    if not group_files:
+        _concat_demuxer(clips, output_path)
+        return
+
+    if len(group_files) == 1:
+        shutil.move(str(group_files[0]["path"]), str(output_path))
+    else:
+        _concat_demuxer(group_files, output_path)
+
+    # Cleanup temp group files
+    for gf in group_files:
+        p = gf["path"]
+        if p.name.startswith("_group_"):
+            p.unlink(missing_ok=True)
 
 
 def _concat_demuxer(clips: list[dict], output_path: Path) -> None:
