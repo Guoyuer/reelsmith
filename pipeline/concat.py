@@ -12,6 +12,25 @@ from .media_utils import run_subprocess
 MAX_GROUP = 10
 
 
+def _partition_into_groups(n: int, get_transition) -> list[list[int]]:
+    """Partition clip indices into groups of <= MAX_GROUP.
+
+    Shared by concatenate() and compute_actual_offsets() to ensure
+    identical group boundaries.
+    """
+    groups: list[list[int]] = [[0]]
+    for i in range(1, n):
+        should_split = (
+            len(groups[-1]) >= MAX_GROUP
+            or (len(groups[-1]) >= MAX_GROUP - 3
+                and get_transition(i) == "fade_black")
+        )
+        if should_split:
+            groups.append([])
+        groups[-1].append(i)
+    return groups
+
+
 def concatenate(clips: list[dict], output_path: Path, timeline=None) -> None:
     """Concatenate clips with transitions (video only). Speech handled separately.
 
@@ -28,16 +47,8 @@ def concatenate(clips: list[dict], output_path: Path, timeline=None) -> None:
         return
 
     # Split clips into groups of <= MAX_GROUP for 4K xfade reliability.
-    groups: list[list[dict]] = [[]]
-    for i, clip in enumerate(clips):
-        should_split = (
-            len(groups[-1]) >= MAX_GROUP
-            or (len(groups[-1]) >= MAX_GROUP - 3 and i > 0
-                and clip.get("transition") == "fade_black")
-        )
-        if should_split and i > 0:
-            groups.append([])
-        groups[-1].append(clip)
+    idx_groups = _partition_into_groups(len(clips), lambda i: clips[i].get("transition"))
+    groups = [[clips[i] for i in g] for g in idx_groups]
 
     print(f"  Concat strategy: {len(groups)} groups ({', '.join(f'{len(g)} clips' for g in groups)})")
 
@@ -167,21 +178,12 @@ def compute_actual_offsets(all_clips: list[dict], output_dir: Path) -> list[floa
     this reads the actual rendered group files and uses their measured
     durations to compute cumulative offsets.
     """
-    groups: list[list[int]] = [[0]]
-    for i in range(1, len(all_clips)):
-        should_split = (
-            len(groups[-1]) >= MAX_GROUP
-            or (len(groups[-1]) >= MAX_GROUP - 3
-                and all_clips[i].get("transition") == "fade_black")
-        )
-        if should_split:
-            groups.append([])
-        groups[-1].append(i)
+    groups = _partition_into_groups(len(all_clips), lambda i: all_clips[i].get("transition"))
 
     offsets = [0.0] * len(all_clips)
     global_offset = 0.0
 
-    for group_indices in groups:
+    for gi, group_indices in enumerate(groups):
         group_clips = [all_clips[i] for i in group_indices]
         group_durs = [probe_duration(c["path"]) or c["duration"] for c in group_clips]
 
@@ -206,7 +208,6 @@ def compute_actual_offsets(all_clips: list[dict], output_dir: Path) -> list[floa
                 if pos >= 1:
                     local_offset += group_durs[pos] - td
 
-            gi = groups.index(group_indices)
             group_file = output_dir / f"_group_{gi}.mp4"
             if group_file.exists():
                 group_dur = probe_duration(group_file)

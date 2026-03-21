@@ -8,14 +8,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pipeline.assemble import (
-    _build_portrait_photo_filter,
-    _is_portrait,
-    _probe_dimensions,
-    _render_photo,
-    _render_video,
-    _validate_output,
-)
+from pipeline.assemble import _validate_output
+from pipeline.encoder import is_portrait as _is_portrait, probe_dimensions as _probe_dimensions
+from pipeline.filters import build_portrait_photo_filter as _build_portrait_photo_filter
+from pipeline.render import render_photo as _render_photo, render_video as _render_video
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
 from pipeline.media_utils import _portrait_bg_filter
 

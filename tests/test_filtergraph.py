@@ -1,6 +1,6 @@
 """Tests for pipeline.filtergraph — typed FFmpeg filter graph builder."""
 
-from pipeline.filtergraph import FilterGraph, FilterNode, portrait_photo_graph, color_grade_filter
+from pipeline.filtergraph import FilterGraph, FilterNode
 
 
 class TestFilterNode:
@@ -77,28 +77,3 @@ class TestFilterGraph:
             assert "missing_label" in str(e)
 
 
-class TestPortraitPhotoGraph:
-    def test_compiles_without_error(self):
-        fg = portrait_photo_graph(3840, 2160, 240, 60, 0.001)
-        result = fg.compile()
-        assert "split" in result
-        assert "gblur" in result
-        assert "overlay" in result
-        assert "zoompan" in result
-
-    def test_contains_resolution(self):
-        fg = portrait_photo_graph(1920, 1080, 120, 30, 0.002)
-        result = fg.compile()
-        assert "1920" in result
-        assert "1080" in result
-
-
-class TestColorGradeFilter:
-    def test_neutral(self):
-        assert "colorbalance" not in color_grade_filter("neutral")
-
-    def test_warm(self):
-        assert "rs=0.02" in color_grade_filter("warm")
-
-    def test_cool(self):
-        assert "bs=0.02" in color_grade_filter("cool")

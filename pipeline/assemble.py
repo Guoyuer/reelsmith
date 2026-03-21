@@ -87,28 +87,6 @@ class RenderReport:
         }
 
 
-# ---------------------------------------------------------------------------
-# Backward-compatible aliases (used by tests importing from pipeline.assemble)
-# ---------------------------------------------------------------------------
-_get_encoder = get_encoder
-_probe_dimensions = probe_dimensions
-_probe_duration = probe_duration
-_is_portrait = is_portrait
-_build_portrait_photo_filter = build_portrait_photo_filter
-_color_grade = color_grade
-_drawtext_filter = drawtext_filter
-_find_font = find_font
-_render_photo = render_photo
-_render_video = render_video
-_render_title_card = render_title_card
-_concatenate = concatenate
-_concat_xfade = concat_xfade
-_compute_actual_offsets = compute_actual_offsets
-_build_speech_track = build_speech_track
-_add_music = add_music
-_write_chapters = write_chapters
-_estimate_bpm = estimate_bpm
-_beat_snap_edl = beat_snap_edl
 
 
 # ---------------------------------------------------------------------------

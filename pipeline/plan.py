@@ -46,14 +46,20 @@ def _load_json(name: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
 def _load_narrative_guidance() -> dict:
     return _load_json("narrative_guidance.json")
 
 
+@lru_cache(maxsize=1)
 def _load_lang_instructions() -> dict:
     return _load_json("lang_instructions.json")
 
 
+@lru_cache(maxsize=1)
 def _load_system_template() -> str:
     path = _PROMPTS_DIR / "visual_planner_system.md"
     if not path.exists():
