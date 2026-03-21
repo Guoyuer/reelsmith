@@ -438,11 +438,11 @@ def _preview_encoder() -> list[str]:
     try:
         test = run_subprocess(
             ["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=s=480x270:d=0.1:r=15",
-             "-c:v", "h264_nvenc", "-preset", "fast", "-f", "null", "-"],
+             "-c:v", "hevc_nvenc", "-preset", "fast", "-f", "null", "-"],
             capture_output=True, text=True,
         )
         if test.returncode == 0:
-            return ["-c:v", "h264_nvenc", "-preset", "fast", "-cq", "28"]
+            return ["-c:v", "hevc_nvenc", "-preset", "fast", "-cq", "28"]
     except Exception:
         pass
     return ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "28"]
