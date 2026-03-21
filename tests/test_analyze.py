@@ -10,7 +10,6 @@ import pytest
 from PIL import Image
 
 from pipeline.analyze import analyze
-from pipeline.media_utils import extract_frames
 
 
 def _make_tiny_image(path: Path, size=(160, 90)) -> Path:
@@ -162,24 +161,3 @@ class TestAnalyzeProgressCallback:
         assert callback_args[1][1] == 2
 
 
-class TestExtractKeyframes:
-    def test_extract_keyframes(self, tmp_path: Path, mock_config):
-        video_path = tmp_path / "video.mp4"
-        video_path.write_bytes(b"\x00" * 100)
-        kf_dir = tmp_path / "keyframes"
-
-        calls = []
-
-        def mock_run(cmd, **kwargs):
-            calls.append(cmd[0])
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = "10.0\n"
-            result.stderr = ""
-            return result
-
-        with patch("pipeline.media_utils.run_subprocess", side_effect=mock_run):
-            extract_frames(video_path, kf_dir, prefix="999", count=5)
-
-        assert "ffprobe" in calls
-        assert "ffmpeg" in calls

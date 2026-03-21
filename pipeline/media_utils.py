@@ -129,62 +129,6 @@ def convert_heic(source: Path, dest_dir: Path | None = None) -> Path:
     )
 
 
-def extract_frames(
-    video_path: Path,
-    output_dir: Path,
-    prefix: str,
-    count: int = 5,
-) -> list[Path]:
-    """Extract *count* evenly-spaced frames from a video using ``-ss`` seeking.
-
-    Parameters
-    ----------
-    video_path : Path
-        Source video file.
-    output_dir : Path
-        Directory where frame images are written.
-    prefix : str
-        Filename prefix, e.g. ``"42"`` produces ``42_01.jpg``, ``42_02.jpg``, ...
-    count : int
-        Number of frames to extract (default 5).
-
-    Returns
-    -------
-    list[Path]
-        Sorted list of extracted frame paths.
-    """
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    probe = run_subprocess(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "csv=p=0", str(video_path)],
-        capture_output=True, text=True,
-    )
-    try:
-        duration = float(probe.stdout.strip())
-    except (ValueError, AttributeError):
-        import warnings
-        warnings.warn(f"Could not probe duration for {video_path}, assuming 10s")
-        duration = 10.0
-
-    interval = max(duration / (count + 1), 0.5)
-
-    for i in range(1, count + 1):
-        t = interval * i
-        out_path = output_dir / f"{prefix}_{i:02d}.jpg"
-        run_subprocess(
-            [
-                "ffmpeg", "-y", "-ss", str(t), "-i", str(video_path),
-                "-frames:v", "1", "-vf", "scale=1024:-1",
-                "-q:v", "3",
-                str(out_path),
-            ],
-            capture_output=True,
-        )
-
-    return sorted(output_dir.glob(f"{prefix}_*.jpg"))
-
-
 
 def generate_thumbnail(
     source: Path,

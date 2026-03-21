@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pipeline.media_utils import convert_heic, extract_frames, strip_markdown_fences
+from pipeline.media_utils import convert_heic, strip_markdown_fences
 
 
 # ---------------------------------------------------------------------------
@@ -83,42 +83,3 @@ class TestConvertHeicSkipsExisting:
 
         mock_run.assert_not_called()
         assert result == jpeg_path
-
-
-# ---------------------------------------------------------------------------
-# extract_frames
-# ---------------------------------------------------------------------------
-
-
-class TestExtractFramesCallsFfmpeg:
-    def test_extract_frames_calls_ffmpeg(self, tmp_path: Path):
-        """extract_frames should call ffprobe then ffmpeg for each frame."""
-        video = tmp_path / "clip.mp4"
-        video.write_bytes(b"\x00" * 100)
-        out_dir = tmp_path / "frames"
-
-        tool_calls = []
-
-        def mock_run(cmd, **kwargs):
-            tool_calls.append(cmd[0])
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = "8.0\n"
-            result.stderr = ""
-            # Simulate ffmpeg creating an output frame
-            if cmd[0] == "ffmpeg":
-                out_path = Path(cmd[-1])
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                out_path.write_bytes(b"\xff\xd8" + b"\x00" * 20)
-            return result
-
-        with patch("pipeline.media_utils.run_subprocess", side_effect=mock_run):
-            frames = extract_frames(video, out_dir, prefix="test", count=3)
-
-        assert "ffprobe" in tool_calls
-        assert "ffmpeg" in tool_calls
-        # ffprobe should come before ffmpeg
-        assert tool_calls.index("ffprobe") < tool_calls.index("ffmpeg")
-        # Should have called ffmpeg 3 times (one per frame)
-        assert tool_calls.count("ffmpeg") == 3
-        assert len(frames) == 3

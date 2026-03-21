@@ -1,7 +1,7 @@
-"""Stage 2b: Prepare media for visual planning — thumbnails, keyframes, transcripts.
+"""Stage 2b: Prepare media for visual planning — thumbnails + EXIF + video metadata.
 
-Generates thumbnails for photos and keyframes for videos so Gemini can see them
-in contact sheets and filmstrips during the plan stage. No local AI models needed.
+Generates thumbnails for photos, extracts EXIF, and probes video durations
+so the plan stage can build contact sheets and video clip samples.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
 def analyze(cfg: Config, *, progress_callback=None, log_fn=None, **_kwargs) -> list[dict]:
-    """Generate thumbnails for photos and keyframes + transcripts for videos.
+    """Generate thumbnails, extract EXIF, probe video durations.
 
     All items are included (Gemini decides what's worth using). Results are cached
     per-file in the shared analysis_cache directory.
@@ -31,7 +31,7 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None, **_kwargs) -> l
 
     preprocessed = json.loads(preprocessed_path.read_text())
     items = preprocessed["items"]
-    _log(f"Analyzing: {len(items)} items (generating thumbnails + keyframes)")
+    _log(f"Analyzing: {len(items)} items (thumbnails + EXIF + video metadata)")
 
     # Load existing analysis to support resuming
     existing: dict[int, dict] = {}
@@ -77,7 +77,6 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None, **_kwargs) -> l
             "first_level": item.get("first_level"),
             "district": item.get("district"),
             "persons": item.get("metadata", {}).get("persons", []),
-            "cluster_size": item.get("cluster_size", 1),
         }
 
         # Check shared per-file cache
@@ -114,9 +113,9 @@ def analyze(cfg: Config, *, progress_callback=None, log_fn=None, **_kwargs) -> l
     return results
 
 
-def _analyze_video(entry, item_id, local_path, cfg, cache_file, log_fn, i, total):
-    """Extract keyframes, build scenes, and optionally transcribe a video."""
-    log_fn(f"[{i}/{total}] {entry['filename']} — video keyframes...")
+def _analyze_video(entry, item_id, local_path, _cfg, cache_file, log_fn, i, total):
+    """Probe video duration and build scene count."""
+    log_fn(f"[{i}/{total}] {entry['filename']} — video metadata...")
 
     probe = run_subprocess(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -129,45 +128,17 @@ def _analyze_video(entry, item_id, local_path, cfg, cache_file, log_fn, i, total
         log_fn(f"  WARNING: could not probe duration for {local_path}, assuming 10s")
         total_dur = 10.0
 
-    # Extract 5 keyframes in a single FFmpeg pass
-    kf_dir = cfg.keyframes_dir
-    kf_dir.mkdir(parents=True, exist_ok=True)
-    kf_pattern = kf_dir / f"{item_id}_%02d.jpg"
-    fps_val = 5.0 / max(total_dur, 1.0)
-    existing_kfs = sorted(kf_dir.glob(f"{item_id}_*.jpg"))
-    if len(existing_kfs) < 3:
-        run_subprocess(
-            ["ffmpeg", "-y", "-i", str(local_path),
-             "-vf", f"fps={fps_val:.6f},scale=512:-1",
-             "-frames:v", "5", "-q:v", "3",
-             str(kf_pattern)],
-            capture_output=True,
-        )
-        existing_kfs = sorted(kf_dir.glob(f"{item_id}_*.jpg"))
-
-    entry["keyframe_paths"] = [str(p) for p in existing_kfs]
     entry["video_duration"] = round(total_dur, 1)
 
-    # Build scene entries from keyframes for filmstrip
-    interval = total_dur / max(len(existing_kfs), 1)
-    entry["scenes"] = [
-        {
-            "scene_index": idx,
-            "start": round(idx * interval, 1),
-            "end": round((idx + 1) * interval, 1),
-            "duration": round(interval, 1),
-            "motion": "unknown",
-            "keyframe": str(kf),
-        }
-        for idx, kf in enumerate(existing_kfs)
-    ]
+    # Scene count (used by plan for metadata text)
+    n_scenes = max(1, int(total_dur / 5))
+    entry["scenes"] = [{"scene_index": i} for i in range(n_scenes)]
 
-    # Save to shared cache (has_speech added in separate pass)
-    cache_entry = {k: v for k, v in entry.items()
-                   if k in ("keyframe_paths", "scenes", "video_duration", "thumbnail_path")}
+    cache_entry = {"video_duration": round(total_dur, 1),
+                   "scenes": entry["scenes"]}
     cache_file.write_text(json.dumps(cache_entry, indent=2))
 
-    log_fn(f"[{i}/{total}] {entry['filename']} — {len(existing_kfs)} keyframes ({total_dur:.0f}s)")
+    log_fn(f"[{i}/{total}] {entry['filename']} — {total_dur:.0f}s, {n_scenes} scenes")
 
 
 

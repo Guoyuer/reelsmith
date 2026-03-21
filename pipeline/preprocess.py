@@ -59,8 +59,6 @@ def preprocess(cfg: Config, *, family_names: list[str] | None = None,
 
     # Send everything to Gemini — it handles dedup visually
     selected = manifest
-    for item in selected:
-        item["cluster_size"] = 1
 
     # Build timeline
     timeline = _build_timeline(selected)
