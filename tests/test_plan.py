@@ -603,10 +603,11 @@ class TestContentBlockValidation:
         )
         cfg.ensure_dirs()
 
-        # Create a real image file
+        # Create a real JPEG file via PIL
+        from PIL import Image
         img_path = tmp_path / "media" / "photo.jpg"
         img_path.parent.mkdir(exist_ok=True)
-        img_path.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
+        Image.new("RGB", (100, 100), "red").save(img_path, "JPEG")
 
         preprocessed = {"timeline": [{"date": "2025-01-01", "day_name": "Mon",
                         "chapters": [{"time_block": "morning", "location": "x",
@@ -615,11 +616,7 @@ class TestContentBlockValidation:
                     "local_path": str(img_path),
                     "media_type": "photo"}}
 
-        def _mock_sheet(paths, out, **kw):
-            out.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 50)
-
-        with patch("pipeline.media_utils.make_contact_sheet", side_effect=_mock_sheet):
-            blocks = _build_visual_content_blocks(preprocessed, analysis, cfg)
+        blocks = _build_visual_content_blocks(preprocessed, analysis, cfg)
 
         texts = [b for b in blocks if isinstance(b, str)]
         assert len(texts) >= 1

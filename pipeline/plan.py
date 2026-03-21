@@ -202,7 +202,7 @@ def _gemini_call(
             system_instruction=system,
             max_output_tokens=16000,
             temperature=0.7,
-            media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
+            media_resolution=types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
             thinking_config=types.ThinkingConfig(
                 thinking_level="HIGH",
             ),
@@ -549,12 +549,11 @@ def _build_visual_content_blocks(
     preprocessed: dict, analysis_by_id: dict, cfg: Config, log_fn=None,
     *, tz_hours: int = 0,
 ) -> list:
-    """Build multimodal parts: interleaved text + contact sheets + full video previews.
+    """Build multimodal parts: interleaved text + individual photos + mega video preview.
 
     Returns list of str and media dicts suitable for _gemini_call().
-    Videos are sent as full-length 360p 1fps MP4 previews (with audio) so
-    Gemini sees 100% of content and can reference any second for trim points.
-    Photos are sent as contact sheet grids.
+    Photos are sent as individual 400px thumbnails (each gets full token budget).
+    Videos are concatenated into one mega-preview with burned-in #XX labels.
     """
     from .media_utils import make_contact_sheet, run_subprocess
 
@@ -589,32 +588,26 @@ def _build_visual_content_blocks(
 
             blocks.append(text)
 
-            # Contact sheet for photos — labels must match text metadata numbering
-            if photo_paths:
-                thumb_paths = []
-                for p in photo_paths:
-                    thumb = cfg.thumbnails_dir / f"{p.stem}_thumb.jpg"
-                    thumb_paths.append(thumb if thumb.exists() else p)
-
-                loc_safe = chapter.get("location", "x").replace("/", "_")[:30]
-                sheet_name = f"{day['date']}_{chapter.get('time_block', 'x')}_{loc_safe}.jpg"
-                sheet_path = sheets_dir / sheet_name
-
-                max_per_sheet = 12
-                sheet_idx = 0
-                for chunk_start in range(0, len(thumb_paths), max_per_sheet):
-                    chunk = thumb_paths[chunk_start:chunk_start + max_per_sheet]
-                    chunk_labels = photo_labels[chunk_start:chunk_start + len(chunk)]
-                    s_path = sheets_dir / f"{sheet_name.replace('.jpg', '')}_{sheet_idx}.jpg" if len(thumb_paths) > max_per_sheet else sheet_path
-                    if not s_path.exists():
-                        make_contact_sheet(chunk, s_path, cell_size=600, columns=4, labels=chunk_labels)
-                        _log(f"Contact sheet: {s_path.name} ({len(chunk)} photos)")
-                    blocks.append({
-                        "type": "image_bytes",
-                        "mime_type": "image/jpeg",
-                        "data": s_path.read_bytes(),
-                    })
-                    sheet_idx += 1
+            # Send each photo individually — each gets full token budget from Gemini
+            for pi, p in enumerate(photo_paths):
+                thumb = cfg.thumbnails_dir / f"{p.stem}_thumb.jpg"
+                img_path = thumb if thumb.exists() else p
+                if img_path.exists():
+                    # Resize to 400px and compress to keep payload small
+                    from PIL import Image
+                    import io
+                    try:
+                        img = Image.open(img_path)
+                        img.thumbnail((400, 400))
+                        buf = io.BytesIO()
+                        img.save(buf, "JPEG", quality=70)
+                        blocks.append({
+                            "type": "image_bytes",
+                            "mime_type": "image/jpeg",
+                            "data": buf.getvalue(),
+                        })
+                    except Exception:
+                        pass  # skip unreadable images
 
             # Collect video info for concatenated mega-preview (built after loop)
             for vi in video_items:
@@ -656,7 +649,7 @@ def _build_visual_content_blocks(
     if n_text_blocks == 0:
         raise RuntimeError("No text blocks generated — check analysis_by_id key types")
     if n_images == 0:
-        raise RuntimeError("No contact sheets generated — no photos found")
+        raise RuntimeError("No photos generated — check source files")
 
     # 2. Count items referenced in text metadata
     import re
@@ -698,7 +691,7 @@ def _build_visual_content_blocks(
     if inline_bytes > 75 * 1024 * 1024:
         raise RuntimeError(
             f"Inline image payload {inline_bytes / 1024 / 1024:.0f}MB exceeds ~75MB limit "
-            f"(100MB base64). Reduce contact sheet quality or count."
+            f"(100MB base64). Reduce photo count or thumbnail size."
         )
 
     # 6. Video payload check
@@ -767,7 +760,7 @@ def _plan_visual(
     # ------------------------------------------------------------------
     _log("=== SINGLE-PASS PLANNING ===")
 
-    _log("Building contact sheets (12/sheet @ 600px) and concatenated video preview...")
+    _log("Building individual photo thumbnails and concatenated video preview...")
     # Use tz from CLI, preprocessed, or system default
     import time as _t
     if tz_hours is None:
@@ -777,7 +770,7 @@ def _plan_visual(
     n_img = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "image_bytes")
     n_vid_clips = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "video_bytes")
     n_text = sum(1 for b in content_blocks if isinstance(b, str))
-    _log(f"Visual content: {n_text} text blocks, {n_img} contact sheets, {n_vid_clips} video file(s)")
+    _log(f"Visual content: {n_text} text blocks, {n_img} photos, {n_vid_clips} video file(s)")
 
     # Sanity check: candidates count must match what we're actually sending
     if n_candidates > 0 and n_text == 0:
