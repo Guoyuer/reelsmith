@@ -166,6 +166,8 @@ def full(ctx, from_date, to_date, duration, trip_type, style, focus,
         "style": style, "target_duration": duration,
         "focus": focus, "trip_type": trip_type,
         "language": lang,
+        "width": width, "height": height, "fps": fps,
+        "quality": quality,
     }
     # Parse --music: "auto"|"local" → generate, "/path" → file, "none" → skip
     music_backend = "gemini"

@@ -86,6 +86,10 @@ class PlanConfig(dg.Config):
     focus: str = ""  # empty = derive from trip_type
     music_file: str = ""  # path to background music (mp3/m4a/wav)
     language: str = "en"  # en, cn, or both
+    width: int = 3840
+    height: int = 2160
+    fps: int = 60
+    quality: float = 1.0  # render quality — stored in EDL for assemble to read
 
 
 class GenerateMusicConfig(dg.Config):
@@ -331,6 +335,9 @@ def plan(
         trip_type=config.trip_type,
         music_file=config.music_file or None,
         language=config.language,
+        resolution=(config.width, config.height),
+        fps=config.fps,
+        quality=config.quality,
         log_fn=context.log.info,
     )
     all_items = result.all_items()

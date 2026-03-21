@@ -124,7 +124,6 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     Returns (output_path, validation_issues) where validation_issues is a list
     of dicts with keys: level ("error"/"warning"), check, message.
     """
-    ctx = init_context(quality=quality)
     cfg.ensure_dirs()
     from .edl import load_latest_edl
     edl, _ = load_latest_edl(cfg)
@@ -133,9 +132,13 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     output_dir = cfg.workspace / "output"
     output_path = output_dir / f"vlog_v{version}.mp4"
 
+    # Read render settings from EDL, allow overrides from function args
     w, h = resolution or edl.resolution
     _fps = fps or edl.fps
+    _quality = quality if quality != 1.0 else edl.quality
     lang = edl.language
+
+    ctx = init_context(quality=_quality)
 
     # Beat sync: snap transitions to music beats (before rendering clips)
     if edl.music and Path(edl.music.file).exists():

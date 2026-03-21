@@ -70,6 +70,7 @@ class EDL(BaseModel):
     outro_style: Literal["fade_title", "last_hero", "none"] = "fade_title"
     date_range: str = ""  # e.g. "June 13-16, 2025" for title card
     language: Literal["en", "cn", "both"] = "en"  # text language: en/cn/both
+    quality: float = 1.0  # render quality multiplier (0.5=draft, 1.0=default, 2.0=archive)
 
     def all_items(self) -> list[EditItem]:
         return [item for seg in self.segments for item in seg.items]
