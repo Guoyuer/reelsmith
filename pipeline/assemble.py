@@ -935,8 +935,11 @@ def _concatenate(clips: list[dict], output_path: Path, timeline=None) -> None:
             groups.append([])
         groups[-1].append(clip)
 
+    print(f"  Concat strategy: {len(groups)} groups ({', '.join(f'{len(g)} clips' for g in groups)})")
+
     # If only one group and small enough, do single xfade
     if len(groups) == 1 and len(clips) <= 15:
+        print(f"  Single xfade ({len(clips)} clips)...")
         _concat_xfade(clips, output_path, timeline=timeline)
         return
 
@@ -947,6 +950,7 @@ def _concatenate(clips: list[dict], output_path: Path, timeline=None) -> None:
         if len(group) == 1:
             group_files.append({"path": group[0]["path"], "duration": group[0]["duration"],
                                 "transition": "cut", "transition_duration": 0.0})
+            print(f"  Group {gi+1}/{len(groups)}: 1 clip (pass-through)")
             continue
 
         group_path = tmp_dir / f"_group_{gi}.mp4"
@@ -954,16 +958,20 @@ def _concatenate(clips: list[dict], output_path: Path, timeline=None) -> None:
         # For xfade within the group, set first clip's transition to "cut"
         group[0] = {**group[0], "transition": "cut", "transition_duration": 0.0}
         if len(group) <= 15:
+            print(f"  Group {gi+1}/{len(groups)}: xfade {len(group)} clips...")
             _concat_xfade(group, group_path)
         else:
+            print(f"  Group {gi+1}/{len(groups)}: demuxer {len(group)} clips...")
             _concat_demuxer(group, group_path)
 
         if group_path.exists():
             dur = _probe_duration(group_path) or sum(c["duration"] for c in group)
             group_files.append({"path": group_path, "duration": dur,
                                 "transition": "cut", "transition_duration": 0.0})
+            print(f"  Group {gi+1}/{len(groups)}: done ({dur:.1f}s)")
         else:
             # xfade failed — fall back to demuxer for this group
+            print(f"  Group {gi+1}/{len(groups)}: xfade failed, falling back to demuxer...")
             _concat_demuxer(group, group_path)
             if group_path.exists():
                 dur = _probe_duration(group_path) or sum(c["duration"] for c in group)
@@ -971,12 +979,14 @@ def _concatenate(clips: list[dict], output_path: Path, timeline=None) -> None:
                                     "transition": "cut", "transition_duration": 0.0})
 
     if not group_files:
+        print("  All groups failed, falling back to full demuxer")
         _concat_demuxer(clips, output_path)
         return
 
     if len(group_files) == 1:
         shutil.move(str(group_files[0]["path"]), str(output_path))
     else:
+        print(f"  Joining {len(group_files)} groups via demuxer...")
         _concat_demuxer(group_files, output_path)
 
     # Cleanup temp group files
