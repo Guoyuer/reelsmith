@@ -49,8 +49,8 @@ def fetch_music_gemini(
         return None
 
     # Use mood if provided, otherwise fall back to template
-    from .music import _get_prompt
-    prompt = mood if mood else _get_prompt(trip_type, style)
+    from .music_prompts import get_prompt
+    prompt = mood if mood else get_prompt(trip_type, style)
 
     logger.info("=== Music Generation (Gemini Lyria RealTime) ===")
     logger.info("Model: lyria-realtime-exp")

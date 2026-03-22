@@ -5,18 +5,41 @@ from __future__ import annotations
 import hashlib
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .edl import EditItem
-from .encoder import get_encoder, is_portrait, probe_dimensions
-from .filters import build_portrait_photo_filter, color_grade, drawtext_filter, find_font
-from .media_utils import convert_heic, run_subprocess, zoompan_filter, portrait_bg_filter
+from .encoder import RenderContext, get_encoder, is_portrait, probe_dimensions
+from .filters import (
+    build_portrait_photo_filter, color_grade, drawtext_filter, find_font,
+    zoompan_filter, portrait_bg_filter,
+)
+from .image_utils import convert_heic
+from .media_utils import run_subprocess
+
+if TYPE_CHECKING:
+    pass
 
 logger = logging.getLogger("vlog.render")
 
 
+def _get_enc(ctx: RenderContext | None, w: int, h: int, fps: int) -> list[str]:
+    """Get encoder args from explicit context or module-level fallback."""
+    if ctx is not None:
+        return ctx.get_encoder(w, h, fps)
+    return get_encoder(w, h, fps)
+
+
+def _probe_dims(ctx: RenderContext | None, path: Path) -> tuple[int, int]:
+    """Probe dimensions from explicit context or module-level fallback."""
+    if ctx is not None:
+        return ctx.probe_dimensions(path)
+    return probe_dimensions(path)
+
+
 def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
                  color_temp: str = "neutral",
-                 text_overlay=None, language: str = "en") -> None:
+                 text_overlay=None, language: str = "en",
+                 ctx: RenderContext | None = None) -> None:
     """Render a photo with Ken Burns effect as a video clip. Text overlay baked in."""
     source = Path(item.source_file)
 
@@ -42,8 +65,9 @@ def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
         dt = "," + drawtext_filter(text_overlay.text, text_overlay.position,
                                    text_overlay.font_size, item.display_duration, language, out_h=h)
 
-    src_w, src_h = probe_dimensions(source)
+    src_w, src_h = _probe_dims(ctx, source)
     portrait = is_portrait(src_w, src_h)
+    enc = _get_enc(ctx, w, h, fps)
 
     if portrait:
         portrait_zoom_rate = 0.001 + (0.08 / frames)
@@ -52,7 +76,7 @@ def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
             "ffmpeg", "-y", "-loop", "1", "-i", str(source),
             "-t", str(item.display_duration),
             "-filter_complex", f"{fc}{dt}",
-            *get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
+            *enc, "-pix_fmt", "yuv420p",
             "-an",
             str(out),
         ]
@@ -95,7 +119,7 @@ def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
                 "-vf", f"{scale_filter},{zp},{cg}{sharpen}{dt}",
             ]
         cmd += [
-            *get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
+            *enc, "-pix_fmt", "yuv420p",
             "-an",
             str(out),
         ]
@@ -107,7 +131,8 @@ def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
 
 def render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
                  color_temp: str = "neutral",
-                 text_overlay=None, language: str = "en") -> None:
+                 text_overlay=None, language: str = "en",
+                 ctx: RenderContext | None = None) -> None:
     """Trim and normalize a video clip. Text overlay baked in. Preserves audio if keep_audio."""
     cmd = ["ffmpeg", "-y"]
     if item.start_time is not None:
@@ -130,22 +155,23 @@ def render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
         dt = "," + drawtext_filter(text_overlay.text, text_overlay.position,
                                    text_overlay.font_size, item.display_duration, language, out_h=h)
 
-    src_w, src_h = probe_dimensions(Path(item.source_file))
+    src_w, src_h = _probe_dims(ctx, Path(item.source_file))
     portrait = is_portrait(src_w, src_h)
+    enc = _get_enc(ctx, w, h, fps)
 
     cg = color_grade(color_temp)
     if portrait:
         fc = portrait_bg_filter(w, h)
         cmd += [
             "-filter_complex", f"{fc},{cg}{speed_vf}{dt}",
-            *get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
+            *enc, "-pix_fmt", "yuv420p",
             "-r", str(fps),
         ]
     else:
         cmd += [
             "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
                    f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,{cg}{speed_vf}{dt}",
-            *get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
+            *enc, "-pix_fmt", "yuv420p",
             "-r", str(fps),
         ]
     if speed_af:
@@ -160,6 +186,7 @@ def render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
 def render_title_card(
     title: str, subtitle: str, out: Path, w: int, h: int, fps: int,
     duration: float = 3.0, language: str = "en",
+    ctx: RenderContext | None = None,
 ) -> None:
     """Render a professional title card with gradient background and animated text."""
     safe_title = title.replace("'", "\u2019").replace(":", "\\:")
@@ -205,11 +232,12 @@ def render_title_card(
 
     fade = f",fade=t=in:d=0.5,fade=t=out:st={duration - 0.8}:d=0.8"
 
+    enc = _get_enc(ctx, w, h, fps)
     cmd = [
         "ffmpeg", "-y",
         "-filter_complex",
         f"{gradient};[grad]{title_text}{separator}{sub_text}{fade}",
-        *get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
+        *enc, "-pix_fmt", "yuv420p",
         "-an",
         str(out),
     ]

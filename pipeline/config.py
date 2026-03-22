@@ -19,6 +19,15 @@ class Config:
     preview_clips_dir: Path = Path("./workspace/preview_clips")
     music_dir: Path = Path("./workspace/music")
 
+    # Per-run directories (derived from workspace)
+    @property
+    def clips_dir(self) -> Path:
+        return self.workspace / "clips"
+
+    @property
+    def output_dir(self) -> Path:
+        return self.workspace / "output"
+
     @staticmethod
     def run_workspace(base_dir: str = "./workspace", run_name: str = "default") -> str:
         """Canonical path for a run's workspace directory."""
@@ -46,8 +55,8 @@ class Config:
 
     def ensure_dirs(self) -> None:
         for d in [
-            self.workspace / "clips",
-            self.workspace / "output",
+            self.clips_dir,
+            self.output_dir,
             self.media_dir,
             self.cache_dir,
             self.thumbnails_dir,

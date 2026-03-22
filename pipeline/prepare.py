@@ -28,7 +28,8 @@ except ImportError:
     pass
 
 from .config import Config
-from .media_utils import run_subprocess, generate_thumbnail
+from .image_utils import generate_thumbnail
+from .media_utils import run_subprocess
 
 logger = logging.getLogger("vlog.prepare")
 
