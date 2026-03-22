@@ -122,6 +122,10 @@ class Timeline:
             self._compute_group_offsets(group_indices, global_offset)
             group_dur = sum(self.entries[gi].actual_duration for gi in group_indices)
             group_overlap = sum(self.entries[gi].transition_duration for gi in group_indices[1:])
+            if group_overlap > group_dur:
+                logger.warning("Group overlap (%.2fs) exceeds duration (%.2fs), clamping",
+                               group_overlap, group_dur)
+                group_overlap = group_dur
             global_offset = self.entries[group_indices[0]].video_offset + group_dur - group_overlap
 
     def _compute_offsets_actual(self, output_dir: Path) -> None:

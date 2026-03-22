@@ -41,28 +41,30 @@ def color_grade(color_temp: str = "neutral") -> str:
 
 
 def find_font(language: str = "en") -> str:
-    """Find a suitable font for title cards (cross-platform, CJK-aware)."""
+    """Find a suitable font for title cards (cross-platform, CJK-aware).
+
+    Returns the path with FFmpeg drawtext escaping (colon → \\:).
+    """
     needs_cjk = language in ("cn", "both")
     if needs_cjk:
         candidates = [
             "/System/Library/Fonts/STHeiti Medium.ttc",
             "/System/Library/Fonts/PingFang.ttc",
-            "C\\:/Windows/Fonts/msyh.ttc",
-            "C\\:/Windows/Fonts/simhei.ttf",
+            "C:/Windows/Fonts/msyh.ttc",
+            "C:/Windows/Fonts/simhei.ttf",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
             "/usr/share/fonts/truetype/droid/DroidSansFallback.ttf",
         ]
     else:
         candidates = [
             "/System/Library/Fonts/Helvetica.ttc",
-            "C\\:/Windows/Fonts/segoeui.ttf",
-            "C\\:/Windows/Fonts/arial.ttf",
+            "C:/Windows/Fonts/segoeui.ttf",
+            "C:/Windows/Fonts/arial.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         ]
     for f in candidates:
-        check_path = f.replace("\\:", ":")
-        if Path(check_path).exists():
-            return f
+        if Path(f).exists():
+            return f.replace(":", "\\:")  # escape for FFmpeg drawtext
     return ""
 
 

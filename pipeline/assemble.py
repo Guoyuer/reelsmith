@@ -19,7 +19,7 @@ from tqdm import tqdm
 from .audio import add_music, beat_snap_edl, build_speech_track, estimate_bpm, write_chapters
 from .concat import concatenate
 from .config import Config
-from .edl import EDL, EditItem, validate_edl
+from .edl import EDL, EditItem, load_latest_edl, validate_edl
 from .encoder import (
     get_context,
     get_encoder,
@@ -35,7 +35,9 @@ from .filters import (
     find_font,
 )
 from .media_utils import run_subprocess
+from .parallel import run_parallel
 from .render import render_photo, render_video, render_title_card
+from .timeline import Timeline
 
 logger = logging.getLogger("vlog.assemble")
 
@@ -106,10 +108,9 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     """
     _log = logger.info
     cfg.ensure_dirs()
-    from .edl import load_latest_edl, EDL as EDLModel
     if version > 0:
         edl_path = cfg.workspace / f"edl_v{version}.json"
-        edl = EDLModel.model_validate_json(edl_path.read_text())
+        edl = EDL.model_validate_json(edl_path.read_text())
     else:
         edl, version = load_latest_edl(cfg)
 
@@ -180,8 +181,6 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     total_items = len(tasks)
     clip_results: list[Path | None] = [None] * total_items
     report = RenderReport()
-
-    from .parallel import run_parallel
 
     pbar = tqdm(total=total_items, desc=f"Rendering clips (x{max_workers})", unit="clip",
                 bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
@@ -326,8 +325,6 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     _log(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
 
     # Phase 2b: Build speech audio track using Timeline as single source of truth
-    from .timeline import Timeline
-
     # Build timeline with MEASURED group durations (fixes speech sync drift)
     tl = Timeline.build_actual(all_clips, output_dir)
     tl.dump()
@@ -347,10 +344,6 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
               f"{', '.join(f'{o:.1f}s' for o, _ in speech_clips)}")
 
     speech_ranges = tl.speech_ranges()
-
-    # Cleanup temp group files (disabled for debugging)
-    # for gf in output_dir.glob("_group_*.mp4"):
-    #     gf.unlink(missing_ok=True)
 
     # Phase 3: Mix music + speech
     t3 = time.monotonic()

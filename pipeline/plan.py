@@ -20,7 +20,7 @@ try:
     import pillow_heif
     pillow_heif.register_heif_opener()
 except ImportError:
-    pass  # HEIC support unavailable; handled by convert_heic fallback chain
+    logger.debug("pillow_heif not installed — HEIC handled by convert_heic fallback")
 
 from .config import Config
 from .edl import EDL, MusicTrack
