@@ -879,22 +879,34 @@ def _plan_visual(
                 line += f" ({n_videos} videos)"
             arc_lines.append(line)
 
+    min_duration = int(target_duration * 1.2)
     intro_text = f"""\
 Create a {style} {trip_label} vlog EDL from the photos and videos shown below.
 
 {trip_summary}{family_line}
-CRITICAL: The vlog MUST be {target_duration}s long. Select ~{n_items} items to fill this duration.
-Photos = 3-5s each, videos = 5-10s each. Do the math: {n_items} items × ~4s avg = {target_duration}s.
-If your EDL totals less than {int(target_duration * 0.9)}s, you have selected TOO FEW items — add more.
-Focus: {focus}.
+
+**FOCUS: {focus}** — This is the creative direction. Every chapter, every selection
+decision, and every text overlay should serve this focus. When choosing between two
+items of similar quality, pick the one that better supports this focus.
+
+DURATION: The vlog MUST be {target_duration}s. Select ~{n_items} items.
+Sum of display_duration MUST reach {min_duration}s (transitions eat ~20%).
+Photos = 3-5s, videos = 5-10s. {n_items} items × ~4s avg = {target_duration}s.
 
 Trip structure:
 {"".join(arc_lines)}
 
 **Think step-by-step:**
-1. First, design a narrative arc — 4-6 chapters based on STORY BEATS (not locations).
-2. Then, look at every contact sheet and video clip. Select the best items for each chapter.
-3. Finally, self-review: check pacing, variety, video/photo balance. Fix any issues.
+1. Design a narrative arc — 4-6 chapters based on STORY BEATS (not locations).
+2. Select items: scan every photo and video clip. Pick the best for each chapter.
+3. Self-review checklist (fix any issues before outputting):
+   - [ ] Does the vlog serve the focus "{focus}"?
+   - [ ] Sum of display_duration ≥ {min_duration}s?
+   - [ ] At least 40% video items? At least 50% of videos have keep_audio=true?
+   - [ ] No audio=silent videos with keep_audio=true?
+   - [ ] Items spread across all days/locations (not clustered)?
+   - [ ] No more than 2 portrait videos in the whole EDL?
+   - [ ] No duplicate source_file paths?
 
 Output ONE JSON with all your thinking and the final EDL.
 
