@@ -193,14 +193,14 @@ class TestFetchLivePhotoDownloadsVideo:
 
 class TestFetchWritesManifest:
     def test_fetch_writes_manifest(self, tmp_path: Path, mock_config):
-        """manifest.json should be written at cfg.workspace / 'manifest.json'."""
+        """manifest.json should be written at cfg.manifest_path."""
         cfg = mock_config
         client = FakeClient()
 
         with patch("pipeline.fetch.httpx.Client", return_value=client):
             fetch(cfg)
 
-        manifest_path = cfg.workspace / "manifest.json"
+        manifest_path = cfg.manifest_path
         assert manifest_path.exists()
         data = json.loads(manifest_path.read_text())
         assert len(data) == 2

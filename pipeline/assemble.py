@@ -109,7 +109,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
         raise ValueError(f"Invalid quality: {quality}")
 
     if version > 0:
-        edl_path = cfg.workspace / f"edl_v{version}.json"
+        edl_path = cfg.edl_path(version)
         edl = EDL.model_validate_json(edl_path.read_text())
     else:
         edl, version = load_latest_edl(cfg)

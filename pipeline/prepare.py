@@ -52,7 +52,7 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
     3. Save preprocessed.json + analysis.json
     """
     cfg.ensure_dirs()
-    manifest = json.loads((cfg.workspace / "manifest.json").read_text())
+    manifest = json.loads(cfg.manifest_path.read_text())
 
     # --- Family detection ---
     if not family_names:
@@ -76,12 +76,12 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
         "family_names": family_names,
         "timeline": timeline,
     }
-    pp_path = cfg.workspace / "preprocessed.json"
+    pp_path = cfg.preprocessed_path
     pp_path.write_text(json.dumps(preprocessed, indent=2))
     logger.info(f"Timeline: {len(timeline)} days, {sum(len(d['chapters']) for d in timeline)} chapters")
 
     # --- Analyze: thumbnails, EXIF, video duration ---
-    analysis_path = cfg.workspace / "analysis.json"
+    analysis_path = cfg.analysis_path
 
     existing: dict[int, dict] = {}
     if analysis_path.exists() and not force:

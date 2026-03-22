@@ -15,7 +15,7 @@ from pipeline.prepare import prepare as _prepare
 def analyze(cfg, **kwargs):
     """Wrapper: calls prepare() and returns analysis results."""
     _prepare(cfg, **kwargs)
-    return json.loads((cfg.workspace / "analysis.json").read_text())
+    return json.loads((cfg.analysis_path).read_text())
 
 
 def _make_tiny_image(path: Path, size=(160, 90)) -> Path:
@@ -32,7 +32,7 @@ def _write_manifest(cfg, items: list[dict]) -> None:
         item.setdefault("metadata", {"persons": []})
         item.setdefault("takentime", 1700000000)
         item.setdefault("item_type", 0)
-    (cfg.workspace / "manifest.json").write_text(json.dumps(items))
+    (cfg.manifest_path).write_text(json.dumps(items))
 
 
 def _make_item(item_id: int, filename: str, local_path: str,
@@ -60,7 +60,7 @@ class TestAnalyzeIncludesAllItems:
         _write_manifest(cfg, items)
 
         analyze(cfg)
-        results = json.loads((cfg.workspace / "analysis.json").read_text())
+        results = json.loads((cfg.analysis_path).read_text())
         assert len(results) == 1
 
 
@@ -73,10 +73,10 @@ class TestAnalyzeResumesFromExisting:
 
         existing = [{"id": 101, "filename": "photo.jpg", "local_path": str(img),
                      "vision": {"description": "already analyzed"}}]
-        (cfg.workspace / "analysis.json").write_text(json.dumps(existing))
+        (cfg.analysis_path).write_text(json.dumps(existing))
 
         analyze(cfg)
-        results = json.loads((cfg.workspace / "analysis.json").read_text())
+        results = json.loads((cfg.analysis_path).read_text())
         assert len(results) == 1
         assert results[0]["vision"]["description"] == "already analyzed"
 
@@ -92,7 +92,7 @@ class TestAnalyzeUsesSharedCache:
         (cfg.cache_dir / "102.json").write_text(json.dumps(cache_entry))
 
         analyze(cfg)
-        results = json.loads((cfg.workspace / "analysis.json").read_text())
+        results = json.loads((cfg.analysis_path).read_text())
         assert len(results) == 1
         assert results[0]["thumbnail_path"] == "/fake/thumb.jpg"
 
@@ -125,7 +125,7 @@ class TestAnalyzeExifCaching:
         _write_manifest(cfg, items)
 
         analyze(cfg)
-        results = json.loads((cfg.workspace / "analysis.json").read_text())
+        results = json.loads((cfg.analysis_path).read_text())
         assert len(results) == 1
 
         # Cache should exist with thumbnail
@@ -149,7 +149,7 @@ class TestAnalyzeExifCaching:
         (cfg.cache_dir / "201.json").write_text(json.dumps(cache_data))
 
         analyze(cfg)
-        results = json.loads((cfg.workspace / "analysis.json").read_text())
+        results = json.loads((cfg.analysis_path).read_text())
         assert results[0].get("exif") == {"focal_length": 24.0, "aperture": 1.4, "iso": 100}
 
 

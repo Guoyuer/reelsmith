@@ -464,7 +464,7 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             if edl_path:
                 import shutil
                 version = find_latest_version(cfg) + 1
-                dest = cfg.workspace / f"edl_v{version}.json"
+                dest = cfg.edl_path(version)
                 shutil.copy(edl_path, dest)
                 log(f"Using EDL from {edl_path} as v{version}")
             else:

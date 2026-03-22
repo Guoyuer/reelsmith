@@ -1184,8 +1184,8 @@ def plan(
         )
 
     effective_focus = focus or _default_focus(trip_type)
-    preprocessed = json.loads((cfg.workspace / "preprocessed.json").read_text())
-    analysis_items = json.loads((cfg.workspace / "analysis.json").read_text())
+    preprocessed = json.loads(cfg.preprocessed_path.read_text())
+    analysis_items = json.loads(cfg.analysis_path.read_text())
     analysis_by_id: dict[str, dict] = {str(a["id"]): a for a in analysis_items}
 
     logger.info(f"Planning via Gemini with visual input (target {target_duration}s, style={style}, trip_type={trip_type}, lang={language})...")
@@ -1224,7 +1224,7 @@ def plan(
     version = find_latest_version(cfg) + 1
     save_edl(cfg, edl, version)
 
-    clips_dir = cfg.workspace / "clips"
+    clips_dir = cfg.clips_dir
     if clips_dir.exists():
         for f in clips_dir.iterdir():
             f.unlink(missing_ok=True)

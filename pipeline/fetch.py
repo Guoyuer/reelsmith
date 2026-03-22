@@ -46,7 +46,7 @@ def fetch(
         body["item_types"] = item_types
 
     # Load previous manifest for metadata cache (avoids re-fetching /api/meta per item)
-    manifest_path = cfg.workspace / "manifest.json"
+    manifest_path = cfg.manifest_path
     prev_meta: dict[int, dict] = {}
     if manifest_path.exists():
         try:
