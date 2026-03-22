@@ -18,9 +18,8 @@ from tqdm import tqdm
 from .audio import beat_snap_edl, build_speech_track, mix_final_audio, write_chapters
 from .concat import concatenate
 from .config import Config
-from .edl import EDL, EditItem, load_latest_edl, validate_edl
+from .edl import EDL, load_latest_edl, validate_edl
 from .encoder import (
-    RenderContext,
     get_context,
     init_context,
     probe_duration,
@@ -83,8 +82,6 @@ class RenderReport:
         }
 
 
-
-
 # ---------------------------------------------------------------------------
 # Main assemble entry point
 # ---------------------------------------------------------------------------
@@ -112,7 +109,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
         raise ValueError(f"Invalid quality: {quality}")
 
     if version > 0:
-        edl_path = cfg.workspace / f"edl_v{version}.json"
+        edl_path = cfg.edl_path(version)
         edl = EDL.model_validate_json(edl_path.read_text())
     else:
         edl, version = load_latest_edl(cfg)
@@ -144,8 +141,6 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
             old_clip.unlink()
         _log(f"Cleaned stale clips from {clips_dir}")
 
-    w, h = resolution
-    _fps = fps
     lang = edl.language
 
     ctx = init_context(quality=quality)
@@ -158,7 +153,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     ffmpeg_log.addHandler(_fh)
 
     try:
-        return _assemble_inner(cfg, edl, version, w, h, _fps, lang, clips_dir,
+        return _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
                                output_dir, output_path, progress_callback, skip_broken, ctx)
     finally:
         ffmpeg_log.removeHandler(_fh)
@@ -167,16 +162,15 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
 
 def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
-                    output_dir, output_path, progress_callback, skip_broken, ctx=None):
+                    output_dir, output_path, progress_callback, skip_broken, ctx):
     _log = logger.info
-    _fps = fps
 
     # Beat sync: snap transitions to music beats (before rendering clips)
     if edl.music and Path(edl.music.file).exists():
         beat_snap_edl(edl, Path(edl.music.file))
 
     # Determine parallel workers based on encoder type
-    encoder = ctx.get_encoder(w, h, _fps)
+    encoder = ctx.get_encoder(w, h, fps)
     encoder_str = " ".join(encoder)
     if "nvenc" in encoder_str:
         max_workers = int(os.environ.get("VLOG_PARALLEL_CLIPS", "3"))
@@ -210,12 +204,12 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
             if not source.exists():
                 return clip_name, item.source_file, None, "source not found"
 
-            ct = segment.color_temp
+            color_temp = segment.color_temp
             if item.media_type == "photo":
-                render_photo(item, clip_path, w, h, _fps, color_temp=ct,
+                render_photo(item, clip_path, w, h, fps, color_temp=color_temp,
                              text_overlay=item.text_overlay, language=lang, ctx=ctx)
             else:
-                render_video(item, clip_path, w, h, _fps, color_temp=ct,
+                render_video(item, clip_path, w, h, fps, color_temp=color_temp,
                              text_overlay=item.text_overlay, language=lang, ctx=ctx)
 
         if not clip_path.exists():
@@ -265,8 +259,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
                 continue
 
             # Skip zero-length clips (e.g. from failed renders)
-            clip_dur = probe_duration(clip_path)
-            if clip_dur is not None and clip_dur < 0.1:
+            if clip_path.stat().st_size < 1000:
                 _log(f"  Skipping zero-length clip: {clip_path.name}")
                 continue
 
@@ -311,34 +304,32 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
         intro_path = clips_dir / "intro_title.mp4"
         intro_dur = edl.intro_duration
         if not intro_path.exists():
-            render_title_card(edl.title, edl.date_range, intro_path, w, h, _fps, duration=intro_dur, language=lang, ctx=ctx)
-        if intro_path.exists():
-            all_clips.insert(0, {
-                "path": intro_path, "duration": intro_dur,
-                "transition": "cut", "transition_duration": 0.0,
-                "keep_audio": False, "media_type": "video",
-            })
-            if len(all_clips) > 1:
-                all_clips[1]["transition"] = "fade_black"
-                all_clips[1]["transition_duration"] = 1.0
+            render_title_card(edl.title, edl.date_range, intro_path, w, h, fps, duration=intro_dur, language=lang, ctx=ctx)
+        all_clips.insert(0, {
+            "path": intro_path, "duration": intro_dur,
+            "transition": "cut", "transition_duration": 0.0,
+            "keep_audio": False, "media_type": "video",
+        })
+        if len(all_clips) > 1:
+            all_clips[1]["transition"] = "fade_black"
+            all_clips[1]["transition_duration"] = 1.0
 
     if edl.outro_style == "fade_title" and edl.title:
         outro_path = clips_dir / "outro_title.mp4"
         outro_dur = edl.outro_duration
         if not outro_path.exists():
-            render_title_card(edl.title, "", outro_path, w, h, _fps, duration=outro_dur, language=lang, ctx=ctx)
-        if outro_path.exists():
-            all_clips.append({
-                "path": outro_path, "duration": outro_dur,
-                "transition": "fade_black", "transition_duration": 1.0,
-                "keep_audio": False, "media_type": "video",
-            })
+            render_title_card(edl.title, "", outro_path, w, h, fps, duration=outro_dur, language=lang, ctx=ctx)
+        all_clips.append({
+            "path": outro_path, "duration": outro_dur,
+            "transition": "fade_black", "transition_duration": 1.0,
+            "keep_audio": False, "media_type": "video",
+        })
 
     # Phase 2: Concatenate with transitions (video only)
     t2 = time.monotonic()
     _log(f"Concatenating {len(all_clips)} clips...")
     no_music_path = output_dir / f"vlog_v{version}_nomix.mp4"
-    concatenate(all_clips, no_music_path, w, h, _fps)
+    concatenate(all_clips, no_music_path, w, h, fps)
     _log(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
 
     # Phase 2b: Build speech audio track using Timeline as single source of truth
@@ -370,7 +361,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
         _log(f"Mixing music: video={video_dur:.1f}s, music={music_dur:.1f}s, "
               f"volume={edl.music.volume}, fade_in={edl.music.fade_in}s, fade_out={edl.music.fade_out}s")
     mix_final_audio(no_music_path, output_path,
-                    music_track=edl.music, speech_audio=speech_audio_path,
+                    music_track=edl.music, speech_audio_path=speech_audio_path,
                     speech_ranges=speech_ranges, duck_ratio=edl.music_duck_ratio)
     _log(f"Phase 3 (audio): {time.monotonic() - t3:.1f}s")
 
@@ -384,7 +375,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
 
     # Phase 4: Validate output
     has_speech = bool(speech_ka_indices)
-    validation_issues = _validate_output_impl(output_path, edl, has_speech, (w, h))
+    validation_issues = _validate_output(output_path, edl, has_speech, (w, h))
     errors = [i for i in validation_issues if i["level"] == "error"]
     warnings = [i for i in validation_issues if i["level"] == "warning"]
 
@@ -411,7 +402,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
 # Post-assemble output validation
 # ---------------------------------------------------------------------------
 
-def _validate_output_impl(
+def _validate_output(
     output_path: Path,
     edl: EDL,
     has_speech: bool,
@@ -465,10 +456,10 @@ def _validate_output_impl(
                   f"Duration {actual_duration:.1f}s is <80% of expected "
                   f"{expected_duration:.1f}s — some content may be missing")
 
-    # --- 3. Stream validation (video + audio presence) ---
+    # --- 3. Stream validation (single ffprobe for codec + duration) ---
     stream_result = run_subprocess(
         ["ffprobe", "-v", "error",
-         "-show_entries", "stream=codec_type,codec_name",
+         "-show_entries", "stream=codec_type,codec_name,duration",
          "-of", "csv=p=0",
          str(output_path)],
         capture_output=True, text=True,
@@ -476,12 +467,18 @@ def _validate_output_impl(
     stream_lines = [ln.strip() for ln in stream_result.stdout.strip().split("\n") if ln.strip()]
     codec_types = []
     codec_names = {}
+    stream_durations: dict[str, float] = {}
     for line in stream_lines:
         parts = line.split(",")
         if len(parts) >= 2:
             codec_name, codec_type = parts[0].strip(), parts[1].strip()
             codec_types.append(codec_type)
             codec_names[codec_type] = codec_name
+            if len(parts) >= 3:
+                try:
+                    stream_durations[codec_type] = float(parts[2].strip())
+                except (ValueError, TypeError):
+                    pass
 
     has_video_stream = "video" in codec_types
     has_audio_stream = "audio" in codec_types
@@ -507,25 +504,9 @@ def _validate_output_impl(
 
     # --- 5. Audio-video sync spot check ---
     if has_video_stream and has_audio_stream:
-        vid_dur_result = run_subprocess(
-            ["ffprobe", "-v", "error",
-             "-select_streams", "v:0",
-             "-show_entries", "stream=duration",
-             "-of", "csv=p=0",
-             str(output_path)],
-            capture_output=True, text=True,
-        )
-        aud_dur_result = run_subprocess(
-            ["ffprobe", "-v", "error",
-             "-select_streams", "a:0",
-             "-show_entries", "stream=duration",
-             "-of", "csv=p=0",
-             str(output_path)],
-            capture_output=True, text=True,
-        )
-        try:
-            vid_stream_dur = float(vid_dur_result.stdout.strip())
-            aud_stream_dur = float(aud_dur_result.stdout.strip())
+        vid_stream_dur = stream_durations.get("video")
+        aud_stream_dur = stream_durations.get("audio")
+        if vid_stream_dur is not None and aud_stream_dur is not None:
             # Audio shorter than video is normal — speech track only
             # covers keep_audio clips. Only warn if audio is LONGER.
             if aud_stream_dur > vid_stream_dur + 5.0:
@@ -533,12 +514,10 @@ def _validate_output_impl(
                       f"Audio longer than video: "
                       f"video={vid_stream_dur:.1f}s, audio={aud_stream_dur:.1f}s "
                       f"— possible sync issue")
-        except (ValueError, TypeError) as e:
-            _warn("av_sync", f"Could not parse stream durations for sync check: {e}")
 
     # --- 6. Resolution check ---
     if has_video_stream:
-        get_context()._dim_cache.pop(str(output_path), None)
+        get_context().invalidate(output_path)
         out_w, out_h = get_context().probe_dimensions(output_path)
         exp_w, exp_h = resolution
         if out_w > 0 and out_h > 0:
@@ -549,6 +528,3 @@ def _validate_output_impl(
 
     return issues
 
-
-# Alias for backward compatibility with tests
-_validate_output = _validate_output_impl

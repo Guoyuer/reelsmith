@@ -73,9 +73,9 @@ class TestGenerateMusic:
     def test_dispatches_to_local(self, tmp_path: Path):
         from pipeline.music import generate_music
 
-        with patch("pipeline.music.fetch_music", return_value=tmp_path / "track.wav") as mock:
+        with patch("pipeline.music.generate_music_local", return_value=tmp_path / "track.wav") as mock:
             result = generate_music(
-                "family", "upbeat", 30, tmp_path, backend="local",
+                "family", "upbeat", 30, tmp_path, music_backend="local",
             )
 
         mock.assert_called_once_with(
@@ -87,9 +87,9 @@ class TestGenerateMusic:
     def test_dispatches_to_gemini(self, tmp_path: Path):
         from pipeline.music import generate_music
 
-        with patch("pipeline.music_gemini.fetch_music_gemini", return_value=tmp_path / "track.wav") as mock:
+        with patch("pipeline.music_gemini.generate_music_gemini", return_value=tmp_path / "track.wav") as mock:
             result = generate_music(
-                "family", "upbeat", 30, tmp_path, backend="gemini",
+                "family", "upbeat", 30, tmp_path, music_backend="gemini",
             )
 
         mock.assert_called_once_with(
@@ -101,18 +101,18 @@ class TestGenerateMusic:
     def test_unknown_backend_falls_back_to_local(self, tmp_path: Path):
         from pipeline.music import generate_music
 
-        with patch("pipeline.music.fetch_music", return_value=None) as mock:
-            generate_music("family", "upbeat", 30, tmp_path, backend="unknown")
+        with patch("pipeline.music.generate_music_local", return_value=None) as mock:
+            generate_music("family", "upbeat", 30, tmp_path, music_backend="unknown")
 
         mock.assert_called_once()
 
     def test_passes_mood(self, tmp_path: Path):
         from pipeline.music import generate_music
 
-        with patch("pipeline.music.fetch_music", return_value=None) as mock:
+        with patch("pipeline.music.generate_music_local", return_value=None) as mock:
             generate_music(
                 "solo", "cinematic", 60, tmp_path,
-                mood="gentle piano", backend="local",
+                mood="gentle piano", music_backend="local",
             )
 
         mock.assert_called_once_with(
@@ -122,19 +122,19 @@ class TestGenerateMusic:
 
 
 # ---------------------------------------------------------------------------
-# Unit tests: fetch_music_gemini (mocked API)
+# Unit tests: generate_music_gemini (mocked API)
 # ---------------------------------------------------------------------------
 
-class TestFetchMusicGemini:
+class TestGenerateMusicGemini:
     def test_returns_none_without_api_key(self, tmp_path: Path, monkeypatch):
-        from pipeline.music_gemini import fetch_music_gemini
+        from pipeline.music_gemini import generate_music_gemini
 
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-        result = fetch_music_gemini("family", "upbeat", 30, tmp_path)
+        result = generate_music_gemini("family", "upbeat", 30, tmp_path)
         assert result is None
 
     def test_uses_cache(self, tmp_path: Path):
-        from pipeline.music_gemini import fetch_music_gemini
+        from pipeline.music_gemini import generate_music_gemini
 
         # Create cached file
         cache_key = "gemini_family_upbeat_30s"
@@ -144,11 +144,11 @@ class TestFetchMusicGemini:
         meta = tmp_path / f"{cache_key}.json"
         meta.write_text(json.dumps({"path": str(wav_path)}))
 
-        result = fetch_music_gemini("family", "upbeat", 30, tmp_path)
+        result = generate_music_gemini("family", "upbeat", 30, tmp_path)
         assert result == wav_path
 
     def test_generates_and_caches(self, tmp_path: Path, monkeypatch):
-        from pipeline.music_gemini import fetch_music_gemini
+        from pipeline.music_gemini import generate_music_gemini
 
         # 0.5s of fake PCM audio at 48kHz stereo 16-bit
         fake_pcm = b"\x00" * (48000 * 2 * 2 // 2)
@@ -159,7 +159,7 @@ class TestFetchMusicGemini:
             return fake_pcm
 
         with patch("pipeline.music_gemini._generate_music", _fake_generate):
-            result = fetch_music_gemini("family", "upbeat", 1, tmp_path)
+            result = generate_music_gemini("family", "upbeat", 1, tmp_path)
 
         assert result is not None
         assert result.exists()
@@ -178,7 +178,7 @@ class TestFetchMusicGemini:
         assert meta["model"] == "lyria-realtime-exp"
 
     def test_returns_none_on_empty_audio(self, tmp_path: Path, monkeypatch):
-        from pipeline.music_gemini import fetch_music_gemini
+        from pipeline.music_gemini import generate_music_gemini
 
         monkeypatch.setenv("GEMINI_API_KEY", "test-key")
 
@@ -186,12 +186,12 @@ class TestFetchMusicGemini:
             return b""
 
         with patch("pipeline.music_gemini._generate_music", _fake_generate):
-            result = fetch_music_gemini("family", "upbeat", 10, tmp_path)
+            result = generate_music_gemini("family", "upbeat", 10, tmp_path)
 
         assert result is None
 
     def test_returns_none_on_api_error(self, tmp_path: Path, monkeypatch):
-        from pipeline.music_gemini import fetch_music_gemini
+        from pipeline.music_gemini import generate_music_gemini
 
         monkeypatch.setenv("GEMINI_API_KEY", "test-key")
 
@@ -199,12 +199,12 @@ class TestFetchMusicGemini:
             raise ConnectionError("WebSocket failed")
 
         with patch("pipeline.music_gemini._generate_music", _fake_generate):
-            result = fetch_music_gemini("family", "upbeat", 10, tmp_path)
+            result = generate_music_gemini("family", "upbeat", 10, tmp_path)
 
         assert result is None
 
     def test_uses_mood_over_template(self, tmp_path: Path, monkeypatch):
-        from pipeline.music_gemini import fetch_music_gemini
+        from pipeline.music_gemini import generate_music_gemini
 
         monkeypatch.setenv("GEMINI_API_KEY", "test-key")
 
@@ -216,7 +216,7 @@ class TestFetchMusicGemini:
             return fake_pcm
 
         with patch("pipeline.music_gemini._generate_music", _fake_generate):
-            fetch_music_gemini(
+            generate_music_gemini(
                 "family", "upbeat", 1, tmp_path,
                 mood="custom mood prompt",
             )
@@ -290,13 +290,13 @@ class TestGenerateMusicForEdl:
         cfg = Config.load(str(ws))
 
         with patch("pipeline.music.generate_music", return_value=None) as mock:
-            generate_music_for_edl(cfg, backend="gemini")
+            generate_music_for_edl(cfg, music_backend="gemini")
 
         mock.assert_called_once()
         _, kwargs = mock.call_args
         assert kwargs["trip_type"] == "family"
         assert kwargs["style"] == "upbeat"
-        assert kwargs["backend"] == "gemini"
+        assert kwargs["music_backend"] == "gemini"
         assert "gentle piano" in kwargs["mood"]
 
     def test_updates_edl_on_success(self, tmp_path: Path):
@@ -310,7 +310,7 @@ class TestGenerateMusicForEdl:
         fake_track.write_bytes(b"RIFF" + b"\x00" * 100)
 
         with patch("pipeline.music.generate_music", return_value=fake_track):
-            result = generate_music_for_edl(cfg, backend="local")
+            result = generate_music_for_edl(cfg, music_backend="local")
 
         assert result is not None
 
@@ -326,7 +326,7 @@ class TestGenerateMusicForEdl:
         cfg = Config.load(str(ws))
 
         with patch("pipeline.music.generate_music", return_value=None):
-            result = generate_music_for_edl(cfg, backend="local")
+            result = generate_music_for_edl(cfg, music_backend="local")
 
         assert result is None
 
@@ -351,7 +351,7 @@ class TestGenerateMusicConfig:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-class TestFetchMusicGeminiE2E:
+class TestGenerateMusicGeminiE2E:
     @pytest.fixture(autouse=True)
     def _skip_without_key(self):
         import os
@@ -359,9 +359,9 @@ class TestFetchMusicGeminiE2E:
             pytest.skip("GEMINI_API_KEY not set")
 
     def test_generates_real_music(self, tmp_path: Path):
-        from pipeline.music_gemini import fetch_music_gemini
+        from pipeline.music_gemini import generate_music_gemini
 
-        result = fetch_music_gemini(
+        result = generate_music_gemini(
             trip_type="general",
             style="upbeat",
             target_duration=5,
@@ -386,17 +386,17 @@ class TestFetchMusicGeminiE2E:
         assert meta["duration"] > 0
 
     def test_cache_hit_on_second_call(self, tmp_path: Path):
-        from pipeline.music_gemini import fetch_music_gemini
+        from pipeline.music_gemini import generate_music_gemini
 
         # First call — generates
-        result1 = fetch_music_gemini(
+        result1 = generate_music_gemini(
             "general", "upbeat", 5, tmp_path,
             mood="gentle piano, calm travel background",
         )
         assert result1 is not None
 
         # Second call — should use cache
-        result2 = fetch_music_gemini(
+        result2 = generate_music_gemini(
             "general", "upbeat", 5, tmp_path,
             mood="gentle piano, calm travel background",
         )

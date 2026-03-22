@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -19,7 +19,7 @@ class Config:
     preview_clips_dir: Path = Path("./workspace/preview_clips")
     music_dir: Path = Path("./workspace/music")
 
-    # Per-run directories (derived from workspace)
+    # Per-run directories and files (derived from workspace)
     @property
     def clips_dir(self) -> Path:
         return self.workspace / "clips"
@@ -27,6 +27,21 @@ class Config:
     @property
     def output_dir(self) -> Path:
         return self.workspace / "output"
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.workspace / "manifest.json"
+
+    @property
+    def analysis_path(self) -> Path:
+        return self.workspace / "analysis.json"
+
+    @property
+    def preprocessed_path(self) -> Path:
+        return self.workspace / "preprocessed.json"
+
+    def edl_path(self, version: int) -> Path:
+        return self.workspace / f"edl_v{version}.json"
 
     @staticmethod
     def run_workspace(base_dir: str = "./workspace", run_name: str = "default") -> str:

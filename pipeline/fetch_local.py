@@ -97,7 +97,7 @@ def fetch_local(
         if i % 100 == 0 or i == len(files):
             logger.info("[%d/%d] Scanned", i, len(files))
 
-    manifest_path = cfg.workspace / "manifest.json"
+    manifest_path = cfg.manifest_path
     manifest_path.write_text(json.dumps(manifest, indent=2))
     logger.info("Manifest saved: %d items from %s", len(manifest), source)
     return manifest

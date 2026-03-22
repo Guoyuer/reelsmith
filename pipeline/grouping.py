@@ -1,7 +1,4 @@
-"""Clip grouping logic — shared between concat and timeline modules.
-
-Extracted to break the circular dependency between concat.py and timeline.py.
-"""
+"""Clip grouping logic — shared between concat and timeline modules."""
 
 from __future__ import annotations
 

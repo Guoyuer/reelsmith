@@ -115,6 +115,12 @@ class RenderContext:
         self._dim_cache[key] = dims
         return dims
 
+    def invalidate(self, path: Path) -> None:
+        """Remove cached probe results for a path (e.g. after re-encoding)."""
+        key = str(path)
+        self._dim_cache.pop(key, None)
+        self._dur_cache.pop(key, None)
+
     def probe_duration(self, path: Path) -> float:
         key = str(path)
         if key in self._dur_cache:
@@ -154,11 +160,6 @@ def get_context() -> RenderContext:
 
 def get_encoder(width: int = 3840, height: int = 2160, fps: int = 60) -> list[str]:
     return _ctx.get_encoder(width, height, fps)
-
-
-
-def probe_dimensions(path: Path) -> tuple[int, int]:
-    return _ctx.probe_dimensions(path)
 
 
 def probe_duration(path: Path) -> float:

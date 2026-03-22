@@ -112,7 +112,7 @@ def find_latest_version(cfg: Config) -> int:
 
 def save_edl(cfg: Config, edl: EDL, version: int) -> Path:
     """Save EDL as workspace/edl_v{version}.json."""
-    path = cfg.workspace / f"edl_v{version}.json"
+    path = cfg.edl_path(version)
     path.write_text(edl.model_dump_json(indent=2))
     return path
 
@@ -121,7 +121,7 @@ def load_latest_edl(cfg: Config) -> tuple[EDL, int]:
     """Load the latest edl_v{N}.json. Falls back to edl.json for migration."""
     version = find_latest_version(cfg)
     if version > 0:
-        path = cfg.workspace / f"edl_v{version}.json"
+        path = cfg.edl_path(version)
     else:
         path = cfg.workspace / "edl.json"
         if not path.exists():

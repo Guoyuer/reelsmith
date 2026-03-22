@@ -318,12 +318,13 @@ def _visual_system_prompt(trip_type: str, language: str = "en") -> str:
 def _build_visual_chapter_text(
     chapter: dict, day: dict, analysis_by_id: dict, start_idx: int,
     *, tz_hours: int = 0,
-) -> tuple[str, list[Path], list[dict]]:
+) -> tuple[str, list[Path], list[str], list[dict]]:
     """Build text metadata for a chapter and collect image paths.
 
-    Returns (text, photo_paths, video_items) where:
+    Returns (text, photo_paths, photo_labels, video_items) where:
     - text: metadata lines with numbered items
     - photo_paths: ordered list of photo paths for contact sheet
+    - photo_labels: matching labels for each photo (e.g. "#01")
     - video_items: list of video analysis dicts for preview clips
     """
     lines = []
@@ -373,7 +374,16 @@ def _build_visual_chapter_text(
         if media == "video":
             dur = a.get("video_duration") or (a.get("duration_ms", 0) / 1000)
             dur_s = f"{dur:.0f}s" if dur else "?"
-            parts.append(f"video={dur_s}")
+            vw = a.get("video_width", 0)
+            vh = a.get("video_height", 0)
+            res_str = f" {vw}x{vh}" if vw and vh else ""
+            orient = a.get("video_orientation", "")
+            orient_str = f"({orient})" if orient == "portrait" else ""
+            vfps = a.get("video_fps", 0)
+            fps_str = f" {vfps}fps" if vfps and vfps >= 48 else ""  # only note high fps (slow-mo source)
+            audio = a.get("audio_level", "")
+            audio_str = f" audio={audio}" if audio and audio != "unknown" else ""
+            parts.append(f"video={dur_s}{res_str}{orient_str}{fps_str}{audio_str}")
             video_items.append(a)
         else:
             exif_data = a.get("exif", {})
@@ -398,8 +408,8 @@ def _build_visual_chapter_text(
     block = chapter.get("time_block", "")
     # Present as context, not prescriptive chapters — Gemini creates its own narrative structure
     n_photos = len(photo_paths)
-    n_vids = len(video_items)
-    media_note = f"{n_photos} photos" + (f", {n_vids} videos" if n_vids else "")
+    n_videos = len(video_items)
+    media_note = f"{n_photos} photos" + (f", {n_videos} videos" if n_videos else "")
     header = f"\n--- {day['day_name']} {day['date']}, {block} near {loc} ({media_note}) ---"
     text = header + "\n" + "\n".join(lines)
     return text, photo_paths, photo_labels, video_items
@@ -643,10 +653,12 @@ def _build_visual_content_blocks(
                 thumb = cfg.thumbnails_dir / f"{p.stem}_thumb.jpg"
                 img_path = thumb if thumb.exists() else p
                 if img_path.exists():
-                    # Resize to 400px and compress to keep payload small
                     from PIL import Image
                     import io
                     try:
+                        if img_path.suffix.lower() in {".heic", ".heif"}:
+                            from .image_utils import convert_heic
+                            img_path = convert_heic(img_path)
                         img = Image.open(img_path)
                         img.thumbnail((400, 400))
                         buf = io.BytesIO()
@@ -862,29 +874,41 @@ def _plan_visual(
             loc = ch["location"]
             block = ch["time_block"]
             count = len(ch.get("item_ids", []))
-            n_vid = sum(1 for iid in ch["item_ids"]
-                        if analysis_by_id.get(str(iid), {}).get("media_type") == "video")
+            n_videos = sum(1 for iid in ch["item_ids"]
+                          if analysis_by_id.get(str(iid), {}).get("media_type") == "video")
             line = f"  [{block.upper()}] {loc} — {count} items"
-            if n_vid:
-                line += f" ({n_vid} videos)"
+            if n_videos:
+                line += f" ({n_videos} videos)"
             arc_lines.append(line)
 
+    min_duration = int(target_duration * 1.2)
     intro_text = f"""\
 Create a {style} {trip_label} vlog EDL from the photos and videos shown below.
 
 {trip_summary}{family_line}
-CRITICAL: The vlog MUST be {target_duration}s long. Select ~{n_items} items to fill this duration.
-Photos = 3-5s each, videos = 5-10s each. Do the math: {n_items} items × ~4s avg = {target_duration}s.
-If your EDL totals less than {int(target_duration * 0.9)}s, you have selected TOO FEW items — add more.
-Focus: {focus}.
+
+**FOCUS: {focus}** — This is the creative direction. Every chapter, every selection
+decision, and every text overlay should serve this focus. When choosing between two
+items of similar quality, pick the one that better supports this focus.
+
+DURATION: The vlog MUST be {target_duration}s. Select ~{n_items} items.
+Sum of display_duration MUST reach {min_duration}s (transitions eat ~20%).
+Photos = 3-5s, videos = 5-10s. {n_items} items × ~4s avg = {target_duration}s.
 
 Trip structure:
 {"".join(arc_lines)}
 
 **Think step-by-step:**
-1. First, design a narrative arc — 4-6 chapters based on STORY BEATS (not locations).
-2. Then, look at every contact sheet and video clip. Select the best items for each chapter.
-3. Finally, self-review: check pacing, variety, video/photo balance. Fix any issues.
+1. Design a narrative arc — 4-6 chapters based on STORY BEATS (not locations).
+2. Select items: scan every photo and video clip. Pick the best for each chapter.
+3. Self-review checklist (fix any issues before outputting):
+   - [ ] Does the vlog serve the focus "{focus}"?
+   - [ ] Sum of display_duration ≥ {min_duration}s?
+   - [ ] At least 40% video items? At least 50% of videos have keep_audio=true?
+   - [ ] No audio=silent videos with keep_audio=true?
+   - [ ] Items spread across all days/locations (not clustered)?
+   - [ ] No more than 2 portrait videos in the whole EDL?
+   - [ ] No duplicate source_file paths?
 
 Output ONE JSON with all your thinking and the final EDL.
 
@@ -1113,8 +1137,9 @@ Candidates by day/location:"""
                         item.end_time = None
                         item.keep_audio = False
 
-    n_vid = sum(1 for i in edl.all_items() if i.media_type == "video")
-    n_photo = sum(1 for i in edl.all_items() if i.media_type == "photo")
+    all_items = edl.all_items()
+    n_videos = sum(1 for i in all_items if i.media_type == "video")
+    n_photos = len(all_items) - n_videos
     n_keep_audio = sum(1 for i in edl.all_items() if i.keep_audio)
     n_text_overlay = sum(1 for i in edl.all_items() if i.text_overlay)
     n_speed_ramp = sum(1 for i in edl.all_items() if i.playback_speed != 1.0)
@@ -1122,7 +1147,7 @@ Candidates by day/location:"""
     logger.info(f"=== [Gemini] PARSED EDL ===")
     logger.info(f"  Title: {edl.title}")
     logger.info(f"  Segments: {len(edl.segments)}, Items: {len(edl.all_items())} "
-         f"({n_photo} photos + {n_vid} videos)")
+         f"({n_photos} photos + {n_videos} videos)")
     logger.info(f"  Duration: {actual_dur:.0f}s (target: {target_duration}s, "
          f"{'OK' if actual_dur >= target_duration * 0.8 else 'UNDERFILLED'})")
     logger.info(f"  Speech clips (keep_audio): {n_keep_audio}")
@@ -1184,8 +1209,8 @@ def plan(
         )
 
     effective_focus = focus or _default_focus(trip_type)
-    preprocessed = json.loads((cfg.workspace / "preprocessed.json").read_text())
-    analysis_items = json.loads((cfg.workspace / "analysis.json").read_text())
+    preprocessed = json.loads(cfg.preprocessed_path.read_text())
+    analysis_items = json.loads(cfg.analysis_path.read_text())
     analysis_by_id: dict[str, dict] = {str(a["id"]): a for a in analysis_items}
 
     logger.info(f"Planning via Gemini with visual input (target {target_duration}s, style={style}, trip_type={trip_type}, lang={language})...")
@@ -1224,7 +1249,7 @@ def plan(
     version = find_latest_version(cfg) + 1
     save_edl(cfg, edl, version)
 
-    clips_dir = cfg.workspace / "clips"
+    clips_dir = cfg.clips_dir
     if clips_dir.exists():
         for f in clips_dir.iterdir():
             f.unlink(missing_ok=True)
