@@ -504,12 +504,13 @@ def _validate_output_impl(
         try:
             vid_stream_dur = float(vid_dur_result.stdout.strip())
             aud_stream_dur = float(aud_dur_result.stdout.strip())
-            drift = abs(vid_stream_dur - aud_stream_dur)
-            if drift > 5.0:
+            # Audio shorter than video is normal — speech track only
+            # covers keep_audio clips. Only warn if audio is LONGER.
+            if aud_stream_dur > vid_stream_dur + 5.0:
                 _warn("av_sync",
-                      f"Audio/video stream duration mismatch: "
+                      f"Audio longer than video: "
                       f"video={vid_stream_dur:.1f}s, audio={aud_stream_dur:.1f}s "
-                      f"(drift={drift:.1f}s) — possible sync issue")
+                      f"— possible sync issue")
         except (ValueError, TypeError) as e:
             _warn("av_sync", f"Could not parse stream durations for sync check: {e}")
 
