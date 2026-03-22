@@ -99,7 +99,7 @@ class RenderReport:
 # ---------------------------------------------------------------------------
 
 def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_broken: bool = False,
-             resolution: tuple[int, int] | None = None, fps: int | None = None,
+             resolution: tuple[int, int] = (1920, 1080), fps: int = 30,
              quality: float = 1.0) -> tuple[Path, list[dict]]:
     """Read latest edl_v{N}.json and render the vlog video.
 
@@ -108,6 +108,18 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     """
     _log = logger.info
     cfg.ensure_dirs()
+
+    # Validate render parameters
+    w, h = resolution
+    if w <= 0 or h <= 0:
+        raise ValueError(f"Invalid resolution: {w}x{h}")
+    if w % 2 != 0 or h % 2 != 0:
+        raise ValueError(f"Resolution must be even: {w}x{h}")
+    if fps <= 0 or fps > 120:
+        raise ValueError(f"Invalid fps: {fps}")
+    if quality <= 0 or quality > 5:
+        raise ValueError(f"Invalid quality: {quality}")
+
     if version > 0:
         edl_path = cfg.workspace / f"edl_v{version}.json"
         edl = EDL.model_validate_json(edl_path.read_text())
@@ -141,13 +153,11 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
             old_clip.unlink()
         _log(f"Cleaned stale clips from {clips_dir}")
 
-    # Read render settings from EDL, allow overrides from function args
-    w, h = resolution or edl.resolution
-    _fps = fps or edl.fps
-    _quality = quality if quality != 1.0 else edl.quality
+    w, h = resolution
+    _fps = fps
     lang = edl.language
 
-    ctx = init_context(quality=_quality)
+    ctx = init_context(quality=quality)
 
     # Log all FFmpeg commands to output/ffmpeg_commands.log
     ffmpeg_log = logging.getLogger("pipeline.ffmpeg")

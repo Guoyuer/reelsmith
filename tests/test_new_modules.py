@@ -257,30 +257,8 @@ class TestPromptLoading:
                 plan_mod._PROMPTS_DIR = orig
 
 
-# ---------------------------------------------------------------------------
-# EDL quality field backward compatibility
-# ---------------------------------------------------------------------------
 
-class TestEDLQualityField:
-    def test_default_quality(self):
-        edl = EDL(title="T", target_duration=10, segments=[])
-        assert edl.quality == 1.0
 
-    def test_quality_roundtrip(self):
-        edl = EDL(title="T", target_duration=10, segments=[], quality=0.5)
-        j = edl.model_dump_json()
-        edl2 = EDL.model_validate_json(j)
-        assert edl2.quality == 0.5
-
-    def test_old_edl_without_quality(self):
-        """Old EDL JSON without quality field should get default 1.0."""
-        old_json = json.dumps({
-            "title": "Old",
-            "target_duration": 60,
-            "segments": [],
-        })
-        edl = EDL.model_validate_json(old_json)
-        assert edl.quality == 1.0
 
 
 # ---------------------------------------------------------------------------

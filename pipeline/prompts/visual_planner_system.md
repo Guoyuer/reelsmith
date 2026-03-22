@@ -166,8 +166,6 @@ Think step-by-step, then output valid JSON only:
 {{
   "title": "string",
   "target_duration": <seconds>,
-  "resolution": [3840, 2160],
-  "fps": 60,
   "intro_duration": 3.0 (1-8s, how long the title card lingers),
   "outro_duration": 3.0 (1-8s, how long the closing card lingers),
   "music_duck_ratio": 0.3 (0.0-1.0, during speech music volume *= this; lower=quieter music behind dialogue),

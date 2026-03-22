@@ -64,8 +64,6 @@ class MusicTrack(BaseModel):
 class EDL(BaseModel):
     title: str
     target_duration: float  # desired total length in seconds
-    resolution: tuple[int, int] = (3840, 2160)
-    fps: int = 60
     segments: list[Segment]
     music: MusicTrack | None = None
     music_mode: Literal["none", "auto", "file"] = "none"  # auto = generate in generate_music step
@@ -78,7 +76,6 @@ class EDL(BaseModel):
     outro_duration: float = 3.0  # seconds for outro clip
     date_range: str = ""  # e.g. "June 13-16, 2025" for title card
     language: Literal["en", "cn", "both"] = "en"  # text language: en/cn/both
-    quality: float = 1.0  # render quality multiplier (0.5=draft, 1.0=default, 2.0=archive)
 
     def all_items(self) -> list[EditItem]:
         return [item for seg in self.segments for item in seg.items]
@@ -159,11 +156,6 @@ VALID_EFFECTS = {
     "ken_burns_right", "static", "none",
 }
 
-VALID_RESOLUTIONS = {
-    (640, 360), (854, 480), (1280, 720), (1920, 1080),
-    (2560, 1440), (3840, 2160),
-}
-
 
 def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
     """Validate an EDL for correctness before rendering.
@@ -182,22 +174,6 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
         issues.append({"level": "warning" if not strict else "error", "message": msg})
 
     # --- Top-level fields ---
-    w, h = edl.resolution
-    if w <= 0 or h <= 0:
-        _error(f"Invalid resolution: {w}x{h}")
-    elif (w, h) not in VALID_RESOLUTIONS:
-        _warn(f"Non-standard resolution: {w}x{h}")
-    if w % 2 != 0 or h % 2 != 0:
-        _error(f"Resolution must be even: {w}x{h}")
-
-    if edl.fps <= 0 or edl.fps > 120:
-        _error(f"Invalid fps: {edl.fps}")
-    if edl.fps not in (15, 24, 25, 30, 50, 60):
-        _warn(f"Non-standard fps: {edl.fps}")
-
-    if edl.quality <= 0 or edl.quality > 5:
-        _error(f"Invalid quality multiplier: {edl.quality}")
-
     if not edl.title:
         _warn("EDL has no title")
 

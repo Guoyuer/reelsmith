@@ -40,8 +40,7 @@ def _get_media_samples() -> tuple[list[str], list[dict]]:
     return photos, videos
 
 
-def _make_edl(photos, videos, *, resolution=(640, 360), fps=15,
-              n_photo=4, n_video=2, transition="crossfade",
+def _make_edl(photos, videos, *, n_photo=4, n_video=2, transition="crossfade",
               transition_duration=0.4, keep_audio_idx=None,
               title="Test EDL") -> dict:
     """Build a minimal valid EDL dict from real media files."""
@@ -68,8 +67,6 @@ def _make_edl(photos, videos, *, resolution=(640, 360), fps=15,
     return {
         "title": title,
         "target_duration": 60,
-        "resolution": list(resolution),
-        "fps": fps,
         "segments": [{
             "name": "Test Segment",
             "music_mood": "test",
@@ -87,7 +84,6 @@ def _make_edl(photos, videos, *, resolution=(640, 360), fps=15,
         "outro_style": "none",
         "date_range": "",
         "language": "cn",
-        "quality": 0.5,
     }
 
 
@@ -96,16 +92,11 @@ def validate_edl(edl: dict) -> list[str]:
     errors = []
 
     # Required fields
-    for field in ["title", "target_duration", "resolution", "fps", "segments"]:
+    for field in ["title", "target_duration", "segments"]:
         if field not in edl:
             errors.append(f"Missing required field: {field}")
 
-    res = edl.get("resolution", [0, 0])
-    if not (isinstance(res, (list, tuple)) and len(res) == 2
-            and res[0] > 0 and res[1] > 0):
-        errors.append(f"Invalid resolution: {res}")
-
-    fps = edl.get("fps", 0)
+    fps = edl.get("fps", 30)
     if fps <= 0 or fps > 120:
         errors.append(f"Invalid fps: {fps}")
 
@@ -161,8 +152,9 @@ def validate_edl(edl: dict) -> list[str]:
     return errors
 
 
-def validate_output(video_path: Path, edl: dict) -> list[str]:
-    """Validate rendered video against EDL expectations."""
+def validate_output(video_path: Path, edl: dict,
+                     expected_resolution: tuple[int, int] = (640, 360)) -> list[str]:
+    """Validate rendered video against expected resolution and EDL content."""
     errors = []
     if not video_path.exists():
         return [f"Output file missing: {video_path}"]
@@ -188,7 +180,7 @@ def validate_output(video_path: Path, edl: dict) -> list[str]:
         vs = v_streams[0]
         w = vs.get("width", 0)
         h = vs.get("height", 0)
-        exp_w, exp_h = edl.get("resolution", [0, 0])
+        exp_w, exp_h = expected_resolution
         if w != exp_w or h != exp_h:
             errors.append(f"Resolution mismatch: {w}x{h} vs expected {exp_w}x{exp_h}")
 
@@ -211,13 +203,15 @@ def validate_output(video_path: Path, edl: dict) -> list[str]:
     return errors
 
 
-def _run_assemble(edl_dict: dict, run_name: str = "singapore") -> Path:
+def _run_assemble(edl_dict: dict, run_name: str = "singapore",
+                   width: int = 640, height: int = 360, fps: int = 15) -> Path:
     """Write EDL to a temp file and run assemble."""
     edl_path = Path(f"workspace/test_edl.json")
     edl_path.write_text(json.dumps(edl_dict, indent=2))
 
     result = subprocess.run(
-        ["python", "run.py", "-n", run_name, "assemble", "--edl", str(edl_path)],
+        ["python", "run.py", "-n", run_name, "assemble", "--edl", str(edl_path),
+         "--width", str(width), "--height", str(height), "--fps", str(fps)],
         capture_output=True, text=True, timeout=600,
         cwd=str(Path.cwd()),
     )
@@ -284,7 +278,7 @@ class TestAssembleE2E:
     def test_basic_render_360p15(self):
         """Basic photos + videos at 360p 15fps."""
         photos, videos = _get_media_samples()
-        edl = _make_edl(photos, videos, resolution=(640, 360), fps=15)
+        edl = _make_edl(photos, videos)
         errors = validate_edl(edl)
         assert errors == [], f"EDL validation failed: {errors}"
 
@@ -295,7 +289,7 @@ class TestAssembleE2E:
     def test_with_audio_360p15(self):
         """Test keep_audio on video clips."""
         photos, videos = _get_media_samples()
-        edl = _make_edl(photos, videos, resolution=(640, 360), fps=15,
+        edl = _make_edl(photos, videos,
                         keep_audio_idx={0})
         output = _run_assemble(edl)
         errors = validate_output(output, edl)
@@ -304,7 +298,7 @@ class TestAssembleE2E:
     def test_fade_black_transition(self):
         """Test fade_black transitions."""
         photos, videos = _get_media_samples()
-        edl = _make_edl(photos, videos, resolution=(640, 360), fps=15,
+        edl = _make_edl(photos, videos,
                         transition="fade_black", transition_duration=0.6)
         output = _run_assemble(edl)
         errors = validate_output(output, edl)
@@ -313,7 +307,7 @@ class TestAssembleE2E:
     def test_720p30(self):
         """Test at 720p 30fps."""
         photos, videos = _get_media_samples()
-        edl = _make_edl(photos, videos, resolution=(1280, 720), fps=30,
+        edl = _make_edl(photos, videos,
                         title="720p30 Test")
         output = _run_assemble(edl)
         errors = validate_output(output, edl)
@@ -329,8 +323,6 @@ class TestAssembleE2E:
         edl = {
             "title": "Multi-Segment Test",
             "target_duration": 60,
-            "resolution": [640, 360],
-            "fps": 15,
             "segments": [
                 {
                     "name": "Segment A",
@@ -388,7 +380,7 @@ class TestAssembleE2E:
     def test_text_overlays(self):
         """Test text overlays on photos and videos."""
         photos, videos = _get_media_samples()
-        edl = _make_edl(photos, videos, resolution=(640, 360), fps=15,
+        edl = _make_edl(photos, videos,
                         title="Text Overlay Test")
         # Add text overlays
         edl["segments"][0]["items"][0]["text_overlay"] = {
@@ -408,7 +400,7 @@ class TestAssembleE2E:
     def test_speed_ramp(self):
         """Test playback_speed on video clips."""
         photos, videos = _get_media_samples()
-        edl = _make_edl(photos, videos, resolution=(640, 360), fps=15)
+        edl = _make_edl(photos, videos)
         for item in edl["segments"][0]["items"]:
             if item["media_type"] == "video":
                 item["playback_speed"] = 1.5
@@ -420,7 +412,7 @@ class TestAssembleE2E:
     def test_photos_only(self):
         """Test EDL with only photo items (no video)."""
         photos, videos = _get_media_samples()
-        edl = _make_edl(photos, videos, resolution=(640, 360), fps=15,
+        edl = _make_edl(photos, videos,
                         n_video=0, n_photo=6, title="Photos Only")
         output = _run_assemble(edl)
         errors = validate_output(output, edl)
@@ -431,7 +423,7 @@ class TestAssembleE2E:
         photos, videos = _get_media_samples()
         if len(videos) < 4:
             pytest.skip("Need at least 4 videos")
-        edl = _make_edl(photos, videos, resolution=(640, 360), fps=15,
+        edl = _make_edl(photos, videos,
                         n_photo=0, n_video=4, title="Videos Only",
                         keep_audio_idx={0, 2})
         output = _run_assemble(edl)

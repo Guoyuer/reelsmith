@@ -270,14 +270,12 @@ class TestRenderPortraitVideo:
 # -----------------------------------------------------------------------
 
 
-def _make_edl(duration: float = 60.0, music_file: str = "",
-              resolution: tuple[int, int] = (3840, 2160)) -> EDL:
+def _make_edl(duration: float = 60.0, music_file: str = "") -> EDL:
     """Helper to build a minimal EDL for validation tests."""
     music = MusicTrack(file=music_file) if music_file else None
     return EDL(
         title="Test",
         target_duration=duration,
-        resolution=resolution,
         segments=[
             Segment(
                 name="Seg1",

@@ -120,5 +120,3 @@ class TestJsonRoundtrip:
         )
         restored = EDL.model_validate_json(edl.model_dump_json())
         assert restored.music is None
-        assert restored.resolution == (3840, 2160)
-        assert restored.fps == 60

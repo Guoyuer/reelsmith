@@ -1169,9 +1169,6 @@ def plan(
     trip_type: str = "family",
     music_file: str | None = None,
     language: str = "en",
-    resolution: tuple[int, int] = (3840, 2160),
-    fps: int = 60,
-    quality: float = 1.0,
     tz_hours: int | None = None,
     model: str | None = None,
 ) -> tuple[EDL, int]:
@@ -1208,9 +1205,6 @@ def plan(
     edl.trip_type = trip_type
     edl.style = style
     edl.language = language
-    edl.resolution = resolution
-    edl.fps = fps
-    edl.quality = quality
     edl.intro_style = edl.intro_style or "title_card"
     edl.outro_style = edl.outro_style or "fade_title"
     if not edl.date_range:

@@ -375,8 +375,7 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             _log_config(log, "plan", pc, {
                 "style": "upbeat", "target_duration": 180, "trip_type": "family",
                 "language": "en", "focus": "", "music_file": None,
-                "width": 3840, "height": 2160, "fps": 60,
-                "quality": 1.0, "tz_offset": None,
+                "tz_offset": None, "model": None,
             })
             t0 = time.monotonic()
 
@@ -389,9 +388,6 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
                 trip_type=pc.get("trip_type", "family"),
                 music_file=pc.get("music_file") or None,
                 language=pc.get("language", "en"),
-                resolution=(pc.get("width", 3840), pc.get("height", 2160)),
-                fps=pc.get("fps", 60),
-                quality=pc.get("quality", 1.0),
                 tz_hours=pc.get("tz_offset"),
                 model=pc.get("model"),
             )
@@ -455,7 +451,8 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             display.start("assemble")
             ac = stage_configs.get("assemble", {})
             _log_config(log, "assemble", ac, {
-                "version": 0, "edl_path": None, "quality": 1.0,
+                "version": 0, "edl_path": None,
+                "width": 1920, "height": 1080, "fps": 30, "quality": 1.0,
                 "skip_broken": False,
             })
             t0 = time.monotonic()
@@ -463,11 +460,8 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             from pipeline.assemble import assemble as do_assemble
             from pipeline.edl import find_latest_version
 
-            import json as _json
-
             edl_path = ac.get("edl_path")
             if edl_path:
-                # Copy external EDL into run dir as next version
                 import shutil
                 version = find_latest_version(cfg) + 1
                 dest = cfg.workspace / f"edl_v{version}.json"
@@ -478,18 +472,15 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
                 if version <= 0:
                     version = find_latest_version(cfg)
 
-            # Always read resolution/fps from EDL
-            edl_file = cfg.workspace / f"edl_v{version}.json"
-            edl_data = _json.loads(edl_file.read_text())
-            edl_res = edl_data.get("resolution", [3840, 2160])
-            edl_fps = edl_data.get("fps", 60)
-
-            log(f"Render: {edl_res[0]}x{edl_res[1]} {edl_fps}fps (EDL v{version})")
+            aw = ac.get("width", 1920)
+            ah = ac.get("height", 1080)
+            a_fps = ac.get("fps", 30)
+            log(f"Render: {aw}x{ah} {a_fps}fps (EDL v{version})")
 
             out, issues = do_assemble(
                 cfg, version=version,
-                resolution=(edl_res[0], edl_res[1]),
-                fps=edl_fps,
+                resolution=(aw, ah),
+                fps=a_fps,
                 progress_callback=_progress_cb(logger, display, "assemble", t0),
                 skip_broken=ac.get("skip_broken", False),
                 quality=ac.get("quality", 1.0),
@@ -592,10 +583,11 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
               help="Comma-separated family member names")
 @click.option("--timezone", "--tz", "tz_offset", default=None, type=int,
               help="UTC offset in hours (default: system local, e.g. -5 NYC, 8 SGT)")
+@click.option("--model", default=None, help="Gemini model (default: VLOG_MODEL env or gemini-3-flash-preview)")
 @click.pass_context
 def full(ctx, from_date, to_date, source, duration, trip_type, style, focus,
          item_types, music, width, height, fps, quality,
-         country, district, force_prepare, family, lang, tz_offset):
+         country, district, force_prepare, family, lang, tz_offset, model):
     """Run the full pipeline end-to-end."""
     if not source and (not from_date or not to_date):
         raise click.UsageError("Either --source (local folder) or -f/-t (date range) is required.")
@@ -625,11 +617,11 @@ def full(ctx, from_date, to_date, source, duration, trip_type, style, focus,
         "style": style, "target_duration": duration,
         "focus": focus, "trip_type": trip_type,
         "language": lang,
-        "width": width, "height": height, "fps": fps,
-        "quality": quality,
     }
     if tz_offset is not None:
         plan_cfg["tz_offset"] = tz_offset
+    if model:
+        plan_cfg["model"] = model
     music_backend = "gemini"
     if music == "local":
         plan_cfg["music_file"] = "auto"
@@ -646,7 +638,8 @@ def full(ctx, from_date, to_date, source, duration, trip_type, style, focus,
         "prepare": prepare_cfg,
         "plan": plan_cfg,
         "generate_music": {"music_backend": music_backend},
-        "assemble": {"skip_broken": True, "quality": quality},
+        "assemble": {"skip_broken": True, "width": width, "height": height,
+                     "fps": fps, "quality": quality},
     })
 
 
@@ -660,28 +653,56 @@ def full(ctx, from_date, to_date, source, duration, trip_type, style, focus,
 @click.option("--lang", default="en", type=click.Choice(["en", "cn", "both"]),
               help="Text language")
 @click.option("--model", default=None, help="Gemini model (default: VLOG_MODEL env or gemini-3-flash-preview)")
+@click.option("--music", default="auto",
+              help="Music: auto (Gemini Lyria), local (MusicGen), none, or path to WAV")
+@click.option("--timezone", "--tz", "tz_offset", default=None, type=int,
+              help="UTC offset in hours (e.g. 8 for SGT)")
+@click.option("--width", default=1920, type=int, help="Output width")
+@click.option("--height", default=1080, type=int, help="Output height")
+@click.option("--fps", default=30, type=int, help="Output FPS")
+@click.option("--quality", default=1.0, type=float, help="Bitrate multiplier")
 @click.pass_context
-def plan(ctx, duration, trip_type, style, focus, lang, model):
+def plan(ctx, duration, trip_type, style, focus, lang, model,
+         music, tz_offset, width, height, fps, quality):
     """Re-plan and re-assemble (uses cached media + analysis)."""
-    plan_cfg: dict = {"style": style, "target_duration": duration,
-                      "focus": focus, "trip_type": trip_type, "language": lang,
-                      "music_file": "auto"}
+    plan_cfg: dict = {
+        "style": style, "target_duration": duration,
+        "focus": focus, "trip_type": trip_type, "language": lang,
+    }
+    if tz_offset is not None:
+        plan_cfg["tz_offset"] = tz_offset
     if model:
         plan_cfg["model"] = model
+
+    music_backend = "gemini"
+    if music == "local":
+        plan_cfg["music_file"] = "auto"
+        music_backend = "local"
+    elif music == "none":
+        pass
+    elif music == "auto":
+        plan_cfg["music_file"] = "auto"
+    else:
+        plan_cfg["music_file"] = music
+
     _run_pipeline(_run_name(ctx), {
         "plan": plan_cfg,
-        "generate_music": {"music_backend": "gemini"},
+        "generate_music": {"music_backend": music_backend},
+        "assemble": {"width": width, "height": height, "fps": fps, "quality": quality},
     }, stages=["plan", "generate_music", "assemble"])
 
 
 @cli.command()
 @click.option("-v", "--version", default=None, type=int, help="EDL version to render")
 @click.option("--edl", "edl_path", default=None, type=click.Path(exists=True), help="EDL JSON path (overrides version)")
+@click.option("--width", default=1920, type=int, help="Output width")
+@click.option("--height", default=1080, type=int, help="Output height")
+@click.option("--fps", default=30, type=int, help="Output FPS")
 @click.option("--quality", default=1.0, type=float, help="Bitrate multiplier")
 @click.pass_context
-def assemble(ctx, version, edl_path, quality):
+def assemble(ctx, version, edl_path, width, height, fps, quality):
     """Re-render the vlog from current or specified EDL version."""
-    ac: dict = {"quality": quality}
+    ac: dict = {"width": width, "height": height, "fps": fps, "quality": quality}
     if version is not None:
         ac["version"] = version
     if edl_path is not None:
