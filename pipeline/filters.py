@@ -94,7 +94,7 @@ def drawtext_filter(text: str, position: str, font_size: int,
 
 
 # ---------------------------------------------------------------------------
-# Ken Burns & portrait video filters (moved from media_utils.py)
+# Ken Burns & portrait video filters
 # ---------------------------------------------------------------------------
 
 def zoompan_filter(

@@ -255,7 +255,6 @@ def _prepare_video(entry, item_id, local_path, cache_file, i, total):
     """Probe video duration, dimensions, fps, orientation, and audio loudness."""
     logger.info(f"[{i}/{total}] {entry['filename']} — video metadata...")
 
-    # Probe duration + video stream dimensions + fps in one call
     probe = run_subprocess(
         ["ffprobe", "-v", "error",
          "-select_streams", "v:0",

@@ -1137,8 +1137,9 @@ Candidates by day/location:"""
                         item.end_time = None
                         item.keep_audio = False
 
-    n_videos = sum(1 for i in edl.all_items() if i.media_type == "video")
-    n_photos = sum(1 for i in edl.all_items() if i.media_type == "photo")
+    all_items = edl.all_items()
+    n_videos = sum(1 for i in all_items if i.media_type == "video")
+    n_photos = len(all_items) - n_videos
     n_keep_audio = sum(1 for i in edl.all_items() if i.keep_audio)
     n_text_overlay = sum(1 for i in edl.all_items() if i.text_overlay)
     n_speed_ramp = sum(1 for i in edl.all_items() if i.playback_speed != 1.0)

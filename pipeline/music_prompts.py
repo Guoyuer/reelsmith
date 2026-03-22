@@ -1,13 +1,10 @@
-"""Music prompt templates — shared between music backends.
-
-Extracted to break the circular dependency between music.py and music_gemini.py.
-"""
+"""Music prompt templates — shared between music backends."""
 
 from __future__ import annotations
 
 import logging
 
-logger = logging.getLogger("vlog.music")
+logger = logging.getLogger("vlog.music_prompts")
 
 # Prompt templates per trip_type + style
 MUSIC_PROMPTS: dict[str, dict[str, str]] = {
