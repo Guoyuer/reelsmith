@@ -223,5 +223,10 @@ def concat_xfade(clips: list[dict], output_path: Path,
     ]
     result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"xfade failed, falling back to concat demuxer: {result.stderr[-200:]}")
+        # Log clip durations and the filter chain for debugging
+        from .encoder import probe_duration as _pd
+        clip_durs = [f"{_pd(c['path']) or 0:.1f}s" for c in clips]
+        print(f"xfade FAILED for {output_path.name} ({len(clips)} clips: {clip_durs})")
+        print(f"  filter: {filter_complex}")
+        print(f"  stderr: {result.stderr[-300:]}")
         concat_demuxer(clips, output_path, w, h, fps)

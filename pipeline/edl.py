@@ -229,6 +229,16 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
             if item.media_type not in ("photo", "video"):
                 _error(f"{item_label}: invalid media_type '{item.media_type}'")
 
+            # Media type vs file extension mismatch
+            if src.exists():
+                ext = src.suffix.lower()
+                photo_exts = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp", ".bmp", ".tiff"}
+                video_exts = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".webm", ".mts"}
+                if item.media_type == "video" and ext in photo_exts:
+                    _error(f"{item_label}: media_type='video' but file is a photo ({ext})")
+                elif item.media_type == "photo" and ext in video_exts:
+                    _error(f"{item_label}: media_type='photo' but file is a video ({ext})")
+
             # Duration
             if item.display_duration <= 0:
                 _error(f"{item_label}: display_duration <= 0 ({item.display_duration})")

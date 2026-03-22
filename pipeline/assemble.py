@@ -248,6 +248,12 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
             if clip_path is None:
                 continue
 
+            # Skip zero-length clips (e.g. from failed renders)
+            clip_dur = probe_duration(clip_path)
+            if clip_dur is not None and clip_dur < 0.1:
+                _log(f"  Skipping zero-length clip: {clip_path.name}")
+                continue
+
             is_montage = getattr(segment, "mode", "narrative") == "montage"
             if is_montage:
                 transition = "cut"
