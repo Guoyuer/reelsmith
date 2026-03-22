@@ -8,38 +8,11 @@ from pathlib import Path
 
 from .edl import XFADE_MAP
 from .encoder import get_encoder, probe_duration
+from .grouping import partition_into_groups
 from .media_utils import run_subprocess
+from .timeline import Timeline
 
 logger = logging.getLogger("vlog.concat")
-
-MAX_GROUP = 10
-
-
-def partition_into_groups(n: int, get_transition) -> list[list[int]]:
-    """Partition clip indices into groups of <= MAX_GROUP.
-
-    Single source of truth — used by both concat and timeline to ensure
-    identical group boundaries (drift causes speech desync).
-
-    Args:
-        n: total number of clips
-        get_transition: callable(i) -> transition name for clip i
-    """
-    if n == 0:
-        return []
-    groups: list[list[int]] = [[0]]
-    for i in range(1, n):
-        # Split at MAX_GROUP, or split early at fade_black boundaries
-        # (fade_black = chapter change, clean split point for xfade chains)
-        should_split = (
-            len(groups[-1]) >= MAX_GROUP
-            or (len(groups[-1]) >= MAX_GROUP - 3
-                and get_transition(i) == "fade_black")
-        )
-        if should_split:
-            groups.append([])
-        groups[-1].append(i)
-    return groups
 
 
 def concatenate(clips: list[dict], output_path: Path,
@@ -175,7 +148,6 @@ def concat_xfade(clips: list[dict], output_path: Path,
                  w: int = 0, h: int = 0, fps: int = 0,
                  timeline=None) -> None:
     """Concatenate with xfade transitions (video only). Uses Timeline offsets."""
-    from .timeline import Timeline
 
     if timeline is None:
         timeline = Timeline.build(clips)

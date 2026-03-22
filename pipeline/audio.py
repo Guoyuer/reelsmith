@@ -260,6 +260,50 @@ def add_music(video_path: Path, music, output_path: Path, *,
     run_subprocess(cmd, capture_output=True)
 
 
+def mix_final_audio(
+    video_path: Path,
+    output_path: Path,
+    music_track=None,
+    speech_audio: Path | None = None,
+    speech_ranges: list[tuple[float, float]] | None = None,
+    duck_ratio: float = 0.3,
+) -> None:
+    """Mix music and/or speech audio into the final video.
+
+    Handles three cases:
+    - Music + optional speech: mix via add_music()
+    - Speech only (no music): mux speech audio into video
+    - Neither: just move the video file to output_path
+
+    Cleans up intermediate files (video_path, speech_audio) after mixing.
+    """
+    import shutil
+
+    has_music = music_track is not None and music_track.file and Path(music_track.file).exists()
+
+    if has_music:
+        add_music(video_path, music_track, output_path,
+                  speech_ranges=speech_ranges, speech_audio=speech_audio,
+                  duck_ratio=duck_ratio)
+        video_path.unlink(missing_ok=True)
+        if speech_audio:
+            speech_audio.unlink(missing_ok=True)
+    elif speech_audio and speech_audio.exists():
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(video_path),
+            "-i", str(speech_audio),
+            "-map", "0:v", "-map", "1:a",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            str(output_path),
+        ]
+        run_subprocess(cmd, capture_output=True)
+        video_path.unlink(missing_ok=True)
+        speech_audio.unlink(missing_ok=True)
+    else:
+        shutil.move(str(video_path), str(output_path))
+
+
 def write_chapters(edl: EDL, all_clips: list[dict], out_path: Path,
                     timeline=None) -> None:
     """Write YouTube-compatible chapter markers from EDL segments.

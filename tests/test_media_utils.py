@@ -57,7 +57,7 @@ class TestConvertHeicCallsSips:
             return result
 
         with patch("shutil.which", side_effect=lambda x: "/usr/bin/sips" if x == "sips" else None), \
-             patch("pipeline.media_utils.run_subprocess", side_effect=mock_run), \
+             patch("pipeline.image_utils.run_subprocess", side_effect=mock_run), \
              patch.dict("sys.modules", {"pillow_heif": None}):
             jpeg = convert_heic(heic_file)
 
@@ -78,7 +78,7 @@ class TestConvertHeicSkipsExisting:
         jpeg_path = tmp_path / f"_converted_{heic_file.stem}.jpg"
         jpeg_path.write_bytes(b"\xff\xd8" + b"\x00" * 50)
 
-        with patch("pipeline.media_utils.run_subprocess") as mock_run:
+        with patch("pipeline.image_utils.run_subprocess") as mock_run:
             result = convert_heic(heic_file)
 
         mock_run.assert_not_called()

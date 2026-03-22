@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .concat import partition_into_groups
+from .grouping import partition_into_groups
 from .encoder import probe_duration as _probe_dur
 
 logger = logging.getLogger("vlog.timeline")

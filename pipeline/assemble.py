@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 import sys
 import time
 from dataclasses import dataclass, field
@@ -16,23 +15,15 @@ from typing import Literal
 
 from tqdm import tqdm
 
-from .audio import add_music, beat_snap_edl, build_speech_track, estimate_bpm, write_chapters
+from .audio import beat_snap_edl, build_speech_track, mix_final_audio, write_chapters
 from .concat import concatenate
 from .config import Config
 from .edl import EDL, EditItem, load_latest_edl, validate_edl
 from .encoder import (
+    RenderContext,
     get_context,
-    get_encoder,
     init_context,
-    is_portrait,
-    probe_dimensions,
     probe_duration,
-)
-from .filters import (
-    build_portrait_photo_filter,
-    color_grade,
-    drawtext_filter,
-    find_font,
 )
 from .media_utils import run_subprocess
 from .parallel import run_parallel
@@ -143,8 +134,8 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     _log(f"EDL validation passed ({len(edl.all_items())} items, "
          f"{len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s)")
 
-    clips_dir = cfg.workspace / "clips"
-    output_dir = cfg.workspace / "output"
+    clips_dir = cfg.clips_dir
+    output_dir = cfg.output_dir
     output_path = output_dir / f"vlog_v{version}.mp4"
 
     # Clean stale clips from previous EDL versions
@@ -168,7 +159,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
     try:
         return _assemble_inner(cfg, edl, version, w, h, _fps, lang, clips_dir,
-                               output_dir, output_path, progress_callback, skip_broken)
+                               output_dir, output_path, progress_callback, skip_broken, ctx)
     finally:
         ffmpeg_log.removeHandler(_fh)
         _fh.close()
@@ -176,7 +167,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
 
 def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
-                    output_dir, output_path, progress_callback, skip_broken):
+                    output_dir, output_path, progress_callback, skip_broken, ctx=None):
     _log = logger.info
     _fps = fps
 
@@ -185,7 +176,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
         beat_snap_edl(edl, Path(edl.music.file))
 
     # Determine parallel workers based on encoder type
-    encoder = get_encoder(w, h, _fps)
+    encoder = ctx.get_encoder(w, h, _fps)
     encoder_str = " ".join(encoder)
     if "nvenc" in encoder_str:
         max_workers = int(os.environ.get("VLOG_PARALLEL_CLIPS", "3"))
@@ -222,10 +213,10 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
             ct = segment.color_temp
             if item.media_type == "photo":
                 render_photo(item, clip_path, w, h, _fps, color_temp=ct,
-                             text_overlay=item.text_overlay, language=lang)
+                             text_overlay=item.text_overlay, language=lang, ctx=ctx)
             else:
                 render_video(item, clip_path, w, h, _fps, color_temp=ct,
-                             text_overlay=item.text_overlay, language=lang)
+                             text_overlay=item.text_overlay, language=lang, ctx=ctx)
 
         if not clip_path.exists():
             return clip_name, item.source_file, None, "render failed"
@@ -320,7 +311,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
         intro_path = clips_dir / "intro_title.mp4"
         intro_dur = edl.intro_duration
         if not intro_path.exists():
-            render_title_card(edl.title, edl.date_range, intro_path, w, h, _fps, duration=intro_dur, language=lang)
+            render_title_card(edl.title, edl.date_range, intro_path, w, h, _fps, duration=intro_dur, language=lang, ctx=ctx)
         if intro_path.exists():
             all_clips.insert(0, {
                 "path": intro_path, "duration": intro_dur,
@@ -335,7 +326,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
         outro_path = clips_dir / "outro_title.mp4"
         outro_dur = edl.outro_duration
         if not outro_path.exists():
-            render_title_card(edl.title, "", outro_path, w, h, _fps, duration=outro_dur, language=lang)
+            render_title_card(edl.title, "", outro_path, w, h, _fps, duration=outro_dur, language=lang, ctx=ctx)
         if outro_path.exists():
             all_clips.append({
                 "path": outro_path, "duration": outro_dur,
@@ -371,33 +362,16 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
 
     speech_ranges = tl.speech_ranges()
 
-    # Phase 3: Mix music + speech
+    # Phase 3: Mix music + speech (delegated to audio module)
     t3 = time.monotonic()
     if edl.music and Path(edl.music.file).exists():
         music_dur = probe_duration(Path(edl.music.file))
         video_dur = probe_duration(no_music_path)
         _log(f"Mixing music: video={video_dur:.1f}s, music={music_dur:.1f}s, "
               f"volume={edl.music.volume}, fade_in={edl.music.fade_in}s, fade_out={edl.music.fade_out}s")
-        add_music(no_music_path, edl.music, output_path,
-                  speech_ranges=speech_ranges, speech_audio=speech_audio_path,
-                  duck_ratio=edl.music_duck_ratio)
-        no_music_path.unlink(missing_ok=True)
-        if speech_audio_path:
-            speech_audio_path.unlink(missing_ok=True)
-    elif speech_audio_path:
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", str(no_music_path),
-            "-i", str(speech_audio_path),
-            "-map", "0:v", "-map", "1:a",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-            str(output_path),
-        ]
-        run_subprocess(cmd, capture_output=True)
-        no_music_path.unlink(missing_ok=True)
-        speech_audio_path.unlink(missing_ok=True)
-    else:
-        shutil.move(str(no_music_path), str(output_path))
+    mix_final_audio(no_music_path, output_path,
+                    music_track=edl.music, speech_audio=speech_audio_path,
+                    speech_ranges=speech_ranges, duck_ratio=edl.music_duck_ratio)
     _log(f"Phase 3 (audio): {time.monotonic() - t3:.1f}s")
 
     duration = probe_duration(output_path)
@@ -565,7 +539,7 @@ def _validate_output_impl(
     # --- 6. Resolution check ---
     if has_video_stream:
         get_context()._dim_cache.pop(str(output_path), None)
-        out_w, out_h = probe_dimensions(output_path)
+        out_w, out_h = get_context().probe_dimensions(output_path)
         exp_w, exp_h = resolution
         if out_w > 0 and out_h > 0:
             if out_w != exp_w or out_h != exp_h:
