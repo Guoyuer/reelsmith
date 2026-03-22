@@ -338,7 +338,6 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
             "-i", str(speech_audio_path),
             "-map", "0:v", "-map", "1:a",
             "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-            "-shortest",
             str(output_path),
         ]
         run_subprocess(cmd, capture_output=True)
