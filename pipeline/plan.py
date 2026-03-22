@@ -1076,7 +1076,7 @@ Candidates by day/location:"""
         )
         edl_content2 = _gemini_call(
             system_prompt, [followup], _log,
-            label="duration fix",
+            label="duration fix", **model_kwargs,
         )
         _log(f"=== [Gemini] DURATION FIX RESPONSE ({len(edl_content2)} chars) ===")
         edl_content2 = strip_markdown_fences(edl_content2)
