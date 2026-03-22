@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import httpx
 
 from .config import Config
+
+logger = logging.getLogger("vlog.fetch")
 
 
 def fetch(
@@ -15,7 +18,6 @@ def fetch(
     *,
     from_date: str | None = None,
     to_date: str | None = None,
-    log_fn=None,
     country: str | None = None,
     first_level: str | None = None,
     district: str | None = None,
@@ -23,7 +25,6 @@ def fetch(
     item_types: list[int] | None = None,
 ) -> list[dict]:
     """Query the Synology Photos API, download all matching items, and build a manifest."""
-    _log = log_fn or print
     cfg.ensure_dirs()
     raw_dir = cfg.media_dir
 
@@ -61,7 +62,7 @@ def fetch(
         resp.raise_for_status()
         data = resp.json()
         items = data["items"]
-        _log(f"Found {data['count']} items ({data['total_mb']:.1f} MB)")
+        logger.info(f"Found {data['count']} items ({data['total_mb']:.1f} MB)")
 
         manifest = []
         meta_cached = 0
@@ -81,25 +82,25 @@ def fetch(
                     if meta_resp.status_code == 200:
                         meta = meta_resp.json()
                 except httpx.HTTPError as e:
-                    _log(f"  WARNING: metadata fetch failed for {item_id}: {e}")
+                    logger.warning("metadata fetch failed for %d: %s", item_id, e)
 
             # Download file (skip if already exists)
             if not filepath.exists():
-                _log(f"[{i}/{len(items)}] Downloading {filename}")
+                logger.info(f"[{i}/{len(items)}] Downloading {filename}")
                 with client.stream("GET", f"/api/media/{item_id}", timeout=600) as stream:
                     stream.raise_for_status()
                     with open(filepath, "wb") as f:
                         for chunk in stream.iter_bytes(65536):
                             f.write(chunk)
             else:
-                _log(f"[{i}/{len(items)}] {filename} (cached)")
+                logger.info(f"[{i}/{len(items)}] {filename} (cached)")
 
             # For live photos (type 3), also download the video companion
             video_path = None
             if item.get("item_type") == 3:
                 video_path = raw_dir / f"{item_id}_{Path(filename).stem}.mov"
                 if not video_path.exists():
-                    _log(f"[{i}/{len(items)}] + live photo video")
+                    logger.info(f"[{i}/{len(items)}] + live photo video")
                     with client.stream(
                         "GET",
                         f"/api/media/{item_id}",
@@ -124,5 +125,5 @@ def fetch(
 
     manifest_path.write_text(json.dumps(manifest, indent=2))
     newly_fetched = len(items) - meta_cached
-    _log(f"Manifest saved: {len(manifest)} items ({meta_cached} metadata cached, {newly_fetched} fetched)")
+    logger.info("Manifest saved: %d items (%d metadata cached, %d fetched)", len(manifest), meta_cached, newly_fetched)
     return manifest

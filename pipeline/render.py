@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from .edl import EditItem
 from .encoder import get_encoder, is_portrait, probe_dimensions
 from .filters import build_portrait_photo_filter, color_grade, drawtext_filter, find_font
 from .media_utils import convert_heic, run_subprocess, zoompan_filter, portrait_bg_filter
+
+logger = logging.getLogger("vlog.render")
 
 
 def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
@@ -17,11 +20,7 @@ def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
     source = Path(item.source_file)
 
     if source.suffix.lower() in {".heic", ".heif"}:
-        try:
-            source = convert_heic(source)
-        except RuntimeError:
-            print(f"    HEIC convert failed: {item.source_file}")
-            return
+        source = convert_heic(source)  # raises RuntimeError on failure
 
     frames = int(item.display_duration * fps)
     zoom_targets = {
@@ -31,6 +30,8 @@ def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
         "ken_burns_right": 0.15,
         "static": 0.0,
     }
+    if item.effect not in zoom_targets:
+        logger.warning("Unknown photo effect '%s', defaulting to ken_burns_in", item.effect)
     target = zoom_targets.get(item.effect, 0.25)
     import hashlib
     variation = (int(hashlib.md5(item.source_file.encode()).hexdigest()[:4], 16) % 10) / 100
@@ -61,7 +62,7 @@ def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
             "ken_burns_left": "left", "ken_burns_right": "right",
             "static": "static",
         }
-        direction = direction_map.get(item.effect, "in")
+        direction = direction_map.get(item.effect, "in")  # already warned above
         zp = zoompan_filter(zoom_rate, frames, w, h, fps, direction=direction)
 
         ow, oh = w * 2, h * 2
@@ -101,7 +102,7 @@ def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
 
     result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"    Photo render failed: {result.stderr[-200:]}")
+        raise RuntimeError(f"Photo render failed ({item.source_file}): {result.stderr[-300:]}")
 
 
 def render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
@@ -120,7 +121,7 @@ def render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
 
     audio_args = ["-c:a", "aac", "-b:a", "192k"] if item.keep_audio else ["-an"]
 
-    speed = getattr(item, "playback_speed", 1.0)
+    speed = item.playback_speed
     speed_vf = f",setpts={1/speed:.4f}*PTS" if speed != 1.0 else ""
     speed_af = f"-af atempo={speed}" if speed != 1.0 and item.keep_audio else ""
 
@@ -153,7 +154,7 @@ def render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
 
     result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"    Video render failed: {result.stderr[-200:]}")
+        raise RuntimeError(f"Video render failed ({item.source_file}): {result.stderr[-300:]}")
 
 
 def render_title_card(

@@ -245,7 +245,7 @@ class TestBeatSnapEdl:
             ],
         )
         original_total = sum(i.display_duration for i in edl.segments[0].items)
-        snapped = _beat_snap_edl(edl, wav, log_fn=lambda *a: None)
+        snapped = _beat_snap_edl(edl, wav)
         new_total = sum(i.display_duration for i in edl.segments[0].items)
         # Total should stay close (each shift ≤ 0.4s)
         assert abs(new_total - original_total) < 1.5
@@ -266,7 +266,7 @@ class TestBeatSnapEdl:
             ],
         )
         original_durs = [i.display_duration for i in edl.segments[0].items]
-        snapped = _beat_snap_edl(edl, wav, log_fn=lambda *a: None)
+        snapped = _beat_snap_edl(edl, wav)
         assert snapped == 0
         assert [i.display_duration for i in edl.segments[0].items] == original_durs
 
@@ -280,7 +280,7 @@ class TestBeatSnapEdl:
                 EditItem(source_file="a.jpg", media_type="photo", display_duration=4.0),
             ], transition="cut")],
         )
-        assert _beat_snap_edl(edl, wav, log_fn=lambda *a: None) == 0
+        assert _beat_snap_edl(edl, wav) == 0
 
 
 class TestTimelineBuild:

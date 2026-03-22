@@ -80,7 +80,7 @@ class TestGenerateMusic:
 
         mock.assert_called_once_with(
             trip_type="family", style="upbeat", target_duration=30,
-            cache_dir=tmp_path, mood="", log_fn=None,
+            cache_dir=tmp_path, mood="",
         )
         assert result == tmp_path / "track.wav"
 
@@ -94,7 +94,7 @@ class TestGenerateMusic:
 
         mock.assert_called_once_with(
             trip_type="family", style="upbeat", target_duration=30,
-            cache_dir=tmp_path, mood="", log_fn=None,
+            cache_dir=tmp_path, mood="",
         )
         assert result == tmp_path / "track.wav"
 
@@ -106,19 +106,18 @@ class TestGenerateMusic:
 
         mock.assert_called_once()
 
-    def test_passes_mood_and_log_fn(self, tmp_path: Path):
+    def test_passes_mood(self, tmp_path: Path):
         from pipeline.music import generate_music
 
-        log = print
         with patch("pipeline.music.fetch_music", return_value=None) as mock:
             generate_music(
                 "solo", "cinematic", 60, tmp_path,
-                mood="gentle piano", backend="local", log_fn=log,
+                mood="gentle piano", backend="local",
             )
 
         mock.assert_called_once_with(
             trip_type="solo", style="cinematic", target_duration=60,
-            cache_dir=tmp_path, mood="gentle piano", log_fn=log,
+            cache_dir=tmp_path, mood="gentle piano",
         )
 
 
@@ -212,7 +211,7 @@ class TestFetchMusicGemini:
         captured_prompt = []
         fake_pcm = b"\x00" * (48000 * 2 * 2)
 
-        async def _fake_generate(api_key, prompt, duration, log_fn):
+        async def _fake_generate(api_key, prompt, duration):
             captured_prompt.append(prompt)
             return fake_pcm
 
@@ -362,17 +361,15 @@ class TestFetchMusicGeminiE2E:
     def test_generates_real_music(self, tmp_path: Path):
         from pipeline.music_gemini import fetch_music_gemini
 
-        logs = []
         result = fetch_music_gemini(
             trip_type="general",
             style="upbeat",
             target_duration=5,
             cache_dir=tmp_path,
             mood="gentle acoustic guitar, peaceful travel music",
-            log_fn=logs.append,
         )
 
-        assert result is not None, f"Generation failed. Logs: {logs}"
+        assert result is not None, "Generation failed"
         assert result.exists()
         assert result.stat().st_size > 1000, "WAV file too small"
 
@@ -399,12 +396,9 @@ class TestFetchMusicGeminiE2E:
         assert result1 is not None
 
         # Second call — should use cache
-        logs = []
         result2 = fetch_music_gemini(
             "general", "upbeat", 5, tmp_path,
             mood="gentle piano, calm travel background",
-            log_fn=logs.append,
         )
         assert result2 is not None
         assert result2 == result1
-        assert any("cached" in str(l).lower() for l in logs)

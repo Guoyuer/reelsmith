@@ -307,7 +307,7 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             else:
                 if fc.get("source_dir"):
                     from pipeline.fetch_local import fetch_local
-                    items = fetch_local(cfg, source_dir=fc["source_dir"], log_fn=log)
+                    items = fetch_local(cfg, source_dir=fc["source_dir"])
                 else:
                     from pipeline.fetch import fetch
                     items = fetch(
@@ -315,7 +315,7 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
                         to_date=fc.get("to_date", ""),
                         country=fc.get("country"), first_level=fc.get("first_level"),
                         district=fc.get("district"), person_ids=fc.get("person_ids"),
-                        item_types=fc.get("item_types"), log_fn=log,
+                        item_types=fc.get("item_types"),
                     )
                 dur = time.monotonic() - t0
                 log(f"Fetch: {len(items)} items in {dur:.0f}s")
@@ -353,7 +353,7 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
                     cfg, family_names=pc.get("family_names"),
                     force=pc.get("force", False),
                     progress_callback=_progress_cb(logger, display, "prepare", t0),
-                    log_fn=log, tz_hours=pc.get("tz_offset"),
+                    tz_hours=pc.get("tz_offset"),
                 )
                 dur = time.monotonic() - t0
                 log(f"Prepare: done in {dur:.0f}s")
@@ -394,7 +394,6 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
                 quality=pc.get("quality", 1.0),
                 tz_hours=pc.get("tz_offset"),
                 model=pc.get("model"),
-                log_fn=log,
             )
 
             all_items = edl.all_items()
@@ -437,7 +436,7 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
 
             from pipeline.music import generate_music_for_edl
             track = generate_music_for_edl(
-                cfg, backend=mc.get("music_backend", "gemini"), log_fn=log,
+                cfg, backend=mc.get("music_backend", "gemini"),
             )
 
             dur = time.monotonic() - t0
@@ -494,7 +493,6 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
                 progress_callback=_progress_cb(logger, display, "assemble", t0),
                 skip_broken=ac.get("skip_broken", False),
                 quality=ac.get("quality", 1.0),
-                log_fn=log,
             )
 
             dur = time.monotonic() - t0

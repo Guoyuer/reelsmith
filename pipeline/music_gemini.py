@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import struct
 import time
 from pathlib import Path
+
+logger = logging.getLogger("vlog.music_gemini")
 
 
 def fetch_music_gemini(
@@ -23,15 +26,12 @@ def fetch_music_gemini(
     target_duration: int,
     cache_dir: Path,
     mood: str = "",
-    log_fn=None,
 ) -> Path | None:
     """Generate background music via Lyria RealTime API.
 
     Returns path to generated wav, or None if unavailable.
     Caches tracks in cache_dir to avoid regenerating.
     """
-    _log = log_fn or print
-
     # Check cache
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_key = f"gemini_{trip_type}_{style}_{target_duration}s"
@@ -40,34 +40,34 @@ def fetch_music_gemini(
         meta = json.loads(cache_meta.read_text())
         cached_path = Path(meta.get("path", ""))
         if cached_path.exists():
-            _log(f"Using cached music: {cached_path.name}")
+            logger.info("Using cached music: %s", cached_path.name)
             return cached_path
 
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key:
-        _log("GEMINI_API_KEY not set — cannot use Gemini music backend")
+        logger.warning("GEMINI_API_KEY not set — cannot use Gemini music backend")
         return None
 
     # Use mood if provided, otherwise fall back to template
     from .music import _get_prompt
     prompt = mood if mood else _get_prompt(trip_type, style)
 
-    _log("=== Music Generation (Gemini Lyria RealTime) ===")
-    _log(f"Model: lyria-realtime-exp")
-    _log(f"Prompt: '{prompt}'")
-    _log(f"Target duration: {target_duration}s")
-    _log(f"Cache key: {cache_key}")
+    logger.info("=== Music Generation (Gemini Lyria RealTime) ===")
+    logger.info("Model: lyria-realtime-exp")
+    logger.info("Prompt: '%s'", prompt)
+    logger.info("Target duration: %ds", target_duration)
+    logger.info("Cache key: %s", cache_key)
 
     try:
         out_path = cache_dir / f"{cache_key}.wav"
         t0 = time.time()
 
         pcm_data = asyncio.run(
-            _generate_music(api_key, prompt, target_duration, _log)
+            _generate_music(api_key, prompt, target_duration)
         )
 
         if not pcm_data:
-            _log("No audio data received from Lyria RealTime")
+            logger.warning("No audio data received from Lyria RealTime")
             return None
 
         gen_time = time.time() - t0
@@ -80,7 +80,7 @@ def fetch_music_gemini(
 
         bytes_per_second = sample_rate * channels * (bits_per_sample // 8)
         dur = len(pcm_data) / bytes_per_second
-        _log(f"Generated {dur:.1f}s of audio in {gen_time:.1f}s via Lyria RealTime")
+        logger.info("Generated %.1fs of audio in %.1fs via Lyria RealTime", dur, gen_time)
 
         cache_meta.write_text(json.dumps({
             "path": str(out_path),
@@ -93,18 +93,16 @@ def fetch_music_gemini(
             "backend": "gemini",
         }))
 
-        _log(f"Music saved: {out_path.name} ({out_path.stat().st_size // 1024}KB)")
+        logger.info("Music saved: %s (%dKB)", out_path.name, out_path.stat().st_size // 1024)
         return out_path
 
-    except Exception as e:
-        import traceback
-        _log(f"Gemini music generation failed: {e}")
-        _log(traceback.format_exc())
+    except Exception:
+        logger.error("Gemini music generation failed", exc_info=True)
         return None
 
 
 async def _generate_music(
-    api_key: str, prompt: str, duration: int, log_fn,
+    api_key: str, prompt: str, duration: int,
 ) -> bytes:
     """Stream music from Lyria RealTime and collect PCM chunks."""
     from google import genai
@@ -122,7 +120,7 @@ async def _generate_music(
     audio_chunks: list[bytes] = []
     total_bytes = 0
 
-    log_fn(f"Streaming {duration}s of music from Lyria RealTime...")
+    logger.info("Streaming %ds of music from Lyria RealTime...", duration)
 
     async with client.aio.live.music.connect(
         model="models/lyria-realtime-exp",
@@ -150,7 +148,7 @@ async def _generate_music(
             if total_bytes >= target_bytes:
                 break
 
-    log_fn(f"Received {total_bytes / 1024:.0f}KB of audio data")
+    logger.info("Received %.0fKB of audio data", total_bytes / 1024)
     return b"".join(audio_chunks)
 
 

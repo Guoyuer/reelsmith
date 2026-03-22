@@ -10,7 +10,10 @@ Falls back gracefully if model/API unavailable — vlog renders without music.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+
+logger = logging.getLogger("vlog.music")
 
 # Prompt templates per trip_type + style
 MUSIC_PROMPTS: dict[str, dict[str, str]] = {
@@ -64,14 +67,12 @@ def fetch_music(
     target_duration: int,
     cache_dir: Path,
     mood: str = "",
-    log_fn=None,
 ) -> Path | None:
     """Generate background music via MusicGen (local).
 
     Returns path to generated wav, or None if unavailable.
     Caches tracks in cache_dir to avoid regenerating.
     """
-    _log = log_fn or print
 
     # Check cache — keyed by trip_type, style, AND duration
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -81,18 +82,18 @@ def fetch_music(
         meta = json.loads(cache_meta.read_text())
         cached_path = Path(meta.get("path", ""))
         if cached_path.exists():
-            _log(f"Using cached music: {cached_path.name}")
+            logger.info("Using cached music: %s", cached_path.name)
             return cached_path
 
     # Use Gemini's music_mood if available, otherwise fall back to template
     prompt = mood if mood else _get_prompt(trip_type, style)
     gen_duration = target_duration
     model_name = "facebook/musicgen-medium"
-    _log(f"=== Music Generation ===")
-    _log(f"Model: {model_name}")
-    _log(f"Prompt: '{prompt}'")
-    _log(f"Target duration: {gen_duration}s")
-    _log(f"Cache key: {cache_key}")
+    logger.info("=== Music Generation ===")
+    logger.info("Model: %s", model_name)
+    logger.info("Prompt: '%s'", prompt)
+    logger.info("Target duration: %ds", gen_duration)
+    logger.info("Cache key: %s", cache_key)
 
     try:
         import time
@@ -100,7 +101,7 @@ def fetch_music(
         import torch
         from transformers import AutoProcessor, AutoConfig
 
-        _log("Loading MusicGen model (this may download ~6GB on first run)...")
+        logger.info("Loading MusicGen model (this may download ~6GB on first run)...")
         t0 = time.time()
         processor = AutoProcessor.from_pretrained(model_name)
 
@@ -113,17 +114,17 @@ def fetch_music(
         model = MusicgenForConditionalGeneration.from_pretrained(model_name, config=config)
         sr = model.config.audio_encoder.sampling_rate
         params_m = sum(p.numel() for p in model.parameters()) / 1e6
-        _log(f"Model loaded in {time.time()-t0:.0f}s ({params_m:.0f}M params, sr={sr}Hz)")
+        logger.info("Model loaded in %.0fs (%.0fM params, sr=%dHz)", time.time()-t0, params_m, sr)
 
         # ~50 tokens per second of audio, capped at model's max_position_embeddings
         max_positions = model.config.decoder.max_position_embeddings
         max_tokens = min(int(gen_duration * 50), max_positions - 10)
         actual_dur = max_tokens / 50
         if actual_dur < gen_duration:
-            _log(f"Model max position limit: capping at {actual_dur:.0f}s "
-                 f"(requested {gen_duration}s, max_positions={max_positions})")
-        _log(f"Generating {gen_duration}s audio ({max_tokens} tokens)... "
-             f"Estimated time: ~{gen_duration * 20 // 60}min")
+            logger.warning("Model max position limit: capping at %.0fs "
+                           "(requested %ds, max_positions=%d)", actual_dur, gen_duration, max_positions)
+        logger.info("Generating %ds audio (%d tokens)... "
+                    "Estimated time: ~%dmin", gen_duration, max_tokens, gen_duration * 20 // 60)
         inputs = processor(text=[prompt], padding=True, return_tensors="pt")
         t0 = time.time()
         with torch.no_grad():
@@ -131,11 +132,10 @@ def fetch_music(
         gen_time = time.time() - t0
 
         dur = audio.shape[-1] / sr
-        _log(f"Generated {dur:.1f}s of audio in {gen_time:.0f}s "
-             f"({gen_time/dur:.1f}x realtime)")
+        logger.info("Generated %.1fs of audio in %.0fs (%.1fx realtime)", dur, gen_time, gen_time/dur)
 
         out_path = cache_dir / f"{cache_key}.wav"
-        _log(f"Saving to {out_path}...")
+        logger.info("Saving to %s...", out_path)
         audio_np = audio[0, 0].cpu().numpy()
         scipy.io.wavfile.write(str(out_path), sr, audio_np)
 
@@ -149,13 +149,13 @@ def fetch_music(
             "gen_time_s": round(gen_time, 1),
         }))
 
-        _log(f"Music saved: {out_path.name} ({out_path.stat().st_size // 1024}KB)")
+        logger.info("Music saved: %s (%dKB)", out_path.name, out_path.stat().st_size // 1024)
         return out_path
 
     except Exception as e:
         import traceback
-        _log(f"Music generation failed: {e}")
-        _log(traceback.format_exc())
+        logger.error("Music generation failed: %s", e)
+        logger.error(traceback.format_exc())
         return None
 
 
@@ -166,7 +166,6 @@ def generate_music(
     cache_dir: Path,
     mood: str = "",
     backend: str = "local",
-    log_fn=None,
 ) -> Path | None:
     """Generate background music using the specified backend.
 
@@ -176,11 +175,11 @@ def generate_music(
         from .music_gemini import fetch_music_gemini
         return fetch_music_gemini(
             trip_type=trip_type, style=style, target_duration=target_duration,
-            cache_dir=cache_dir, mood=mood, log_fn=log_fn,
+            cache_dir=cache_dir, mood=mood,
         )
     return fetch_music(
         trip_type=trip_type, style=style, target_duration=target_duration,
-        cache_dir=cache_dir, mood=mood, log_fn=log_fn,
+        cache_dir=cache_dir, mood=mood,
     )
 
 
@@ -196,7 +195,6 @@ def _build_composite_music(
     segment_tracks: list[tuple[float, Path]],
     output_path: Path,
     crossfade: float = 2.0,
-    log_fn=None,
 ) -> bool:
     """Build composite music from per-segment tracks with crossfades.
 
@@ -204,8 +202,6 @@ def _build_composite_music(
     Returns True on success.
     """
     from .media_utils import run_subprocess
-
-    _log = log_fn or print
     if not segment_tracks:
         return False
 
@@ -262,17 +258,16 @@ def _build_composite_music(
         t.unlink(missing_ok=True)
 
     if result.returncode != 0:
-        _log(f"Composite music build failed: {result.stderr[-200:]}")
+        logger.error("Composite music build failed: %s", result.stderr[-200:])
         return False
 
-    _log(f"Composite music: {len(segment_tracks)} segments crossfaded into {output_path.name}")
+    logger.info("Composite music: %d segments crossfaded into %s", len(segment_tracks), output_path.name)
     return True
 
 
 def generate_music_for_edl(
     cfg,
     backend: str = "local",
-    log_fn=None,
 ) -> Path | None:
     """Generate per-segment music and build a composite track with crossfades.
 
@@ -281,59 +276,58 @@ def generate_music_for_edl(
 
     Returns the composite music file path, or None if skipped/failed.
     """
-    _log = log_fn or print
     from .edl import load_latest_edl, save_edl
     from .edl import MusicTrack
 
     edl, version = load_latest_edl(cfg)
 
     if edl.music_mode != "auto":
-        _log(f"Music mode is '{edl.music_mode}', skipping generation")
+        logger.info("Music mode is '%s', skipping generation", edl.music_mode)
         return None
 
     if edl.music and Path(edl.music.file).exists():
-        _log(f"Music file already exists: {edl.music.file}")
+        logger.info("Music file already exists: %s", edl.music.file)
         return Path(edl.music.file)
 
     music_cache = cfg.music_dir
 
     # Generate per-segment music tracks
-    _log(f"Generating per-segment music: {len(edl.segments)} segments, backend={backend}")
+    logger.info("Generating per-segment music: %d segments, backend=%s", len(edl.segments), backend)
     segment_tracks: list[tuple[float, Path]] = []
 
     for i, seg in enumerate(edl.segments):
         seg_dur = int(_segment_duration(seg))
         mood = seg.music_mood or f"{edl.style} travel vlog background music"
-        _log(f"  Segment {i+1}/{len(edl.segments)}: \"{seg.name}\" ({seg_dur}s)")
-        _log(f"    Mood: {mood}")
+        logger.info("  Segment %d/%d: \"%s\" (%ds)", i+1, len(edl.segments), seg.name, seg_dur)
+        logger.info("    Mood: %s", mood)
 
         track = generate_music(
             trip_type=edl.trip_type, style=edl.style,
             target_duration=seg_dur,
             cache_dir=music_cache, mood=mood,
-            backend=backend, log_fn=_log,
+            backend=backend,
         )
         if track:
             seg.music_file = str(track)
             segment_tracks.append((seg_dur, track))
-            _log(f"    Generated: {track.name}")
+            logger.info("    Generated: %s", track.name)
         else:
-            _log(f"    FAILED — segment will be silent")
+            logger.warning("    FAILED — segment will be silent")
 
     if not segment_tracks:
-        _log("No music generated for any segment")
+        logger.warning("No music generated for any segment")
         return None
 
     # Build composite with crossfades
     music_cache.mkdir(parents=True, exist_ok=True)
     composite_path = music_cache / f"composite_{edl.trip_type}_{edl.style}_{int(edl.estimated_duration())}s.wav"
-    if not _build_composite_music(segment_tracks, composite_path, crossfade=2.0, log_fn=_log):
+    if not _build_composite_music(segment_tracks, composite_path, crossfade=2.0):
         # Fallback: use first segment's track
-        _log("Composite build failed, using first segment track")
+        logger.warning("Composite build failed, using first segment track")
         composite_path = segment_tracks[0][1]
 
     edl.music = MusicTrack(file=str(composite_path))
     save_edl(cfg, edl, version)
-    _log(f"Per-segment music saved to EDL v{version}: {composite_path}")
+    logger.info("Per-segment music saved to EDL v%d: %s", version, composite_path)
 
     return composite_path

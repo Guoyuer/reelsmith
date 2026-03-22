@@ -9,9 +9,12 @@ Requires GEMINI_API_KEY in .env.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
+
+logger = logging.getLogger("vlog.plan")
 
 try:
     import pillow_heif
@@ -135,7 +138,6 @@ def _preview_ts_to_local(
 def _gemini_call(
     system: str,
     user_parts: list,
-    log_fn,
     label: str = "",
     model: str = "",
     code_execution: bool = False,
@@ -150,8 +152,6 @@ def _gemini_call(
 
     from google import genai
     from google.genai import types
-
-    _log = log_fn or print
 
     if not model:
         model = os.getenv("VLOG_MODEL", "gemini-3-flash-preview")
@@ -197,12 +197,12 @@ def _gemini_call(
                     tf.write(p["data"])
                     tf_path = tf.name
                 try:
-                    _log(f"  Uploading video ({len(p['data']) / 1024 / 1024:.1f}MB) to Files API...")
+                    logger.info(f"  Uploading video ({len(p['data']) / 1024 / 1024:.1f}MB) to Files API...")
                     uploaded = client.files.upload(file=tf_path)
                     while uploaded.state.name != "ACTIVE":
                         _time.sleep(2)
                         uploaded = client.files.get(name=uploaded.name)
-                    _log(f"  Video uploaded and ACTIVE: {uploaded.name}")
+                    logger.info(f"  Video uploaded and ACTIVE: {uploaded.name}")
                     n_uploaded += 1
                 finally:
                     Path(tf_path).unlink(missing_ok=True)
@@ -216,27 +216,27 @@ def _gemini_call(
         elif isinstance(p, types.Part):
             parts.append(p)
 
-    _log(f"=== [Gemini] API Call: {label} ===")
-    _log(f"  Model: {model}")
-    _log(f"  System prompt: {len(system)} chars")
-    _log(f"  Input: {n_text} text parts ({text_chars} chars), "
+    logger.info(f"=== [Gemini] API Call: {label} ===")
+    logger.info(f"  Model: {model}")
+    logger.info(f"  System prompt: {len(system)} chars")
+    logger.info(f"  Input: {n_text} text parts ({text_chars} chars), "
          f"{n_media} media files ({media_bytes_total / 1024 / 1024:.1f}MB)")
     if n_uploaded:
-        _log(f"  Videos: {n_uploaded} uploaded via Files API")
-    _log(f"  Images: {n_media - n_uploaded} inline")
+        logger.info(f"  Videos: {n_uploaded} uploaded via Files API")
+    logger.info(f"  Images: {n_media - n_uploaded} inline")
     # Log system prompt (truncated for readability)
     for line in system.split("\n")[:5]:
-        _log(f"  [system] {line}")
-    _log(f"  [system] ... ({len(system.split(chr(10)))} lines total)")
+        logger.info(f"  [system] {line}")
+    logger.info(f"  [system] ... ({len(system.split(chr(10)))} lines total)")
     # Log text parts sent to Gemini
     for i, p in enumerate(user_parts):
         if isinstance(p, str):
             preview = p[:200].replace("\n", " ")
-            _log(f"  [text #{i}] {preview}{'...' if len(p) > 200 else ''}")
+            logger.info(f"  [text #{i}] {preview}{'...' if len(p) > 200 else ''}")
         elif isinstance(p, dict):
             ptype = p.get("type", "?")
             size_kb = len(p.get("data", b"")) // 1024
-            _log(f"  [media #{i}] {ptype} {p.get('mime_type', '?')} ({size_kb}KB)")
+            logger.info(f"  [media #{i}] {ptype} {p.get('mime_type', '?')} ({size_kb}KB)")
 
     t0 = _time.monotonic()
 
@@ -262,34 +262,34 @@ def _gemini_call(
     if response.candidates:
         for part in (response.candidates[0].content.parts or []):
             if getattr(part, 'thought', False) and part.text:
-                _log(f"  [Thinking] {part.text[:500]}...")
+                logger.info(f"  [Thinking] {part.text[:500]}...")
             if getattr(part, 'executable_code', None):
                 code = part.executable_code.code
-                _log(f"  [Code] {code[:300]}{'...' if len(code) > 300 else ''}")
+                logger.info(f"  [Code] {code[:300]}{'...' if len(code) > 300 else ''}")
             if getattr(part, 'code_execution_result', None):
                 result = part.code_execution_result
-                _log(f"  [CodeResult] {result.outcome}: {(result.output or '')[:300]}")
+                logger.info(f"  [CodeResult] {result.outcome}: {(result.output or '')[:300]}")
 
     content = response.text or ""
     # Log finish reason if response is empty or blocked
     if not content and response.candidates:
         c = response.candidates[0]
-        _log(f"  WARNING: Empty response. finish_reason={c.finish_reason}, safety={c.safety_ratings}")
+        logger.warning(f"Empty response. finish_reason={c.finish_reason}, safety={c.safety_ratings}")
     elif not content:
-        _log(f"  WARNING: Empty response with no candidates. prompt_feedback={response.prompt_feedback}")
+        logger.warning(f"Empty response with no candidates. prompt_feedback={response.prompt_feedback}")
     usage = response.usage_metadata
     input_tokens = usage.prompt_token_count or 0
     output_tokens = usage.candidates_token_count or 0
     # Gemini 3.1 Flash Lite pricing: $0.075/M input, $0.30/M output
     cost_est = input_tokens * 0.075 / 1_000_000 + output_tokens * 0.30 / 1_000_000
-    _log(f"  Response: {input_tokens:,} input tokens, "
+    logger.info(f"  Response: {input_tokens:,} input tokens, "
          f"{output_tokens:,} output tokens, {elapsed:.1f}s")
-    _log(f"  Estimated cost: ${cost_est:.4f}")
-    _log(f"  Output: {len(content)} chars")
+    logger.info(f"  Estimated cost: ${cost_est:.4f}")
+    logger.info(f"  Output: {len(content)} chars")
     # Log first 500 chars of response for debugging
     preview = content[:500].replace("\n", " ")
-    _log(f"  Preview: {preview}...")
-    _log(f"=== [Gemini] End {label} ===")
+    logger.info(f"  Preview: {preview}...")
+    logger.info(f"=== [Gemini] End {label} ===")
 
     return content
 
@@ -439,7 +439,7 @@ def _has_dense_keyframes(source: Path, duration: float) -> bool:
 
 
 def _generate_video_previews(
-    video_items: list[dict], preview_dir: Path, log_fn=None,
+    video_items: list[dict], preview_dir: Path,
 ) -> None:
     """Generate one full-length preview per video (360p 1fps + audio).
 
@@ -450,7 +450,6 @@ def _generate_video_previews(
     import os
     from .media_utils import run_subprocess
 
-    _log = log_fn or print
     # 360p 1fps CRF35 — matches Gemini's internal processing rate
     # -hwaccel auto: GPU-accelerated decode (~1.3x)
     # -skip_frame nokey: only decode keyframes (~7x) — safe when GOP <= 2s
@@ -493,29 +492,28 @@ def _generate_video_previews(
 
     cached = len(video_items) - len(tasks)
     if cached:
-        _log(f"Video previews: {cached} cached, {len(tasks)} to generate")
+        logger.info(f"Video previews: {cached} cached, {len(tasks)} to generate")
     if not tasks:
         return
 
-    _log(f"Generating {len(tasks)} video clips (CPU x{max_workers})...")
+    logger.info(f"Generating {len(tasks)} video clips (CPU x{max_workers})...")
 
     from .parallel import run_parallel
 
     def _progress(done, total):
         if done % 20 == 0 or done == total:
-            _log(f"  Video clips: {done}/{total}")
+            logger.info(f"  Video clips: {done}/{total}")
 
     parallel_tasks = [(p, lambda cmd=cmd: run_subprocess(cmd, capture_output=True)) for p, cmd in tasks]
     run_parallel(parallel_tasks, max_workers, progress_fn=_progress)
 
     n_ok = sum(1 for p, _ in tasks if p.exists() and p.stat().st_size > 500)
-    _log(f"  Video clips done: {n_ok}/{len(tasks)} OK")
+    logger.info(f"  Video clips done: {n_ok}/{len(tasks)} OK")
 
 
 def _concat_previews(
     video_entries: list[tuple[int, float, Path]],
     output_path: Path,
-    log_fn=None,
 ) -> tuple[list[tuple[int, float, float]], Path]:
     """Concatenate video previews into one mega-preview with burned-in labels.
 
@@ -527,11 +525,10 @@ def _concat_previews(
     import tempfile
     from .media_utils import run_subprocess
 
-    _log = log_fn or print
     tmp_dir = Path(tempfile.mkdtemp(prefix="mega_"))
 
     # Step 1: Re-encode each clip with label (parallel-safe, fast at 360p 1fps)
-    _log(f"Labeling {len(video_entries)} previews...")
+    logger.info(f"Labeling {len(video_entries)} previews...")
     labeled_paths = []
     for i, (item_num, dur, preview_path) in enumerate(video_entries):
         labeled = tmp_dir / f"labeled_{i:04d}.mp4"
@@ -547,7 +544,7 @@ def _concat_previews(
         ], capture_output=True, timeout=30)
         labeled_paths.append((labeled, dur))
         if (i + 1) % 20 == 0 or i + 1 == len(video_entries):
-            _log(f"  Labeled: {i + 1}/{len(video_entries)}")
+            logger.info(f"  Labeled: {i + 1}/{len(video_entries)}")
 
     # Step 2: Concat labeled clips (copy mode is safe after re-encode)
     list_file = tmp_dir / "concat.txt"
@@ -557,7 +554,7 @@ def _concat_previews(
             f.write(f"file '{safe}'\n")
             f.write(f"duration {dur}\n")
 
-    _log(f"Concatenating into mega-preview...")
+    logger.info(f"Concatenating into mega-preview...")
     # Re-encode again (not -c copy) — even labeled clips have 1fps timestamp issues
     run_subprocess([
         "ffmpeg", "-y", "-f", "concat", "-safe", "0",
@@ -579,7 +576,7 @@ def _concat_previews(
         offset += dur
 
     size_mb = output_path.stat().st_size / 1024 / 1024 if output_path.exists() else 0
-    _log(f"  Mega-preview: {len(video_entries)} videos, {offset:.0f}s total, {size_mb:.1f}MB")
+    logger.info(f"  Mega-preview: {len(video_entries)} videos, {offset:.0f}s total, {size_mb:.1f}MB")
 
     # Validate duration
     if output_path.exists():
@@ -593,13 +590,13 @@ def _concat_previews(
             raise RuntimeError(
                 f"Mega-preview duration mismatch: expected {offset:.0f}s, got {actual_dur:.0f}s"
             )
-        _log(f"  Duration verified: {actual_dur:.0f}s (expected {offset:.0f}s)")
+        logger.info(f"  Duration verified: {actual_dur:.0f}s (expected {offset:.0f}s)")
 
     return offset_table, output_path
 
 
 def _build_visual_content_blocks(
-    preprocessed: dict, analysis_by_id: dict, cfg: Config, log_fn=None,
+    preprocessed: dict, analysis_by_id: dict, cfg: Config,
     *, tz_hours: int = 0,
 ) -> tuple[list, list[tuple[int, float, float]]]:
     """Build multimodal parts: interleaved text + individual photos + mega video preview.
@@ -612,7 +609,6 @@ def _build_visual_content_blocks(
     """
     from .media_utils import run_subprocess
 
-    _log = log_fn or print
     blocks: list = []
     preview_dir = cfg.preview_clips_dir
     video_entries: list[tuple[int, float, Path]] = []  # (item_num, duration, preview_path)
@@ -628,7 +624,7 @@ def _build_visual_content_blocks(
                 if a and a.get("media_type") == "video":
                     all_video_items.append(a)
     if all_video_items:
-        _generate_video_previews(all_video_items, preview_dir, _log)
+        _generate_video_previews(all_video_items, preview_dir)
 
     for day in preprocessed["timeline"]:
         for chapter in day["chapters"]:
@@ -680,7 +676,7 @@ def _build_visual_content_blocks(
     offset_table: list[tuple[int, float, float]] = []
     if video_entries:
         mega_path = preview_dir / "_mega_preview.mp4"
-        offset_table, mega_path = _concat_previews(video_entries, mega_path, _log)
+        offset_table, mega_path = _concat_previews(video_entries, mega_path)
 
         # Build preview timestamp index for the text metadata
         # Maps item_num → "MM:SS-MM:SS" (or H:MM:SS for >1hr previews)
@@ -781,7 +777,7 @@ def _build_visual_content_blocks(
         if isinstance(b, dict) and b.get("type") == "video_bytes"
     )
 
-    _log(f"Validation OK: {n_text_blocks} text, {n_images} images ({inline_bytes / 1024 / 1024:.1f}MB), "
+    logger.info(f"Validation OK: {n_text_blocks} text, {n_images} images ({inline_bytes / 1024 / 1024:.1f}MB), "
          f"{n_videos} video ({video_bytes / 1024 / 1024:.1f}MB), "
          f"{len(text_item_nums)} items, {len(video_nums_in_mega)} video labels")
 
@@ -798,15 +794,13 @@ def _plan_visual(
     analysis_items: list[dict],
     style: str, target_duration: int, focus: str,
     trip_type: str = "family", language: str = "en",
-    tz_hours: int | None = None, model: str | None = None, log_fn=None,
+    tz_hours: int | None = None, model: str | None = None,
 ) -> EDL:
     """Single-pass Gemini planning with chain-of-thought.
 
     Gemini sees contact sheets (12 photos/sheet at 400px) + video clips,
     designs narrative arc + selects items + self-reviews in one call.
     """
-    _log = log_fn or print
-
     # Trip-level summary
     days = preprocessed.get("timeline", [])
     locations: list[str] = []
@@ -839,19 +833,19 @@ def _plan_visual(
     # ------------------------------------------------------------------
     # Single pass: chain-of-thought (arc → select → self-review)
     # ------------------------------------------------------------------
-    _log("=== SINGLE-PASS PLANNING ===")
+    logger.info("=== SINGLE-PASS PLANNING ===")
 
-    _log("Building individual photo thumbnails and concatenated video preview...")
+    logger.info("Building individual photo thumbnails and concatenated video preview...")
     # Use tz from CLI, preprocessed, or system default
     import time as _t
     if tz_hours is None:
         tz_hours = preprocessed.get("tz_hours", -(_t.timezone // 3600))
 
-    content_blocks, preview_offset_table = _build_visual_content_blocks(preprocessed, analysis_by_id, cfg, _log, tz_hours=tz_hours)
+    content_blocks, preview_offset_table = _build_visual_content_blocks(preprocessed, analysis_by_id, cfg, tz_hours=tz_hours)
     n_img = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "image_bytes")
     n_vid_clips = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "video_bytes")
     n_text = sum(1 for b in content_blocks if isinstance(b, str))
-    _log(f"Visual content: {n_text} text blocks, {n_img} photos, {n_vid_clips} video file(s)")
+    logger.info(f"Visual content: {n_text} text blocks, {n_img} photos, {n_vid_clips} video file(s)")
 
     # Sanity check: candidates count must match what we're actually sending
     if n_candidates > 0 and n_text == 0:
@@ -899,18 +893,18 @@ Candidates by day/location:"""
     visual_parts: list = [intro_text] + content_blocks
 
     system_prompt = _visual_system_prompt(trip_type, language=language)
-    _log(f"Sending {len(visual_parts)} parts to Gemini (single pass)...")
+    logger.info(f"Sending {len(visual_parts)} parts to Gemini (single pass)...")
 
     from .media_utils import strip_markdown_fences
 
     model_kwargs = {"model": model} if model else {}
-    edl_content = _gemini_call(system_prompt, visual_parts, _log,
+    edl_content = _gemini_call(system_prompt, visual_parts,
                                label="single pass: plan", **model_kwargs)
 
-    _log(f"=== [Gemini] EDL RESPONSE ({len(edl_content)} chars) ===")
+    logger.info(f"=== [Gemini] EDL RESPONSE ({len(edl_content)} chars) ===")
     for line in edl_content.split("\n"):
-        _log(f"  | {line}")
-    _log("=== [Gemini] END RESPONSE ===")
+        logger.info(f"  | {line}")
+    logger.info("=== [Gemini] END RESPONSE ===")
 
     edl_content = strip_markdown_fences(edl_content)
 
@@ -947,14 +941,14 @@ Candidates by day/location:"""
                             item["end_time"] = round(local_end, 1)
                             item["display_duration"] = round(local_end - local_start, 1)
                             n_converted += 1
-                            _log(f"  Preview {ps}-{pe} → trim {item['start_time']}-{item['end_time']}s "
+                            logger.info(f"  Preview {ps}-{pe} → trim {item['start_time']}-{item['end_time']}s "
                                  f"({item['display_duration']}s)")
                             matched = True
                             break
                     if not matched:
-                        _log(f"  WARNING: preview {ps} not in any clip, keeping as-is")
+                        logger.warning(f"preview {ps} not in any clip, keeping as-is")
         if n_converted:
-            _log(f"  Converted {n_converted} preview timestamps to local trim points")
+            logger.info(f"  Converted {n_converted} preview timestamps to local trim points")
 
         edl_content = _json.dumps(raw)
     except _json.JSONDecodeError:
@@ -980,16 +974,16 @@ Candidates by day/location:"""
                 candidates = list(media_dir.glob(f"*{name}"))
             if candidates:
                 item.source_file = str(candidates[0])
-                _log(f"  Fixed path: {name} → {candidates[0].name}")
+                logger.info(f"  Fixed path: {name} → {candidates[0].name}")
                 valid_items.append(item)
             else:
-                _log(f"  Removed item with missing source: {name}")
+                logger.info(f"  Removed item with missing source: {name}")
                 removed_count += 1
         seg.items = valid_items
     # Remove empty segments
     edl.segments = [s for s in edl.segments if s.items]
     if removed_count:
-        _log(f"  Path validation: removed {removed_count} items with missing sources")
+        logger.info(f"  Path validation: removed {removed_count} items with missing sources")
 
     # Layer 2b: Validate video trim points against actual duration
     trim_fixed = 0
@@ -1012,13 +1006,13 @@ Candidates by day/location:"""
                         item.end_time = vid_dur
                         changed = True
                     if item.end_time is not None and item.start_time >= item.end_time:
-                        _log(f"  Trim removal: {Path(item.source_file).name} "
+                        logger.info(f"  Trim removal: {Path(item.source_file).name} "
                              f"start={item.start_time:.1f} >= end={item.end_time:.1f} "
                              f"(duration={vid_dur:.1f}s)")
                         trim_removed += 1
                         continue
                     if changed:
-                        _log(f"  Trim clamped: {Path(item.source_file).name} "
+                        logger.info(f"  Trim clamped: {Path(item.source_file).name} "
                              f"to [{item.start_time:.1f}, {item.end_time}] "
                              f"(duration={vid_dur:.1f}s)")
                         trim_fixed += 1
@@ -1026,7 +1020,7 @@ Candidates by day/location:"""
         seg.items = valid_items
     edl.segments = [s for s in edl.segments if s.items]
     if trim_fixed or trim_removed:
-        _log(f"  Trim validation: {trim_fixed} clamped, {trim_removed} removed")
+        logger.info(f"  Trim validation: {trim_fixed} clamped, {trim_removed} removed")
 
     # Layer 2c: Deduplicate source files (keep first occurrence)
     seen_sources: set[str] = set()
@@ -1035,7 +1029,7 @@ Candidates by day/location:"""
         unique_items = []
         for item in seg.items:
             if item.source_file in seen_sources:
-                _log(f"  Dedup: removed duplicate {Path(item.source_file).name}")
+                logger.info(f"  Dedup: removed duplicate {Path(item.source_file).name}")
                 dedup_removed += 1
             else:
                 seen_sources.add(item.source_file)
@@ -1043,14 +1037,14 @@ Candidates by day/location:"""
         seg.items = unique_items
     edl.segments = [s for s in edl.segments if s.items]
     if dedup_removed:
-        _log(f"  Dedup: removed {dedup_removed} duplicate items")
+        logger.info(f"  Dedup: removed {dedup_removed} duplicate items")
 
     # Layer 3: Duration check — if underfilled, ask Gemini to add items
     actual_dur = edl.estimated_duration()
     min_dur = target_duration * 1.15  # need 15% headroom for transitions
     if actual_dur < min_dur:
         deficit = min_dur - actual_dur
-        _log(f"  Duration: {actual_dur:.0f}s < {min_dur:.0f}s needed — requesting {deficit:.0f}s more content")
+        logger.info(f"  Duration: {actual_dur:.0f}s < {min_dur:.0f}s needed — requesting {deficit:.0f}s more content")
 
         # Collect unused candidates for Gemini to pick from
         used = {item.source_file for item in edl.all_items()}
@@ -1075,10 +1069,10 @@ Candidates by day/location:"""
             f"original + new). Keep the same structure and format."
         )
         edl_content2 = _gemini_call(
-            system_prompt, [followup], _log,
+            system_prompt, [followup],
             label="duration fix", **model_kwargs,
         )
-        _log(f"=== [Gemini] DURATION FIX RESPONSE ({len(edl_content2)} chars) ===")
+        logger.info(f"=== [Gemini] DURATION FIX RESPONSE ({len(edl_content2)} chars) ===")
         edl_content2 = strip_markdown_fences(edl_content2)
         try:
             raw2 = _json.loads(edl_content2)
@@ -1087,32 +1081,32 @@ Candidates by day/location:"""
             edl2 = EDL.model_validate_json(_json.dumps(raw2))
             new_dur = edl2.estimated_duration()
             if new_dur > actual_dur:
-                _log(f"  Duration fix: {actual_dur:.0f}s → {new_dur:.0f}s")
+                logger.info(f"  Duration fix: {actual_dur:.0f}s → {new_dur:.0f}s")
                 edl = edl2
                 actual_dur = new_dur
             else:
-                _log(f"  Duration fix didn't improve ({new_dur:.0f}s), keeping original")
+                logger.warning(f"Duration fix didn't improve ({new_dur:.0f}s), keeping original")
         except Exception as e:
-            _log(f"  Duration fix parse failed ({e}), keeping original")
+            logger.warning(f"Duration fix parse failed ({e}), keeping original")
 
     if actual_dur < target_duration * 0.5:
-        _log(f"WARNING: EDL is {actual_dur:.0f}s, target is {target_duration}s — severely underfilled")
+        logger.warning(f"EDL is {actual_dur:.0f}s, target is {target_duration}s — severely underfilled")
     elif actual_dur < target_duration * 0.8:
-        _log(f"WARNING: EDL is {actual_dur:.0f}s, target is {target_duration}s — underfilled")
+        logger.warning(f"EDL is {actual_dur:.0f}s, target is {target_duration}s — underfilled")
 
     # Layer 4: Formal EDL validation (catches media_type mismatches, bad effects, etc.)
     from .edl import validate_edl as _validate_edl
     edl_issues = _validate_edl(edl, strict=False)
     for issue in edl_issues:
         level = issue["level"].upper()
-        _log(f"  EDL {level}: {issue['message']}")
+        logger.info(f"  EDL {level}: {issue['message']}")
         # Auto-fix media_type mismatches instead of failing
         if "media_type='video' but file is a photo" in issue["message"]:
             for seg in edl.segments:
                 for item in seg.items:
                     ext = Path(item.source_file).suffix.lower()
                     if item.media_type == "video" and ext in {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}:
-                        _log(f"  Auto-fix: {Path(item.source_file).name} video→photo")
+                        logger.info(f"  Auto-fix: {Path(item.source_file).name} video→photo")
                         item.media_type = "photo"
                         item.effect = "ken_burns_in"
                         item.start_time = None
@@ -1125,24 +1119,24 @@ Candidates by day/location:"""
     n_text_overlay = sum(1 for i in edl.all_items() if i.text_overlay)
     n_speed_ramp = sum(1 for i in edl.all_items() if i.playback_speed != 1.0)
 
-    _log(f"=== [Gemini] PARSED EDL ===")
-    _log(f"  Title: {edl.title}")
-    _log(f"  Segments: {len(edl.segments)}, Items: {len(edl.all_items())} "
+    logger.info(f"=== [Gemini] PARSED EDL ===")
+    logger.info(f"  Title: {edl.title}")
+    logger.info(f"  Segments: {len(edl.segments)}, Items: {len(edl.all_items())} "
          f"({n_photo} photos + {n_vid} videos)")
-    _log(f"  Duration: {actual_dur:.0f}s (target: {target_duration}s, "
+    logger.info(f"  Duration: {actual_dur:.0f}s (target: {target_duration}s, "
          f"{'OK' if actual_dur >= target_duration * 0.8 else 'UNDERFILLED'})")
-    _log(f"  Speech clips (keep_audio): {n_keep_audio}")
-    _log(f"  Text overlays: {n_text_overlay}")
-    _log(f"  Speed ramps: {n_speed_ramp}")
+    logger.info(f"  Speech clips (keep_audio): {n_keep_audio}")
+    logger.info(f"  Text overlays: {n_text_overlay}")
+    logger.info(f"  Speed ramps: {n_speed_ramp}")
 
     for si, seg in enumerate(edl.segments):
         seg_dur = sum(i.display_duration for i in seg.items)
-        _log(f"  --- Segment {si}: {seg.name} ({len(seg.items)} items, {seg_dur:.0f}s) ---")
-        _log(f"    Transition: {seg.transition} ({seg.transition_duration}s) | "
+        logger.info(f"  --- Segment {si}: {seg.name} ({len(seg.items)} items, {seg_dur:.0f}s) ---")
+        logger.info(f"    Transition: {seg.transition} ({seg.transition_duration}s) | "
              f"Mode: {seg.mode} | Color: {seg.color_temp}")
-        _log(f"    Music mood: {seg.music_mood[:120]}")
+        logger.info(f"    Music mood: {seg.music_mood[:120]}")
         if seg.narrative_rationale:
-            _log(f"    Rationale: {seg.narrative_rationale[:150]}")
+            logger.info(f"    Rationale: {seg.narrative_rationale[:150]}")
         for item in seg.items:
             trim = f" trim={item.start_time:.0f}-{item.end_time:.0f}s" if item.start_time is not None else ""
             flags = []
@@ -1153,9 +1147,9 @@ Candidates by day/location:"""
             if item.text_overlay:
                 flags.append(f'text="{item.text_overlay.text[:30]}"')
             flag_str = f" [{', '.join(flags)}]" if flags else ""
-            _log(f"    - {item.media_type:5s} {item.display_duration}s "
+            logger.info(f"    - {item.media_type:5s} {item.display_duration}s "
                  f"{item.effect:16s} {Path(item.source_file).name}{trim}{flag_str}")
-    _log(f"=== [Gemini] END PARSED EDL ===")
+    logger.info(f"=== [Gemini] END PARSED EDL ===")
 
     return edl
 
@@ -1180,12 +1174,10 @@ def plan(
     quality: float = 1.0,
     tz_hours: int | None = None,
     model: str | None = None,
-    log_fn=None,
 ) -> tuple[EDL, int]:
     """Generate an EDL from preprocessed + analysis data using the visual planner."""
-    _log = log_fn or print
     if trip_type not in TRIP_TYPES:
-        _log(f"Unknown trip_type '{trip_type}', falling back to 'general'")
+        logger.warning(f"Unknown trip_type '{trip_type}', falling back to 'general'")
         trip_type = "general"
 
     if not os.getenv("GEMINI_API_KEY", ""):
@@ -1199,12 +1191,12 @@ def plan(
     analysis_items = json.loads((cfg.workspace / "analysis.json").read_text())
     analysis_by_id: dict[str, dict] = {str(a["id"]): a for a in analysis_items}
 
-    _log(f"Planning via Gemini with visual input (target {target_duration}s, style={style}, trip_type={trip_type}, lang={language})...")
+    logger.info(f"Planning via Gemini with visual input (target {target_duration}s, style={style}, trip_type={trip_type}, lang={language})...")
     edl = _plan_visual(cfg, preprocessed, analysis_by_id, analysis_items,
                        style=style, target_duration=target_duration,
                        focus=effective_focus, trip_type=trip_type,
                        language=language, tz_hours=tz_hours,
-                       model=model, log_fn=_log)
+                       model=model)
 
     # Post-process: force effect="none" on video items (Ken Burns fights native motion)
     for seg in edl.segments:
@@ -1227,12 +1219,12 @@ def plan(
 
     # Store music intent — actual generation happens in assemble
     if music_file and music_file != "auto" and Path(music_file).exists():
-        _log(f"Attaching music file: {music_file}")
+        logger.info(f"Attaching music file: {music_file}")
         edl.music = MusicTrack(file=music_file)
         edl.music_mode = "file"
     elif music_file == "auto":
         edl.music_mode = "auto"
-        _log("Music mode: auto (will generate in generate_music step)")
+        logger.info("Music mode: auto (will generate in generate_music step)")
 
     from .edl import find_latest_version, save_edl
     version = find_latest_version(cfg) + 1
@@ -1243,6 +1235,6 @@ def plan(
         for f in clips_dir.iterdir():
             f.unlink(missing_ok=True)
 
-    _log(f"EDL v{version}: {len(edl.segments)} segments, "
+    logger.info(f"EDL v{version}: {len(edl.segments)} segments, "
          f"{len(edl.all_items())} items, ~{edl.estimated_duration():.0f}s")
     return edl, version

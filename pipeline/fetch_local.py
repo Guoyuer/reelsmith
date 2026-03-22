@@ -8,11 +8,14 @@ the pipeline. Alternative to fetch.py (Synology NAS).
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import Config
+
+logger = logging.getLogger("vlog.fetch_local")
 
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
@@ -22,7 +25,6 @@ def fetch_local(
     cfg: Config,
     *,
     source_dir: str,
-    log_fn=None,
 ) -> list[dict]:
     """Scan a local folder for photos/videos and build a manifest.
 
@@ -30,7 +32,6 @@ def fetch_local(
     Extracts dates from EXIF / filename / file mtime for sorting.
     Points directly to source files (no copying or linking).
     """
-    _log = log_fn or print
     cfg.ensure_dirs()
     source = Path(source_dir)
     if not source.is_dir():
@@ -46,7 +47,7 @@ def fetch_local(
         if f.name.startswith(("_converted_", "_hist_", "_audio_", "_resized_")):
             continue
         files.append(f)
-    _log(f"Found {len(files)} media files in {source}")
+    logger.info("Found %d media files in %s", len(files), source)
 
     manifest = []
     for i, src_path in enumerate(files, 1):
@@ -94,11 +95,11 @@ def fetch_local(
 
         manifest.append(entry)
         if i % 100 == 0 or i == len(files):
-            _log(f"[{i}/{len(files)}] Scanned")
+            logger.info("[%d/%d] Scanned", i, len(files))
 
     manifest_path = cfg.workspace / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2))
-    _log(f"Manifest saved: {len(manifest)} items from {source}")
+    logger.info("Manifest saved: %d items from %s", len(manifest), source)
     return manifest
 
 

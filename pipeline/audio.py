@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from .edl import EDL
 from .encoder import probe_duration
 from .media_utils import run_subprocess
+
+logger = logging.getLogger("vlog.audio")
 
 
 # ---------------------------------------------------------------------------
@@ -81,21 +84,19 @@ def estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int |
     return bpm
 
 
-def beat_snap_edl(edl: EDL, music_path: Path, log_fn=None) -> int:
+def beat_snap_edl(edl: EDL, music_path: Path) -> int:
     """Snap EDL transition points to music beats. Modifies edl in place.
 
     Returns the number of transitions snapped.
     """
     import bisect
 
-    _log = log_fn or print
-
     bpm = estimate_bpm(music_path)
     if not bpm:
-        _log("Beat sync: could not estimate BPM, skipping")
+        logger.info("Beat sync: could not estimate BPM, skipping")
         return 0
 
-    _log(f"Beat sync: detected ~{bpm} BPM")
+    logger.info("Beat sync: detected ~%d BPM", bpm)
 
     beat_interval = 60.0 / bpm
     half_beat = beat_interval / 2
@@ -156,7 +157,8 @@ def beat_snap_edl(edl: EDL, music_path: Path, log_fn=None) -> int:
 
     if total_transitions > 0:
         pct = int(snapped / total_transitions * 100)
-        _log(f"Beat sync: snapped {snapped}/{total_transitions} transitions ({pct}%) to {bpm} BPM grid")
+        logger.info("Beat sync: snapped %d/%d transitions (%d%%) to %d BPM grid",
+                    snapped, total_transitions, pct, bpm)
 
     return snapped
 
@@ -277,4 +279,4 @@ def write_chapters(edl: EDL, all_clips: list[dict], out_path: Path,
         lines.append(f"{minutes}:{seconds:02d} {name}")
 
     out_path.write_text("\n".join(lines))
-    print(f"YouTube chapters: {out_path.name} ({len(lines)} chapters)")
+    logger.info("YouTube chapters: %s (%d chapters)", out_path.name, len(lines))

@@ -2,22 +2,30 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 
 from .encoder import get_encoder, probe_duration
 from .media_utils import run_subprocess
 
+logger = logging.getLogger("vlog.concat")
 
 MAX_GROUP = 10
 
 
-def _partition_into_groups(n: int, get_transition) -> list[list[int]]:
+def partition_into_groups(n: int, get_transition) -> list[list[int]]:
     """Partition clip indices into groups of <= MAX_GROUP.
 
-    Shared by concatenate() and compute_actual_offsets() to ensure
-    identical group boundaries.
+    Single source of truth — used by both concat and timeline to ensure
+    identical group boundaries (drift causes speech desync).
+
+    Args:
+        n: total number of clips
+        get_transition: callable(i) -> transition name for clip i
     """
+    if n == 0:
+        return []
     groups: list[list[int]] = [[0]]
     for i in range(1, n):
         should_split = (
@@ -33,13 +41,13 @@ def _partition_into_groups(n: int, get_transition) -> list[list[int]]:
 
 def concatenate(clips: list[dict], output_path: Path,
                 w: int = 0, h: int = 0, fps: int = 0,
-                timeline=None, log_fn=None) -> None:
+                timeline=None) -> None:
     """Concatenate clips with transitions (video only). Speech handled separately.
 
     For reliability at high resolutions, splits into segments and xfades
     within each segment, then concats segments via demuxer.
     """
-    _log = log_fn or print
+    _log = logger.info
 
     if len(clips) == 1:
         shutil.copy(str(clips[0]["path"]), str(output_path))
@@ -51,7 +59,7 @@ def concatenate(clips: list[dict], output_path: Path,
         return
 
     # Split clips into groups of <= MAX_GROUP for 4K xfade reliability.
-    idx_groups = _partition_into_groups(len(clips), lambda i: clips[i].get("transition"))
+    idx_groups = partition_into_groups(len(clips), lambda i: clips[i].get("transition"))
     groups = [[clips[i] for i in g] for g in idx_groups]
 
     _log(f"  Concat strategy: {len(groups)} groups ({', '.join(f'{len(g)} clips' for g in groups)})")
@@ -111,13 +119,22 @@ def concatenate(clips: list[dict], output_path: Path,
         _concat_filter(group_files, output_path, w, h, fps)
 
 
+# --- Transition name mapping (EDL names → FFmpeg xfade names) ---
+XFADE_MAP = {
+    "crossfade": "fade",
+    "fade_black": "fadeblack",
+    "wipe_left": "wipeleft",
+    "dissolve": "fade",
+    "smoothleft": "smoothleft",
+    "smoothright": "smoothright",
+    "circlecrop": "circlecrop",
+    "cut": "fade",
+}
+
+
 def _concat_filter(clips: list[dict], output_path: Path,
                    w: int = 0, h: int = 0, fps: int = 0) -> None:
-    """Join group files using the concat filter (re-encodes, but reliable for HEVC).
-
-    Used for the final group join where stream-copy concat demuxer may drop
-    groups due to NVENC VPS/SPS/PPS mismatches between encode sessions.
-    """
+    """Join group files using the concat filter (re-encodes, but reliable for HEVC)."""
     inputs = []
     filter_parts = []
     for i, clip in enumerate(clips):
@@ -135,22 +152,17 @@ def _concat_filter(clips: list[dict], output_path: Path,
     ]
     result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"concat filter FAILED (rc={result.returncode}): {result.stderr[-500:]}")
-        print("Falling back to concat demuxer...")
+        logger.warning("concat filter FAILED (rc=%d): %s", result.returncode, result.stderr[-500:])
+        logger.info("Falling back to concat demuxer...")
         concat_demuxer(clips, output_path, w, h, fps)
     else:
-        from .encoder import probe_duration as _pd
-        actual = _pd(output_path)
-        print(f"concat filter OK: {actual:.1f}s from {len(clips)} inputs")
+        actual = probe_duration(output_path)
+        logger.info("concat filter OK: %.1fs from %d inputs", actual, len(clips))
 
 
 def concat_demuxer(clips: list[dict], output_path: Path,
                    w: int = 0, h: int = 0, fps: int = 0) -> None:
-    """Simple concatenation via concat demuxer (no transitions).
-
-    Clips are already encoded at the correct bitrate/resolution, so we
-    stream-copy instead of re-encoding.
-    """
+    """Simple concatenation via concat demuxer (no transitions)."""
     list_path = output_path.with_suffix(".txt")
     with open(list_path, "w") as f:
         for clip in clips:
@@ -166,7 +178,7 @@ def concat_demuxer(clips: list[dict], output_path: Path,
     ]
     result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"concat_demuxer failed: {result.stderr[-500:]}")
+        logger.error("concat_demuxer failed: %s", result.stderr[-500:])
 
 
 def concat_xfade(clips: list[dict], output_path: Path,
@@ -185,12 +197,10 @@ def concat_xfade(clips: list[dict], output_path: Path,
     filter_parts = []
     for i in range(1, len(timeline.entries)):
         e = timeline.entries[i]
-        xfade_transition = {
-            "crossfade": "fade", "fade_black": "fadeblack",
-            "wipe_left": "wipeleft", "dissolve": "fade",
-            "smoothleft": "smoothleft", "smoothright": "smoothright",
-            "circlecrop": "circlecrop", "cut": "fade",
-        }.get(e.transition, "fade")
+        xfade_transition = XFADE_MAP.get(e.transition)
+        if xfade_transition is None:
+            logger.warning("Unknown transition '%s' for clip %d, falling back to fade", e.transition, i)
+            xfade_transition = "fade"
 
         in_label = "[0:v]" if i == 1 else f"[v{i-1}]"
         out_label = f"[v{i}]" if i < len(timeline.entries) - 1 else "[vout]"
@@ -223,10 +233,8 @@ def concat_xfade(clips: list[dict], output_path: Path,
     ]
     result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        # Log clip durations and the filter chain for debugging
-        from .encoder import probe_duration as _pd
-        clip_durs = [f"{_pd(c['path']) or 0:.1f}s" for c in clips]
-        print(f"xfade FAILED for {output_path.name} ({len(clips)} clips: {clip_durs})")
-        print(f"  filter: {filter_complex}")
-        print(f"  stderr: {result.stderr[-300:]}")
+        clip_durs = [f"{probe_duration(c['path']) or 0:.1f}s" for c in clips]
+        logger.error("xfade FAILED for %s (%d clips: %s)", output_path.name, len(clips), clip_durs)
+        logger.debug("filter: %s", filter_complex)
+        logger.error("stderr: %s", result.stderr[-300:])
         concat_demuxer(clips, output_path, w, h, fps)

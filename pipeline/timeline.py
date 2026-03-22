@@ -6,10 +6,14 @@ from the same Timeline object. No more independent offset calculations.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .concat import partition_into_groups
 from .encoder import probe_duration as _probe_dur
+
+logger = logging.getLogger("vlog.timeline")
 
 
 @dataclass
@@ -27,30 +31,6 @@ class TimelineEntry:
     video_offset: float = 0.0          # when xfade starts blending this clip in
     visible_offset: float = 0.0        # when clip is FULLY visible (after transition)
     end_time: float = 0.0              # when clip ends in the timeline
-
-
-MAX_GROUP = 10
-
-
-def _partition_indices(entries: list[TimelineEntry]) -> list[list[int]]:
-    """Partition entry indices into groups of <= MAX_GROUP.
-
-    Shared by Timeline.build and Timeline.build_actual so group boundaries
-    are always identical to concat.py's _partition_into_groups.
-    """
-    if not entries:
-        return []
-    groups: list[list[int]] = [[0]]
-    for i in range(1, len(entries)):
-        should_split = (
-            len(groups[-1]) >= MAX_GROUP
-            or (len(groups[-1]) >= MAX_GROUP - 3
-                and entries[i].transition == "fade_black")
-        )
-        if should_split:
-            groups.append([])
-        groups[-1].append(i)
-    return groups
 
 
 @dataclass
@@ -134,7 +114,9 @@ class Timeline:
             self.entries[0].end_time = self.entries[0].actual_duration
             return
 
-        groups = _partition_indices(self.entries)
+        groups = partition_into_groups(
+            len(self.entries), lambda i: self.entries[i].transition
+        )
         global_offset = 0.0
         for group_indices in groups:
             self._compute_group_offsets(group_indices, global_offset)
@@ -152,7 +134,9 @@ class Timeline:
             self.entries[0].end_time = self.entries[0].actual_duration
             return
 
-        groups = _partition_indices(self.entries)
+        groups = partition_into_groups(
+            len(self.entries), lambda i: self.entries[i].transition
+        )
         global_offset = 0.0
         for gi, group_indices in enumerate(groups):
             self._compute_group_offsets(group_indices, global_offset)
@@ -243,20 +227,20 @@ class Timeline:
         """Offsets for the xfade filter chain (video_offset per clip)."""
         return [e.video_offset for e in self.entries]
 
-    def dump(self, log_fn=None) -> None:
+    def dump(self) -> None:
         """Print the full timeline for debugging."""
-        _log = log_fn or print
-        _log("=== Timeline ===")
-        _log(f"{'idx':>3} {'v_offset':>8} {'visible':>8} {'end':>8} "
-             f"{'dur':>5} {'tr':>12} {'td':>4} {'ka':>3}  clip")
-        _log("-" * 80)
+        logger.info("=== Timeline ===")
+        logger.info("%3s %8s %8s %8s %5s %12s %4s %3s  clip",
+                    "idx", "v_offset", "visible", "end", "dur", "tr", "td", "ka")
+        logger.info("-" * 80)
         for e in self.entries:
             ka = "YES" if e.keep_audio else "   "
-            _log(f"{e.index:3d} {e.video_offset:8.2f} {e.visible_offset:8.2f} {e.end_time:8.2f} "
-                 f"{e.actual_duration:5.2f} {e.transition:>12} {e.transition_duration:4.1f} {ka}  "
-                 f"{e.path.name}")
-        _log(f"Total: {self.total_duration():.2f}s")
+            logger.info("%3d %8.2f %8.2f %8.2f %5.2f %12s %4.1f %s  %s",
+                        e.index, e.video_offset, e.visible_offset, e.end_time,
+                        e.actual_duration, e.transition, e.transition_duration, ka,
+                        e.path.name)
+        logger.info("Total: %.2fs", self.total_duration())
         sr = self.speech_ranges()
         if sr:
-            _log(f"Speech: {', '.join(f'{s:.1f}-{e:.1f}s' for s, e in sr)}")
-        _log("=== End Timeline ===")
+            logger.info("Speech: %s", ", ".join(f"{s:.1f}-{e:.1f}s" for s, e in sr))
+        logger.info("=== End Timeline ===")

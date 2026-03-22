@@ -13,6 +13,7 @@ All results cached per-file in shared analysis_cache directory.
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -29,6 +30,8 @@ except ImportError:
 from .config import Config
 from .media_utils import run_subprocess, generate_thumbnail
 
+logger = logging.getLogger("vlog.prepare")
+
 # Default timezone: system local (replaces hardcoded SGT)
 _LOCAL_TZ = datetime.now(timezone.utc).astimezone().tzinfo
 
@@ -38,7 +41,7 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
 def prepare(cfg: Config, *, family_names: list[str] | None = None,
-            force: bool = False, progress_callback=None, log_fn=None,
+            force: bool = False, progress_callback=None,
             tz_hours: int | None = None,
             **_kwargs) -> dict:
     """Prepare all media for Gemini visual planning.
@@ -47,14 +50,13 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
     2. Generate thumbnails + EXIF for photos, probe duration for videos
     3. Save preprocessed.json + analysis.json
     """
-    _log = log_fn or print
     cfg.ensure_dirs()
     manifest = json.loads((cfg.workspace / "manifest.json").read_text())
 
     # --- Family detection ---
     if not family_names:
         family_names = _detect_family(manifest)
-    _log(f"Family members: {family_names}")
+    logger.info(f"Family members: {family_names}")
 
     for item in manifest:
         persons = item.get("metadata", {}).get("persons", [])
@@ -75,7 +77,7 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
     }
     pp_path = cfg.workspace / "preprocessed.json"
     pp_path.write_text(json.dumps(preprocessed, indent=2))
-    _log(f"Timeline: {len(timeline)} days, {sum(len(d['chapters']) for d in timeline)} chapters")
+    logger.info(f"Timeline: {len(timeline)} days, {sum(len(d['chapters']) for d in timeline)} chapters")
 
     # --- Analyze: thumbnails, EXIF, video duration ---
     analysis_path = cfg.workspace / "analysis.json"
@@ -133,10 +135,10 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
                 pbar.update(1)
                 continue
             except (json.JSONDecodeError, KeyError) as e:
-                _log(f"  WARNING: corrupt cache for item {item_id}, re-analyzing: {e}")
+                logger.warning(f"Corrupt cache for item {item_id}, re-analyzing: {e}")
 
         if is_video:
-            _prepare_video(entry, item_id, local_path, cache_file, _log, i, len(manifest))
+            _prepare_video(entry, item_id, local_path, cache_file, i, len(manifest))
         else:
             _prepare_photo(entry, item_id, local_path, cfg, cache_file)
 
@@ -154,8 +156,8 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
     n_photos = sum(1 for r in results if r.get("media_type") == "photo")
     n_videos = len(results) - n_photos
     newly = sum(1 for r in results if r["id"] not in existing)
-    _log(f"Prepared: {len(results)} items ({n_photos} photos, {n_videos} videos, "
-         f"{newly} newly analyzed)")
+    logger.info(f"Prepared: {len(results)} items ({n_photos} photos, {n_videos} videos, "
+                f"{newly} newly analyzed)")
 
     return preprocessed
 
@@ -241,9 +243,9 @@ def _build_timeline(items: list[dict], tz=None) -> list[dict]:
     return timeline
 
 
-def _prepare_video(entry, item_id, local_path, cache_file, log_fn, i, total):
+def _prepare_video(entry, item_id, local_path, cache_file, i, total):
     """Probe video duration and build scene count."""
-    log_fn(f"[{i}/{total}] {entry['filename']} — video metadata...")
+    logger.info(f"[{i}/{total}] {entry['filename']} — video metadata...")
 
     probe = run_subprocess(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -253,14 +255,14 @@ def _prepare_video(entry, item_id, local_path, cache_file, log_fn, i, total):
     try:
         total_dur = float(probe.stdout.strip())
     except (ValueError, AttributeError):
-        log_fn(f"  WARNING: could not probe duration for {local_path}, assuming 10s")
+        logger.warning(f"Could not probe duration for {local_path}, assuming 10s")
         total_dur = 10.0
 
     entry["video_duration"] = round(total_dur, 1)
 
     cache_entry = {"video_duration": round(total_dur, 1)}
     cache_file.write_text(json.dumps(cache_entry, indent=2))
-    log_fn(f"[{i}/{total}] {entry['filename']} — {total_dur:.0f}s")
+    logger.info(f"[{i}/{total}] {entry['filename']} — {total_dur:.0f}s")
 
 
 def _read_exif(path) -> dict:

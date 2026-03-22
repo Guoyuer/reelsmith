@@ -37,6 +37,8 @@ from .filters import (
 from .media_utils import run_subprocess
 from .render import render_photo, render_video, render_title_card
 
+logger = logging.getLogger("vlog.assemble")
+
 
 # ---------------------------------------------------------------------------
 # Render report — structured clip status tracking (replaces bare print/list)
@@ -96,13 +98,13 @@ class RenderReport:
 
 def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_broken: bool = False,
              resolution: tuple[int, int] | None = None, fps: int | None = None,
-             quality: float = 1.0, log_fn=None) -> tuple[Path, list[dict]]:
+             quality: float = 1.0) -> tuple[Path, list[dict]]:
     """Read latest edl_v{N}.json and render the vlog video.
 
     Returns (output_path, validation_issues) where validation_issues is a list
     of dicts with keys: level ("error"/"warning"), check, message.
     """
-    _log = log_fn or print
+    _log = logger.info
     cfg.ensure_dirs()
     from .edl import load_latest_edl, EDL as EDLModel
     if version > 0:
@@ -155,7 +157,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
     # Beat sync: snap transitions to music beats (before rendering clips)
     if edl.music and Path(edl.music.file).exists():
-        beat_snap_edl(edl, Path(edl.music.file), log_fn=print)
+        beat_snap_edl(edl, Path(edl.music.file))
 
     # Determine parallel workers based on encoder type
     encoder = get_encoder(w, h, _fps)
@@ -194,7 +196,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
             if not source.exists():
                 return clip_name, item.source_file, None, "source not found"
 
-            ct = getattr(segment, "color_temp", "neutral")
+            ct = segment.color_temp
             if item.media_type == "photo":
                 render_photo(item, clip_path, w, h, _fps, color_temp=ct,
                              text_overlay=item.text_overlay, language=lang)
@@ -254,14 +256,14 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
                 _log(f"  Skipping zero-length clip: {clip_path.name}")
                 continue
 
-            is_montage = getattr(segment, "mode", "narrative") == "montage"
+            is_montage = segment.mode == "montage"
             if is_montage:
                 transition = "cut"
                 td = 0.0
             elif item_idx == 0 and seg_idx > 0:
                 # Inter-segment transition: from EDL, not hardcoded
-                transition = getattr(segment, "segment_transition", "fade_black")
-                td = getattr(segment, "segment_transition_duration", 1.0)
+                transition = segment.segment_transition
+                td = segment.segment_transition_duration
             elif item_idx > 0:
                 transition = segment.transition
                 td = segment.transition_duration if transition != "cut" else 0.0
@@ -320,7 +322,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     t2 = time.monotonic()
     _log(f"Concatenating {len(all_clips)} clips...")
     no_music_path = output_dir / f"vlog_v{version}_nomix.mp4"
-    concatenate(all_clips, no_music_path, w, h, _fps, log_fn=_log)
+    concatenate(all_clips, no_music_path, w, h, _fps)
     _log(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
 
     # Phase 2b: Build speech audio track using Timeline as single source of truth
@@ -328,7 +330,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
     # Build timeline with MEASURED group durations (fixes speech sync drift)
     tl = Timeline.build_actual(all_clips, output_dir)
-    tl.dump(log_fn=print)
+    tl.dump()
 
     speech_audio_path = None
     speech_ka_indices = [i for i, c in enumerate(all_clips) if c.get("keep_audio")]

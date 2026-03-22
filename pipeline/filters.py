@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+
+logger = logging.getLogger("vlog.filters")
 
 
 def build_portrait_photo_filter(
@@ -21,8 +24,14 @@ def build_portrait_photo_filter(
     )
 
 
+_VALID_COLOR_TEMPS = {"neutral", "warm", "cool"}
+
+
 def color_grade(color_temp: str = "neutral") -> str:
     """Subtle color grade with optional temperature shift."""
+    if color_temp not in _VALID_COLOR_TEMPS:
+        logger.warning("Unknown color_temp '%s', defaulting to neutral", color_temp)
+        color_temp = "neutral"
     base = "eq=contrast=1.02:brightness=0.01:saturation=1.05"
     if color_temp == "warm":
         return f"{base},colorbalance=rs=0.02:gs=0.01:bs=-0.02"
