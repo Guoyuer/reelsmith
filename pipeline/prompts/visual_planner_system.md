@@ -79,9 +79,8 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
 
 ## Technical rules
 
-- **DURATION IS MANDATORY**: Your EDL's total display_duration MUST be target_duration × 1.15
-  (transitions overlap and consume ~15% of total time). For a 180s target, plan ~207s of content.
-  Sum all items' display_duration — if it's below this adjusted target, add more items.
+- **DURATION IS MANDATORY**: Sum ALL items' display_duration. It MUST reach target_duration × 1.25
+  (transitions eat ~20% of content). Use code execution to verify the sum before outputting.
 - display_duration: 3-5s per photo, 5-10s for video clips
 - For videos: set start_time and end_time to select the best scene.
   Video previews are concatenated into one file. Each clip has its item number

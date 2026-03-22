@@ -180,5 +180,5 @@ def concat_xfade(clips: list[dict], output_path: Path,
     ]
     result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        _log(f"xfade failed, falling back to concat demuxer: {result.stderr[-200:]}")
+        print(f"xfade failed, falling back to concat demuxer: {result.stderr[-200:]}")
         concat_demuxer(clips, output_path, w, h, fps)

@@ -98,11 +98,14 @@ def _gemini_call(
     user_parts: list,
     log_fn,
     label: str = "",
-    model: str = "gemini-3.1-flash",
+    model: str = "gemini-3-flash-preview",
+    code_execution: bool = False,
 ) -> str:
     """Make a Gemini API call with multimodal content. Returns response text.
 
     *user_parts*: list of strings and/or Part objects (text + images).
+    When *code_execution* is True, Gemini can write and run Python to
+    verify its own output (e.g. summing durations).
     """
     import os
 
@@ -195,24 +198,35 @@ def _gemini_call(
 
     t0 = _time.monotonic()
 
+    tools = []
+    if code_execution:
+        tools.append(types.Tool(code_execution=types.ToolCodeExecution))
+
     response = client.models.generate_content(
         model=model,
         contents=[types.Content(parts=parts)],
         config=types.GenerateContentConfig(
             system_instruction=system,
-            max_output_tokens=16000,
+            max_output_tokens=32000,
             temperature=0.7,
             media_resolution=types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+            tools=tools or None,
         ),
     )
 
     elapsed = _time.monotonic() - t0
 
-    # Log thinking summary if available
+    # Log thinking, code execution, and other non-text parts
     if response.candidates:
         for part in (response.candidates[0].content.parts or []):
             if getattr(part, 'thought', False) and part.text:
                 _log(f"  [Thinking] {part.text[:500]}...")
+            if getattr(part, 'executable_code', None):
+                code = part.executable_code.code
+                _log(f"  [Code] {code[:300]}{'...' if len(code) > 300 else ''}")
+            if getattr(part, 'code_execution_result', None):
+                result = part.code_execution_result
+                _log(f"  [CodeResult] {result.outcome}: {(result.output or '')[:300]}")
 
     content = response.text or ""
     # Log finish reason if response is empty or blocked
@@ -819,7 +833,7 @@ Candidates by day/location:"""
     from .media_utils import strip_markdown_fences
 
     edl_content = _gemini_call(system_prompt, visual_parts, _log,
-                               label="single pass: plan", model="gemini-3-flash-preview")
+                               label="single pass: plan")
 
     _log(f"=== [Gemini] EDL RESPONSE ({len(edl_content)} chars) ===")
     for line in edl_content.split("\n"):
@@ -924,8 +938,56 @@ Candidates by day/location:"""
     if dedup_removed:
         _log(f"  Dedup: removed {dedup_removed} duplicate items")
 
-    # Layer 3: Duration check
+    # Layer 3: Duration check — if underfilled, ask Gemini to add items
     actual_dur = edl.estimated_duration()
+    min_dur = target_duration * 1.15  # need 15% headroom for transitions
+    if actual_dur < min_dur:
+        deficit = min_dur - actual_dur
+        _log(f"  Duration: {actual_dur:.0f}s < {min_dur:.0f}s needed — requesting {deficit:.0f}s more content")
+
+        # Collect unused candidates for Gemini to pick from
+        used = {item.source_file for item in edl.all_items()}
+        unused_lines = []
+        for aid, a in analysis_by_id.items():
+            path = a.get("local_path", "")
+            if path and path not in used:
+                mt = a.get("media_type", "photo")
+                dur_info = f" duration={a['video_duration']:.0f}s" if mt == "video" and a.get("video_duration") else ""
+                unused_lines.append(f"  {mt} path={path}{dur_info}")
+        # Limit to 200 candidates to keep token count low
+        if len(unused_lines) > 200:
+            unused_lines = unused_lines[:200]
+
+        followup = (
+            f"Your EDL totals {actual_dur:.0f}s of display_duration, but the target "
+            f"is {target_duration}s (need ≥{min_dur:.0f}s with transition headroom). "
+            f"Add {deficit:.0f}s more content by inserting items into existing segments.\n\n"
+            f"UNUSED CANDIDATES (pick from these):\n"
+            + "\n".join(unused_lines[:100]) + "\n\n"
+            f"Return the COMPLETE updated EDL JSON (all segments, all items — "
+            f"original + new). Keep the same structure and format."
+        )
+        edl_content2 = _gemini_call(
+            system_prompt, [followup], _log,
+            label="duration fix",
+        )
+        _log(f"=== [Gemini] DURATION FIX RESPONSE ({len(edl_content2)} chars) ===")
+        edl_content2 = strip_markdown_fences(edl_content2)
+        try:
+            raw2 = _json.loads(edl_content2)
+            if "music" in raw2 and isinstance(raw2["music"], str):
+                raw2["music"] = None
+            edl2 = EDL.model_validate_json(_json.dumps(raw2))
+            new_dur = edl2.estimated_duration()
+            if new_dur > actual_dur:
+                _log(f"  Duration fix: {actual_dur:.0f}s → {new_dur:.0f}s")
+                edl = edl2
+                actual_dur = new_dur
+            else:
+                _log(f"  Duration fix didn't improve ({new_dur:.0f}s), keeping original")
+        except Exception as e:
+            _log(f"  Duration fix parse failed ({e}), keeping original")
+
     if actual_dur < target_duration * 0.5:
         _log(f"WARNING: EDL is {actual_dur:.0f}s, target is {target_duration}s — severely underfilled")
     elif actual_dur < target_duration * 0.8:
