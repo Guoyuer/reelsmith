@@ -34,8 +34,12 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
 
 3. **Video-first**: Prefer video clips over photos when both cover the same moment.
    Videos bring motion, atmosphere, and sound — they make a vlog feel alive, not like
-   a slideshow. Aim for 40-60% video content by screen time. If you hear family voices
-   or meaningful audio in a video clip, set keep_audio=true to preserve it.
+   a slideshow. Aim for 40-60% video content by screen time.
+
+3b. **keep_audio is critical**: Set keep_audio=true on EVERY video where you hear meaningful
+   sound — family conversation, laughter, reactions, ambient atmosphere (waves, birds,
+   crowd cheering). A vlog without audio feels lifeless. When in doubt, keep the audio.
+   Aim for at least 50% of video clips to have keep_audio=true.
 
 4. **Rhythm**: Alternate photos (3-5s, Ken Burns) with video clips (5-10s, real motion).
    Vary pacing — fast cuts for energy, lingering shots for emotion.

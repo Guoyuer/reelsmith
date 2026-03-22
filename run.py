@@ -626,7 +626,9 @@ def plan(ctx, duration, trip_type, style, focus, lang):
     """Re-plan and re-assemble (uses cached media + analysis)."""
     _run_pipeline(_run_name(ctx), {
         "plan": {"style": style, "target_duration": duration,
-                 "focus": focus, "trip_type": trip_type, "language": lang},
+                 "focus": focus, "trip_type": trip_type, "language": lang,
+                 "music_file": "auto"},
+        "generate_music": {"music_backend": "gemini"},
     }, stages=["plan", "generate_music", "assemble"])
 
 
