@@ -651,7 +651,7 @@ class TestAddMusic:
         output = tmp_path / "ducked.mp4"
         _add_music(video, music, output,
                    speech_ranges=[(2.0, 5.0)],
-                   speech_audio=speech_wav)
+                   speech_audio_path=speech_wav)
 
         assert output.exists()
         probe = subprocess.run(

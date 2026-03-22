@@ -20,7 +20,7 @@ from pathlib import Path
 logger = logging.getLogger("vlog.music_gemini")
 
 
-def fetch_music_gemini(
+def generate_music_gemini(
     trip_type: str,
     style: str,
     target_duration: int,

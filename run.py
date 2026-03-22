@@ -328,7 +328,7 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             display.start("prepare")
             pc = stage_configs.get("prepare", {})
             _log_config(log, "prepare", pc, {
-                "force": False, "family_names": None, "tz_offset": None,
+                "force": False, "family_names": None, "tz_hours": None,
             })
             t0 = time.monotonic()
             analysis_path = ws / "analysis.json"
@@ -353,7 +353,7 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
                     cfg, family_names=pc.get("family_names"),
                     force=pc.get("force", False),
                     progress_callback=_progress_cb(logger, display, "prepare", t0),
-                    tz_hours=pc.get("tz_offset"),
+                    tz_hours=pc.get("tz_hours"),
                 )
                 dur = time.monotonic() - t0
                 log(f"Prepare: done in {dur:.0f}s")
@@ -375,7 +375,7 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             _log_config(log, "plan", pc, {
                 "style": "upbeat", "target_duration": 180, "trip_type": "family",
                 "language": "en", "focus": "", "music_file": None,
-                "tz_offset": None, "model": None,
+                "tz_hours": None, "model": None,
             })
             t0 = time.monotonic()
 
@@ -388,14 +388,14 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
                 trip_type=pc.get("trip_type", "family"),
                 music_file=pc.get("music_file") or None,
                 language=pc.get("language", "en"),
-                tz_hours=pc.get("tz_offset"),
+                tz_hours=pc.get("tz_hours"),
                 model=pc.get("model"),
             )
 
             all_items = edl.all_items()
             n_videos = sum(1 for i in all_items if i.media_type == "video")
             n_photos = len(all_items) - n_videos
-            n_keep = sum(1 for i in all_items if i.keep_audio)
+            n_keep_audio = sum(1 for i in all_items if i.keep_audio)
             vid_time = sum(i.display_duration for i in all_items if i.media_type == "video")
             total_time = sum(i.display_duration for i in all_items)
             vid_pct = int(vid_time / total_time * 100) if total_time > 0 else 0
@@ -408,8 +408,8 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             log(f"Plan: EDL v{version} \u2014 {len(edl.segments)} segments, "
                 f"{n_photos} photos + {n_videos} videos ({vid_pct}% video), "
                 f"~{edl.estimated_duration():.0f}s, {dur:.0f}s")
-            if n_keep:
-                log(f"  Speech preserved: {n_keep} clips")
+            if n_keep_audio:
+                log(f"  Speech preserved: {n_keep_audio} clips")
             for seg in edl.segments:
                 log(f"  {seg.name}: {len(seg.items)} items, transition={seg.transition}")
 
@@ -432,7 +432,7 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
 
             from pipeline.music import generate_music_for_edl
             track = generate_music_for_edl(
-                cfg, backend=mc.get("music_backend", "gemini"),
+                cfg, music_backend=mc.get("music_backend", "gemini"),
             )
 
             dur = time.monotonic() - t0
@@ -472,15 +472,15 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
                 if version <= 0:
                     version = find_latest_version(cfg)
 
-            aw = ac.get("width", 1920)
-            ah = ac.get("height", 1080)
-            a_fps = ac.get("fps", 30)
-            log(f"Render: {aw}x{ah} {a_fps}fps (EDL v{version})")
+            width = ac.get("width", 1920)
+            height = ac.get("height", 1080)
+            fps = ac.get("fps", 30)
+            log(f"Render: {width}x{height} {fps}fps (EDL v{version})")
 
             out, issues = do_assemble(
                 cfg, version=version,
-                resolution=(aw, ah),
-                fps=a_fps,
+                resolution=(width, height),
+                fps=fps,
                 progress_callback=_progress_cb(logger, display, "assemble", t0),
                 skip_broken=ac.get("skip_broken", False),
                 quality=ac.get("quality", 1.0),
@@ -581,13 +581,13 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
               help="Text language: en=English (default), cn=Chinese, both=bilingual")
 @click.option("--family", default=None,
               help="Comma-separated family member names")
-@click.option("--timezone", "--tz", "tz_offset", default=None, type=int,
+@click.option("--timezone", "--tz", "tz_hours", default=None, type=int,
               help="UTC offset in hours (default: system local, e.g. -5 NYC, 8 SGT)")
 @click.option("--model", default=None, help="Gemini model (default: VLOG_MODEL env or gemini-3-flash-preview)")
 @click.pass_context
 def full(ctx, from_date, to_date, source, duration, trip_type, style, focus,
          item_types, music, width, height, fps, quality,
-         country, district, force_prepare, family, lang, tz_offset, model):
+         country, district, force_prepare, family, lang, tz_hours, model):
     """Run the full pipeline end-to-end."""
     if not source and (not from_date or not to_date):
         raise click.UsageError("Either --source (local folder) or -f/-t (date range) is required.")
@@ -610,16 +610,16 @@ def full(ctx, from_date, to_date, source, duration, trip_type, style, focus,
     prepare_cfg: dict = {"force": force_prepare}
     if family:
         prepare_cfg["family_names"] = [n.strip() for n in family.split(",")]
-    if tz_offset is not None:
-        prepare_cfg["tz_offset"] = tz_offset
+    if tz_hours is not None:
+        prepare_cfg["tz_hours"] = tz_hours
 
     plan_cfg: dict = {
         "style": style, "target_duration": duration,
         "focus": focus, "trip_type": trip_type,
         "language": lang,
     }
-    if tz_offset is not None:
-        plan_cfg["tz_offset"] = tz_offset
+    if tz_hours is not None:
+        plan_cfg["tz_hours"] = tz_hours
     if model:
         plan_cfg["model"] = model
     music_backend = "gemini"
@@ -655,7 +655,7 @@ def full(ctx, from_date, to_date, source, duration, trip_type, style, focus,
 @click.option("--model", default=None, help="Gemini model (default: VLOG_MODEL env or gemini-3-flash-preview)")
 @click.option("--music", default="auto",
               help="Music: auto (Gemini Lyria), local (MusicGen), none, or path to WAV")
-@click.option("--timezone", "--tz", "tz_offset", default=None, type=int,
+@click.option("--timezone", "--tz", "tz_hours", default=None, type=int,
               help="UTC offset in hours (e.g. 8 for SGT)")
 @click.option("--width", default=1920, type=int, help="Output width")
 @click.option("--height", default=1080, type=int, help="Output height")
@@ -663,14 +663,14 @@ def full(ctx, from_date, to_date, source, duration, trip_type, style, focus,
 @click.option("--quality", default=1.0, type=float, help="Bitrate multiplier")
 @click.pass_context
 def plan(ctx, duration, trip_type, style, focus, lang, model,
-         music, tz_offset, width, height, fps, quality):
+         music, tz_hours, width, height, fps, quality):
     """Re-plan and re-assemble (uses cached media + analysis)."""
     plan_cfg: dict = {
         "style": style, "target_duration": duration,
         "focus": focus, "trip_type": trip_type, "language": lang,
     }
-    if tz_offset is not None:
-        plan_cfg["tz_offset"] = tz_offset
+    if tz_hours is not None:
+        plan_cfg["tz_hours"] = tz_hours
     if model:
         plan_cfg["model"] = model
 

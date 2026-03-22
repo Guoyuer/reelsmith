@@ -18,7 +18,7 @@ from .media_utils import run_subprocess
 logger = logging.getLogger("vlog.render")
 
 
-def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int, *,
+def render_photo(item: EditItem, output_path: Path, w: int, h: int, fps: int, *,
                  ctx: RenderContext,
                  color_temp: str = "neutral",
                  text_overlay=None, language: str = "en") -> None:
@@ -60,7 +60,7 @@ def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int, *,
             "-filter_complex", f"{fc}{dt}",
             *enc, "-pix_fmt", "yuv420p",
             "-an",
-            str(out),
+            str(output_path),
         ]
     else:
         direction_map = {
@@ -103,7 +103,7 @@ def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int, *,
         cmd += [
             *enc, "-pix_fmt", "yuv420p",
             "-an",
-            str(out),
+            str(output_path),
         ]
 
     result = run_subprocess(cmd, capture_output=True, text=True)
@@ -111,7 +111,7 @@ def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int, *,
         raise RuntimeError(f"Photo render failed ({item.source_file}): {result.stderr[-300:]}")
 
 
-def render_video(item: EditItem, out: Path, w: int, h: int, fps: int, *,
+def render_video(item: EditItem, output_path: Path, w: int, h: int, fps: int, *,
                  ctx: RenderContext,
                  color_temp: str = "neutral",
                  text_overlay=None, language: str = "en") -> None:
@@ -158,7 +158,7 @@ def render_video(item: EditItem, out: Path, w: int, h: int, fps: int, *,
         ]
     if speed_af:
         cmd += speed_af.split()
-    cmd += [*audio_args, str(out)]
+    cmd += [*audio_args, str(output_path)]
 
     result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
@@ -166,7 +166,7 @@ def render_video(item: EditItem, out: Path, w: int, h: int, fps: int, *,
 
 
 def render_title_card(
-    title: str, subtitle: str, out: Path, w: int, h: int, fps: int, *,
+    title: str, subtitle: str, output_path: Path, w: int, h: int, fps: int, *,
     ctx: RenderContext,
     duration: float = 3.0, language: str = "en",
 ) -> None:
@@ -221,6 +221,6 @@ def render_title_card(
         f"{gradient};[grad]{title_text}{separator}{sub_text}{fade}",
         *enc, "-pix_fmt", "yuv420p",
         "-an",
-        str(out),
+        str(output_path),
     ]
     run_subprocess(cmd, capture_output=True, text=True)

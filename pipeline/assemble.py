@@ -204,12 +204,12 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
             if not source.exists():
                 return clip_name, item.source_file, None, "source not found"
 
-            ct = segment.color_temp
+            color_temp = segment.color_temp
             if item.media_type == "photo":
-                render_photo(item, clip_path, w, h, fps, color_temp=ct,
+                render_photo(item, clip_path, w, h, fps, color_temp=color_temp,
                              text_overlay=item.text_overlay, language=lang, ctx=ctx)
             else:
-                render_video(item, clip_path, w, h, fps, color_temp=ct,
+                render_video(item, clip_path, w, h, fps, color_temp=color_temp,
                              text_overlay=item.text_overlay, language=lang, ctx=ctx)
 
         if not clip_path.exists():
@@ -364,7 +364,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
         _log(f"Mixing music: video={video_dur:.1f}s, music={music_dur:.1f}s, "
               f"volume={edl.music.volume}, fade_in={edl.music.fade_in}s, fade_out={edl.music.fade_out}s")
     mix_final_audio(no_music_path, output_path,
-                    music_track=edl.music, speech_audio=speech_audio_path,
+                    music_track=edl.music, speech_audio_path=speech_audio_path,
                     speech_ranges=speech_ranges, duck_ratio=edl.music_duck_ratio)
     _log(f"Phase 3 (audio): {time.monotonic() - t3:.1f}s")
 

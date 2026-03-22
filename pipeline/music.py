@@ -18,14 +18,14 @@ logger = logging.getLogger("vlog.music")
 from .music_prompts import get_prompt as _get_prompt
 
 
-def fetch_music(
+def generate_music_local(
     trip_type: str,
     style: str,
     target_duration: int,
     cache_dir: Path,
     mood: str = "",
 ) -> Path | None:
-    """Generate background music via MusicGen (local).
+    """Generate background music via MusicGen (local backend).
 
     Returns path to generated wav, or None if unavailable.
     Caches tracks in cache_dir to avoid regenerating.
@@ -44,12 +44,11 @@ def fetch_music(
 
     # Use Gemini's music_mood if available, otherwise fall back to template
     prompt = mood if mood else _get_prompt(trip_type, style)
-    gen_duration = target_duration
     model_name = "facebook/musicgen-medium"
     logger.info("=== Music Generation ===")
     logger.info("Model: %s", model_name)
     logger.info("Prompt: '%s'", prompt)
-    logger.info("Target duration: %ds", gen_duration)
+    logger.info("Target duration: %ds", target_duration)
     logger.info("Cache key: %s", cache_key)
 
     try:
@@ -75,13 +74,13 @@ def fetch_music(
 
         # ~50 tokens per second of audio, capped at model's max_position_embeddings
         max_positions = model.config.decoder.max_position_embeddings
-        max_tokens = min(int(gen_duration * 50), max_positions - 10)
+        max_tokens = min(int(target_duration * 50), max_positions - 10)
         actual_dur = max_tokens / 50
-        if actual_dur < gen_duration:
+        if actual_dur < target_duration:
             logger.warning("Model max position limit: capping at %.0fs "
-                           "(requested %ds, max_positions=%d)", actual_dur, gen_duration, max_positions)
+                           "(requested %ds, max_positions=%d)", actual_dur, target_duration, max_positions)
         logger.info("Generating %ds audio (%d tokens)... "
-                    "Estimated time: ~%dmin", gen_duration, max_tokens, gen_duration * 20 // 60)
+                    "Estimated time: ~%dmin", target_duration, max_tokens, target_duration * 20 // 60)
         inputs = processor(text=[prompt], padding=True, return_tensors="pt")
         t0 = time.time()
         with torch.no_grad():
@@ -122,19 +121,19 @@ def generate_music(
     target_duration: int,
     cache_dir: Path,
     mood: str = "",
-    backend: str = "local",
+    music_backend: str = "local",
 ) -> Path | None:
     """Generate background music using the specified backend.
 
-    backend: "local" (MusicGen) or "gemini" (Lyria RealTime API)
+    music_backend: "local" (MusicGen) or "gemini" (Lyria RealTime API)
     """
-    if backend == "gemini":
-        from .music_gemini import fetch_music_gemini
-        return fetch_music_gemini(
+    if music_backend == "gemini":
+        from .music_gemini import generate_music_gemini
+        return generate_music_gemini(
             trip_type=trip_type, style=style, target_duration=target_duration,
             cache_dir=cache_dir, mood=mood,
         )
-    return fetch_music(
+    return generate_music_local(
         trip_type=trip_type, style=style, target_duration=target_duration,
         cache_dir=cache_dir, mood=mood,
     )
@@ -224,7 +223,7 @@ def _build_composite_music(
 
 def generate_music_for_edl(
     cfg,
-    backend: str = "local",
+    music_backend: str = "local",
 ) -> Path | None:
     """Generate per-segment music and build a composite track with crossfades.
 
@@ -248,7 +247,7 @@ def generate_music_for_edl(
     music_cache = cfg.music_dir
 
     # Generate per-segment music tracks
-    logger.info("Generating per-segment music: %d segments, backend=%s", len(edl.segments), backend)
+    logger.info("Generating per-segment music: %d segments, backend=%s", len(edl.segments), music_backend)
     segment_tracks: list[tuple[float, Path]] = []
 
     for i, seg in enumerate(edl.segments):
@@ -261,7 +260,7 @@ def generate_music_for_edl(
             trip_type=edl.trip_type, style=edl.style,
             target_duration=seg_dur,
             cache_dir=music_cache, mood=mood,
-            backend=backend,
+            music_backend=music_backend,
         )
         if track:
             seg.music_file = str(track)

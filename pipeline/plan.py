@@ -318,12 +318,13 @@ def _visual_system_prompt(trip_type: str, language: str = "en") -> str:
 def _build_visual_chapter_text(
     chapter: dict, day: dict, analysis_by_id: dict, start_idx: int,
     *, tz_hours: int = 0,
-) -> tuple[str, list[Path], list[dict]]:
+) -> tuple[str, list[Path], list[str], list[dict]]:
     """Build text metadata for a chapter and collect image paths.
 
-    Returns (text, photo_paths, video_items) where:
+    Returns (text, photo_paths, photo_labels, video_items) where:
     - text: metadata lines with numbered items
     - photo_paths: ordered list of photo paths for contact sheet
+    - photo_labels: matching labels for each photo (e.g. "#01")
     - video_items: list of video analysis dicts for preview clips
     """
     lines = []
@@ -398,8 +399,8 @@ def _build_visual_chapter_text(
     block = chapter.get("time_block", "")
     # Present as context, not prescriptive chapters — Gemini creates its own narrative structure
     n_photos = len(photo_paths)
-    n_vids = len(video_items)
-    media_note = f"{n_photos} photos" + (f", {n_vids} videos" if n_vids else "")
+    n_videos = len(video_items)
+    media_note = f"{n_photos} photos" + (f", {n_videos} videos" if n_videos else "")
     header = f"\n--- {day['day_name']} {day['date']}, {block} near {loc} ({media_note}) ---"
     text = header + "\n" + "\n".join(lines)
     return text, photo_paths, photo_labels, video_items
@@ -862,11 +863,11 @@ def _plan_visual(
             loc = ch["location"]
             block = ch["time_block"]
             count = len(ch.get("item_ids", []))
-            n_vid = sum(1 for iid in ch["item_ids"]
-                        if analysis_by_id.get(str(iid), {}).get("media_type") == "video")
+            n_videos = sum(1 for iid in ch["item_ids"]
+                          if analysis_by_id.get(str(iid), {}).get("media_type") == "video")
             line = f"  [{block.upper()}] {loc} — {count} items"
-            if n_vid:
-                line += f" ({n_vid} videos)"
+            if n_videos:
+                line += f" ({n_videos} videos)"
             arc_lines.append(line)
 
     intro_text = f"""\
@@ -1113,8 +1114,8 @@ Candidates by day/location:"""
                         item.end_time = None
                         item.keep_audio = False
 
-    n_vid = sum(1 for i in edl.all_items() if i.media_type == "video")
-    n_photo = sum(1 for i in edl.all_items() if i.media_type == "photo")
+    n_videos = sum(1 for i in edl.all_items() if i.media_type == "video")
+    n_photos = sum(1 for i in edl.all_items() if i.media_type == "photo")
     n_keep_audio = sum(1 for i in edl.all_items() if i.keep_audio)
     n_text_overlay = sum(1 for i in edl.all_items() if i.text_overlay)
     n_speed_ramp = sum(1 for i in edl.all_items() if i.playback_speed != 1.0)
@@ -1122,7 +1123,7 @@ Candidates by day/location:"""
     logger.info(f"=== [Gemini] PARSED EDL ===")
     logger.info(f"  Title: {edl.title}")
     logger.info(f"  Segments: {len(edl.segments)}, Items: {len(edl.all_items())} "
-         f"({n_photo} photos + {n_vid} videos)")
+         f"({n_photos} photos + {n_videos} videos)")
     logger.info(f"  Duration: {actual_dur:.0f}s (target: {target_duration}s, "
          f"{'OK' if actual_dur >= target_duration * 0.8 else 'UNDERFILLED'})")
     logger.info(f"  Speech clips (keep_audio): {n_keep_audio}")
