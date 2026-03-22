@@ -9,11 +9,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pipeline.assemble import _validate_output
-from pipeline.encoder import is_portrait as _is_portrait, probe_dimensions as _probe_dimensions
+from pipeline.encoder import is_portrait as _is_portrait, RenderContext, init_context
 from pipeline.filters import build_portrait_photo_filter as _build_portrait_photo_filter
 from pipeline.render import render_photo as _render_photo, render_video as _render_video
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
-from pipeline.media_utils import portrait_bg_filter
+from pipeline.filters import portrait_bg_filter
 
 
 # -----------------------------------------------------------------------
@@ -85,8 +85,9 @@ class TestProbeDimensions:
         fake_result.stdout = "3840x2160\n"
         fake_result.returncode = 0
 
+        ctx = RenderContext()
         with patch("pipeline.encoder.run_subprocess", return_value=fake_result):
-            w, h = _probe_dimensions(Path("/fake/video.mp4"))
+            w, h = ctx.probe_dimensions(Path("/fake/video.mp4"))
         assert (w, h) == (3840, 2160)
 
     def test_probe_dimensions_handles_failure(self):
@@ -95,8 +96,9 @@ class TestProbeDimensions:
         fake_result.stdout = ""
         fake_result.returncode = 1
 
-        with patch("pipeline.assemble.run_subprocess", return_value=fake_result):
-            w, h = _probe_dimensions(Path("/fake/bad.mp4"))
+        ctx = RenderContext()
+        with patch("pipeline.encoder.run_subprocess", return_value=fake_result):
+            w, h = ctx.probe_dimensions(Path("/fake/bad.mp4"))
         assert (w, h) == (0, 0)
 
 
@@ -128,10 +130,11 @@ class TestHeicConversion:
             display_duration=3.0,
         )
 
+        ctx = RenderContext()
         with patch("pipeline.render.convert_heic", side_effect=mock_convert), \
              patch("pipeline.render.run_subprocess", side_effect=mock_run), \
              patch("pipeline.encoder.run_subprocess", side_effect=mock_run):
-            _render_photo(item, out_file, 3840, 2160, 60)
+            _render_photo(item, out_file, 3840, 2160, 60, ctx=ctx)
 
         assert len(convert_calls) == 1, "convert_heic should be called for HEIC files"
 
@@ -154,10 +157,11 @@ class TestRenderLandscapePhoto:
             display_duration=2.0,
             effect="static",
         )
-        _render_photo(item, out, 320, 180, 10)
+        ctx = init_context()
+        _render_photo(item, out, 320, 180, 10, ctx=ctx)
         assert out.exists(), "Output clip should be created"
 
-        w, h = _probe_dimensions(out)
+        w, h = ctx.probe_dimensions(out)
         assert (w, h) == (320, 180)
 
 
@@ -173,10 +177,11 @@ class TestRenderPortraitPhoto:
             media_type="photo",
             display_duration=2.0,
         )
-        _render_photo(item, out, 320, 180, 10)
+        ctx = init_context()
+        _render_photo(item, out, 320, 180, 10, ctx=ctx)
         assert out.exists(), "Output clip should be created"
 
-        w, h = _probe_dimensions(out)
+        w, h = ctx.probe_dimensions(out)
         assert (w, h) == (320, 180)
 
     def test_render_portrait_photo_no_black_bars(
@@ -189,7 +194,8 @@ class TestRenderPortraitPhoto:
             media_type="photo",
             display_duration=2.0,
         )
-        _render_photo(item, out, 320, 180, 10)
+        ctx = init_context()
+        _render_photo(item, out, 320, 180, 10, ctx=ctx)
         assert out.exists()
 
         # Extract first frame as PNG
@@ -239,7 +245,8 @@ class TestRenderPortraitVideo:
             media_type="video",
             display_duration=1.0,
         )
-        _render_video(item, out, 320, 180, 10)
+        ctx = init_context()
+        _render_video(item, out, 320, 180, 10, ctx=ctx)
         assert out.exists(), "Rendered video should exist"
 
         # Extract a frame and check edges

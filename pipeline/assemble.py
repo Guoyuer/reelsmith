@@ -384,7 +384,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
 
     # Phase 4: Validate output
     has_speech = bool(speech_ka_indices)
-    validation_issues = _validate_output_impl(output_path, edl, has_speech, (w, h))
+    validation_issues = _validate_output(output_path, edl, has_speech, (w, h))
     errors = [i for i in validation_issues if i["level"] == "error"]
     warnings = [i for i in validation_issues if i["level"] == "warning"]
 
@@ -411,7 +411,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
 # Post-assemble output validation
 # ---------------------------------------------------------------------------
 
-def _validate_output_impl(
+def _validate_output(
     output_path: Path,
     edl: EDL,
     has_speech: bool,
@@ -549,6 +549,3 @@ def _validate_output_impl(
 
     return issues
 
-
-# Alias for backward compatibility with tests
-_validate_output = _validate_output_impl

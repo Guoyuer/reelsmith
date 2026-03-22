@@ -66,27 +66,3 @@ def strip_markdown_fences(text: str) -> str:
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0]
     return text
-
-
-# ---------------------------------------------------------------------------
-# Backward-compatible re-exports (lazy to avoid circular imports)
-# ---------------------------------------------------------------------------
-# These were moved to more cohesive modules but are re-exported here so that
-# existing imports (e.g. ``from .media_utils import zoompan_filter``) continue
-# to work without changes outside the pipeline package.
-
-_REEXPORT_MAP = {
-    "zoompan_filter": "pipeline.filters",
-    "portrait_bg_filter": "pipeline.filters",
-    "convert_heic": "pipeline.image_utils",
-    "generate_thumbnail": "pipeline.image_utils",
-    "make_contact_sheet": "pipeline.image_utils",
-}
-
-
-def __getattr__(name: str):
-    if name in _REEXPORT_MAP:
-        import importlib
-        mod = importlib.import_module(_REEXPORT_MAP[name])
-        return getattr(mod, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

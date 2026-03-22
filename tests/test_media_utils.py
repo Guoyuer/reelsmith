@@ -7,7 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pipeline.media_utils import convert_heic, strip_markdown_fences
+from pipeline.image_utils import convert_heic
+from pipeline.media_utils import strip_markdown_fences
 
 
 # ---------------------------------------------------------------------------

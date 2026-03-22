@@ -156,11 +156,6 @@ def get_encoder(width: int = 3840, height: int = 2160, fps: int = 60) -> list[st
     return _ctx.get_encoder(width, height, fps)
 
 
-
-def probe_dimensions(path: Path) -> tuple[int, int]:
-    return _ctx.probe_dimensions(path)
-
-
 def probe_duration(path: Path) -> float:
     return _ctx.probe_duration(path)
 

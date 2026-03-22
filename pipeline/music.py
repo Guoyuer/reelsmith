@@ -15,7 +15,7 @@ from pathlib import Path
 
 logger = logging.getLogger("vlog.music")
 
-from .music_prompts import MUSIC_PROMPTS, get_prompt as _get_prompt
+from .music_prompts import get_prompt as _get_prompt
 
 
 def fetch_music(
