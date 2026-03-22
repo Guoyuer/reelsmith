@@ -104,8 +104,12 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     """
     _log = log_fn or print
     cfg.ensure_dirs()
-    from .edl import load_latest_edl
-    edl, _ = load_latest_edl(cfg)
+    from .edl import load_latest_edl, EDL as EDLModel
+    if version > 0:
+        edl_path = cfg.workspace / f"edl_v{version}.json"
+        edl = EDLModel.model_validate_json(edl_path.read_text())
+    else:
+        edl, version = load_latest_edl(cfg)
 
     # Pre-render EDL quality check
     edl_issues = validate_edl(edl, strict=False)
