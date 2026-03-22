@@ -45,10 +45,16 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
    should get roughly equal screen time. Spread items across ALL days and locations.
    BAD: 40% of items from the airport. GOOD: 2-3 items per location, covering the full trip.
 
-5. **Visual judgment**: Use what you SEE in the photos and HEAR in the videos. Trust your eyes over metadata.
-   - A candid shot of real laughter beats a posed landmark photo every time
-   - Look for emotion in body language, not just faces — leaning in, pointing, running
-   - Blurry but emotional > sharp but boring
+5. **Visual judgment**: Trust your eyes. Be ruthless.
+   REJECT: accidental shots (ground, ceiling, pocket, lens blocked), too dark to
+   identify the subject, extreme close-ups where content is unrecognizable,
+   and repetitive content (max 2 food/meal scenes in the entire vlog).
+   SELECT: clear subjects, good lighting, genuine emotion. Candid laughter >
+   posed landmarks. Body language matters — leaning in, pointing, running.
+
+5b. **Chapter coherence**: Every item must fit its chapter's theme and time of day.
+   Night chapter → nighttime content only. Garden chapter → garden content only.
+   Never dump unrelated leftovers into a chapter just to fill duration.
 
 6. **Burst dedup**: Check timestamps — photos/videos taken within seconds of each other are
    burst shots of the same moment. Pick only the ONE best from each burst:

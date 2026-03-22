@@ -98,7 +98,7 @@ def _gemini_call(
     user_parts: list,
     log_fn,
     label: str = "",
-    model: str = "gemini-2.5-flash",
+    model: str = "gemini-3.1-flash",
 ) -> str:
     """Make a Gemini API call with multimodal content. Returns response text.
 
