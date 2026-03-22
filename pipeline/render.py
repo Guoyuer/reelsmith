@@ -18,10 +18,10 @@ from .media_utils import run_subprocess
 logger = logging.getLogger("vlog.render")
 
 
-def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
+def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int, *,
+                 ctx: RenderContext,
                  color_temp: str = "neutral",
-                 text_overlay=None, language: str = "en",
-                 ctx: RenderContext | None = None) -> None:
+                 text_overlay=None, language: str = "en") -> None:
     """Render a photo with Ken Burns effect as a video clip. Text overlay baked in."""
     source = Path(item.source_file)
 
@@ -111,10 +111,10 @@ def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
         raise RuntimeError(f"Photo render failed ({item.source_file}): {result.stderr[-300:]}")
 
 
-def render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
+def render_video(item: EditItem, out: Path, w: int, h: int, fps: int, *,
+                 ctx: RenderContext,
                  color_temp: str = "neutral",
-                 text_overlay=None, language: str = "en",
-                 ctx: RenderContext | None = None) -> None:
+                 text_overlay=None, language: str = "en") -> None:
     """Trim and normalize a video clip. Text overlay baked in. Preserves audio if keep_audio."""
     cmd = ["ffmpeg", "-y"]
     if item.start_time is not None:
@@ -166,9 +166,9 @@ def render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
 
 
 def render_title_card(
-    title: str, subtitle: str, out: Path, w: int, h: int, fps: int,
+    title: str, subtitle: str, out: Path, w: int, h: int, fps: int, *,
+    ctx: RenderContext,
     duration: float = 3.0, language: str = "en",
-    ctx: RenderContext | None = None,
 ) -> None:
     """Render a professional title card with gradient background and animated text."""
     safe_title = title.replace("'", "\u2019").replace(":", "\\:")

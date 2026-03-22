@@ -233,8 +233,7 @@ def generate_music_for_edl(
 
     Returns the composite music file path, or None if skipped/failed.
     """
-    from .edl import load_latest_edl, save_edl
-    from .edl import MusicTrack
+    from .edl import MusicTrack, load_latest_edl, save_edl
 
     edl, version = load_latest_edl(cfg)
 

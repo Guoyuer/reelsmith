@@ -6,7 +6,6 @@ import logging
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 # On Windows, ensure WinGet tool locations take priority on PATH.
 # Other tools (e.g. ImageMagick) may bundle outdated FFmpeg copies.

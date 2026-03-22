@@ -18,9 +18,8 @@ from tqdm import tqdm
 from .audio import beat_snap_edl, build_speech_track, mix_final_audio, write_chapters
 from .concat import concatenate
 from .config import Config
-from .edl import EDL, EditItem, load_latest_edl, validate_edl
+from .edl import EDL, load_latest_edl, validate_edl
 from .encoder import (
-    RenderContext,
     get_context,
     init_context,
     probe_duration,
@@ -83,8 +82,6 @@ class RenderReport:
         }
 
 
-
-
 # ---------------------------------------------------------------------------
 # Main assemble entry point
 # ---------------------------------------------------------------------------
@@ -144,8 +141,6 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
             old_clip.unlink()
         _log(f"Cleaned stale clips from {clips_dir}")
 
-    w, h = resolution
-    _fps = fps
     lang = edl.language
 
     ctx = init_context(quality=quality)
@@ -158,7 +153,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     ffmpeg_log.addHandler(_fh)
 
     try:
-        return _assemble_inner(cfg, edl, version, w, h, _fps, lang, clips_dir,
+        return _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
                                output_dir, output_path, progress_callback, skip_broken, ctx)
     finally:
         ffmpeg_log.removeHandler(_fh)
@@ -167,16 +162,15 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
 
 def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
-                    output_dir, output_path, progress_callback, skip_broken, ctx=None):
+                    output_dir, output_path, progress_callback, skip_broken, ctx):
     _log = logger.info
-    _fps = fps
 
     # Beat sync: snap transitions to music beats (before rendering clips)
     if edl.music and Path(edl.music.file).exists():
         beat_snap_edl(edl, Path(edl.music.file))
 
     # Determine parallel workers based on encoder type
-    encoder = ctx.get_encoder(w, h, _fps)
+    encoder = ctx.get_encoder(w, h, fps)
     encoder_str = " ".join(encoder)
     if "nvenc" in encoder_str:
         max_workers = int(os.environ.get("VLOG_PARALLEL_CLIPS", "3"))
@@ -212,10 +206,10 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
 
             ct = segment.color_temp
             if item.media_type == "photo":
-                render_photo(item, clip_path, w, h, _fps, color_temp=ct,
+                render_photo(item, clip_path, w, h, fps, color_temp=ct,
                              text_overlay=item.text_overlay, language=lang, ctx=ctx)
             else:
-                render_video(item, clip_path, w, h, _fps, color_temp=ct,
+                render_video(item, clip_path, w, h, fps, color_temp=ct,
                              text_overlay=item.text_overlay, language=lang, ctx=ctx)
 
         if not clip_path.exists():
@@ -311,7 +305,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
         intro_path = clips_dir / "intro_title.mp4"
         intro_dur = edl.intro_duration
         if not intro_path.exists():
-            render_title_card(edl.title, edl.date_range, intro_path, w, h, _fps, duration=intro_dur, language=lang, ctx=ctx)
+            render_title_card(edl.title, edl.date_range, intro_path, w, h, fps, duration=intro_dur, language=lang, ctx=ctx)
         if intro_path.exists():
             all_clips.insert(0, {
                 "path": intro_path, "duration": intro_dur,
@@ -326,7 +320,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
         outro_path = clips_dir / "outro_title.mp4"
         outro_dur = edl.outro_duration
         if not outro_path.exists():
-            render_title_card(edl.title, "", outro_path, w, h, _fps, duration=outro_dur, language=lang, ctx=ctx)
+            render_title_card(edl.title, "", outro_path, w, h, fps, duration=outro_dur, language=lang, ctx=ctx)
         if outro_path.exists():
             all_clips.append({
                 "path": outro_path, "duration": outro_dur,
@@ -338,7 +332,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
     t2 = time.monotonic()
     _log(f"Concatenating {len(all_clips)} clips...")
     no_music_path = output_dir / f"vlog_v{version}_nomix.mp4"
-    concatenate(all_clips, no_music_path, w, h, _fps)
+    concatenate(all_clips, no_music_path, w, h, fps)
     _log(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
 
     # Phase 2b: Build speech audio track using Timeline as single source of truth
