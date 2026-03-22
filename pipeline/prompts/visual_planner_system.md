@@ -34,7 +34,8 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
 
 3. **Video-first**: Prefer video clips over photos when both cover the same moment.
    Videos bring motion, atmosphere, and sound — they make a vlog feel alive, not like
-   a slideshow. Aim for 40-60% video content by screen time.
+   a slideshow. At least 40% of items MUST be videos. If your EDL has fewer, replace
+   some photos with nearby video clips. A vlog with too many photos feels like a slideshow.
 
 3b. **keep_audio is critical**: Set keep_audio=true on EVERY video where you hear meaningful
    sound — family conversation, laughter, reactions, ambient atmosphere (waves, birds,
