@@ -315,9 +315,9 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
     speech_ranges = tl.speech_ranges()
 
-    # Cleanup temp group files
-    for gf in output_dir.glob("_group_*.mp4"):
-        gf.unlink(missing_ok=True)
+    # Cleanup temp group files (disabled for debugging)
+    # for gf in output_dir.glob("_group_*.mp4"):
+    #     gf.unlink(missing_ok=True)
 
     # Phase 3: Mix music + speech
     t3 = time.monotonic()

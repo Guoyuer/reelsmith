@@ -424,14 +424,33 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             from pipeline.assemble import assemble as do_assemble
             from pipeline.edl import find_latest_version
 
-            version = ac.get("version", 0)
-            if version <= 0:
-                version = find_latest_version(cfg)
+            import json as _json
+
+            edl_path = ac.get("edl_path")
+            if edl_path:
+                # Copy external EDL into run dir as next version
+                import shutil
+                version = find_latest_version(cfg) + 1
+                dest = cfg.workspace / f"edl_v{version}.json"
+                shutil.copy(edl_path, dest)
+                log(f"Using EDL from {edl_path} as v{version}")
+            else:
+                version = ac.get("version", 0)
+                if version <= 0:
+                    version = find_latest_version(cfg)
+
+            # Always read resolution/fps from EDL
+            edl_file = cfg.workspace / f"edl_v{version}.json"
+            edl_data = _json.loads(edl_file.read_text())
+            edl_res = edl_data.get("resolution", [3840, 2160])
+            edl_fps = edl_data.get("fps", 60)
+
+            log(f"Render: {edl_res[0]}x{edl_res[1]} {edl_fps}fps (EDL v{version})")
 
             out, issues = do_assemble(
                 cfg, version=version,
-                resolution=(ac.get("width", 3840), ac.get("height", 2160)),
-                fps=ac.get("fps", 60),
+                resolution=(edl_res[0], edl_res[1]),
+                fps=edl_fps,
                 progress_callback=_progress_cb(logger, display, "assemble", t0),
                 skip_broken=ac.get("skip_broken", False),
                 quality=ac.get("quality", 1.0),
@@ -589,8 +608,7 @@ def full(ctx, from_date, to_date, source, duration, trip_type, style, focus,
         "prepare": prepare_cfg,
         "plan": plan_cfg,
         "generate_music": {"music_backend": music_backend},
-        "assemble": {"width": width, "height": height, "fps": fps,
-                     "skip_broken": True, "quality": quality},
+        "assemble": {"skip_broken": True, "quality": quality},
     })
 
 
@@ -614,13 +632,16 @@ def plan(ctx, duration, trip_type, style, focus, lang):
 
 @cli.command()
 @click.option("-v", "--version", default=None, type=int, help="EDL version to render")
+@click.option("--edl", "edl_path", default=None, type=click.Path(exists=True), help="EDL JSON path (overrides version)")
 @click.option("--quality", default=1.0, type=float, help="Bitrate multiplier")
 @click.pass_context
-def assemble(ctx, version, quality):
+def assemble(ctx, version, edl_path, quality):
     """Re-render the vlog from current or specified EDL version."""
     ac: dict = {"quality": quality}
     if version is not None:
         ac["version"] = version
+    if edl_path is not None:
+        ac["edl_path"] = edl_path
     _run_pipeline(_run_name(ctx), {"assemble": ac}, stages=["assemble"])
 
 

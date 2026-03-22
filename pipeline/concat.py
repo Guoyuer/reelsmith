@@ -99,11 +99,49 @@ def concatenate(clips: list[dict], output_path: Path,
         concat_demuxer(clips, output_path, w, h, fps)
         return
 
+    _log(f"  group_files: {len(group_files)} entries, "
+         f"total {sum(g['duration'] for g in group_files):.1f}s")
+    for i, gf in enumerate(group_files):
+        _log(f"    [{i}] {Path(gf['path']).name} dur={gf['duration']:.1f}s")
+
     if len(group_files) == 1:
         shutil.move(str(group_files[0]["path"]), str(output_path))
     else:
-        _log(f"  Joining {len(group_files)} groups via demuxer...")
-        concat_demuxer(group_files, output_path, w, h, fps)
+        _log(f"  Joining {len(group_files)} groups via concat filter...")
+        _concat_filter(group_files, output_path, w, h, fps)
+
+
+def _concat_filter(clips: list[dict], output_path: Path,
+                   w: int = 0, h: int = 0, fps: int = 0) -> None:
+    """Join group files using the concat filter (re-encodes, but reliable for HEVC).
+
+    Used for the final group join where stream-copy concat demuxer may drop
+    groups due to NVENC VPS/SPS/PPS mismatches between encode sessions.
+    """
+    inputs = []
+    filter_parts = []
+    for i, clip in enumerate(clips):
+        inputs += ["-i", str(clip["path"])]
+        filter_parts.append(f"[{i}:v]")
+
+    n = len(clips)
+    fc = "".join(filter_parts) + f"concat=n={n}:v=1:a=0[v]"
+
+    cmd = ["ffmpeg", "-y"] + inputs + [
+        "-filter_complex", fc,
+        "-map", "[v]",
+        *get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
+        str(output_path),
+    ]
+    result = run_subprocess(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"concat filter FAILED (rc={result.returncode}): {result.stderr[-500:]}")
+        print("Falling back to concat demuxer...")
+        concat_demuxer(clips, output_path, w, h, fps)
+    else:
+        from .encoder import probe_duration as _pd
+        actual = _pd(output_path)
+        print(f"concat filter OK: {actual:.1f}s from {len(clips)} inputs")
 
 
 def concat_demuxer(clips: list[dict], output_path: Path,
@@ -113,7 +151,7 @@ def concat_demuxer(clips: list[dict], output_path: Path,
     Clips are already encoded at the correct bitrate/resolution, so we
     stream-copy instead of re-encoding.
     """
-    list_path = output_path.parent / "concat_list.txt"
+    list_path = output_path.with_suffix(".txt")
     with open(list_path, "w") as f:
         for clip in clips:
             f.write(f"file '{clip['path'].resolve()}'\n")
@@ -122,9 +160,13 @@ def concat_demuxer(clips: list[dict], output_path: Path,
         "ffmpeg", "-y", "-f", "concat", "-safe", "0",
         "-i", str(list_path),
         "-c:v", "copy", "-c:a", "copy",
+        "-fflags", "+genpts",
+        "-avoid_negative_ts", "make_zero",
         str(output_path),
     ]
-    run_subprocess(cmd, capture_output=True)
+    result = run_subprocess(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"concat_demuxer failed: {result.stderr[-500:]}")
 
 
 def concat_xfade(clips: list[dict], output_path: Path,
