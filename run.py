@@ -393,6 +393,7 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
                 fps=pc.get("fps", 60),
                 quality=pc.get("quality", 1.0),
                 tz_hours=pc.get("tz_offset"),
+                model=pc.get("model"),
                 log_fn=log,
             )
 
@@ -660,13 +661,17 @@ def full(ctx, from_date, to_date, source, duration, trip_type, style, focus,
 @click.option("--focus", default="", help="What to emphasize")
 @click.option("--lang", default="en", type=click.Choice(["en", "cn", "both"]),
               help="Text language")
+@click.option("--model", default=None, help="Gemini model (default: VLOG_MODEL env or gemini-3-flash-preview)")
 @click.pass_context
-def plan(ctx, duration, trip_type, style, focus, lang):
+def plan(ctx, duration, trip_type, style, focus, lang, model):
     """Re-plan and re-assemble (uses cached media + analysis)."""
+    plan_cfg: dict = {"style": style, "target_duration": duration,
+                      "focus": focus, "trip_type": trip_type, "language": lang,
+                      "music_file": "auto"}
+    if model:
+        plan_cfg["model"] = model
     _run_pipeline(_run_name(ctx), {
-        "plan": {"style": style, "target_duration": duration,
-                 "focus": focus, "trip_type": trip_type, "language": lang,
-                 "music_file": "auto"},
+        "plan": plan_cfg,
         "generate_music": {"music_backend": "gemini"},
     }, stages=["plan", "generate_music", "assemble"])
 

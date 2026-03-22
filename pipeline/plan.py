@@ -137,7 +137,7 @@ def _gemini_call(
     user_parts: list,
     log_fn,
     label: str = "",
-    model: str = "gemini-3-flash-preview",
+    model: str = "",
     code_execution: bool = False,
 ) -> str:
     """Make a Gemini API call with multimodal content. Returns response text.
@@ -152,6 +152,9 @@ def _gemini_call(
     from google.genai import types
 
     _log = log_fn or print
+
+    if not model:
+        model = os.getenv("VLOG_MODEL", "gemini-3-flash-preview")
 
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key:
@@ -795,7 +798,7 @@ def _plan_visual(
     analysis_items: list[dict],
     style: str, target_duration: int, focus: str,
     trip_type: str = "family", language: str = "en",
-    tz_hours: int | None = None, log_fn=None,
+    tz_hours: int | None = None, model: str | None = None, log_fn=None,
 ) -> EDL:
     """Single-pass Gemini planning with chain-of-thought.
 
@@ -900,8 +903,9 @@ Candidates by day/location:"""
 
     from .media_utils import strip_markdown_fences
 
+    model_kwargs = {"model": model} if model else {}
     edl_content = _gemini_call(system_prompt, visual_parts, _log,
-                               label="single pass: plan")
+                               label="single pass: plan", **model_kwargs)
 
     _log(f"=== [Gemini] EDL RESPONSE ({len(edl_content)} chars) ===")
     for line in edl_content.split("\n"):
@@ -935,9 +939,10 @@ Candidates by day/location:"""
                             local_start = ps_secs - offset
                             # Clamp end to same clip's boundary
                             local_end = min(pe_secs - offset, dur)
-                            # Guard: end must be after start
-                            if local_end <= local_start:
-                                local_end = min(local_start + 7, dur)
+                            # Guard: minimum 2s clip, and end must be after start
+                            if local_end - local_start < 2.0:
+                                local_start = max(0, local_start - 1)
+                                local_end = min(local_start + max(pe_secs - ps_secs, 5.0), dur)
                             item["start_time"] = round(local_start, 1)
                             item["end_time"] = round(local_end, 1)
                             item["display_duration"] = round(local_end - local_start, 1)
@@ -1174,6 +1179,7 @@ def plan(
     fps: int = 60,
     quality: float = 1.0,
     tz_hours: int | None = None,
+    model: str | None = None,
     log_fn=None,
 ) -> tuple[EDL, int]:
     """Generate an EDL from preprocessed + analysis data using the visual planner."""
@@ -1197,7 +1203,8 @@ def plan(
     edl = _plan_visual(cfg, preprocessed, analysis_by_id, analysis_items,
                        style=style, target_duration=target_duration,
                        focus=effective_focus, trip_type=trip_type,
-                       language=language, tz_hours=tz_hours, log_fn=_log)
+                       language=language, tz_hours=tz_hours,
+                       model=model, log_fn=_log)
 
     # Post-process: force effect="none" on video items (Ken Burns fights native motion)
     for seg in edl.segments:
