@@ -288,7 +288,7 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
         _error("EDL has no items")
 
     if total_display < 5:
-        _error(f"Total display duration too short: {total_display:.1f}s")
+        _warn(f"Total display duration very short: {total_display:.1f}s")
 
     estimated = edl.estimated_duration()
     if edl.target_duration > 0 and estimated > 0:

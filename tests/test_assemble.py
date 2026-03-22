@@ -508,15 +508,15 @@ class TestValidateOutputAVSync:
     """Tests for audio-video sync spot check."""
 
     def test_large_av_drift_warns(self, tmp_path: Path):
-        """>5s drift between audio and video stream durations should warn."""
+        """Audio longer than video by >5s should warn (actual sync issue)."""
         out = tmp_path / "drifted.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation(vid_stream_dur="60.0", aud_stream_dur="52.0"):
+        with _patch_validation(vid_stream_dur="52.0", aud_stream_dur="60.0"):
             issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160))
         sync_issues = [i for i in issues if i["check"] == "av_sync"]
         assert len(sync_issues) == 1
-        assert "drift" in sync_issues[0]["message"]
+        assert "longer" in sync_issues[0]["message"]
 
     def test_small_av_drift_passes(self, tmp_path: Path):
         """<5s drift should not trigger a sync warning."""
