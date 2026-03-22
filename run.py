@@ -240,6 +240,25 @@ def _check_interrupted(display: _PipelineDisplay, status: dict, ws: Path, logger
         sys.exit(130)
 
 
+def _log_config(log_fn, stage: str, actual: dict, defaults: dict) -> None:
+    """Log stage config with explicit/default markers.
+
+    Prints each parameter showing whether it was explicitly set or fell back
+    to its default value.
+    """
+    parts = []
+    for key, default in defaults.items():
+        if key in actual:
+            parts.append(f"{key}={actual[key]}")
+        else:
+            parts.append(f"{key}={default} (default)")
+    # Also log any keys in actual that aren't in defaults
+    for key in actual:
+        if key not in defaults:
+            parts.append(f"{key}={actual[key]}")
+    log_fn(f"[{stage}] {', '.join(parts)}")
+
+
 def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | None = None):
     """Execute pipeline stages directly in this process."""
     global _interrupted
@@ -272,6 +291,10 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             _check_interrupted(display, status, ws, logger)
             display.start("fetch")
             fc = stage_configs.get("fetch", {})
+            _log_config(log, "fetch", fc, {
+                "source_dir": "NAS", "from_date": "", "to_date": "",
+                "country": None, "district": None, "item_types": None,
+            })
             t0 = time.monotonic()
             manifest_path = ws / "manifest.json"
 
@@ -304,6 +327,9 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             _check_interrupted(display, status, ws, logger)
             display.start("prepare")
             pc = stage_configs.get("prepare", {})
+            _log_config(log, "prepare", pc, {
+                "force": False, "family_names": None, "tz_offset": None,
+            })
             t0 = time.monotonic()
             analysis_path = ws / "analysis.json"
             manifest_path = ws / "manifest.json"
@@ -346,6 +372,12 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             _check_interrupted(display, status, ws, logger)
             display.start("plan")
             pc = stage_configs.get("plan", {})
+            _log_config(log, "plan", pc, {
+                "style": "upbeat", "target_duration": 180, "trip_type": "family",
+                "language": "en", "focus": "", "music_file": None,
+                "width": 3840, "height": 2160, "fps": 60,
+                "quality": 1.0, "tz_offset": None,
+            })
             t0 = time.monotonic()
 
             from pipeline.plan import plan as do_plan
@@ -397,6 +429,9 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             _check_interrupted(display, status, ws, logger)
             display.start("generate_music")
             mc = stage_configs.get("generate_music", {})
+            _log_config(log, "generate_music", mc, {
+                "music_backend": "gemini",
+            })
             t0 = time.monotonic()
 
             from pipeline.music import generate_music_for_edl
@@ -419,6 +454,10 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             _check_interrupted(display, status, ws, logger)
             display.start("assemble")
             ac = stage_configs.get("assemble", {})
+            _log_config(log, "assemble", ac, {
+                "version": 0, "edl_path": None, "quality": 1.0,
+                "skip_broken": False,
+            })
             t0 = time.monotonic()
 
             from pipeline.assemble import assemble as do_assemble
