@@ -993,6 +993,25 @@ Candidates by day/location:"""
     elif actual_dur < target_duration * 0.8:
         _log(f"WARNING: EDL is {actual_dur:.0f}s, target is {target_duration}s — underfilled")
 
+    # Layer 4: Formal EDL validation (catches media_type mismatches, bad effects, etc.)
+    from .edl import validate_edl as _validate_edl
+    edl_issues = _validate_edl(edl, strict=False)
+    for issue in edl_issues:
+        level = issue["level"].upper()
+        _log(f"  EDL {level}: {issue['message']}")
+        # Auto-fix media_type mismatches instead of failing
+        if "media_type='video' but file is a photo" in issue["message"]:
+            for seg in edl.segments:
+                for item in seg.items:
+                    ext = Path(item.source_file).suffix.lower()
+                    if item.media_type == "video" and ext in {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}:
+                        _log(f"  Auto-fix: {Path(item.source_file).name} video→photo")
+                        item.media_type = "photo"
+                        item.effect = "ken_burns_in"
+                        item.start_time = None
+                        item.end_time = None
+                        item.keep_audio = False
+
     n_vid = sum(1 for i in edl.all_items() if i.media_type == "video")
     n_photo = sum(1 for i in edl.all_items() if i.media_type == "photo")
     n_keep_audio = sum(1 for i in edl.all_items() if i.keep_audio)
