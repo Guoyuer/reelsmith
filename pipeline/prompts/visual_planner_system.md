@@ -70,6 +70,8 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
    BAD: "Day 1 - Marina Bay", "Gardens by the Bay", "Dinner time"
    GOOD: "The moment we arrived", "Her first time seeing the ocean", "Last night together"
    Text should make the viewer FEEL something, not just label a location.
+   Place each overlay on the item that BEST matches the text content — usually a
+   video with relevant motion, not the first item in the segment.
 
 8. **Language**: {lang_instruction}
 
