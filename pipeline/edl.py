@@ -42,9 +42,14 @@ class Segment(BaseModel):
     music_mood: str = ""  # e.g. "warm acoustic guitar, uplifting" → Lyria per-segment
     music_file: str = ""  # per-segment music WAV (set by generate_music stage)
     items: list[EditItem]
+    # Intra-segment transition (between items within this segment)
     transition: Literal["crossfade", "cut", "fade_black", "wipe_left",
                         "dissolve", "smoothleft", "smoothright", "circlecrop"] = "crossfade"
     transition_duration: float = 0.4  # seconds
+    # Inter-segment transition (how this segment starts, from previous segment)
+    segment_transition: Literal["fade_black", "crossfade", "wipe_left",
+                                "dissolve", "cut"] = "fade_black"
+    segment_transition_duration: float = 1.0  # seconds
     mode: Literal["narrative", "montage"] = "narrative"  # montage = quick-cut burst
     color_temp: Literal["warm", "cool", "neutral"] = "neutral"  # Gemini sets per segment
 

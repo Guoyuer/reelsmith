@@ -259,8 +259,9 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
                 transition = "cut"
                 td = 0.0
             elif item_idx == 0 and seg_idx > 0:
-                transition = "fade_black"
-                td = 1.0
+                # Inter-segment transition: from EDL, not hardcoded
+                transition = getattr(segment, "segment_transition", "fade_black")
+                td = getattr(segment, "segment_transition_duration", 1.0)
             elif item_idx > 0:
                 transition = segment.transition
                 td = segment.transition_duration if transition != "cut" else 0.0
@@ -268,11 +269,12 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
                 transition = "cut"
                 td = 0.0
 
-            # Crossfades involving photos cause visible ghosting (static
-            # content blends poorly); switch to fadeblack for clean transitions.
+            # Safety net: photo crossfades cause ghosting. Log when triggered.
             prev_is_photo = all_clips and all_clips[-1].get("media_type") == "photo"
             if ((item.media_type == "photo" or prev_is_photo)
                     and transition not in ("cut", "fade_black")):
+                _log(f"  Safety net: {transition}→fade_black for photo transition "
+                     f"({Path(clip_path).name})")
                 transition = "fade_black"
                 td = min(td, 0.4)
 

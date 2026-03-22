@@ -107,6 +107,28 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
   Use conservatively — most segments should be neutral.
 - CRITICAL: source_file must be the EXACT path value from the text metadata
 
+## How your EDL gets rendered
+
+Your EDL is the complete creative specification. The renderer executes it faithfully.
+Know these behaviors so you make informed decisions:
+
+**Photos**: Ken Burns animation (effect controls direction, zoom speed is fixed ~8%).
+Portrait photos get dark blurred sidebars (pillarbox).
+
+**Videos**: Trimmed by your preview_start/preview_end timestamps.
+keep_audio=true → original audio at full volume. keep_audio=false → completely silent.
+If you want ambient sound from a video, you MUST set keep_audio=true.
+
+**Transitions**: crossfade = opacity blend (looks good for video↔video, but causes visible
+ghosting between two photos — always use fade_black for photo↔photo pairs).
+As a safety net, photo↔photo crossfades are auto-converted to fade_black by the renderer.
+segment_transition controls how each chapter begins (transition from previous chapter).
+
+**Audio**: Background music generated per-segment from your music_mood. During keep_audio
+clips, music volume drops to 30% automatically. Non-keep_audio clips are fully silent.
+
+**Text**: font_size is scaled relative to output resolution. White text with dark border.
+
 Think step-by-step, then output valid JSON only:
 {{
   "title": "string",
@@ -120,6 +142,8 @@ Think step-by-step, then output valid JSON only:
       "music_mood": "natural language music description for this segment",
       "mode": "narrative|montage",
       "color_temp": "neutral|warm|cool",
+      "segment_transition": "fade_black (default)|crossfade|dissolve|cut",
+      "segment_transition_duration": 1.0,
       "items": [
         {{
           "source_file": "<exact path from metadata>",
