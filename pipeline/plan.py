@@ -90,6 +90,45 @@ def _format_date_range(dates: list[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Timestamp helpers (Gemini native MM:SS / H:MM:SS format)
+# ---------------------------------------------------------------------------
+
+def _secs_to_timestamp(secs: float) -> str:
+    """Convert seconds to Gemini-style timestamp: MM:SS or H:MM:SS for ≥1hr."""
+    total = int(round(secs))
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+
+def _timestamp_to_secs(ts: str) -> float:
+    """Parse MM:SS or H:MM:SS timestamp to seconds."""
+    parts = ts.strip().split(":")
+    if len(parts) == 2:
+        return int(parts[0]) * 60 + int(parts[1])
+    elif len(parts) == 3:
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+    return 0.0
+
+
+def _preview_ts_to_local(
+    preview_ts: str, offset_table: list[tuple[int, float, float]],
+) -> tuple[int, float] | None:
+    """Convert a preview timestamp to (item_num, local_seconds).
+
+    offset_table: [(item_num, clip_duration, offset_in_preview), ...]
+    Returns None if timestamp doesn't fall within any clip.
+    """
+    secs = _timestamp_to_secs(preview_ts)
+    for item_num, dur, offset in offset_table:
+        if offset <= secs < offset + dur:
+            return item_num, round(secs - offset, 1)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Gemini API call helper
 # ---------------------------------------------------------------------------
 
@@ -559,10 +598,12 @@ def _concat_previews(
 def _build_visual_content_blocks(
     preprocessed: dict, analysis_by_id: dict, cfg: Config, log_fn=None,
     *, tz_hours: int = 0,
-) -> list:
+) -> tuple[list, list[tuple[int, float, float]]]:
     """Build multimodal parts: interleaved text + individual photos + mega video preview.
 
-    Returns list of str and media dicts suitable for _gemini_call().
+    Returns (blocks, offset_table) where:
+    - blocks: list of str and media dicts suitable for _gemini_call()
+    - offset_table: [(item_num, clip_duration, offset_in_preview), ...]
     Photos are sent as individual 400px thumbnails (each gets full token budget).
     Videos are concatenated into one mega-preview with burned-in #XX labels.
     """
@@ -633,16 +674,43 @@ def _build_visual_content_blocks(
             global_idx += n_items
 
     # Build one concatenated mega-preview from all video previews
+    offset_table: list[tuple[int, float, float]] = []
     if video_entries:
         mega_path = preview_dir / "_mega_preview.mp4"
-        _concat_previews(video_entries, mega_path, _log)
+        offset_table, mega_path = _concat_previews(video_entries, mega_path, _log)
+
+        # Build preview timestamp index for the text metadata
+        # Maps item_num → "MM:SS-MM:SS" (or H:MM:SS for >1hr previews)
+        preview_ranges: dict[int, str] = {}
+        for item_num, dur, offset in offset_table:
+            start_ts = _secs_to_timestamp(offset)
+            end_ts = _secs_to_timestamp(offset + dur)
+            preview_ranges[item_num] = f"{start_ts}-{end_ts}"
+
+        # Inject preview timestamps into text metadata blocks
+        # Find lines like "#30: ... video=22s path=..." and add "preview=MM:SS-MM:SS"
+        import re
+        for bi, block in enumerate(blocks):
+            if not isinstance(block, str):
+                continue
+            new_lines = []
+            for line in block.split("\n"):
+                m = re.match(r"^#(\d+):", line)
+                if m and "video=" in line:
+                    num = int(m.group(1))
+                    if num in preview_ranges:
+                        line = line + f" preview={preview_ranges[num]}"
+                new_lines.append(line)
+            blocks[bi] = "\n".join(new_lines)
 
         blocks.append(
             "--- VIDEO PREVIEW ---\n"
             "All video clips are concatenated below. Each clip has its item number "
-            "(e.g. #30) burned into the top-left corner. Match these numbers to the "
-            "item metadata above. start_time/end_time are relative to each original "
-            "video (0-based), not the concatenated preview."
+            "(e.g. #30) burned into the top-left corner. Use the preview=MM:SS-MM:SS "
+            "range in each video's metadata to locate it in the preview.\n"
+            "When selecting a video clip, set preview_start and preview_end to the "
+            "exact MM:SS timestamps in THIS preview video where the moment you want "
+            "begins and ends. Our code will convert these to the correct trim points."
         )
         blocks.append({
             "type": "video_bytes",
@@ -714,7 +782,7 @@ def _build_visual_content_blocks(
          f"{n_videos} video ({video_bytes / 1024 / 1024:.1f}MB), "
          f"{len(text_item_nums)} items, {len(video_nums_in_mega)} video labels")
 
-    return blocks
+    return blocks, offset_table
 
 
 
@@ -776,7 +844,7 @@ def _plan_visual(
     if tz_hours is None:
         tz_hours = preprocessed.get("tz_hours", -(_t.timezone // 3600))
 
-    content_blocks = _build_visual_content_blocks(preprocessed, analysis_by_id, cfg, _log, tz_hours=tz_hours)
+    content_blocks, preview_offset_table = _build_visual_content_blocks(preprocessed, analysis_by_id, cfg, _log, tz_hours=tz_hours)
     n_img = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "image_bytes")
     n_vid_clips = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "video_bytes")
     n_text = sum(1 for b in content_blocks if isinstance(b, str))
@@ -849,6 +917,40 @@ Candidates by day/location:"""
         # Gemini sometimes puts a string in "music" instead of object/null
         if "music" in raw and isinstance(raw["music"], str):
             raw["music"] = None
+
+        # Convert preview_start/preview_end (MM:SS) → start_time/end_time (seconds)
+        # using the offset table from the mega-preview
+        n_converted = 0
+        for seg in raw.get("segments", []):
+            for item in seg.get("items", []):
+                ps = item.pop("preview_start", None)
+                pe = item.pop("preview_end", None)
+                if ps and pe and preview_offset_table:
+                    ps_secs = _timestamp_to_secs(ps)
+                    pe_secs = _timestamp_to_secs(pe)
+                    # Find which clip preview_start belongs to
+                    matched = False
+                    for _, dur, offset in preview_offset_table:
+                        if offset <= ps_secs < offset + dur:
+                            local_start = ps_secs - offset
+                            # Clamp end to same clip's boundary
+                            local_end = min(pe_secs - offset, dur)
+                            # Guard: end must be after start
+                            if local_end <= local_start:
+                                local_end = min(local_start + 7, dur)
+                            item["start_time"] = round(local_start, 1)
+                            item["end_time"] = round(local_end, 1)
+                            item["display_duration"] = round(local_end - local_start, 1)
+                            n_converted += 1
+                            _log(f"  Preview {ps}-{pe} → trim {item['start_time']}-{item['end_time']}s "
+                                 f"({item['display_duration']}s)")
+                            matched = True
+                            break
+                    if not matched:
+                        _log(f"  WARNING: preview {ps} not in any clip, keeping as-is")
+        if n_converted:
+            _log(f"  Converted {n_converted} preview timestamps to local trim points")
+
         edl_content = _json.dumps(raw)
     except _json.JSONDecodeError:
         pass  # let pydantic handle it

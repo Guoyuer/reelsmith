@@ -86,11 +86,13 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
 - **DURATION IS MANDATORY**: Sum ALL items' display_duration. It MUST reach target_duration × 1.25
   (transitions eat ~20% of content). Use code execution to verify the sum before outputting.
 - display_duration: 3-5s per photo, 5-10s for video clips
-- For videos: set start_time and end_time to select the best scene.
-  Video previews are concatenated into one file. Each clip has its item number
-  (e.g. #30) burned into the top-left corner — match these to the item numbers
-  in the text metadata. start_time/end_time are relative to each original video
-  (0-based), not the concatenated preview.
+- For videos: use the PREVIEW VIDEO to select the best moments.
+  Each clip has its item number (e.g. #30) burned into the top-left corner,
+  and the metadata shows its preview range (e.g. preview=02:00-02:22).
+  Set preview_start and preview_end to the MM:SS (or H:MM:SS for >1hr) timestamps
+  in the preview video where the moment you want begins and ends.
+  Example: to select the part of clip #30 from 02:05 to 02:12 in the preview,
+  set preview_start="02:05", preview_end="02:12".
   IMPORTANT: if you hear speech/dialogue, make sure the trim includes the COMPLETE
   conversation — don't cut mid-sentence. End at least 1s after the last word.
   If someone says "come say hi" and another person responds, include BOTH.
@@ -123,8 +125,8 @@ Think step-by-step, then output valid JSON only:
           "source_file": "<exact path from metadata>",
           "media_type": "photo|video",
           "display_duration": 3.0-10.0,
-          "start_time": null or <seconds for video trim start>,
-          "end_time": null or <seconds for video trim end>,
+          "preview_start": null or "MM:SS" (video trim start in preview video),
+          "preview_end": null or "MM:SS" (video trim end in preview video),
           "effect": "ken_burns_in|ken_burns_out|ken_burns_left|ken_burns_right|static|none",
           "playback_speed": 1.0 (default, 0.5 for slow-mo, 1.5 for fast),
           "keep_audio": true or false (for videos: true if you heard meaningful speech/reactions),
