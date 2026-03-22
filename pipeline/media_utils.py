@@ -257,7 +257,7 @@ def portrait_bg_filter(w: int, h: int) -> str:
     return (
         f"[0:v]split[bg][fg];"
         f"[bg]scale={w}:-1:force_original_aspect_ratio=increase,"
-        f"crop={w}:{h},gblur=sigma=30[blurred];"
+        f"crop={w}:{h},gblur=sigma=60,eq=brightness=-0.15:saturation=0.6[blurred];"
         f"[fg]scale=-1:{h}[sharp];"
         f"[blurred][sharp]overlay=(W-w)/2:(H-h)/2"
     )

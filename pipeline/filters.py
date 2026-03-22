@@ -12,7 +12,7 @@ def build_portrait_photo_filter(
     return (
         f"[0:v]split[bg][fg];"
         f"[bg]scale=960:-1:force_original_aspect_ratio=increase,crop=960:540,"
-        f"gblur=sigma=20,scale={out_w}:{out_h}[blurred];"
+        f"gblur=sigma=60,scale={out_w}:{out_h},eq=brightness=-0.15:saturation=0.6[blurred];"
         f"[fg]scale=-1:{out_h}[sharp];"
         f"[blurred][sharp]overlay=(W-w)/2:(H-h)/2[comp];"
         f"[comp]zoompan=z='min(zoom+{zoom_rate:.6f},1.08)':d={frames}"
@@ -58,20 +58,25 @@ def find_font(language: str = "en") -> str:
 
 
 def drawtext_filter(text: str, position: str, font_size: int,
-                    clip_duration: float, language: str = "en") -> str:
+                    clip_duration: float, language: str = "en",
+                    out_h: int = 0) -> str:
     """Build a drawtext filter string for text overlay (no leading comma)."""
     y_positions = {"top": "50", "center": "(h-text_h)/2", "bottom": "h-text_h-60"}
     y_expr = y_positions.get(position, y_positions["bottom"])
     safe_text = text.replace("'", "\u2019").replace(":", "\\:")
+    # Scale font to output height; base=48 at 1080p
+    if out_h > 0:
+        font_size = max(font_size, int(out_h * 0.055))
     if len(text) > 20:
         font_size = int(font_size * 20 / len(text))
+    border_w = max(3, font_size // 12)
     end_time = min(clip_duration - 0.5, 3.0)
     font = find_font(language)
     font_arg = f":fontfile='{font}'" if font else ""
     return (
         f"drawtext=text='{safe_text}'{font_arg}"
         f":fontsize={font_size}:fontcolor=white"
-        f":borderw=2:bordercolor=black"
+        f":borderw={border_w}:bordercolor=black@0.6"
         f":x=(w-text_w)/2:y={y_expr}"
         f":enable='between(t,0.5,{end_time:.1f})'"
     )

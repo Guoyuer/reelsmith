@@ -39,7 +39,7 @@ def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
     dt = ""
     if text_overlay:
         dt = "," + drawtext_filter(text_overlay.text, text_overlay.position,
-                                   text_overlay.font_size, item.display_duration, language)
+                                   text_overlay.font_size, item.display_duration, language, out_h=h)
 
     src_w, src_h = probe_dimensions(source)
     portrait = is_portrait(src_w, src_h)
@@ -127,7 +127,7 @@ def render_video(item: EditItem, out: Path, w: int, h: int, fps: int,
     dt = ""
     if text_overlay:
         dt = "," + drawtext_filter(text_overlay.text, text_overlay.position,
-                                   text_overlay.font_size, item.display_duration, language)
+                                   text_overlay.font_size, item.display_duration, language, out_h=h)
 
     src_w, src_h = probe_dimensions(Path(item.source_file))
     portrait = is_portrait(src_w, src_h)
