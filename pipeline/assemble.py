@@ -19,7 +19,7 @@ from tqdm import tqdm
 from .audio import add_music, beat_snap_edl, build_speech_track, estimate_bpm, write_chapters
 from .concat import concatenate
 from .config import Config
-from .edl import EDL, EditItem
+from .edl import EDL, EditItem, validate_edl
 from .encoder import (
     get_context,
     get_encoder,
@@ -106,6 +106,23 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     cfg.ensure_dirs()
     from .edl import load_latest_edl
     edl, _ = load_latest_edl(cfg)
+
+    # Pre-render EDL quality check
+    edl_issues = validate_edl(edl, strict=False)
+    edl_errors = [i for i in edl_issues if i["level"] == "error"]
+    edl_warnings = [i for i in edl_issues if i["level"] == "warning"]
+    if edl_warnings:
+        for issue in edl_warnings:
+            _log(f"  EDL WARNING: {issue['message']}")
+    if edl_errors:
+        for issue in edl_errors:
+            _log(f"  EDL ERROR: {issue['message']}")
+        raise ValueError(
+            f"EDL validation failed with {len(edl_errors)} error(s): "
+            + "; ".join(i["message"] for i in edl_errors)
+        )
+    _log(f"EDL validation passed ({len(edl.all_items())} items, "
+         f"{len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s)")
 
     clips_dir = cfg.workspace / "clips"
     output_dir = cfg.workspace / "output"

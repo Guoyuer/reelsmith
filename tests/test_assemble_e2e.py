@@ -384,3 +384,56 @@ class TestAssembleE2E:
         output = _run_assemble(edl)
         errors = validate_output(output, edl)
         assert errors == [], f"Output validation failed: {errors}"
+
+    def test_text_overlays(self):
+        """Test text overlays on photos and videos."""
+        photos, videos = _get_media_samples()
+        edl = _make_edl(photos, videos, resolution=(640, 360), fps=15,
+                        title="Text Overlay Test")
+        # Add text overlays
+        edl["segments"][0]["items"][0]["text_overlay"] = {
+            "text": "测试文字覆盖", "position": "bottom", "font_size": 48
+        }
+        for item in edl["segments"][0]["items"]:
+            if item["media_type"] == "video":
+                item["text_overlay"] = {
+                    "text": "Video overlay", "position": "top", "font_size": 48
+                }
+                break
+        edl["language"] = "cn"
+        output = _run_assemble(edl)
+        errors = validate_output(output, edl)
+        assert errors == [], f"Output validation failed: {errors}"
+
+    def test_speed_ramp(self):
+        """Test playback_speed on video clips."""
+        photos, videos = _get_media_samples()
+        edl = _make_edl(photos, videos, resolution=(640, 360), fps=15)
+        for item in edl["segments"][0]["items"]:
+            if item["media_type"] == "video":
+                item["playback_speed"] = 1.5
+                break
+        output = _run_assemble(edl)
+        errors = validate_output(output, edl)
+        assert errors == [], f"Output validation failed: {errors}"
+
+    def test_photos_only(self):
+        """Test EDL with only photo items (no video)."""
+        photos, videos = _get_media_samples()
+        edl = _make_edl(photos, videos, resolution=(640, 360), fps=15,
+                        n_video=0, n_photo=6, title="Photos Only")
+        output = _run_assemble(edl)
+        errors = validate_output(output, edl)
+        assert errors == [], f"Output validation failed: {errors}"
+
+    def test_videos_only(self):
+        """Test EDL with only video items (no photos)."""
+        photos, videos = _get_media_samples()
+        if len(videos) < 4:
+            pytest.skip("Need at least 4 videos")
+        edl = _make_edl(photos, videos, resolution=(640, 360), fps=15,
+                        n_photo=0, n_video=4, title="Videos Only",
+                        keep_audio_idx={0, 2})
+        output = _run_assemble(edl)
+        errors = validate_output(output, edl)
+        assert errors == [], f"Output validation failed: {errors}"

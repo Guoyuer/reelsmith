@@ -125,3 +125,184 @@ def load_latest_edl(cfg: Config) -> tuple[EDL, int]:
             raise FileNotFoundError(f"No EDL found in {cfg.workspace}")
         version = 1
     return EDL.model_validate_json(path.read_text()), version
+
+
+# ---------------------------------------------------------------------------
+# EDL quality validation
+# ---------------------------------------------------------------------------
+
+VALID_TRANSITIONS = {
+    "crossfade", "cut", "fade_black", "wipe_left",
+    "dissolve", "smoothleft", "smoothright", "circlecrop",
+}
+
+VALID_EFFECTS = {
+    "ken_burns_in", "ken_burns_out", "ken_burns_left",
+    "ken_burns_right", "static", "none",
+}
+
+VALID_RESOLUTIONS = {
+    (640, 360), (854, 480), (1280, 720), (1920, 1080),
+    (2560, 1440), (3840, 2160),
+}
+
+
+def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
+    """Validate an EDL for correctness before rendering.
+
+    Returns a list of issue dicts with keys: level ("error"/"warning"), message.
+    Empty list means the EDL is valid.
+
+    When strict=True, warnings are promoted to errors.
+    """
+    issues: list[dict] = []
+
+    def _error(msg: str) -> None:
+        issues.append({"level": "error", "message": msg})
+
+    def _warn(msg: str) -> None:
+        issues.append({"level": "warning" if not strict else "error", "message": msg})
+
+    # --- Top-level fields ---
+    w, h = edl.resolution
+    if w <= 0 or h <= 0:
+        _error(f"Invalid resolution: {w}x{h}")
+    elif (w, h) not in VALID_RESOLUTIONS:
+        _warn(f"Non-standard resolution: {w}x{h}")
+    if w % 2 != 0 or h % 2 != 0:
+        _error(f"Resolution must be even: {w}x{h}")
+
+    if edl.fps <= 0 or edl.fps > 120:
+        _error(f"Invalid fps: {edl.fps}")
+    if edl.fps not in (15, 24, 25, 30, 50, 60):
+        _warn(f"Non-standard fps: {edl.fps}")
+
+    if edl.quality <= 0 or edl.quality > 5:
+        _error(f"Invalid quality multiplier: {edl.quality}")
+
+    if not edl.title:
+        _warn("EDL has no title")
+
+    if edl.target_duration <= 0:
+        _error(f"Invalid target_duration: {edl.target_duration}")
+
+    # --- Segments ---
+    if not edl.segments:
+        _error("No segments")
+        return issues
+
+    total_display = 0.0
+    all_sources: set[str] = set()
+    total_items = 0
+
+    for si, seg in enumerate(edl.segments):
+        seg_label = f"seg[{si}] '{seg.name}'"
+
+        if not seg.items:
+            _error(f"{seg_label}: no items")
+            continue
+
+        if seg.transition not in VALID_TRANSITIONS:
+            _error(f"{seg_label}: invalid transition '{seg.transition}'")
+
+        if seg.transition != "cut":
+            if seg.transition_duration <= 0 or seg.transition_duration > 3.0:
+                _error(f"{seg_label}: transition_duration {seg.transition_duration}s "
+                       f"out of range (0, 3.0]")
+
+        for ii, item in enumerate(seg.items):
+            item_label = f"{seg_label} item[{ii}]"
+            total_items += 1
+
+            # Source file existence
+            src = Path(item.source_file)
+            if not src.exists():
+                _error(f"{item_label}: source file not found: {src}")
+
+            # Duplicate check
+            src_key = str(src.resolve()) if src.exists() else item.source_file
+            if src_key in all_sources:
+                _warn(f"{item_label}: duplicate source: {src.name}")
+            all_sources.add(src_key)
+
+            # Media type checks
+            if item.media_type not in ("photo", "video"):
+                _error(f"{item_label}: invalid media_type '{item.media_type}'")
+
+            # Duration
+            if item.display_duration <= 0:
+                _error(f"{item_label}: display_duration <= 0 ({item.display_duration})")
+            elif item.display_duration > 120:
+                _warn(f"{item_label}: display_duration very long ({item.display_duration}s)")
+            total_display += item.display_duration
+
+            # Video-specific checks
+            if item.media_type == "video":
+                if item.effect not in ("none", "static"):
+                    _error(f"{item_label}: video should have effect='none', "
+                           f"got '{item.effect}'")
+                if item.start_time is not None and item.end_time is not None:
+                    if item.start_time >= item.end_time:
+                        _error(f"{item_label}: start_time ({item.start_time}) "
+                               f">= end_time ({item.end_time})")
+                    trim_dur = item.end_time - item.start_time
+                    if abs(trim_dur - item.display_duration) > 0.5 and item.playback_speed == 1.0:
+                        _warn(f"{item_label}: trim duration ({trim_dur:.1f}s) "
+                              f"differs from display_duration ({item.display_duration:.1f}s)")
+                if item.start_time is not None and item.start_time < 0:
+                    _error(f"{item_label}: negative start_time ({item.start_time})")
+                if item.playback_speed <= 0 or item.playback_speed > 4.0:
+                    _error(f"{item_label}: invalid playback_speed ({item.playback_speed})")
+
+            # Photo-specific checks
+            if item.media_type == "photo":
+                if item.effect == "none":
+                    _warn(f"{item_label}: photo with effect='none' will be static")
+                if item.keep_audio:
+                    _error(f"{item_label}: photo cannot have keep_audio=True")
+                if item.start_time is not None or item.end_time is not None:
+                    _error(f"{item_label}: photo should not have start_time/end_time")
+                if item.display_duration < 1.5:
+                    _warn(f"{item_label}: photo duration very short ({item.display_duration}s)")
+
+            # Effect validity
+            if item.effect not in VALID_EFFECTS:
+                _error(f"{item_label}: invalid effect '{item.effect}'")
+
+            # Text overlay checks
+            if item.text_overlay:
+                if not item.text_overlay.text:
+                    _warn(f"{item_label}: empty text overlay")
+                if item.text_overlay.font_size <= 0 or item.text_overlay.font_size > 200:
+                    _error(f"{item_label}: invalid font_size ({item.text_overlay.font_size})")
+
+        # Check transition duration vs shortest clip in segment
+        if seg.transition != "cut" and len(seg.items) > 1:
+            min_dur = min(it.display_duration for it in seg.items)
+            if seg.transition_duration >= min_dur:
+                _error(f"{seg_label}: transition_duration ({seg.transition_duration}s) "
+                       f">= shortest clip ({min_dur}s)")
+
+    # --- Global checks ---
+    if total_items == 0:
+        _error("EDL has no items")
+
+    if total_display < 5:
+        _error(f"Total display duration too short: {total_display:.1f}s")
+
+    estimated = edl.estimated_duration()
+    if edl.target_duration > 0 and estimated > 0:
+        ratio = estimated / edl.target_duration
+        if ratio > 2.0:
+            _warn(f"Estimated duration ({estimated:.0f}s) is >2x target ({edl.target_duration:.0f}s)")
+        elif ratio < 0.3:
+            _warn(f"Estimated duration ({estimated:.0f}s) is <30% of target ({edl.target_duration:.0f}s)")
+
+    # Music checks
+    if edl.music:
+        if not Path(edl.music.file).exists():
+            _warn(f"Music file not found: {edl.music.file}")
+        if edl.music.volume < 0 or edl.music.volume > 1.0:
+            _error(f"Music volume out of range: {edl.music.volume}")
+
+    return issues

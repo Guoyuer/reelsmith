@@ -196,16 +196,17 @@ def concat_xfade(clips: list[dict], output_path: Path,
         out_label = f"[v{i}]" if i < len(timeline.entries) - 1 else "[vout]"
 
         td = e.transition_duration
+        offset = round(e.video_offset, 3)  # avoid fp noise like 24.000000000000004
         if td > 0:
             filter_parts.append(
                 f"{in_label}[{i}:v]xfade=transition={xfade_transition}"
-                f":duration={td}:offset={e.video_offset}{out_label}"
+                f":duration={td}:offset={offset}{out_label}"
             )
         else:
             # Hard cut — use minimal crossfade (0.01 causes FFmpeg filter chain bugs)
             filter_parts.append(
                 f"{in_label}[{i}:v]xfade=transition=fade"
-                f":duration=0.1:offset={e.video_offset}{out_label}"
+                f":duration=0.1:offset={offset}{out_label}"
             )
 
     if not filter_parts:
