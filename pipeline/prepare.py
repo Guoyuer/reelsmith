@@ -128,15 +128,22 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
             continue
 
         cache_file = cache_dir / f"{item_id}.json"
+        cache_hit = False
         if cache_file.exists():
             try:
                 cached = json.loads(cache_file.read_text())
-                entry.update(cached)
-                results.append(entry)
-                pbar.update(1)
-                continue
+                # Re-probe videos missing new metadata fields (dimensions, audio level)
+                if is_video and "audio_level" not in cached:
+                    logger.info(f"[{i}/{len(manifest)}] {entry['filename']} — upgrading cached video metadata")
+                else:
+                    entry.update(cached)
+                    cache_hit = True
             except (json.JSONDecodeError, KeyError) as e:
                 logger.warning(f"Corrupt cache for item {item_id}, re-analyzing: {e}")
+        if cache_hit:
+            results.append(entry)
+            pbar.update(1)
+            continue
 
         if is_video:
             _prepare_video(entry, item_id, local_path, cache_file, i, len(manifest))
@@ -245,25 +252,94 @@ def _build_timeline(items: list[dict], tz=None) -> list[dict]:
 
 
 def _prepare_video(entry, item_id, local_path, cache_file, i, total):
-    """Probe video duration and build scene count."""
+    """Probe video duration, dimensions, fps, orientation, and audio loudness."""
     logger.info(f"[{i}/{total}] {entry['filename']} — video metadata...")
 
+    # Probe duration + video stream dimensions + fps in one call
     probe = run_subprocess(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "csv=p=0", str(local_path)],
+        ["ffprobe", "-v", "error",
+         "-select_streams", "v:0",
+         "-show_entries", "stream=width,height,r_frame_rate",
+         "-show_entries", "format=duration",
+         "-of", "json", str(local_path)],
         capture_output=True, text=True,
     )
+    total_dur = 10.0
+    video_width = 0
+    video_height = 0
+    video_fps = 0.0
     try:
-        total_dur = float(probe.stdout.strip())
-    except (ValueError, AttributeError):
-        logger.warning(f"Could not probe duration for {local_path}, assuming 10s")
-        total_dur = 10.0
+        probe_data = json.loads(probe.stdout)
+        total_dur = float(probe_data.get("format", {}).get("duration", 10.0))
+        streams = probe_data.get("streams", [])
+        if streams:
+            video_width = int(streams[0].get("width", 0))
+            video_height = int(streams[0].get("height", 0))
+            fps_str = streams[0].get("r_frame_rate", "0/1")
+            num, den = fps_str.split("/")
+            video_fps = round(int(num) / max(int(den), 1), 1)
+    except (ValueError, AttributeError, json.JSONDecodeError, KeyError):
+        logger.warning(f"Could not probe metadata for {local_path}, assuming 10s")
+
+    orientation = "landscape"
+    if video_width > 0 and video_height > 0 and video_height > video_width:
+        orientation = "portrait"
 
     entry["video_duration"] = round(total_dur, 1)
+    entry["video_width"] = video_width
+    entry["video_height"] = video_height
+    entry["video_fps"] = video_fps
+    entry["video_orientation"] = orientation
 
-    cache_entry = {"video_duration": round(total_dur, 1)}
+    # Probe audio loudness (integrated loudness via loudnorm filter)
+    audio_level = _probe_audio_level(local_path)
+    entry["audio_level"] = audio_level
+
+    cache_entry = {
+        "video_duration": round(total_dur, 1),
+        "video_width": video_width,
+        "video_height": video_height,
+        "video_fps": video_fps,
+        "video_orientation": orientation,
+        "audio_level": audio_level,
+    }
     cache_file.write_text(json.dumps(cache_entry, indent=2))
-    logger.info(f"[{i}/{total}] {entry['filename']} — {total_dur:.0f}s")
+
+    res_str = f"{video_width}x{video_height}" if video_width else "?"
+    logger.info(f"[{i}/{total}] {entry['filename']} — {total_dur:.0f}s {res_str} "
+                f"{video_fps}fps {orientation} audio={audio_level}")
+
+
+def _probe_audio_level(local_path) -> str:
+    """Probe integrated audio loudness. Returns 'silent', 'quiet', 'normal', or 'loud'.
+
+    Uses ffmpeg loudnorm filter in measure-only mode on the first 30s.
+    """
+    probe = run_subprocess(
+        ["ffmpeg", "-hide_banner", "-i", str(local_path),
+         "-t", "30", "-af", "loudnorm=print_format=json", "-f", "null", "-"],
+        capture_output=True, text=True, timeout=30,
+    )
+    try:
+        # loudnorm prints JSON to stderr after processing
+        stderr = probe.stderr
+        # Find the JSON block in stderr
+        json_start = stderr.rfind("{")
+        json_end = stderr.rfind("}") + 1
+        if json_start >= 0 and json_end > json_start:
+            loudness_data = json.loads(stderr[json_start:json_end])
+            input_i = float(loudness_data.get("input_i", -70))
+            if input_i < -40:
+                return "silent"
+            elif input_i < -28:
+                return "quiet"
+            elif input_i < -10:
+                return "normal"
+            else:
+                return "loud"
+    except (ValueError, json.JSONDecodeError, KeyError):
+        pass
+    return "unknown"
 
 
 def _read_exif(path) -> dict:

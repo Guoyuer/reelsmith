@@ -374,7 +374,16 @@ def _build_visual_chapter_text(
         if media == "video":
             dur = a.get("video_duration") or (a.get("duration_ms", 0) / 1000)
             dur_s = f"{dur:.0f}s" if dur else "?"
-            parts.append(f"video={dur_s}")
+            vw = a.get("video_width", 0)
+            vh = a.get("video_height", 0)
+            res_str = f" {vw}x{vh}" if vw and vh else ""
+            orient = a.get("video_orientation", "")
+            orient_str = f"({orient})" if orient == "portrait" else ""
+            vfps = a.get("video_fps", 0)
+            fps_str = f" {vfps}fps" if vfps and vfps >= 48 else ""  # only note high fps (slow-mo source)
+            audio = a.get("audio_level", "")
+            audio_str = f" audio={audio}" if audio and audio != "unknown" else ""
+            parts.append(f"video={dur_s}{res_str}{orient_str}{fps_str}{audio_str}")
             video_items.append(a)
         else:
             exif_data = a.get("exif", {})

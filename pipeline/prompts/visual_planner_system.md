@@ -25,6 +25,9 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
   Watch and listen — judge motion quality, framing, and audio content. If you hear
   family speech, laughter, or reactions — that video is especially valuable.
 - **Metadata per item**: who's in the photo, location, local time of day.
+  For videos, metadata also includes: resolution, orientation (portrait videos get
+  pillarboxed — prefer landscape), fps (≥48fps = slow-mo source, good for playback_speed=0.5),
+  and audio level (silent/quiet/normal/loud — use this for keep_audio decisions).
 
 ## How to plan your EDL
 
@@ -80,6 +83,9 @@ be videos and at least 50% of those videos should have keep_audio=true.
    REJECT: excessive shaking/walking-while-filming, camera pointing at ground/sky
    accidentally, too dark to see, long static shots of nothing happening, duplicate
    coverage of the same moment as another selected clip.
+   PREFER landscape videos over portrait (portrait gets pillarboxed with blurred bars).
+   If a video has audio=silent, set keep_audio=false. If audio=quiet, only keep if
+   you hear speech in the preview. If audio=normal or loud, strongly consider keep_audio=true.
 
 5c. **Chapter coherence**: Every item must fit its chapter's theme and time of day.
    Night chapter → nighttime content only. Garden chapter → garden content only.
@@ -129,7 +135,8 @@ be videos and at least 50% of those videos should have keep_audio=true.
   If someone says "come say hi" and another person responds, include BOTH.
 - effect: ken_burns_in/out/left/right for photos, "none" for video clips
 - playback_speed: 1.0 = normal (default). Use 0.5 SPARINGLY for dramatic slow-mo moments
-  (a jump, a splash, a reaction). Use 1.5 for transitional walking/travel clips. Most clips = 1.0.
+  (a jump, a splash, a reaction) — especially effective on ≥48fps source videos.
+  Use 1.5 for transitional walking/travel clips. Most clips = 1.0.
 - Transitions: choose per segment — crossfade (default), dissolve, smoothleft, smoothright,
   circlecrop, fade_black (major scene changes), wipe_left. Vary for visual richness.
 - mode: "narrative" (default) or "montage" — use montage for 1 energy burst segment max
