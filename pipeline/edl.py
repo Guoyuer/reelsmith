@@ -69,10 +69,13 @@ class EDL(BaseModel):
     segments: list[Segment]
     music: MusicTrack | None = None
     music_mode: Literal["none", "auto", "file"] = "none"  # auto = generate in generate_music step
+    music_duck_ratio: float = 0.3  # during speech: music volume *= this (0.0=silent, 1.0=full)
     trip_type: str = "family"  # used by assemble for music generation prompt
     style: str = "upbeat"  # used by assemble for music generation prompt
     intro_style: Literal["title_card", "highlight_montage", "none"] = "title_card"
+    intro_duration: float = 3.0  # seconds for intro clip
     outro_style: Literal["fade_title", "last_hero", "none"] = "fade_title"
+    outro_duration: float = 3.0  # seconds for outro clip
     date_range: str = ""  # e.g. "June 13-16, 2025" for title card
     language: Literal["en", "cn", "both"] = "en"  # text language: en/cn/both
     quality: float = 1.0  # render quality multiplier (0.5=draft, 1.0=default, 2.0=archive)
@@ -87,13 +90,11 @@ class EDL(BaseModel):
             for seg in self.segments
             if seg.transition != "cut"
         )
-        # Add intro/outro time estimates
-        if self.intro_style == "title_card":
-            total += 3.0
-        elif self.intro_style == "highlight_montage":
-            total += 5.0
-        if self.outro_style in ("fade_title", "last_hero"):
-            total += 3.0
+        # Add intro/outro time from EDL fields
+        if self.intro_style != "none":
+            total += self.intro_duration
+        if self.outro_style != "none":
+            total += self.outro_duration
         return total - transitions
 
 
@@ -190,6 +191,13 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
 
     if edl.target_duration <= 0:
         _error(f"Invalid target_duration: {edl.target_duration}")
+
+    if edl.intro_duration <= 0 or edl.intro_duration > 15:
+        _error(f"Invalid intro_duration: {edl.intro_duration}")
+    if edl.outro_duration <= 0 or edl.outro_duration > 15:
+        _error(f"Invalid outro_duration: {edl.outro_duration}")
+    if edl.music_duck_ratio < 0 or edl.music_duck_ratio > 1.0:
+        _error(f"Invalid music_duck_ratio: {edl.music_duck_ratio}")
 
     # --- Segments ---
     if not edl.segments:

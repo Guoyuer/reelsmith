@@ -199,7 +199,8 @@ def build_speech_track(
 
 def add_music(video_path: Path, music, output_path: Path, *,
               speech_ranges: list[tuple[float, float]] | None = None,
-              speech_audio: Path | None = None) -> None:
+              speech_audio: Path | None = None,
+              duck_ratio: float = 0.3) -> None:
     """Mix background music + speech audio into the video."""
     total_dur = probe_duration(video_path)
     music_dur = probe_duration(Path(music.file))
@@ -211,7 +212,7 @@ def add_music(video_path: Path, music, output_path: Path, *,
         loop_filter = f"aloop=loop={loops}:size={int(music_dur * 32000)},atrim=0:{total_dur},"
 
     if speech_ranges:
-        duck_vol = music.volume * 0.3
+        duck_vol = music.volume * duck_ratio
         vol_expr = str(music.volume)
         for start, end in reversed(speech_ranges):
             vol_expr = f"if(between(t,{start:.1f},{end:.1f}),{duck_vol:.3f},{vol_expr})"

@@ -26,6 +26,23 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
   family speech, laughter, or reactions — that video is especially valuable.
 - **Metadata per item**: who's in the photo, location, local time of day.
 
+## How to plan your EDL
+
+Work in two passes:
+
+**Pass 1 — Find the peaks.** Scan ALL items and identify 3-5 PEAK MOMENTS — the
+strongest emotional beats in the entire trip. These are your anchors: a child's
+first reaction, a family laughing together, an arrival at a stunning view, a quiet
+goodbye. Build your chapter structure around these peaks.
+
+**Pass 2 — Fill and shape.** Around each peak, add supporting material that builds
+anticipation before it and lets the emotion breathe after it. Fill remaining gaps
+with variety shots (establishing shots, details, transitions between locations).
+
+**Selection budget**: For a target_duration of N seconds, select roughly N/4 items
+(e.g., 180s → ~45 items). This accounts for ~4s average per item. At least 40% MUST
+be videos and at least 50% of those videos should have keep_audio=true.
+
 ## Narrative principles
 
 1. **Emotional arc**: Build from curiosity → joy → warmth → nostalgia.
@@ -35,7 +52,7 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
 3. **Video-first**: Prefer video clips over photos when both cover the same moment.
    Videos bring motion, atmosphere, and sound — they make a vlog feel alive, not like
    a slideshow. At least 40% of items MUST be videos. If your EDL has fewer, replace
-   some photos with nearby video clips. A vlog with too many photos feels like a slideshow.
+   some photos with nearby video clips.
 
 3b. **keep_audio is critical**: Set keep_audio=true on EVERY video where you hear meaningful
    sound — family conversation, laughter, reactions, ambient atmosphere (waves, birds,
@@ -50,16 +67,27 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
    should get roughly equal screen time. Spread items across ALL days and locations.
    BAD: 40% of items from the airport. GOOD: 2-3 items per location, covering the full trip.
 
-5. **Visual judgment**: Trust your eyes. Be ruthless.
-   REJECT: accidental shots (ground, ceiling, pocket, lens blocked), too dark to
-   identify the subject, extreme close-ups where content is unrecognizable,
-   and repetitive content (max 2 food/meal scenes in the entire vlog).
-   SELECT: clear subjects, good lighting, genuine emotion. Candid laughter >
-   posed landmarks. Body language matters — leaning in, pointing, running.
+5. **Photo selection tiers** (be ruthless — most photos should be skipped):
+   MUST-INCLUDE: genuine emotion (real laughter, tears, awe), decisive unrepeatable
+   moment, one-of-a-kind shot with striking composition.
+   STRONG: good composition + clear subject + interesting light or color.
+   FILL: acceptable quality, adds location variety or covers a timeline gap.
+   SKIP: everything else — blurry, dark, generic posed, repetitive, accidental.
 
-5b. **Chapter coherence**: Every item must fit its chapter's theme and time of day.
+5b. **Video selection criteria**:
+   SELECT: steady camera with clear subject, interesting action or movement, meaningful
+   audio (speech, laughter, ambient atmosphere), reveals or reactions.
+   REJECT: excessive shaking/walking-while-filming, camera pointing at ground/sky
+   accidentally, too dark to see, long static shots of nothing happening, duplicate
+   coverage of the same moment as another selected clip.
+
+5c. **Chapter coherence**: Every item must fit its chapter's theme and time of day.
    Night chapter → nighttime content only. Garden chapter → garden content only.
    Never dump unrelated leftovers into a chapter just to fill duration.
+
+5d. **Repetition control**: Max 2 food/meal scenes in the entire vlog. Max 2 similar
+   landscape/building shots from the same location. If you've already shown a place,
+   move on — the viewer got it.
 
 6. **Burst dedup**: Check timestamps — photos/videos taken within seconds of each other are
    burst shots of the same moment. Pick only the ONE best from each burst:
@@ -128,7 +156,9 @@ As a safety net, photo↔photo crossfades are auto-converted to fade_black by th
 segment_transition controls how each chapter begins (transition from previous chapter).
 
 **Audio**: Background music generated per-segment from your music_mood. During keep_audio
-clips, music volume drops to 30% automatically. Non-keep_audio clips are fully silent.
+clips, music volume drops by music_duck_ratio (default 0.3 = 30% of normal). Set
+music_duck_ratio lower (e.g. 0.15) for intimate dialogue, higher (e.g. 0.5) if the
+speech is loud and you want music still present. Non-keep_audio clips get music only.
 
 **Text**: font_size is scaled relative to output resolution. White text with dark border.
 
@@ -138,6 +168,9 @@ Think step-by-step, then output valid JSON only:
   "target_duration": <seconds>,
   "resolution": [3840, 2160],
   "fps": 60,
+  "intro_duration": 3.0 (1-8s, how long the title card lingers),
+  "outro_duration": 3.0 (1-8s, how long the closing card lingers),
+  "music_duck_ratio": 0.3 (0.0-1.0, during speech music volume *= this; lower=quieter music behind dialogue),
   "segments": [
     {{
       "name": "Chapter Name",

@@ -293,11 +293,12 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     # Phase 1b: Render intro/outro clips
     if edl.intro_style == "title_card" and edl.title:
         intro_path = clips_dir / "intro_title.mp4"
+        intro_dur = edl.intro_duration
         if not intro_path.exists():
-            render_title_card(edl.title, edl.date_range, intro_path, w, h, _fps, duration=3.0, language=lang)
+            render_title_card(edl.title, edl.date_range, intro_path, w, h, _fps, duration=intro_dur, language=lang)
         if intro_path.exists():
             all_clips.insert(0, {
-                "path": intro_path, "duration": 3.0,
+                "path": intro_path, "duration": intro_dur,
                 "transition": "cut", "transition_duration": 0.0,
             })
             if len(all_clips) > 1:
@@ -306,11 +307,12 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
     if edl.outro_style == "fade_title" and edl.title:
         outro_path = clips_dir / "outro_title.mp4"
+        outro_dur = edl.outro_duration
         if not outro_path.exists():
-            render_title_card(edl.title, "", outro_path, w, h, _fps, duration=3.0, language=lang)
+            render_title_card(edl.title, "", outro_path, w, h, _fps, duration=outro_dur, language=lang)
         if outro_path.exists():
             all_clips.append({
-                "path": outro_path, "duration": 3.0,
+                "path": outro_path, "duration": outro_dur,
                 "transition": "fade_black", "transition_duration": 1.0,
             })
 
@@ -356,7 +358,8 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
         _log(f"Mixing music: video={video_dur:.1f}s, music={music_dur:.1f}s, "
               f"volume={edl.music.volume}, fade_in={edl.music.fade_in}s, fade_out={edl.music.fade_out}s")
         add_music(no_music_path, edl.music, output_path,
-                  speech_ranges=speech_ranges, speech_audio=speech_audio_path)
+                  speech_ranges=speech_ranges, speech_audio=speech_audio_path,
+                  duck_ratio=edl.music_duck_ratio)
         no_music_path.unlink(missing_ok=True)
         if speech_audio_path:
             speech_audio_path.unlink(missing_ok=True)
