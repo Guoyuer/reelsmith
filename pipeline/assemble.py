@@ -156,6 +156,20 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     _fh.setLevel(logging.INFO)
     ffmpeg_log.addHandler(_fh)
 
+    try:
+        return _assemble_inner(cfg, edl, version, w, h, _fps, lang, clips_dir,
+                               output_dir, output_path, progress_callback, skip_broken)
+    finally:
+        ffmpeg_log.removeHandler(_fh)
+        _fh.close()
+        _log(f"FFmpeg commands logged to: {log_path}")
+
+
+def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
+                    output_dir, output_path, progress_callback, skip_broken):
+    _log = logger.info
+    _fps = fps
+
     # Beat sync: snap transitions to music beats (before rendering clips)
     if edl.music and Path(edl.music.file).exists():
         beat_snap_edl(edl, Path(edl.music.file))
@@ -405,11 +419,6 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
     if not validation_issues:
         _log("Validation: all checks passed")
-
-    # Clean up file handler
-    ffmpeg_log.removeHandler(_fh)
-    _fh.close()
-    _log(f"FFmpeg commands logged to: {log_path}")
 
     return output_path, validation_issues
 

@@ -6,6 +6,7 @@ import logging
 import shutil
 from pathlib import Path
 
+from .edl import XFADE_MAP
 from .encoder import get_encoder, probe_duration
 from .media_utils import run_subprocess
 
@@ -28,6 +29,8 @@ def partition_into_groups(n: int, get_transition) -> list[list[int]]:
         return []
     groups: list[list[int]] = [[0]]
     for i in range(1, n):
+        # Split at MAX_GROUP, or split early at fade_black boundaries
+        # (fade_black = chapter change, clean split point for xfade chains)
         should_split = (
             len(groups[-1]) >= MAX_GROUP
             or (len(groups[-1]) >= MAX_GROUP - 3
@@ -117,19 +120,6 @@ def concatenate(clips: list[dict], output_path: Path,
     else:
         _log(f"  Joining {len(group_files)} groups via concat filter...")
         _concat_filter(group_files, output_path, w, h, fps)
-
-
-# --- Transition name mapping (EDL names → FFmpeg xfade names) ---
-XFADE_MAP = {
-    "crossfade": "fade",
-    "fade_black": "fadeblack",
-    "wipe_left": "wipeleft",
-    "dissolve": "fade",
-    "smoothleft": "smoothleft",
-    "smoothright": "smoothright",
-    "circlecrop": "circlecrop",
-    "cut": "fade",
-}
 
 
 def _concat_filter(clips: list[dict], output_path: Path,

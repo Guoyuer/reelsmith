@@ -142,6 +142,18 @@ VALID_TRANSITIONS = {
     "dissolve", "smoothleft", "smoothright", "circlecrop",
 }
 
+# EDL transition names → FFmpeg xfade filter names
+XFADE_MAP = {
+    "crossfade": "fade",
+    "fade_black": "fadeblack",
+    "wipe_left": "wipeleft",
+    "dissolve": "fade",
+    "smoothleft": "smoothleft",
+    "smoothright": "smoothright",
+    "circlecrop": "circlecrop",
+    "cut": "fade",  # cuts use minimal xfade as FFmpeg workaround
+}
+
 VALID_EFFECTS = {
     "ken_burns_in", "ken_burns_out", "ken_burns_left",
     "ken_burns_right", "static", "none",
