@@ -303,29 +303,28 @@ def _make_edl(duration: float = 60.0, music_file: str = "") -> EDL:
 
 def _mock_subprocess_for_validation(
     *,
-    streams: str = "hevc,video\naac,audio\n",
+    streams: str | None = None,
     duration: str = "60.0",
     dimensions: str = "3840x2160",
     vid_stream_dur: str = "60.0",
     aud_stream_dur: str = "60.0",
 ):
     """Return a side_effect function for run_subprocess that handles all ffprobe calls."""
+    # Build combined stream output: codec_name,codec_type,duration
+    if streams is None:
+        streams = f"hevc,video,{vid_stream_dur}\naac,audio,{aud_stream_dur}\n"
 
     def _side_effect(cmd, **kwargs):
         result = MagicMock()
         result.returncode = 0
         result.stderr = ""
         cmd_str = " ".join(str(c) for c in cmd)
-        if "codec_type,codec_name" in cmd_str:
+        if "codec_type,codec_name,duration" in cmd_str:
             result.stdout = streams
         elif "format=duration" in cmd_str:
             result.stdout = duration + "\n"
         elif "stream=width,height" in cmd_str:
             result.stdout = dimensions + "\n"
-        elif "select_streams" in cmd_str and "v:0" in cmd_str and "stream=duration" in cmd_str:
-            result.stdout = vid_stream_dur + "\n"
-        elif "select_streams" in cmd_str and "a:0" in cmd_str and "stream=duration" in cmd_str:
-            result.stdout = aud_stream_dur + "\n"
         else:
             result.stdout = ""
         return result
@@ -442,7 +441,7 @@ class TestValidateOutputStreams:
         out = tmp_path / "nostream.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation(streams="aac,audio\n"):
+        with _patch_validation(streams="aac,audio,60.0\n"):
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         stream_issues = [i for i in issues if i["check"] == "video_stream"]
         assert len(stream_issues) == 1
@@ -453,7 +452,7 @@ class TestValidateOutputStreams:
         out = tmp_path / "noaudio.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation(streams="hevc,video\n"):
+        with _patch_validation(streams="hevc,video,60.0\n"):
             issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160))
         audio_issues = [i for i in issues if i["check"] == "audio_stream"]
         assert len(audio_issues) == 1
@@ -464,7 +463,7 @@ class TestValidateOutputStreams:
         out = tmp_path / "videoonly.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation(streams="hevc,video\n"):
+        with _patch_validation(streams="hevc,video,60.0\n"):
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         audio_speech = [i for i in issues if i["check"] == "audio_stream"]
         assert len(audio_speech) == 0
@@ -477,7 +476,7 @@ class TestValidateOutputStreams:
         music_file = tmp_path / "music.mp3"
         music_file.write_bytes(b"\x00" * 100)
         edl = _make_edl(music_file=str(music_file))
-        with _patch_validation(streams="hevc,video\n"):
+        with _patch_validation(streams="hevc,video,60.0\n"):
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         music_issues = [i for i in issues if i["check"] == "audio_stream_music"]
         assert len(music_issues) == 1
@@ -492,7 +491,7 @@ class TestValidateOutputCodec:
         out = tmp_path / "ok.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation(streams="hevc,video\naac,audio\n"):
+        with _patch_validation(streams="hevc,video,60.0\naac,audio,60.0\n"):
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         codec_issues = [i for i in issues if i["check"] == "video_codec"]
         assert len(codec_issues) == 0
@@ -502,7 +501,7 @@ class TestValidateOutputCodec:
         out = tmp_path / "weird.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation(streams="vp9,video\naac,audio\n"):
+        with _patch_validation(streams="vp9,video,60.0\naac,audio,60.0\n"):
             issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         codec_issues = [i for i in issues if i["check"] == "video_codec"]
         assert len(codec_issues) == 1
@@ -568,10 +567,8 @@ class TestValidateOutputAllPassing:
         out = tmp_path / "perfect.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl(duration=60.0)
-        with _patch_validation(streams="hevc,video\naac,audio\n",
+        with _patch_validation(streams="hevc,video,58.0\naac,audio,58.0\n",
                         duration="58.0",
-                        dimensions="3840x2160",
-                        vid_stream_dur="58.0",
-                        aud_stream_dur="58.0",):
+                        dimensions="3840x2160"):
             issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160))
         assert len(issues) == 0

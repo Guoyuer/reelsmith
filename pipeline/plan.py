@@ -653,10 +653,12 @@ def _build_visual_content_blocks(
                 thumb = cfg.thumbnails_dir / f"{p.stem}_thumb.jpg"
                 img_path = thumb if thumb.exists() else p
                 if img_path.exists():
-                    # Resize to 400px and compress to keep payload small
                     from PIL import Image
                     import io
                     try:
+                        if img_path.suffix.lower() in {".heic", ".heif"}:
+                            from .image_utils import convert_heic
+                            img_path = convert_heic(img_path)
                         img = Image.open(img_path)
                         img.thumbnail((400, 400))
                         buf = io.BytesIO()

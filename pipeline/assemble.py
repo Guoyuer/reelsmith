@@ -259,8 +259,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
                 continue
 
             # Skip zero-length clips (e.g. from failed renders)
-            clip_dur = probe_duration(clip_path)
-            if clip_dur is not None and clip_dur < 0.1:
+            if clip_path.stat().st_size < 1000:
                 _log(f"  Skipping zero-length clip: {clip_path.name}")
                 continue
 
@@ -306,27 +305,25 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
         intro_dur = edl.intro_duration
         if not intro_path.exists():
             render_title_card(edl.title, edl.date_range, intro_path, w, h, fps, duration=intro_dur, language=lang, ctx=ctx)
-        if intro_path.exists():
-            all_clips.insert(0, {
-                "path": intro_path, "duration": intro_dur,
-                "transition": "cut", "transition_duration": 0.0,
-                "keep_audio": False, "media_type": "video",
-            })
-            if len(all_clips) > 1:
-                all_clips[1]["transition"] = "fade_black"
-                all_clips[1]["transition_duration"] = 1.0
+        all_clips.insert(0, {
+            "path": intro_path, "duration": intro_dur,
+            "transition": "cut", "transition_duration": 0.0,
+            "keep_audio": False, "media_type": "video",
+        })
+        if len(all_clips) > 1:
+            all_clips[1]["transition"] = "fade_black"
+            all_clips[1]["transition_duration"] = 1.0
 
     if edl.outro_style == "fade_title" and edl.title:
         outro_path = clips_dir / "outro_title.mp4"
         outro_dur = edl.outro_duration
         if not outro_path.exists():
             render_title_card(edl.title, "", outro_path, w, h, fps, duration=outro_dur, language=lang, ctx=ctx)
-        if outro_path.exists():
-            all_clips.append({
-                "path": outro_path, "duration": outro_dur,
-                "transition": "fade_black", "transition_duration": 1.0,
-                "keep_audio": False, "media_type": "video",
-            })
+        all_clips.append({
+            "path": outro_path, "duration": outro_dur,
+            "transition": "fade_black", "transition_duration": 1.0,
+            "keep_audio": False, "media_type": "video",
+        })
 
     # Phase 2: Concatenate with transitions (video only)
     t2 = time.monotonic()
@@ -459,10 +456,10 @@ def _validate_output(
                   f"Duration {actual_duration:.1f}s is <80% of expected "
                   f"{expected_duration:.1f}s — some content may be missing")
 
-    # --- 3. Stream validation (video + audio presence) ---
+    # --- 3. Stream validation (single ffprobe for codec + duration) ---
     stream_result = run_subprocess(
         ["ffprobe", "-v", "error",
-         "-show_entries", "stream=codec_type,codec_name",
+         "-show_entries", "stream=codec_type,codec_name,duration",
          "-of", "csv=p=0",
          str(output_path)],
         capture_output=True, text=True,
@@ -470,12 +467,18 @@ def _validate_output(
     stream_lines = [ln.strip() for ln in stream_result.stdout.strip().split("\n") if ln.strip()]
     codec_types = []
     codec_names = {}
+    stream_durations: dict[str, float] = {}
     for line in stream_lines:
         parts = line.split(",")
         if len(parts) >= 2:
             codec_name, codec_type = parts[0].strip(), parts[1].strip()
             codec_types.append(codec_type)
             codec_names[codec_type] = codec_name
+            if len(parts) >= 3:
+                try:
+                    stream_durations[codec_type] = float(parts[2].strip())
+                except (ValueError, TypeError):
+                    pass
 
     has_video_stream = "video" in codec_types
     has_audio_stream = "audio" in codec_types
@@ -501,25 +504,9 @@ def _validate_output(
 
     # --- 5. Audio-video sync spot check ---
     if has_video_stream and has_audio_stream:
-        vid_dur_result = run_subprocess(
-            ["ffprobe", "-v", "error",
-             "-select_streams", "v:0",
-             "-show_entries", "stream=duration",
-             "-of", "csv=p=0",
-             str(output_path)],
-            capture_output=True, text=True,
-        )
-        aud_dur_result = run_subprocess(
-            ["ffprobe", "-v", "error",
-             "-select_streams", "a:0",
-             "-show_entries", "stream=duration",
-             "-of", "csv=p=0",
-             str(output_path)],
-            capture_output=True, text=True,
-        )
-        try:
-            vid_stream_dur = float(vid_dur_result.stdout.strip())
-            aud_stream_dur = float(aud_dur_result.stdout.strip())
+        vid_stream_dur = stream_durations.get("video")
+        aud_stream_dur = stream_durations.get("audio")
+        if vid_stream_dur is not None and aud_stream_dur is not None:
             # Audio shorter than video is normal — speech track only
             # covers keep_audio clips. Only warn if audio is LONGER.
             if aud_stream_dur > vid_stream_dur + 5.0:
@@ -527,12 +514,10 @@ def _validate_output(
                       f"Audio longer than video: "
                       f"video={vid_stream_dur:.1f}s, audio={aud_stream_dur:.1f}s "
                       f"— possible sync issue")
-        except (ValueError, TypeError) as e:
-            _warn("av_sync", f"Could not parse stream durations for sync check: {e}")
 
     # --- 6. Resolution check ---
     if has_video_stream:
-        get_context()._dim_cache.pop(str(output_path), None)
+        get_context().invalidate(output_path)
         out_w, out_h = get_context().probe_dimensions(output_path)
         exp_w, exp_h = resolution
         if out_w > 0 and out_h > 0:

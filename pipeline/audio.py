@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import shutil
 import struct as _struct
 import wave
 from pathlib import Path
@@ -277,7 +278,6 @@ def mix_final_audio(
 
     Cleans up intermediate files (video_path, speech_audio) after mixing.
     """
-    import shutil
 
     has_music = music_track is not None and music_track.file and Path(music_track.file).exists()
 
