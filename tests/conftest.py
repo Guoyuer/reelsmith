@@ -35,64 +35,30 @@ def tiny_portrait_image(tmp_path: Path) -> Path:
 @pytest.fixture
 def sample_manifest() -> list[dict]:
     """List of 6 items with mixed types, varied takentimes, person metadata."""
+    from datetime import datetime, timezone
     base_time = 1700000000  # 2023-11-14 ~14:13 UTC
+
+    def _item(id, filename, taken, **kw):
+        """Build a manifest item with required fields."""
+        iso = datetime.fromtimestamp(taken, tz=timezone.utc).isoformat()
+        return {"id": id, "filename": filename, "item_type": kw.pop("item_type", 0),
+                "takentime": taken, "taken_iso": iso,
+                "local_path": f"/fake/media/{id}_{filename}",
+                "filesize": kw.pop("filesize", 5000000),
+                "metadata": {"persons": kw.pop("persons", [])}, **kw}
+
     return [
-        {
-            "id": 1,
-            "filename": "IMG_001.jpg",
-            "item_type": 0,
-            "takentime": base_time,
-            "filesize": 5000000,
-            "district": "Marina Bay",
-            "country": "Singapore",
-            "metadata": {"persons": ["Alice", "Bob"]},
-        },
-        {
-            "id": 2,
-            "filename": "IMG_002.jpg",
-            "item_type": 0,
-            "takentime": base_time + 5,
-            "filesize": 4000000,
-            "district": "Marina Bay",
-            "country": "Singapore",
-            "metadata": {"persons": ["Alice"]},
-        },
-        {
-            "id": 3,
-            "filename": "VID_003.mp4",
-            "item_type": 1,
-            "takentime": base_time + 20,
-            "filesize": 30000000,
-            "district": "Chinatown",
-            "country": "Singapore",
-            "metadata": {"persons": []},
-        },
-        {
-            "id": 4,
-            "filename": "IMG_004.jpg",
-            "item_type": 0,
-            "takentime": base_time + 30,
-            "filesize": 6000000,
-            "metadata": {"persons": []},
-        },
-        {
-            "id": 5,
-            "filename": "Screenshot_20231114.png",
-            "item_type": 3,
-            "takentime": base_time + 40,
-            "filesize": 1000000,
-            "metadata": {"persons": []},
-        },
-        {
-            "id": 6,
-            "filename": "IMG_006.jpg",
-            "item_type": 0,
-            "takentime": base_time + 86400,  # next day
-            "filesize": 7000000,
-            "district": "Orchard",
-            "country": "Singapore",
-            "metadata": {"persons": ["Alice", "Bob", "Charlie"]},
-        },
+        _item(1, "IMG_001.jpg", base_time,
+              district="Marina Bay", country="Singapore", persons=["Alice", "Bob"]),
+        _item(2, "IMG_002.jpg", base_time + 5,
+              district="Marina Bay", country="Singapore", persons=["Alice"], filesize=4000000),
+        _item(3, "VID_003.mp4", base_time + 20, item_type=1,
+              district="Chinatown", country="Singapore", filesize=30000000),
+        _item(4, "IMG_004.jpg", base_time + 30, filesize=6000000),
+        _item(5, "Screenshot_20231114.png", base_time + 40, item_type=3, filesize=1000000),
+        _item(6, "IMG_006.jpg", base_time + 86400,
+              district="Orchard", country="Singapore", persons=["Alice", "Bob", "Charlie"],
+              filesize=7000000),
     ]
 
 

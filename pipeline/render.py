@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 
@@ -33,7 +34,6 @@ def render_photo(item: EditItem, out: Path, w: int, h: int, fps: int,
     if item.effect not in zoom_targets:
         logger.warning("Unknown photo effect '%s', defaulting to ken_burns_in", item.effect)
     target = zoom_targets.get(item.effect, 0.25)
-    import hashlib
     variation = (int(hashlib.md5(item.source_file.encode()).hexdigest()[:4], 16) % 10) / 100
     zoom_rate = 0.001 + ((target + variation) / frames) if target > 0 else 0
 

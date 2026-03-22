@@ -140,7 +140,7 @@ def generate_thumbnail(
     source: Path,
     output_dir: Path,
     size: int = 512,
-) -> Path:
+) -> Path | None:
     """Generate a thumbnail JPEG for an image file. Cached — skips if exists."""
     from PIL import Image
 
@@ -155,11 +155,10 @@ def generate_thumbnail(
         img = Image.open(source)
         img.thumbnail((size, size))
         img.save(out_path, "JPEG", quality=85)
-    except Exception as e:
-        import warnings
-        warnings.warn(f"Could not generate thumbnail for {source}: {e}")
-        img = Image.new("RGB", (size, size), (60, 60, 60))
-        img.save(out_path, "JPEG", quality=85)
+    except (OSError, RuntimeError) as e:
+        logging.getLogger("vlog.media_utils").warning(
+            "Thumbnail failed for %s: %s — skipping", source.name, e)
+        return None
 
     return out_path
 

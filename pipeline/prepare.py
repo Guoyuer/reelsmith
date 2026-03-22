@@ -102,26 +102,26 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
             pbar.update(1)
             continue
 
-        local_path_str = item.get("local_path", "")
-        local_path = Path(local_path_str) if local_path_str else None
-        suffix = local_path.suffix.lower() if local_path else ""
+        local_path_str = item["local_path"]
+        local_path = Path(local_path_str)
+        suffix = local_path.suffix.lower()
         is_video = suffix in VIDEO_EXTENSIONS
 
         entry = {
             "id": item_id,
             "filename": item["filename"],
-            "local_path": item.get("local_path", ""),
+            "local_path": local_path_str,
             "media_type": "video" if is_video else "photo",
-            "taken_iso": item.get("taken_iso"),
+            "taken_iso": item["taken_iso"],
             "duration_ms": item.get("duration"),
             "family_count": item.get("family_count", 0),
-            "persons": item.get("metadata", {}).get("persons", []),
+            "persons": item["metadata"]["persons"],
             "country": item.get("country"),
             "first_level": item.get("first_level"),
             "district": item.get("district") or item.get("city"),
         }
 
-        if not local_path or not local_path.exists():
+        if not local_path.exists():
             results.append(entry)
             pbar.update(1)
             continue
@@ -297,9 +297,11 @@ def _prepare_photo(entry, item_id, local_path, cfg, cache_file):
     thumb_dir = cfg.thumbnails_dir
     thumb = generate_thumbnail(local_path, thumb_dir, size=600)
     exif = _read_exif(local_path)
-    cache_data = {"thumbnail_path": str(thumb)}
+    cache_data = {}
+    if thumb:
+        cache_data["thumbnail_path"] = str(thumb)
+        entry["thumbnail_path"] = str(thumb)
     if exif:
         cache_data["exif"] = exif
         entry["exif"] = exif
-    entry["thumbnail_path"] = str(thumb)
     cache_file.write_text(json.dumps(cache_data, indent=2))

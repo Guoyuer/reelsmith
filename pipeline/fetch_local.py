@@ -7,6 +7,7 @@ the pipeline. Alternative to fetch.py (Synology NAS).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -64,7 +65,6 @@ def fetch_local(
         taken_iso = taken_dt.isoformat()
 
         # Stable ID from filename (deterministic across runs, unlike hash())
-        import hashlib
         item_id = int(hashlib.md5(src_path.name.encode()).hexdigest()[:8], 16) % (10**8)
         filename = src_path.name
 

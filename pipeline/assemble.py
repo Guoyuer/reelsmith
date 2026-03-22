@@ -301,6 +301,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
             all_clips.insert(0, {
                 "path": intro_path, "duration": intro_dur,
                 "transition": "cut", "transition_duration": 0.0,
+                "keep_audio": False, "media_type": "video",
             })
             if len(all_clips) > 1:
                 all_clips[1]["transition"] = "fade_black"
@@ -315,6 +316,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
             all_clips.append({
                 "path": outro_path, "duration": outro_dur,
                 "transition": "fade_black", "transition_duration": 1.0,
+                "keep_audio": False, "media_type": "video",
             })
 
     # Phase 2: Concatenate with transitions (video only)

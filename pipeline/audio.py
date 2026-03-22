@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import math
+import struct as _struct
+import wave
 from pathlib import Path
 
 from .edl import EDL
@@ -18,10 +21,6 @@ logger = logging.getLogger("vlog.audio")
 
 def estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int | None:
     """Estimate BPM from WAV using energy envelope autocorrelation. Stdlib only."""
-    import math
-    import struct as _struct
-    import wave
-
     try:
         with wave.open(str(wav_path)) as w:
             sr = w.getframerate()
@@ -30,9 +29,8 @@ def estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int |
             n_frames = w.getnframes()
             max_frames = min(n_frames, sr * 30)
             raw = w.readframes(max_frames)
-    except Exception as e:
-        import warnings
-        warnings.warn(f"BPM estimation: could not read {wav_path}: {e}")
+    except (OSError, wave.Error) as e:
+        logger.warning("BPM estimation: could not read %s: %s", wav_path, e)
         return None
 
     n_samples = len(raw) // sw

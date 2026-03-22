@@ -57,8 +57,15 @@ MUSIC_PROMPTS: dict[str, dict[str, str]] = {
 
 
 def _get_prompt(trip_type: str, style: str) -> str:
-    type_prompts = MUSIC_PROMPTS.get(trip_type, MUSIC_PROMPTS["general"])
-    return type_prompts.get(style, type_prompts.get("upbeat", "upbeat travel vlog background music"))
+    if trip_type not in MUSIC_PROMPTS:
+        logger.warning("Unknown trip_type '%s', falling back to 'general'", trip_type)
+        trip_type = "general"
+    type_prompts = MUSIC_PROMPTS[trip_type]
+    if style not in type_prompts:
+        logger.warning("Unknown style '%s' for trip_type '%s', falling back to 'upbeat'",
+                        style, trip_type)
+        style = "upbeat"
+    return type_prompts[style]
 
 
 def fetch_music(

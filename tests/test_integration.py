@@ -556,6 +556,7 @@ class TestXfadeConcatenation:
                 "path": path, "duration": 3.0,
                 "transition": "cut" if i == 0 else "crossfade",
                 "transition_duration": 0.0 if i == 0 else 0.5,
+                "keep_audio": False,
             })
 
         output = tmp_path / "xfade_out.mp4"
@@ -586,6 +587,7 @@ class TestXfadeConcatenation:
                 "path": path, "duration": 2.0,
                 "transition": "cut" if i == 0 else "crossfade",
                 "transition_duration": 0.0 if i == 0 else 0.3,
+                "keep_audio": False,
             })
 
         output = tmp_path / "grouped_out.mp4"

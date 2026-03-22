@@ -56,8 +56,8 @@ class Timeline:
 
         for i, clip in enumerate(all_clips):
             dur = _probe_dur(clip["path"]) or clip["duration"]
-            td = clip.get("transition_duration", 0.0)
-            tr = clip.get("transition", "cut")
+            td = clip["transition_duration"]
+            tr = clip["transition"]
             if tr == "cut":
                 td = 0.0
 
@@ -68,7 +68,7 @@ class Timeline:
                 edl_duration=clip["duration"],
                 transition=tr,
                 transition_duration=td,
-                keep_audio=clip.get("keep_audio", False),
+                keep_audio=clip["keep_audio"],
             ))
 
         tl._compute_offsets()
@@ -86,8 +86,8 @@ class Timeline:
 
         for i, clip in enumerate(all_clips):
             dur = _probe_dur(clip["path"]) or clip["duration"]
-            td = clip.get("transition_duration", 0.0)
-            tr = clip.get("transition", "cut")
+            td = clip["transition_duration"]
+            tr = clip["transition"]
             if tr == "cut":
                 td = 0.0
 
@@ -98,7 +98,7 @@ class Timeline:
                 edl_duration=clip["duration"],
                 transition=tr,
                 transition_duration=td,
-                keep_audio=clip.get("keep_audio", False),
+                keep_audio=clip["keep_audio"],
             ))
 
         tl._compute_offsets_actual(output_dir)

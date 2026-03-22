@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .media_utils import run_subprocess
+
+logger = logging.getLogger("vlog.encoder")
 
 
 # ---------------------------------------------------------------------------
@@ -47,8 +51,8 @@ def detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60,
                                   capture_output=True, text=True)
             if test.returncode == 0:
                 return ["-c:v", "hevc_videotoolbox", "-b:v", hevc_br]
-        except Exception:
-            pass
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.debug("HEVC VideoToolbox probe failed: %s", e)
         return ["-c:v", "h264_videotoolbox", "-b:v", h264_br]
 
     try:
@@ -69,8 +73,8 @@ def detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60,
             if test.returncode == 0:
                 return ["-c:v", "h264_nvenc", "-preset", "p4",
                         "-rc", "vbr", "-b:v", h264_br, "-maxrate", h264_br]
-    except Exception:
-        pass
+    except (OSError, subprocess.SubprocessError) as e:
+        logger.debug("HW encoder probe failed: %s", e)
 
     return ["-c:v", "libx264", "-preset", "fast", "-b:v", h264_br]
 

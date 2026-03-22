@@ -43,6 +43,9 @@ def _make_item(item_id: int, filename: str, local_path: str,
         "local_path": local_path,
         "family_count": family_count,
         "item_type": 0,
+        "taken_iso": "2025-01-01T00:00:00+00:00",
+        "takentime": 1735689600,
+        "metadata": {"persons": []},
     }
     item.update(extra)
     return item
