@@ -804,7 +804,7 @@ _assemble_options = [
         "quality",
         default=1.0,
         type=float,
-        help="Bitrate multiplier (4K60 HEVC): 0.5=21Mbps, 1.0=43Mbps YouTube (default), 1.5=65Mbps, 2.0=87Mbps master",
+        help="Bitrate multiplier (4K60 HEVC): 0.5=21Mbps, 1.0=43Mbps (default), 1.5=65Mbps, 2.0=87Mbps",
     ),
 ]
 
