@@ -118,20 +118,26 @@ def build_filter_graph(
         idx = len(inputs)
 
         if item.media_type == "photo":
-            inputs.append(["-loop", "1", "-t", str(item.display_duration), "-i", str(source)])
+            # Photo: use exact frame count for deterministic duration
+            frames = int(item.display_duration * fps)
+            exact_dur = frames / fps
+            inputs.append(["-loop", "1", "-t", str(exact_dur), "-i", str(source)])
             vf = _photo_filter_chain(idx, item, segment, ctx, fade_in, fade_out, language)
             video_filters.append(vf)
-            # Silent audio matching photo duration
-            video_filters.append(f"aevalsrc=0:d={item.display_duration}:s=48000:c=stereo [{_alabel(idx)}]")
+            video_filters.append(
+                f"aevalsrc=0:d={exact_dur}:s=48000:c=stereo,"
+                f"asetpts=PTS-STARTPTS [{_alabel(idx)}]"
+            )
             segment_pairs.append((f"[{_vlabel(idx)}]", f"[{_alabel(idx)}]"))
         else:
+            # Video: use trim duration (not display_duration) for consistency
+            duration = item.display_duration
+            if item.start_time is not None and item.end_time is not None:
+                duration = item.end_time - item.start_time
             inp = []
             if item.start_time is not None:
                 inp += ["-ss", str(item.start_time)]
             inp += ["-i", str(source)]
-            duration = item.display_duration
-            if item.start_time is not None and item.end_time is not None:
-                duration = item.end_time - item.start_time
             inp = ["-t", str(duration)] + inp
             inputs.append(inp)
 
@@ -141,19 +147,22 @@ def build_filter_graph(
             video_filters.append(vf)
 
             if item.keep_audio:
-                # Real audio from video, with optional speed adjustment
                 af = f"[{idx}:a] "
                 if speed != 1.0:
                     af += f"atempo={speed},"
-                af += f"afade=t=in:d=0.3,afade=t=out:st={max(0, output_dur - 0.3):.1f}:d=0.3"
+                af += (
+                    f"asetpts=PTS-STARTPTS,"
+                    f"afade=t=in:d=0.3,afade=t=out:st={max(0, output_dur - 0.3):.1f}:d=0.3"
+                )
                 af += f" [{_alabel(idx)}]"
                 video_filters.append(af)
             else:
-                # Silent audio matching video output duration
-                video_filters.append(f"aevalsrc=0:d={output_dur:.3f}:s=48000:c=stereo [{_alabel(idx)}]")
+                video_filters.append(
+                    f"aevalsrc=0:d={output_dur:.3f}:s=48000:c=stereo,"
+                    f"asetpts=PTS-STARTPTS [{_alabel(idx)}]"
+                )
 
             segment_pairs.append((f"[{_vlabel(idx)}]", f"[{_alabel(idx)}]"))
-            speech_offsets.append((0.0, source))  # offset unused now but kept for ducking
 
     # Outro card (no audio → silence)
     if outro_card_path and outro_card_path.exists():
@@ -225,7 +234,7 @@ def _alabel(idx: int) -> str:
 
 
 def _fade_expr(duration: float, fade_in: float, fade_out: float) -> str:
-    parts = []
+    parts = ["setpts=PTS-STARTPTS"]
     if fade_in > 0:
         parts.append(f"fade=t=in:d={fade_in}")
     if fade_out > 0:
