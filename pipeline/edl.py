@@ -80,11 +80,18 @@ class EDL(BaseModel):
     def all_items(self) -> list[EditItem]:
         return [item for seg in self.segments for item in seg.items]
 
+    @staticmethod
+    def _item_output_duration(item: EditItem) -> float:
+        """Actual output duration of a rendered clip (accounts for trim + speed)."""
+        if item.start_time is not None and item.end_time is not None:
+            source_dur = item.end_time - item.start_time
+        else:
+            source_dur = item.display_duration
+        speed = item.playback_speed or 1.0
+        return source_dur / speed
+
     def estimated_duration(self) -> float:
-        total = sum(
-            item.display_duration / item.playback_speed if item.playback_speed else item.display_duration
-            for item in self.all_items()
-        )
+        total = sum(self._item_output_duration(item) for item in self.all_items())
         transitions = sum(
             seg.transition_duration * max(0, len(seg.items) - 1)
             for seg in self.segments

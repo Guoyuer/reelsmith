@@ -130,7 +130,7 @@ def render_video(item: EditItem, output_path: Path, w: int, h: int, fps: int, *,
 
     speed = item.playback_speed
     speed_vf = f",setpts={1/speed:.4f}*PTS" if speed != 1.0 else ""
-    speed_af = f"-af atempo={speed}" if speed != 1.0 and item.keep_audio else ""
+    speed_af = ["-af", f"atempo={speed}"] if speed != 1.0 and item.keep_audio else []
 
     dt = ""
     if text_overlay:
@@ -156,9 +156,7 @@ def render_video(item: EditItem, output_path: Path, w: int, h: int, fps: int, *,
             *enc, "-pix_fmt", "yuv420p",
             "-r", str(fps),
         ]
-    if speed_af:
-        cmd += speed_af.split()
-    cmd += [*audio_args, str(output_path)]
+    cmd += [*speed_af, *audio_args, str(output_path)]
 
     result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
