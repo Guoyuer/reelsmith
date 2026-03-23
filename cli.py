@@ -504,8 +504,8 @@ _plan_options = [
     click.option("--focus", default="", help="Creative direction (e.g. 'family happiness; exotic street food')"),
     click.option("--lang", default="en", type=click.Choice(["en", "cn", "both"]), help="Text language for overlays and chapters"),
     click.option(
-        "--planning", required=True,
-        help="Preset (fast/balanced/quality) or model:thinking (e.g. gemini-2.5-flash:high)",
+        "--model", required=True,
+        help="fast (flash-lite:low ~$0.01) | balanced (flash:high ~$0.05) | quality (pro:high ~$0.50) | model:thinking",
     ),
     click.option("--music", default="auto", help="auto=Gemini Lyria (default), /path/to/file, none=no music"),
 ]
@@ -675,7 +675,7 @@ def full(
     style,
     focus,
     lang,
-    planning,
+    model,
     music,
     resolution,
     quality,
@@ -685,7 +685,7 @@ def full(
     from pipeline.plan import PlanConfig
     from pipeline.prepare import PrepareConfig
 
-    resolved_model, resolved_thinking = _resolve_planning(planning)
+    resolved_model, resolved_thinking = _resolve_planning(model)
     w, h, fps = resolution
     stages = ["fetch", "prepare", "plan"]
     music_file = None if music == "none" else music
@@ -719,11 +719,11 @@ def full(
 @_apply_options(_plan_options)
 @_tz_option
 @_force_option
-def plan(run_name, duration, trip_type, style, focus, lang, planning, music, tz_hours, force):
+def plan(run_name, duration, trip_type, style, focus, lang, model, music, tz_hours, force):
     """Re-plan only (uses cached media + analysis). Run assemble separately to render."""
     from pipeline.plan import PlanConfig
 
-    resolved_model, resolved_thinking = _resolve_planning(planning)
+    resolved_model, resolved_thinking = _resolve_planning(model)
     music_file = None if music == "none" else music
     stages = ["plan"]
     if music != "none":
