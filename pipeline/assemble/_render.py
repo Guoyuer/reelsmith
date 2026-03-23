@@ -16,7 +16,7 @@ from ._filters import (
     find_font,
     is_portrait,
     portrait_bg_filter,
-    zoompan_filter,
+    ken_burns_filter,
 )
 
 logger = logging.getLogger("vlog.assemble.render")
@@ -107,7 +107,7 @@ def render_photo(
             "static": "static",
         }
         direction = direction_map.get(item.effect, "in")  # already warned above
-        zp = zoompan_filter(zoom_rate, frames, w, h, fps, direction=direction)
+        zp = ken_burns_filter(frames, w, h, fps, direction=direction)
 
         ow, oh = w * 2, h * 2
         src_ratio = src_w / src_h if src_h > 0 else 1.0

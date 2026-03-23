@@ -17,7 +17,7 @@ from ._filters import (
     color_grade,
     drawtext_filter,
     is_portrait,
-    zoompan_filter,
+    ken_burns_filter,
 )
 
 logger = logging.getLogger("vlog.assemble.graph")
@@ -199,14 +199,6 @@ def _photo_filter(
     w, h, fps = ctx.w, ctx.h, ctx.fps
     frames = int(item.display_duration * fps)
 
-    zoom_targets = {
-        "ken_burns_in": 0.25, "ken_burns_out": 0.20,
-        "ken_burns_left": 0.15, "ken_burns_right": 0.15, "static": 0.0,
-    }
-    target = zoom_targets.get(item.effect, 0.25)
-    variation = (int(hashlib.md5(item.source_file.encode()).hexdigest()[:4], 16) % 10) / 100
-    zoom_rate = 0.001 + ((target + variation) / frames) if target > 0 else 0
-
     dt = ""
     if item.text_overlay:
         dt = "," + drawtext_filter(
@@ -220,18 +212,18 @@ def _photo_filter(
     sharpen = ",unsharp=3:3:0.5:3:3:0.0"
 
     src_w, src_h = ctx.probe_dimensions(Path(item.source_file))
+    ow, oh = w * 2, h * 2
+    kb = ken_burns_filter(frames, w, h, fps, direction="in")
+
     if is_portrait(src_w, src_h):
-        portrait_zoom_rate = 0.001 + (0.08 / frames)
+        # Portrait: blurred bg at target res, sharp fg centered, crop+scale Ken Burns
         return (
             f"[{idx}:v] split [bg{idx}][fg{idx}];"
-            f"[bg{idx}] scale=960:-1:force_original_aspect_ratio=increase,crop=960:540,"
-            f"gblur=sigma=60,scale={w}:{h},eq=brightness=-0.15:saturation=0.6 [blurred{idx}];"
-            f"[fg{idx}] scale=-1:{h} [sharp{idx}];"
+            f"[bg{idx}] scale={ow}:-1:force_original_aspect_ratio=increase,crop={ow}:{oh},"
+            f"gblur=sigma=60,eq=brightness=-0.15:saturation=0.6 [blurred{idx}];"
+            f"[fg{idx}] scale=-1:{oh} [sharp{idx}];"
             f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2 [comp{idx}];"
-            f"[comp{idx}] zoompan=z='1+(1.08-1)*(1-cos(PI*on/{frames}))/2':d={frames}"
-            f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-            f":s={w}x{h}:fps={fps}"
-            f"{dt}{fade} [v{idx}]"
+            f"[comp{idx}] {kb},{cg}{sharpen}{dt}{fade} [v{idx}]"
         )
     else:
         direction_map = {
@@ -239,15 +231,12 @@ def _photo_filter(
             "ken_burns_left": "left", "ken_burns_right": "right", "static": "static",
         }
         direction = direction_map.get(item.effect, "in")
-        ow, oh = w * 2, h * 2
-        # zoompan at 2x resolution → lanczos downscale (zoompan's bilinear is too soft)
-        zp = zoompan_filter(zoom_rate, frames, ow, oh, fps, direction=direction)
-        lanczos = f"scale={w}:{h}:flags=lanczos"
+        kb = ken_burns_filter(frames, w, h, fps, direction=direction)
         src_ratio = src_w / src_h if src_h > 0 else 1.0
         out_ratio = ow / oh
 
         if abs(src_ratio - out_ratio) / out_ratio < 0.05:
-            return f"[{idx}:v] scale={ow}:{oh},{zp},{lanczos},{cg}{sharpen}{dt}{fade} [v{idx}]"
+            return f"[{idx}:v] scale={ow}:{oh},{kb},{cg}{sharpen}{dt}{fade} [v{idx}]"
         else:
             return (
                 f"[{idx}:v] split [bg{idx}][fg{idx}];"
@@ -255,7 +244,7 @@ def _photo_filter(
                 f"crop={ow}:{oh},gblur=sigma=25 [blurred{idx}];"
                 f"[fg{idx}] scale={ow}:{oh}:force_original_aspect_ratio=decrease [sharp{idx}];"
                 f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2 [comp{idx}];"
-                f"[comp{idx}] {zp},{lanczos},{cg}{sharpen}{dt}{fade} [v{idx}]"
+                f"[comp{idx}] {kb},{cg}{sharpen}{dt}{fade} [v{idx}]"
             )
 
 

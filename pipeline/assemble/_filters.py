@@ -101,29 +101,46 @@ def drawtext_filter(
 # ---------------------------------------------------------------------------
 
 
-def zoompan_filter(
-    zoom_rate: float,
+def ken_burns_filter(
     frames: int,
     w: int,
     h: int,
     fps: int,
     direction: str = "in",
 ) -> str:
-    """Build a Ken Burns zoompan filter expression.
+    """Ken Burns via crop + lanczos scale.  No zoompan (bilinear-only).
+
+    Input must be larger than *w* x *h* (typically 2x for zoom headroom).
+    The crop selects an animated region; lanczos downscales to output.
 
     *direction*: ``"in"``, ``"out"``, ``"left"``, ``"right"``, or ``"static"``.
     """
-    center = "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-    tail = f":s={w}x{h}:fps={fps}"
-
-    zoom_exprs = {
-        "in": f"z='1+(1.3-1)*(1-cos(PI*on/{frames}))/2':d={frames}:{center}",
-        "out": f"z='1.3-(1.3-1)*(1-cos(PI*on/{frames}))/2':d={frames}:{center}",
-        "left": f"z='1.15':d={frames}:x='(iw-iw/zoom)*(1-cos(PI*on/{frames}))/2':y='ih/2-(ih/zoom/2)'",
-        "right": f"z='1.15':d={frames}:x='(iw-iw/zoom)*(1-(1-cos(PI*on/{frames}))/2)':y='ih/2-(ih/zoom/2)'",
-        "static": f"z='1':d={frames}",
+    # Zoom expressions (cosine-eased), evaluated per frame via 'n'
+    zoom_map = {
+        "in": f"1+0.3*(1-cos(PI*n/{frames}))/2",
+        "out": f"1.3-0.3*(1-cos(PI*n/{frames}))/2",
+        "left": "1.15",
+        "right": "1.15",
+        "static": "1",
     }
-    return f"zoompan={zoom_exprs.get(direction, zoom_exprs['in'])}{tail}"
+    z = zoom_map.get(direction, zoom_map["in"])
+
+    cw = f"trunc(iw/({z})/2)*2"
+    ch = f"trunc(ih/({z})/2)*2"
+
+    # Pan expressions
+    if direction == "left":
+        cx = f"(iw-ow)*(1-cos(PI*n/{frames}))/2"
+    elif direction == "right":
+        cx = f"(iw-ow)*(1-(1-cos(PI*n/{frames}))/2)"
+    else:
+        cx = "(iw-ow)/2"
+    cy = "(ih-oh)/2"
+
+    return (
+        f"crop=w='{cw}':h='{ch}':x='{cx}':y='{cy}':exact=1,"
+        f"scale={w}:{h}:flags=lanczos"
+    )
 
 
 def portrait_bg_filter(w: int, h: int) -> str:
