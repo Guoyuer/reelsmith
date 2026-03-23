@@ -1,3 +1,5 @@
+"""Pipeline configuration — workspace paths, shared directories, environment loading."""
+
 from __future__ import annotations
 
 import os

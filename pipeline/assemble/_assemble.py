@@ -544,7 +544,6 @@ def _validate_output(
 
     Errors indicate critical failures; warnings are informational.
     """
-    logger = logging.getLogger(__name__)
     issues: list[dict] = []
 
     def _error(check: str, msg: str) -> None:
