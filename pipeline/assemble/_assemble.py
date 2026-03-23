@@ -15,15 +15,15 @@ from typing import Literal
 
 from tqdm import tqdm
 
-from ._audio import beat_snap_edl, build_speech_track, mix_final_audio, write_chapters
-from ._concat import concatenate
 from ..config import Config
 from ..edl import EDL, load_latest_edl, validate_edl
 from ..image_utils import init_heic_dir
-from ._encoder import RenderContext
 from ..media_utils import run_subprocess
 from ..parallel import run_parallel
-from ._render import render_photo, render_video, render_title_card
+from ._audio import beat_snap_edl, build_speech_track, mix_final_audio, write_chapters
+from ._concat import concatenate
+from ._encoder import RenderContext
+from ._render import render_photo, render_title_card, render_video
 from ._timeline import Timeline
 
 logger = logging.getLogger("vlog.assemble")
@@ -242,7 +242,9 @@ def _assemble_inner(job: AssembleJob, *, progress_callback=None, skip_broken: bo
 # Phase 1 + 1b: Parallel clip rendering + intro/outro
 # ---------------------------------------------------------------------------
 
-def _render_clips(job: AssembleJob, *, progress_callback=None, skip_broken: bool = False) -> tuple[list[dict], RenderReport]:
+def _render_clips(
+    job: AssembleJob, *, progress_callback=None, skip_broken: bool = False,
+) -> tuple[list[dict], RenderReport]:
     """Render all EDL items as normalized clips (parallel), plus intro/outro.
 
     Returns (all_clips, report) where all_clips is an ordered list of clip

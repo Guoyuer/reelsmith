@@ -23,7 +23,6 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-
 from .config import Config
 from .image_utils import generate_thumbnail
 from .media_utils import run_subprocess

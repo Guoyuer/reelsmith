@@ -104,7 +104,7 @@ def zoompan_filter(
 
     *direction*: ``"in"``, ``"out"``, ``"left"``, ``"right"``, or ``"static"``.
     """
-    center = f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+    center = "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
     tail = f":s={w}x{h}:fps={fps}"
 
     zoom_exprs = {

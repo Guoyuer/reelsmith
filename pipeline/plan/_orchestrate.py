@@ -214,7 +214,10 @@ def plan(cfg: Config, pc: PlanConfig) -> tuple[EDL, int]:
     analysis_items = json.loads(cfg.analysis_path.read_text())
     analysis_by_id: dict[str, dict] = {str(a["id"]): a for a in analysis_items}
 
-    logger.info(f"Planning via Gemini with visual input (target {pc.target_duration}s, style={pc.style}, trip_type={pc.trip_type}, lang={pc.language})...")
+    logger.info(
+        f"Planning via Gemini (target {pc.target_duration}s, "
+        f"style={pc.style}, trip_type={pc.trip_type}, lang={pc.language})..."
+    )
     # Use a copy with effective_focus applied so _plan_visual gets the resolved focus
     visual_pc = PlanConfig(
         style=pc.style, target_duration=pc.target_duration,

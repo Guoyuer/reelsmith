@@ -7,13 +7,18 @@ import logging
 from pathlib import Path
 
 from ..edl import EditItem
-from ._encoder import RenderContext
-from ._filters import (
-    build_portrait_photo_filter, color_grade, drawtext_filter, find_font,
-    is_portrait, zoompan_filter, portrait_bg_filter,
-)
 from ..image_utils import convert_heic
 from ..media_utils import run_subprocess
+from ._encoder import RenderContext
+from ._filters import (
+    build_portrait_photo_filter,
+    color_grade,
+    drawtext_filter,
+    find_font,
+    is_portrait,
+    portrait_bg_filter,
+    zoompan_filter,
+)
 
 logger = logging.getLogger("vlog.render")
 

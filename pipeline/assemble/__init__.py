@@ -1,5 +1,5 @@
 """Assemble stage: render clips, concatenate, mix audio, validate."""
 
-from ._assemble import assemble, RenderReport, ClipStatus
+from ._assemble import ClipStatus, RenderReport, assemble
 
 __all__ = ["assemble", "RenderReport", "ClipStatus"]

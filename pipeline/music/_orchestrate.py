@@ -8,13 +8,11 @@ Falls back gracefully if API unavailable — vlog renders without music.
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
 logger = logging.getLogger("vlog.music")
 
-from ._prompts import get_prompt as _get_prompt
 
 
 def generate_music(

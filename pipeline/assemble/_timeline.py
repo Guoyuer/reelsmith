@@ -10,8 +10,8 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ._grouping import partition_into_groups
 from ._encoder import RenderContext
+from ._grouping import partition_into_groups
 
 logger = logging.getLogger("vlog.timeline")
 

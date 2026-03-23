@@ -49,7 +49,7 @@ def _build_visual_chapter_text(
         time_str = ""
         if taken_iso and len(taken_iso) >= 16:
             try:
-                from datetime import datetime, timedelta, timezone as tz
+                from datetime import datetime, timedelta
                 dt = datetime.fromisoformat(taken_iso.replace("Z", "+00:00"))
                 local_dt = dt + timedelta(hours=tz_hours)
                 time_str = local_dt.strftime("%H:%M")

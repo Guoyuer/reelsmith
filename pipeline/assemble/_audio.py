@@ -10,8 +10,8 @@ import wave
 from pathlib import Path
 
 from ..edl import EDL
-from ._encoder import RenderContext
 from ..media_utils import run_subprocess
+from ._encoder import RenderContext
 
 logger = logging.getLogger("vlog.audio")
 
@@ -216,7 +216,8 @@ def add_music(video_path: Path, music, output_path: Path, *,
         vol_expr = f"{music.volume:.3f}"
         for start, end in speech_ranges:
             attack_start = max(0, start - 0.3)
-            vol_expr = f"({vol_expr})*(1-{1-duck_ratio:.3f}*(clip((t-{attack_start:.1f})/0.3,0,1)-clip((t-{end:.1f})/1.0,0,1)))"
+            gain = f"clip((t-{attack_start:.1f})/0.3,0,1)-clip((t-{end:.1f})/1.0,0,1)"
+            vol_expr = f"({vol_expr})*(1-{1-duck_ratio:.3f}*({gain}))"
         music_vol_filter = f"volume='{vol_expr}':eval=frame"
     else:
         music_vol_filter = f"volume={music.volume}"

@@ -190,8 +190,8 @@ def fill_duration_gap(
         f"Add {deficit:.0f}s more content by inserting items into existing segments.\n\n"
         f"UNUSED CANDIDATES (pick from these):\n"
         + "\n".join(unused_lines[:100]) + "\n\n"
-        f"Return the COMPLETE updated EDL JSON (all segments, all items — "
-        f"original + new). Keep the same structure and format."
+        "Return the COMPLETE updated EDL JSON (all segments, all items — "
+        "original + new). Keep the same structure and format."
     )
     model_kwargs = {"model": model} if model else {}
     edl_content2 = _gemini_call(
@@ -245,7 +245,7 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
     n_text_overlay = sum(1 for i in all_items if i.text_overlay)
     n_speed_ramp = sum(1 for i in all_items if i.playback_speed != 1.0)
 
-    logger.info(f"=== [Gemini] PARSED EDL ===")
+    logger.info("=== [Gemini] PARSED EDL ===")
     logger.info(f"  Title: {edl.title}")
     logger.info(f"  Segments: {len(edl.segments)}, Items: {len(all_items)} "
          f"({n_photos} photos + {n_videos} videos)")
@@ -275,4 +275,4 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
             flag_str = f" [{', '.join(flags)}]" if flags else ""
             logger.info(f"    - {item.media_type:5s} {item.display_duration}s "
                  f"{item.effect:16s} {Path(item.source_file).name}{trim}{flag_str}")
-    logger.info(f"=== [Gemini] END PARSED EDL ===")
+    logger.info("=== [Gemini] END PARSED EDL ===")

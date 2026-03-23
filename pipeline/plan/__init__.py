@@ -6,12 +6,16 @@ individual photo thumbnails and watches video clips (with audio) to create an ED
 Requires GEMINI_API_KEY in .env.
 """
 
-from ._orchestrate import plan, PlanConfig
+from ._orchestrate import PlanConfig, plan
+from ._preview import (  # noqa: F401
+    _build_visual_chapter_text,
+    _build_visual_content_blocks,
+)
 
 # Re-exports for backward compatibility (tests import these by name)
 from ._prompts import (  # noqa: F401
-    TRIP_TYPES,
     _PROMPTS_DIR,
+    TRIP_TYPES,
     _default_focus,
     _format_date_range,
     _load_json,
@@ -21,10 +25,6 @@ from ._prompts import (  # noqa: F401
     _secs_to_timestamp,
     _timestamp_to_secs,
     _visual_system_prompt,
-)
-from ._preview import (  # noqa: F401
-    _build_visual_chapter_text,
-    _build_visual_content_blocks,
 )
 
 __all__ = ["plan", "PlanConfig"]

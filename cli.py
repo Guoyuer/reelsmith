@@ -17,7 +17,6 @@ from pathlib import Path
 
 import click
 
-
 # ---------------------------------------------------------------------------
 # SIGINT handler — first Ctrl+C sets flag, second force-quits
 # ---------------------------------------------------------------------------
@@ -308,7 +307,7 @@ def _run_prepare(pc: _PipelineContext):
         pc.status["stages"]["prepare"] = {"status": "cached"}
     else:
         from pipeline.prepare import prepare
-        result = prepare(
+        prepare(
             pc.cfg, prep,
             progress_callback=_progress_cb(pc.logger, pc.display, "prepare", t0),
         )
@@ -490,7 +489,7 @@ def _run_pipeline(run_name: str, *, stages: list[str],
     finally:
         status["completed_at"] = datetime.now(timezone.utc).isoformat()
         status["total_duration_s"] = round(time.monotonic() - t_start, 1)
-        _write_status(ws, status)
+        _write_status(pc.ws, status)
         total = status["total_duration_s"]
         result = status.get("result", "unknown")
         logger.info(f"Pipeline {result} in {total:.0f}s")
@@ -677,9 +676,9 @@ def full(run_name, source, path, from_date, to_date, country, district, item_typ
          duration, trip_type, style, focus, lang, model, music,
          resolution, quality):
     """Run the full pipeline end-to-end."""
+    from pipeline.assemble import AssembleConfig
     from pipeline.plan import PlanConfig
     from pipeline.prepare import PrepareConfig
-    from pipeline.assemble import AssembleConfig
 
     w, h, fps = resolution
     stages = ["fetch", "prepare", "plan"]
@@ -839,7 +838,8 @@ def _run_detail(run_dir) -> dict:
 
 @cli.command()
 @click.option("--clean", type=click.Choice(["safe", "cache", "media", "all"]),
-              default=None, help="safe=old outputs+intermediates, cache=analysis/thumbnails, media=source files, all=everything")
+              default=None,
+              help="safe=old outputs+intermediates, cache=analysis/thumbnails, media=source files, all=everything")
 @click.option("-y", "--yes", is_flag=True, help="Skip confirmation")
 def workspace(clean, yes):
     """Show workspace disk usage with pipeline-aware details."""
@@ -933,7 +933,7 @@ def workspace(clean, yes):
                 parts.append(f"v{o['version']} ({_fmt_size(o['size'])}){marker}")
             click.echo(f"    Output: {', '.join(parts)}")
         else:
-            click.echo(f"    Output: (none)")
+            click.echo("    Output: (none)")
 
         if r["clips_count"] > 0:
             click.echo(f"    Clips: {r['clips_count']} cached ({_fmt_size(r['clips_size'])})")
