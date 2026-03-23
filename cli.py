@@ -504,8 +504,8 @@ _plan_options = [
     click.option("--focus", default="", help="Creative direction (e.g. 'family happiness; exotic street food')"),
     click.option("--lang", default="en", type=click.Choice(["en", "cn", "both"]), help="Text language for overlays and chapters"),
     click.option(
-        "--planning", default="balanced",
-        help="Planning quality: fast (~$0.01), balanced (~$0.05, default), quality (~$0.50), or raw model ID",
+        "--planning", required=True,
+        help="Planning quality: fast (~$0.01), balanced (~$0.05), quality (~$0.50), or raw model ID",
     ),
     click.option("--model", default=None, hidden=True, help="Gemini model override (power user)"),
     click.option("--music", default="auto", help="auto=Gemini Lyria (default), /path/to/file, none=no music"),
