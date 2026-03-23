@@ -27,7 +27,7 @@ vlog assemble -n singapore -r 4k60
 vlog assemble -n singapore -r 2560x1440x60
 ```
 
-Logs go to terminal AND `workspace/runs/{name}/run_{timestamp}.log`. Run summary in `workspace/runs/{name}/run_status.json`.
+Logs go to terminal AND `workspace/runs/{name}/run_{timestamp}.log`.
 
 ## Pipeline stages
 

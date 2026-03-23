@@ -144,10 +144,6 @@ def _progress_cb(logger: logging.Logger, display: _PipelineDisplay, stage: str, 
     return cb
 
 
-def _write_status(ws: Path, status: dict) -> None:
-    """Write run status JSON."""
-    (ws / "run_status.json").write_text(json.dumps(status, indent=2, default=str))
-
 
 def _build_headline(pc: _PipelineContext, stages: list[str]) -> str:
     """Build a short headline from plan config for display."""
@@ -164,21 +160,17 @@ def _build_headline(pc: _PipelineContext, stages: list[str]) -> str:
     return " ".join(parts)
 
 
-def _check_interrupted(display: _PipelineDisplay, status: dict, ws: Path, logger: logging.Logger):
-    """Check if Ctrl+C was pressed between stages. If so, save and exit."""
+def _check_interrupted(display: _PipelineDisplay, logger: logging.Logger):
+    """Check if Ctrl+C was pressed between stages. If so, exit."""
     global _interrupted
     if _interrupted:
         logger.info("Pipeline interrupted by user")
-        status["result"] = "interrupted"
-        status["completed_at"] = datetime.now(timezone.utc).isoformat()
-        _write_status(ws, status)
         sys.exit(130)
 
 
 @dataclass
 class _PipelineContext:
     cfg: Config
-    status: dict
     logger: logging.Logger
     display: _PipelineDisplay | None = None
     fetch: FetchConfig | None = None
@@ -196,7 +188,7 @@ class _PipelineContext:
 
 def _run_fetch(pc: _PipelineContext):
     assert pc.fetch is not None and pc.display is not None
-    _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
+    _check_interrupted(pc.display, pc.logger)
     pc.display.start("fetch")
     t0 = time.monotonic()
     manifest_path = pc.cfg.manifest_path
@@ -206,7 +198,6 @@ def _run_fetch(pc: _PipelineContext):
         dur = time.monotonic() - t0
         pc.log(f"Fetch: {len(items)} items (cached)")
         pc.display.done("fetch", f"{len(items)} items", dur)
-        pc.status["stages"]["fetch"] = {"status": "cached", "items": len(items)}
     else:
         fc = pc.fetch
         cb = _progress_cb(pc.logger, pc.display, "fetch", t0)
@@ -221,12 +212,11 @@ def _run_fetch(pc: _PipelineContext):
         dur = time.monotonic() - t0
         pc.log(f"Fetch: {len(items)} items in {dur:.0f}s")
         pc.display.done("fetch", f"{len(items)} items", dur)
-        pc.status["stages"]["fetch"] = {"status": "ok", "duration_s": round(dur, 1), "items": len(items)}
 
 
 def _run_prepare(pc: _PipelineContext):
     assert pc.prepare is not None and pc.display is not None
-    _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
+    _check_interrupted(pc.display, pc.logger)
     pc.display.start("prepare")
     t0 = time.monotonic()
     analysis_path = pc.cfg.analysis_path
@@ -257,7 +247,6 @@ def _run_prepare(pc: _PipelineContext):
         dur = time.monotonic() - t0
         pc.log(f"Prepare: {len(results)} items ({n_photos} photos, {n_videos} videos) \u2014 cached")
         pc.display.done("prepare", f"{n_photos} photos, {n_videos} videos", dur)
-        pc.status["stages"]["prepare"] = {"status": "cached"}
     else:
         from pipeline.prepare import prepare
 
@@ -275,13 +264,12 @@ def _run_prepare(pc: _PipelineContext):
             pc.display.done("prepare", f"{n_photos} photos, {n_videos} videos", dur)
         else:
             pc.display.done("prepare", "done", dur)
-        pc.status["stages"]["prepare"] = {"status": "ok", "duration_s": round(dur, 1)}
 
 
 def _run_plan(pc: _PipelineContext):
     """Execute the plan stage."""
     assert pc.plan is not None and pc.display is not None
-    _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
+    _check_interrupted(pc.display, pc.logger)
     pc.display.start("plan")
     t0 = time.monotonic()
 
@@ -311,19 +299,12 @@ def _run_plan(pc: _PipelineContext):
     for seg in edl.segments:
         pc.log(f"  {seg.name}: {len(seg.items)} items, transition={seg.transition}")
 
-    pc.status["stages"]["plan"] = {
-        "status": "ok",
-        "version": version,
-        "duration_s": round(dur, 1),
-        "segments": len(edl.segments),
-        "items": len(all_items),
-    }
 
 
 def _run_generate_music(pc: _PipelineContext):
     """Execute the generate_music stage."""
     assert pc.display is not None
-    _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
+    _check_interrupted(pc.display, pc.logger)
     pc.display.start("generate_music")
     t0 = time.monotonic()
 
@@ -338,16 +319,14 @@ def _run_generate_music(pc: _PipelineContext):
     if track:
         pc.log(f"Music: generated {track.name} in {dur:.0f}s")
         pc.display.done("generate_music", track.name, dur)
-        pc.status["stages"]["generate_music"] = {"status": "ok", "duration_s": round(dur, 1)}
     else:
         pc.log("Music: skipped")
         pc.display.done("generate_music", "skipped", dur)
-        pc.status["stages"]["generate_music"] = {"status": "skipped"}
 
 
 def _run_assemble(pc: _PipelineContext):
     assert pc.assemble is not None and pc.display is not None
-    _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
+    _check_interrupted(pc.display, pc.logger)
     pc.display.start("assemble")
     t0 = time.monotonic()
     ac = pc.assemble
@@ -389,12 +368,6 @@ def _run_assemble(pc: _PipelineContext):
         level = issue.get("level", "warning")
         pc.log(f"  [{level.upper()}] {issue.get('check', '')}: {issue.get('message', '')}")
 
-    pc.status["stages"]["assemble"] = {
-        "status": "ok",
-        "duration_s": round(dur, 1),
-        "output": out.name,
-        "size_mb": size_mb,
-    }
 
 
 _STAGE_RUNNERS = {
@@ -420,15 +393,8 @@ def _run_pipeline(run_name: str, *, stages: list[str], fetch=None, prepare=None,
 
     logger = _setup_logging(run_name)
 
-    status: dict = {
-        "run_name": run_name,
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "stages": {},
-    }
-
     pc = _PipelineContext(
         cfg=cfg,
-        status=status,
         logger=logger,
         fetch=fetch,
         prepare=prepare,
@@ -446,24 +412,16 @@ def _run_pipeline(run_name: str, *, stages: list[str], fetch=None, prepare=None,
             if stage in _STAGE_RUNNERS:
                 _STAGE_RUNNERS[stage](pc)
 
-        status["result"] = "success"
+        total = round(time.monotonic() - t_start, 1)
+        logger.info(f"Pipeline success in {total:.0f}s")
 
     except SystemExit:
         raise
     except Exception as e:
-        # Mark failure in display
+        total = round(time.monotonic() - t_start, 1)
         display.fail("pipeline", str(e)[:80])
-        logger.error(f"Pipeline failed: {e}", exc_info=True)
-        status["result"] = "failure"
-        status["error"] = str(e)
+        logger.error(f"Pipeline failed in {total:.0f}s: {e}", exc_info=True)
         raise
-    finally:
-        status["completed_at"] = datetime.now(timezone.utc).isoformat()
-        status["total_duration_s"] = round(time.monotonic() - t_start, 1)
-        _write_status(pc.ws, status)
-        total = status["total_duration_s"]
-        result = status.get("result", "unknown")
-        logger.info(f"Pipeline {result} in {total:.0f}s")
 
 
 # ---------------------------------------------------------------------------
