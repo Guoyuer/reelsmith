@@ -192,6 +192,9 @@ Candidates by day/location:"""
     system_prompt = _visual_system_prompt(pc.trip_type, language=pc.language)
     logger.info(f"Sending {len(visual_parts)} parts to Gemini (single pass)...")
 
+    if progress_callback:
+        progress_callback(2, 3, "gemini API")
+
     model_kwargs: dict = {}
     if pc.model:
         model_kwargs["model"] = pc.model
@@ -205,8 +208,6 @@ Candidates by day/location:"""
     for line in edl_content.split("\n"):
         logger.info(f"  | {line}")
     logger.info("=== [Gemini] END RESPONSE ===")
-    if progress_callback:
-        progress_callback(2, 3, "gemini API")
 
     # --- Post-processing pipeline ---
     edl = parse_and_convert_timestamps(edl_content, preview_offset_table)
