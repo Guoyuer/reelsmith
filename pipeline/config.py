@@ -37,10 +37,6 @@ class Config:
         return self._base / "preview_clips"
 
     @property
-    def heic_converted_dir(self) -> Path:
-        return self._base / "heic_converted"
-
-    @property
     def music_dir(self) -> Path:
         return self._base / "music"
 
@@ -90,7 +86,6 @@ class Config:
             self.cache_dir,
             self.thumbnails_dir,
             self.preview_clips_dir,
-            self.heic_converted_dir,
             self.music_dir,
         ]:
             d.mkdir(parents=True, exist_ok=True)

@@ -7,7 +7,6 @@ import logging
 from pathlib import Path
 
 from ..edl import EditItem
-from ..image_utils import convert_heic
 from ..media_utils import run_subprocess
 from ._encoder import RenderContext
 from ._filters import (
@@ -52,9 +51,7 @@ def render_photo(
     """Render a photo with Ken Burns effect as a video clip. Text overlay baked in."""
     w, h, fps = ctx.w, ctx.h, ctx.fps
     source = Path(item.source_file)
-
-    if source.suffix.lower() in {".heic", ".heif"}:
-        source = convert_heic(source)  # raises RuntimeError on failure
+    # FFmpeg 8+ reads HEIC natively — no conversion needed
 
     frames = int(item.display_duration * fps)
     zoom_targets = {

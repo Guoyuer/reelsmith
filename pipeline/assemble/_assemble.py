@@ -13,7 +13,6 @@ from pathlib import Path
 
 from ..config import Config
 from ..edl import EDL, load_latest_edl, validate_edl
-from ..image_utils import convert_heic, init_heic_dir
 from ..media_utils import run_subprocess
 from ._audio import beat_snap_edl, write_chapters
 from ._encoder import RenderContext
@@ -61,7 +60,6 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
     Returns (output_path, validation_issues).
     """
     cfg.ensure_dirs()
-    init_heic_dir(cfg.heic_converted_dir)
 
     # Load EDL
     version = ac.version or 0
@@ -229,8 +227,6 @@ def _find_first_photo(edl: EDL) -> str | None:
         for item in seg.items:
             if item.media_type == "photo":
                 bg_path = Path(item.source_file)
-                if bg_path.suffix.lower() in {".heic", ".heif"}:
-                    bg_path = convert_heic(bg_path)
                 return str(bg_path)
     return None
 

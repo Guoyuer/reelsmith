@@ -138,6 +138,26 @@ def validate_trim_points(edl: EDL, analysis_by_id: dict) -> tuple[int, int]:
     edl.segments = [s for s in edl.segments if s.items]
     if trim_fixed or trim_removed:
         logger.info(f"  Trim validation: {trim_fixed} clamped, {trim_removed} removed")
+
+    # Fix display_duration to match trim range / speed
+    dur_fixed = 0
+    for seg in edl.segments:
+        for item in seg.items:
+            if item.media_type == "video" and item.start_time is not None and item.end_time is not None:
+                trim_dur = item.end_time - item.start_time
+                speed = item.playback_speed or 1.0
+                expected = trim_dur / speed
+                if abs(expected - item.display_duration) > 0.5:
+                    logger.info(
+                        f"  Duration fix: {Path(item.source_file).name} "
+                        f"display_duration {item.display_duration:.1f}s → {expected:.1f}s "
+                        f"(trim={trim_dur:.1f}s, speed={speed})"
+                    )
+                    item.display_duration = round(expected, 1)
+                    dur_fixed += 1
+    if dur_fixed:
+        logger.info(f"  Duration alignment: {dur_fixed} items corrected")
+
     return trim_fixed, trim_removed
 
 

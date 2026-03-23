@@ -1,4 +1,4 @@
-"""Image utilities: HEIC conversion, thumbnails."""
+"""Image utilities: HEIC conversion for FFmpeg, thumbnails for Gemini."""
 
 from __future__ import annotations
 
@@ -15,34 +15,18 @@ try:
 
     pillow_heif.register_heif_opener()
 except ImportError:
-    pass  # HEIC support unavailable; convert_heic will use sips/ImageMagick fallback
-
-# Set by init_heic_dir() from Config; convert_heic uses this instead of source.parent
-_heic_dest_dir: Path | None = None
+    pass  # HEIC thumbnails require pillow-heif; rendering uses convert_heic fallback
 
 
-def init_heic_dir(dest_dir: Path) -> None:
-    """Set the global HEIC conversion output directory."""
-    global _heic_dest_dir
-    _heic_dest_dir = dest_dir
-    dest_dir.mkdir(parents=True, exist_ok=True)
+def convert_heic(source: Path) -> Path:
+    """Convert HEIC to JPEG for FFmpeg (which can't -loop 1 with HEIC).
 
-
-def convert_heic(source: Path, dest_dir: Path | None = None) -> Path:
-    """Convert a HEIC/HEIF image to JPEG.
-
-    Tries backends in order: pillow-heif (cross-platform), macOS sips,
-    ImageMagick. At least one must be available.
-
-    Output goes to *dest_dir* if given, else the module-level dir set by
-    ``init_heic_dir()``, else *source.parent* as last resort.
+    Cached — skips if output exists. Tries pillow-heif, sips, ImageMagick.
     """
-    dest_dir = dest_dir or _heic_dest_dir or source.parent
-    jpeg_path = dest_dir / f"_converted_{source.stem}.jpg"
+    jpeg_path = source.parent / f"_converted_{source.stem}.jpg"
     if jpeg_path.exists():
         return jpeg_path
 
-    # Try 1: pillow-heif + Pillow (cross-platform, pip install pillow-heif)
     try:
         import pillow_heif
 
@@ -56,7 +40,6 @@ def convert_heic(source: Path, dest_dir: Path | None = None) -> Path:
     except ImportError:
         pass
 
-    # Try 2: macOS sips (no extra deps needed on Mac)
     if shutil.which("sips"):
         run_subprocess(
             ["sips", "-s", "format", "jpeg", str(source), "--out", str(jpeg_path)],
@@ -65,16 +48,13 @@ def convert_heic(source: Path, dest_dir: Path | None = None) -> Path:
         if jpeg_path.exists():
             return jpeg_path
 
-    # Try 3: ImageMagick (cross-platform, if installed)
     magick = shutil.which("magick") or shutil.which("convert")
     if magick:
         run_subprocess([magick, str(source), str(jpeg_path)], capture_output=True)
         if jpeg_path.exists():
             return jpeg_path
 
-    raise RuntimeError(
-        f"HEIC conversion failed for {source}. " "Install pillow-heif (`pip install pillow-heif`) or ImageMagick."
-    )
+    raise RuntimeError(f"HEIC conversion failed for {source}. Install pillow-heif or ImageMagick.")
 
 
 def generate_thumbnail(
@@ -83,10 +63,7 @@ def generate_thumbnail(
     size: int = 400,
     quality: int = 70,
 ) -> Path | None:
-    """Generate a thumbnail JPEG for an image file. Cached — skips if exists.
-
-    pillow-heif must be registered before calling (for HEIC sources).
-    """
+    """Generate a thumbnail JPEG for an image file. Cached — skips if exists."""
     from PIL import Image
 
     output_dir.mkdir(parents=True, exist_ok=True)

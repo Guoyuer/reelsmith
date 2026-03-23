@@ -111,6 +111,8 @@ def build_filter_graph(
         fade_in, fade_out = fade_params[fi]
         source = Path(item.source_file)
 
+        # HEIC needs conversion — FFmpeg can't use -loop 1 with HEIC, and some
+        # HEIC files have unsupported features (tmap, Derived Images)
         if item.media_type == "photo" and source.suffix.lower() in {".heic", ".heif"}:
             from ..image_utils import convert_heic
             source = convert_heic(source)
@@ -118,19 +120,17 @@ def build_filter_graph(
         idx = len(inputs)
 
         if item.media_type == "photo":
-            # Photo: use exact frame count for deterministic duration
             frames = int(item.display_duration * fps)
             exact_dur = frames / fps
             inputs.append(["-loop", "1", "-t", str(exact_dur), "-i", str(source)])
             vf = _photo_filter_chain(idx, item, segment, ctx, fade_in, fade_out, language)
             video_filters.append(vf)
+            # Silence padded +1s; concat truncates to match video duration
             video_filters.append(
-                f"aevalsrc=0:d={exact_dur}:s=48000:c=stereo,"
-                f"asetpts=PTS-STARTPTS [{_alabel(idx)}]"
+                f"aevalsrc=0:d={exact_dur}:s=48000:c=stereo [{_alabel(idx)}]"
             )
             segment_pairs.append((f"[{_vlabel(idx)}]", f"[{_alabel(idx)}]"))
         else:
-            # Video: use trim duration (not display_duration) for consistency
             duration = item.display_duration
             if item.start_time is not None and item.end_time is not None:
                 duration = item.end_time - item.start_time
@@ -150,16 +150,13 @@ def build_filter_graph(
                 af = f"[{idx}:a] "
                 if speed != 1.0:
                     af += f"atempo={speed},"
-                af += (
-                    f"asetpts=PTS-STARTPTS,"
-                    f"afade=t=in:d=0.3,afade=t=out:st={max(0, output_dur - 0.3):.1f}:d=0.3"
-                )
+                af += f"asetpts=PTS-STARTPTS"
                 af += f" [{_alabel(idx)}]"
                 video_filters.append(af)
             else:
+                # Silence padded +1s; concat truncates to match video
                 video_filters.append(
-                    f"aevalsrc=0:d={output_dur:.3f}:s=48000:c=stereo,"
-                    f"asetpts=PTS-STARTPTS [{_alabel(idx)}]"
+                    f"aevalsrc=0:d={output_dur:.3f}:s=48000:c=stereo [{_alabel(idx)}]"
                 )
 
             segment_pairs.append((f"[{_vlabel(idx)}]", f"[{_alabel(idx)}]"))
@@ -234,8 +231,11 @@ def _alabel(idx: int) -> str:
 
 
 def _fade_expr(duration: float, fade_in: float, fade_out: float) -> str:
-    """Build video fade + setpts filters."""
-    parts = ["setpts=PTS-STARTPTS"]
+    """Build video fade + format normalization + setpts filters.
+
+    format=yuv420p ensures all segments match for concat filter.
+    """
+    parts = ["format=yuv420p", "setsar=1", "setpts=PTS-STARTPTS"]
     if fade_in > 0:
         parts.append(f"fade=t=in:d={fade_in}")
     if fade_out > 0:
@@ -245,13 +245,8 @@ def _fade_expr(duration: float, fade_in: float, fade_out: float) -> str:
 
 
 def _trim_expr(duration: float) -> str:
-    """Trim video to exact duration + reset PTS. Applied AFTER fps filter.
-
-    Skips trim for very short clips (<1s) to avoid producing 0 frames.
-    """
-    if duration < 1.0:
-        return ""
-    return f",trim=duration={duration:.6f},setpts=PTS-STARTPTS"
+    """Placeholder — video trim disabled (audio atrim handles sync)."""
+    return ""
 
 
 def _photo_filter_chain(
@@ -344,9 +339,10 @@ def _video_filter_chain(
     fade = _fade_expr(output_dur, fade_in, fade_out)
     trim = _trim_expr(output_dur)
 
+    # format=yuv420p early: converts 10-bit DV sources to 8-bit before scale
     if is_portrait(src_w, src_h):
         return (
-            f"[{idx}:v] split [bg{idx}][fg{idx}];"
+            f"[{idx}:v] format=yuv420p,split [bg{idx}][fg{idx}];"
             f"[bg{idx}] scale={w}:-1:force_original_aspect_ratio=increase,"
             f"crop={w}:{h},gblur=sigma=60,eq=brightness=-0.15:saturation=0.6 [blurred{idx}];"
             f"[fg{idx}] scale=-1:{h} [sharp{idx}];"
@@ -355,7 +351,7 @@ def _video_filter_chain(
         )
     else:
         return (
-            f"[{idx}:v] scale={w}:{h}:force_original_aspect_ratio=decrease,"
+            f"[{idx}:v] format=yuv420p,scale={w}:{h}:force_original_aspect_ratio=decrease,"
             f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,"
             f"{cg}{speed_vf}{dt}{fade},fps={fps}{trim} [{_vlabel(idx)}]"
         )
