@@ -239,13 +239,15 @@ def _photo_filter(
             "ken_burns_left": "left", "ken_burns_right": "right", "static": "static",
         }
         direction = direction_map.get(item.effect, "in")
-        zp = zoompan_filter(zoom_rate, frames, w, h, fps, direction=direction)
         ow, oh = w * 2, h * 2
+        # zoompan at 2x resolution → lanczos downscale (zoompan's bilinear is too soft)
+        zp = zoompan_filter(zoom_rate, frames, ow, oh, fps, direction=direction)
+        lanczos = f"scale={w}:{h}:flags=lanczos"
         src_ratio = src_w / src_h if src_h > 0 else 1.0
         out_ratio = ow / oh
 
         if abs(src_ratio - out_ratio) / out_ratio < 0.05:
-            return f"[{idx}:v] scale={ow}:{oh},{zp},{cg}{sharpen}{dt}{fade} [v{idx}]"
+            return f"[{idx}:v] scale={ow}:{oh},{zp},{lanczos},{cg}{sharpen}{dt}{fade} [v{idx}]"
         else:
             return (
                 f"[{idx}:v] split [bg{idx}][fg{idx}];"
@@ -253,7 +255,7 @@ def _photo_filter(
                 f"crop={ow}:{oh},gblur=sigma=25 [blurred{idx}];"
                 f"[fg{idx}] scale={ow}:{oh}:force_original_aspect_ratio=decrease [sharp{idx}];"
                 f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2 [comp{idx}];"
-                f"[comp{idx}] {zp},{cg}{sharpen}{dt}{fade} [v{idx}]"
+                f"[comp{idx}] {zp},{lanczos},{cg}{sharpen}{dt}{fade} [v{idx}]"
             )
 
 
