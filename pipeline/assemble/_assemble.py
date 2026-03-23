@@ -310,6 +310,11 @@ def _render_clips(
     for i, (seg_idx, item_idx, item, segment) in enumerate(flat_items):
         fade_in, fade_out = fade_params[i]
         tasks.append((len(tasks), seg_idx, item_idx, item, segment, fade_in, fade_out))
+        if fade_in > 0 or fade_out > 0:
+            logger.info(
+                f"  Fade: seg{seg_idx:02d}_item{item_idx:02d} "
+                f"in={fade_in:.1f}s out={fade_out:.1f}s ({Path(item.source_file).name})"
+            )
 
     total_items = len(tasks)
     clip_results: list[Path | None] = [None] * total_items
@@ -494,7 +499,8 @@ def _concat_and_mix(job: AssembleJob, all_clips: list[dict], *, t_start: float) 
     logger.info(f"Concatenating {len(all_clips)} clips...")
     no_music_path = job.output_dir / f"vlog_v{job.version}_{job.res_label}_nomix.mp4"
     concatenate(all_clips, no_music_path, ctx=job.ctx)
-    logger.info(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
+    concat_dur = job.ctx.probe_duration(no_music_path)
+    logger.info(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s, output {concat_dur:.1f}s")
 
     # Phase 2b: Build speech audio track using Timeline
     tl = Timeline.build(all_clips, ctx=job.ctx)
