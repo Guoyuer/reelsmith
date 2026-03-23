@@ -126,13 +126,10 @@ def _gemini_call(
     user_parts: list,
     label: str = "",
     model: str = "",
-    code_execution: bool = False,
 ) -> str:
     """Make a Gemini API call with multimodal content. Returns response text.
 
     *user_parts*: list of strings and/or Part objects (text + images).
-    When *code_execution* is True, Gemini can write and run Python to
-    verify its own output (e.g. summing durations).
     """
     import os
 
@@ -226,10 +223,6 @@ def _gemini_call(
 
     t0 = _time.monotonic()
 
-    tools = []
-    if code_execution:
-        tools.append(types.Tool(code_execution=types.ToolCodeExecution))
-
     response = client.models.generate_content(
         model=model,
         contents=[types.Content(parts=parts)],
@@ -238,7 +231,6 @@ def _gemini_call(
             max_output_tokens=32000,
             temperature=0.7,
             media_resolution=types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
-            tools=tools or None,
         ),
     )
 
@@ -402,7 +394,7 @@ def _build_visual_chapter_text(
 
 
 
-def _has_dense_keyframes(source: Path, duration: float) -> bool:
+def _has_dense_keyframes(source: Path) -> bool:
     """Check if video has keyframe interval <= 2s (safe for -skip_frame nokey).
 
     Probes first 10s to estimate keyframe density. Returns False for
@@ -475,7 +467,7 @@ def _generate_video_previews(
         if not preview_path.exists():
             # Use -skip_frame nokey when keyframe interval <= 2s (most phone/drone videos).
             # For long-GOP videos (GoPro ProTune, etc.), skip it to avoid frame duplication.
-            skip = ["-skip_frame", "nokey"] if _has_dense_keyframes(source, dur) else []
+            skip = ["-skip_frame", "nokey"] if _has_dense_keyframes(source) else []
             tasks.append((preview_path, [
                 "ffmpeg", "-y",
                 "-hwaccel", "auto", *skip,

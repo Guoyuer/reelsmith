@@ -152,7 +152,6 @@ def generate_music_for_edl(cfg) -> Path | None:
             cache_dir=music_cache, mood=mood,
         )
         if track:
-            seg.music_file = str(track)
             segment_tracks.append((seg_dur, track))
             logger.info("    Generated: %s", track.name)
         else:

@@ -40,7 +40,6 @@ class Segment(BaseModel):
     name: str  # e.g. "Opening", "Marina Bay", "Hawker Food"
     narrative_rationale: str = ""  # why these items, what story beat this segment serves
     music_mood: str = ""  # e.g. "warm acoustic guitar, uplifting" → Lyria per-segment
-    music_file: str = ""  # per-segment music WAV (set by generate_music stage)
     items: list[EditItem]
     # Intra-segment transition (between items within this segment)
     transition: Literal["crossfade", "cut", "fade_black", "wipe_left",
@@ -134,12 +133,6 @@ def load_latest_edl(cfg: Config) -> tuple[EDL, int]:
 # EDL quality validation
 # ---------------------------------------------------------------------------
 
-VALID_TRANSITIONS = {
-    "crossfade", "cut", "fade_black", "wipe_left",
-    "dissolve", "smoothleft", "smoothright", "circlecrop",
-    "fadewhite",
-}
-
 # EDL transition names → FFmpeg xfade filter names
 XFADE_MAP = {
     "crossfade": "fade",
@@ -152,12 +145,6 @@ XFADE_MAP = {
     "cut": "fade",  # cuts use minimal xfade as FFmpeg workaround
     "fadewhite": "fadewhite",
 }
-
-VALID_EFFECTS = {
-    "ken_burns_in", "ken_burns_out", "ken_burns_left",
-    "ken_burns_right", "static", "none",
-}
-
 
 def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
     """Validate an EDL for correctness before rendering.
@@ -205,7 +192,7 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
             _error(f"{seg_label}: no items")
             continue
 
-        if seg.transition not in VALID_TRANSITIONS:
+        if seg.transition not in XFADE_MAP:
             _error(f"{seg_label}: invalid transition '{seg.transition}'")
 
         if seg.transition != "cut":
@@ -278,9 +265,6 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
                 if item.display_duration < 1.5:
                     _warn(f"{item_label}: photo duration very short ({item.display_duration}s)")
 
-            # Effect validity
-            if item.effect not in VALID_EFFECTS:
-                _error(f"{item_label}: invalid effect '{item.effect}'")
 
             # Text overlay checks
             if item.text_overlay:

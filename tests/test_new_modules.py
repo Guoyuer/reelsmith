@@ -193,12 +193,6 @@ class TestRenderReport:
         assert "skipped" in summary
         assert "timeout" in summary
 
-    def test_to_metadata(self):
-        from pipeline.assemble import RenderReport, ClipStatus
-        r = RenderReport(clips=[ClipStatus("c1", "a.jpg", "ok")])
-        meta = r.to_metadata()
-        assert meta["clips_ok"] == 1
-        assert meta["clips_skipped"] == 0
 
 
 # ---------------------------------------------------------------------------

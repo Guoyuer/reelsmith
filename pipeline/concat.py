@@ -30,7 +30,7 @@ def concatenate(clips: list[dict], output_path: Path,
 
     all_cuts = all(c.get("transition") == "cut" for c in clips)
     if all_cuts:
-        concat_demuxer(clips, output_path, w, h, fps)
+        concat_demuxer(clips, output_path)
         return
 
     # Split clips into groups of <= MAX_GROUP for 4K xfade reliability.
@@ -59,7 +59,7 @@ def concatenate(clips: list[dict], output_path: Path,
         has_internal_cuts = any(c.get("transition") == "cut" for c in group[1:])
         if has_internal_cuts or len(group) > 15:
             logger.info(f"  Group {gi+1}/{len(groups)}: demuxer {len(group)} clips (has cuts)...")
-            concat_demuxer(group, group_path, w, h, fps)
+            concat_demuxer(group, group_path)
         else:
             logger.info(f"  Group {gi+1}/{len(groups)}: xfade {len(group)} clips...")
             concat_xfade(group, group_path, w, h, fps)
@@ -71,7 +71,7 @@ def concatenate(clips: list[dict], output_path: Path,
             logger.info(f"  Group {gi+1}/{len(groups)}: done ({dur:.1f}s)")
         else:
             logger.info(f"  Group {gi+1}/{len(groups)}: xfade failed, falling back to demuxer...")
-            concat_demuxer(group, group_path, w, h, fps)
+            concat_demuxer(group, group_path)
             if group_path.exists():
                 dur = probe_duration(group_path) or sum(c["duration"] for c in group)
                 group_files.append({"path": group_path, "duration": dur,
@@ -79,7 +79,7 @@ def concatenate(clips: list[dict], output_path: Path,
 
     if not group_files:
         logger.info("  All groups failed, falling back to full demuxer")
-        concat_demuxer(clips, output_path, w, h, fps)
+        concat_demuxer(clips, output_path)
         return
 
     logger.info(f"  group_files: {len(group_files)} entries, "
@@ -116,14 +116,13 @@ def _concat_filter(clips: list[dict], output_path: Path,
     if result.returncode != 0:
         logger.warning("concat filter FAILED (rc=%d): %s", result.returncode, result.stderr[-500:])
         logger.info("Falling back to concat demuxer...")
-        concat_demuxer(clips, output_path, w, h, fps)
+        concat_demuxer(clips, output_path)
     else:
         actual = probe_duration(output_path)
         logger.info("concat filter OK: %.1fs from %d inputs", actual, len(clips))
 
 
-def concat_demuxer(clips: list[dict], output_path: Path,
-                   w: int = 0, h: int = 0, fps: int = 0) -> None:
+def concat_demuxer(clips: list[dict], output_path: Path) -> None:
     """Simple concatenation via concat demuxer (no transitions)."""
     list_path = output_path.with_suffix(".txt")
     with open(list_path, "w") as f:
@@ -181,7 +180,7 @@ def concat_xfade(clips: list[dict], output_path: Path,
             )
 
     if not filter_parts:
-        concat_demuxer(clips, output_path, w, h, fps)
+        concat_demuxer(clips, output_path)
         return
 
     filter_complex = ";".join(filter_parts)
@@ -198,4 +197,4 @@ def concat_xfade(clips: list[dict], output_path: Path,
         logger.error("xfade FAILED for %s (%d clips: %s)", output_path.name, len(clips), clip_durs)
         logger.debug("filter: %s", filter_complex)
         logger.error("stderr: %s", result.stderr[-300:])
-        concat_demuxer(clips, output_path, w, h, fps)
+        concat_demuxer(clips, output_path)
