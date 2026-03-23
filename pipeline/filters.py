@@ -18,7 +18,7 @@ def build_portrait_photo_filter(
         f"gblur=sigma=60,scale={out_w}:{out_h},eq=brightness=-0.15:saturation=0.6[blurred];"
         f"[fg]scale=-1:{out_h}[sharp];"
         f"[blurred][sharp]overlay=(W-w)/2:(H-h)/2[comp];"
-        f"[comp]zoompan=z='min(zoom+{zoom_rate:.6f},1.08)':d={frames}"
+        f"[comp]zoompan=z='1+(1.08-1)*(1-cos(PI*on/{frames}))/2':d={frames}"
         f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
         f":s={out_w}x{out_h}:fps={fps}"
     )
@@ -80,14 +80,13 @@ def drawtext_filter(text: str, position: str, font_size: int,
         font_size = max(font_size, int(out_h * 0.055))
     if len(text) > 20:
         font_size = int(font_size * 20 / len(text))
-    border_w = max(3, font_size // 12)
     end_time = min(clip_duration - 0.5, 3.0)
     font = find_font(language)
     font_arg = f":fontfile='{font}'" if font else ""
     return (
         f"drawtext=text='{safe_text}'{font_arg}"
         f":fontsize={font_size}:fontcolor=white"
-        f":borderw={border_w}:bordercolor=black@0.6"
+        f":shadowcolor=black@0.6:shadowx=3:shadowy=3"
         f":x=(w-text_w)/2:y={y_expr}"
         f":enable='between(t,0.5,{end_time:.1f})'"
     )
@@ -109,10 +108,10 @@ def zoompan_filter(
     tail = f":s={w}x{h}:fps={fps}"
 
     zoom_exprs = {
-        "in":     f"z='min(zoom+{zoom_rate:.6f},1.3)':d={frames}:{center}",
-        "out":    f"z='if(eq(on,1),1.3,max(zoom-{zoom_rate:.6f},1.0))':d={frames}:{center}",
-        "left":   f"z='1.15':d={frames}:x='(iw-iw/zoom)*on/{frames}':y='ih/2-(ih/zoom/2)'",
-        "right":  f"z='1.15':d={frames}:x='(iw-iw/zoom)*(1-on/{frames})':y='ih/2-(ih/zoom/2)'",
+        "in":     f"z='1+(1.3-1)*(1-cos(PI*on/{frames}))/2':d={frames}:{center}",
+        "out":    f"z='1.3-(1.3-1)*(1-cos(PI*on/{frames}))/2':d={frames}:{center}",
+        "left":   f"z='1.15':d={frames}:x='(iw-iw/zoom)*(1-cos(PI*on/{frames}))/2':y='ih/2-(ih/zoom/2)'",
+        "right":  f"z='1.15':d={frames}:x='(iw-iw/zoom)*(1-(1-cos(PI*on/{frames}))/2)':y='ih/2-(ih/zoom/2)'",
         "static": f"z='1':d={frames}",
     }
     return f"zoompan={zoom_exprs.get(direction, zoom_exprs['in'])}{tail}"
