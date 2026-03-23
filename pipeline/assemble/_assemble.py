@@ -132,31 +132,38 @@ def assemble(
 
     max_workers = 3 if "nvenc" in " ".join(ctx.get_encoder()) else 2
 
+    if progress_callback:
+        progress_callback(0, 0, "rendering segments...")
+
     def _render_seg(seg_idx, cmd):
         result = run_subprocess(cmd, capture_output=True, text=True, timeout=600)
         if result.returncode != 0:
             raise RuntimeError(f"Segment {seg_idx} failed: {result.stderr[-500:]}")
         return seg_idx
 
+    def _on_seg_done(done, total):
+        if progress_callback:
+            progress_callback(done, total, "render segments")
+
     tasks = [
         (idx, lambda idx=idx, cmd=cmd: _render_seg(idx, cmd))
         for idx, cmd in segment_cmds
     ]
-    results = run_parallel(tasks, max_workers)
+    results = run_parallel(tasks, max_workers, progress_fn=_on_seg_done)
 
-    for i, (seg_idx, result) in enumerate(results):
+    for seg_idx, result in results:
         if isinstance(result, Exception):
             raise RuntimeError(f"Segment {seg_idx} render failed: {result}")
         dur = ctx.probe_duration(segment_files[seg_idx]) or 0.0
         logger.info(f"  Segment {seg_idx}: {dur:.1f}s")
-        if progress_callback:
-            progress_callback(i + 1, len(segment_cmds), "render")
 
     t_phase1 = time.monotonic() - t_start
     logger.info(f"Phase 1: {t_phase1:.0f}s ({len(segment_files)} segments)")
 
     # --- Phase 2: Final concat + music ---
     logger.info("Phase 2: Concat + music...")
+    if progress_callback:
+        progress_callback(0, 0, "concatenating segments...")
 
     # Concat (video + speech audio copy, no re-encode)
     nomix_path = output_path  # if no music, this is the final output
@@ -198,6 +205,8 @@ def assemble(
 
     # Music overlay
     if has_music:
+        if progress_callback:
+            progress_callback(0, 0, "mixing music...")
         music_path = Path(edl.music.file)
         music_dur = ctx.probe_duration(music_path) or total_dur
         vol = edl.music.volume
@@ -263,7 +272,7 @@ def assemble(
         seg_file.unlink(missing_ok=True)
 
     if progress_callback:
-        progress_callback(len(segment_cmds), len(segment_cmds), "concat + mix")
+        progress_callback(0, 0, "validating output...")
 
     final_dur = ctx.probe_duration(output_path) or 0.0
     logger.info(
