@@ -11,7 +11,7 @@ python run.py -n singapore full local ./photos -r 4k60 --duration 180 --lang cn 
 # Full pipeline from NAS
 python run.py -n singapore full nas -f 2025-06-13 -t 2025-06-17 -r 1080p30 --duration 180
 
-# Prepare only (fetch + analyze)
+# Prepare only (fetch + media processing)
 python run.py -n singapore prepare local ./photos --tz 8
 
 # Re-plan only (no render)
@@ -37,7 +37,7 @@ Logs go to terminal AND `workspace/runs/{name}/run_{timestamp}.log`. Run summary
 
 ## Module structure
 
-The assemble stage is split into focused modules:
+Rendering modules (primarily assemble, `parallel.py` also used by plan):
 
 | Module | Responsibility |
 |--------|---------------|
@@ -90,7 +90,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 
 - **Family detection** — family_count from NAS face data (top 5 persons appearing in ≥3% of items)
 - **FFmpeg rendering** — parallel clip assembly from EDL (3 NVENC workers by default, `VLOG_PARALLEL_CLIPS` env var)
-- **Ken Burns effects** — cosine-eased zoompan per EDL effect field (forced to "none" for videos)
+- **Ken Burns effects** — cosine-eased zoompan per EDL effect field (photos only; videos use a separate render path with no zoompan)
 - **Thumbnail/keyframe generation** — Pillow resize, FFmpeg extraction
 - **Codec** — HEVC (hevc_nvenc/hevc_videotoolbox) on GPU, H.264 (libx264) on CPU; auto-detected
 - **Bitrate** — HEVC at 65% of H.264 YouTube rates with `--quality` multiplier
@@ -104,7 +104,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - Every Gemini API call logs: model, tokens in/out, timing, response preview
 - Every FFmpeg command logged at INFO level and to `output/ffmpeg_commands.log`
 - Use `--force` on `prepare` or `full` to force re-analysis (bypasses cached analysis.json)
-- YouTube chapter markers saved to `output/chapters_v{N}.txt`
+- YouTube chapter markers saved to `output/chapters_v{N}_{res_label}.txt`
 - Post-assemble validation: 6 automated checks (file size, duration, streams, codec, A/V sync, resolution)
 - Live progress display with per-stage status (icons: ○ pending, ⏳ running, ✅ done, ❌ failed)
 
@@ -114,11 +114,10 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - Preview generation uses `-hwaccel auto`; `-skip_frame nokey` (~22x speedup) only when keyframe interval ≤2s, otherwise full decode
 - Photo thumbnails cached in `workspace/thumbnails/`, video analysis cached in `workspace/analysis_cache/`
 - Preview clips cached in `workspace/preview_clips/` — orphaned files from old runs auto-cleaned
-- `--source` flag for local folder (alternative to NAS `-f`/`-t` date range)
 - tqdm auto-disabled when stderr is not a TTY
 - Stale cache auto-invalidation: prepare re-runs if upstream file is newer (mtime check)
 - FFmpeg subprocesses have a 5-minute timeout (prevents hanging on corrupt files)
-- Ken Burns uses cosine easing (ease-in/ease-out); forced to "none" on video items (native motion conflicts with zoompan)
+- Ken Burns uses cosine easing (ease-in/ease-out); only applies to photos (videos use a separate render path)
 - `--music auto` uses Gemini Lyria RealTime; `--music local` uses MusicGen — single flag controls both backend and intent
 - `--lang en|cn|both` controls text language (title, overlays, chapters); cn/both auto-selects CJK font
 - Clip rendering is parallel via `parallel.run_parallel()`: 3 workers for NVENC, 2 for VideoToolbox, cpu_count/2 for libx264
@@ -126,7 +125,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - ffprobe results cached per assemble run via RenderContext (dimensions + duration)
 - Text overlays baked into clips via drawtext filter with drop shadow (no separate encode pass)
 - Title card uses first EDL photo as blurred background (fallback: purple gradient)
-- `prepare` = fetch + analyze; `plan` = plan + music; `assemble` = render. `full` = all three
+- CLI `prepare` = fetch + prepare (family detection, thumbnails, EXIF, video probing); CLI `plan` = plan + generate_music (when `--music` is not `none`); CLI `assemble` = render. `full` = all stages
 - `full local PATH` / `full nas -f -t` — source type is a subcommand, not a flag
 - `--resolution` / `-r` is required for both `full` and `assemble` — no default. Presets: 4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30, or custom WxHxFPS
 - Clips cached per resolution (`seg00_item00_1080p30.mp4`); switching resolution doesn't re-render existing clips
