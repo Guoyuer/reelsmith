@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from pipeline.encoder import RenderContext, init_context, get_context, target_bitrate
+from pipeline.assemble._encoder import RenderContext, init_context, get_context, target_bitrate
 
 
 class TestRenderContext:
@@ -21,10 +21,10 @@ class TestRenderContext:
         ctx = RenderContext()
         fake = MagicMock()
         fake.stdout = "1920x1080\n"
-        with patch("pipeline.encoder.run_subprocess", return_value=fake):
+        with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
             dims = ctx.probe_dimensions(Path("/fake/video.mp4"))
         assert dims == (1920, 1080)
-        with patch("pipeline.encoder.run_subprocess", side_effect=RuntimeError("should not be called")):
+        with patch("pipeline.assemble._encoder.run_subprocess", side_effect=RuntimeError("should not be called")):
             dims2 = ctx.probe_dimensions(Path("/fake/video.mp4"))
         assert dims2 == (1920, 1080)
 
@@ -32,10 +32,10 @@ class TestRenderContext:
         ctx = RenderContext()
         fake = MagicMock()
         fake.stdout = "123.45\n"
-        with patch("pipeline.encoder.run_subprocess", return_value=fake):
+        with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
             dur = ctx.probe_duration(Path("/fake/video.mp4"))
         assert dur == 123.45
-        with patch("pipeline.encoder.run_subprocess", side_effect=RuntimeError("should not be called")):
+        with patch("pipeline.assemble._encoder.run_subprocess", side_effect=RuntimeError("should not be called")):
             dur2 = ctx.probe_duration(Path("/fake/video.mp4"))
         assert dur2 == 123.45
 
@@ -43,14 +43,14 @@ class TestRenderContext:
         ctx = RenderContext()
         fake = MagicMock()
         fake.stdout = "garbage\n"
-        with patch("pipeline.encoder.run_subprocess", return_value=fake):
+        with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
             assert ctx.probe_dimensions(Path("/bad")) == (0, 0)
 
     def test_probe_duration_handles_bad_output(self):
         ctx = RenderContext()
         fake = MagicMock()
         fake.stdout = "\n"
-        with patch("pipeline.encoder.run_subprocess", return_value=fake):
+        with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
             assert ctx.probe_duration(Path("/bad")) == 0.0
 
 

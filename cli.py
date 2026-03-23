@@ -290,7 +290,7 @@ def _run_fetch(pc: _PipelineContext):
         pc.status["stages"]["fetch"] = {"status": "cached", "items": len(items)}
     else:
         if fc.get("source_dir"):
-            from pipeline.fetch_local import fetch_local
+            from pipeline.fetch import fetch_local
             items = fetch_local(pc.cfg, source_dir=fc["source_dir"])
         else:
             from pipeline.fetch import fetch

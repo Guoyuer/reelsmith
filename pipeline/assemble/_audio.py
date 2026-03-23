@@ -9,9 +9,9 @@ import struct as _struct
 import wave
 from pathlib import Path
 
-from .edl import EDL
-from .encoder import probe_duration
-from .media_utils import run_subprocess
+from ..edl import EDL
+from ._encoder import probe_duration
+from ..media_utils import run_subprocess
 
 logger = logging.getLogger("vlog.audio")
 

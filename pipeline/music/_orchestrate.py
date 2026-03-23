@@ -14,7 +14,7 @@ from pathlib import Path
 
 logger = logging.getLogger("vlog.music")
 
-from .music_prompts import get_prompt as _get_prompt
+from ._prompts import get_prompt as _get_prompt
 
 
 def generate_music(
@@ -25,7 +25,7 @@ def generate_music(
     mood: str = "",
 ) -> Path | None:
     """Generate background music via Gemini Lyria RealTime API."""
-    from .music_gemini import generate_music_gemini
+    from ._gemini import generate_music_gemini
     return generate_music_gemini(
         trip_type=trip_type, style=style, target_duration=target_duration,
         cache_dir=cache_dir, mood=mood,
@@ -50,7 +50,7 @@ def _build_composite_music(
     segment_tracks: [(segment_duration, music_wav_path), ...]
     Returns True on success.
     """
-    from .media_utils import run_subprocess
+    from ..media_utils import run_subprocess
     if not segment_tracks:
         return False
 
@@ -122,7 +122,7 @@ def generate_music_for_edl(cfg) -> Path | None:
 
     Returns the composite music file path, or None if skipped/failed.
     """
-    from .edl import MusicTrack, load_latest_edl, save_edl
+    from ..edl import MusicTrack, load_latest_edl, save_edl
 
     edl, version = load_latest_edl(cfg)
 

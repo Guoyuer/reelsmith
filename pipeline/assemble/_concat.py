@@ -6,11 +6,11 @@ import logging
 import shutil
 from pathlib import Path
 
-from .edl import XFADE_MAP
-from .encoder import RenderContext, get_encoder, probe_duration
-from .grouping import partition_into_groups
-from .media_utils import run_subprocess
-from .timeline import Timeline
+from ..edl import XFADE_MAP
+from ._encoder import RenderContext, get_encoder, probe_duration
+from ._grouping import partition_into_groups
+from ..media_utils import run_subprocess
+from ._timeline import Timeline
 
 logger = logging.getLogger("vlog.concat")
 

@@ -15,21 +15,21 @@ from typing import Literal
 
 from tqdm import tqdm
 
-from .audio import beat_snap_edl, build_speech_track, mix_final_audio, write_chapters
-from .concat import concatenate
-from .config import Config
-from .edl import EDL, load_latest_edl, validate_edl
-from .image_utils import init_heic_dir
-from .encoder import (
+from ._audio import beat_snap_edl, build_speech_track, mix_final_audio, write_chapters
+from ._concat import concatenate
+from ..config import Config
+from ..edl import EDL, load_latest_edl, validate_edl
+from ..image_utils import init_heic_dir
+from ._encoder import (
     RenderContext,
     get_context,
     init_context,
     probe_duration,
 )
-from .media_utils import run_subprocess
-from .parallel import run_parallel
-from .render import render_photo, render_video, render_title_card
-from .timeline import Timeline
+from ..media_utils import run_subprocess
+from ..parallel import run_parallel
+from ._render import render_photo, render_video, render_title_card
+from ._timeline import Timeline
 
 logger = logging.getLogger("vlog.assemble")
 

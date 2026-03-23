@@ -7,7 +7,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .media_utils import run_subprocess
+from ..media_utils import run_subprocess
 
 logger = logging.getLogger("vlog.encoder")
 

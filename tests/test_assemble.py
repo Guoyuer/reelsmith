@@ -8,12 +8,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pipeline.assemble import _validate_output
-from pipeline.encoder import is_portrait as _is_portrait, RenderContext, init_context
-from pipeline.filters import build_portrait_photo_filter as _build_portrait_photo_filter
-from pipeline.render import render_photo as _render_photo, render_video as _render_video
+from pipeline.assemble._assemble import _validate_output
+from pipeline.assemble._encoder import is_portrait as _is_portrait, RenderContext, init_context
+from pipeline.assemble._filters import build_portrait_photo_filter as _build_portrait_photo_filter
+from pipeline.assemble._render import render_photo as _render_photo, render_video as _render_video
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
-from pipeline.filters import portrait_bg_filter
+from pipeline.assemble._filters import portrait_bg_filter
 
 
 # -----------------------------------------------------------------------
@@ -86,7 +86,7 @@ class TestProbeDimensions:
         fake_result.returncode = 0
 
         ctx = RenderContext()
-        with patch("pipeline.encoder.run_subprocess", return_value=fake_result):
+        with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake_result):
             w, h = ctx.probe_dimensions(Path("/fake/video.mp4"))
         assert (w, h) == (3840, 2160)
 
@@ -97,7 +97,7 @@ class TestProbeDimensions:
         fake_result.returncode = 1
 
         ctx = RenderContext()
-        with patch("pipeline.encoder.run_subprocess", return_value=fake_result):
+        with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake_result):
             w, h = ctx.probe_dimensions(Path("/fake/bad.mp4"))
         assert (w, h) == (0, 0)
 
@@ -131,9 +131,9 @@ class TestHeicConversion:
         )
 
         ctx = RenderContext(w=3840, h=2160, fps=60)
-        with patch("pipeline.render.convert_heic", side_effect=mock_convert), \
-             patch("pipeline.render.run_subprocess", side_effect=mock_run), \
-             patch("pipeline.encoder.run_subprocess", side_effect=mock_run):
+        with patch("pipeline.assemble._render.convert_heic", side_effect=mock_convert), \
+             patch("pipeline.assemble._render.run_subprocess", side_effect=mock_run), \
+             patch("pipeline.assemble._encoder.run_subprocess", side_effect=mock_run):
             _render_photo(item, out_file, ctx=ctx)
 
         assert len(convert_calls) == 1, "convert_heic should be called for HEIC files"
@@ -339,10 +339,10 @@ from contextlib import contextmanager
 def _patch_validation(**kwargs):
     """Patch both assemble and encoder run_subprocess for validation tests."""
     mock_fn = _mock_subprocess_for_validation(**kwargs)
-    with patch("pipeline.assemble.run_subprocess", side_effect=mock_fn), \
-         patch("pipeline.encoder.run_subprocess", side_effect=mock_fn):
+    with patch("pipeline.assemble._assemble.run_subprocess", side_effect=mock_fn), \
+         patch("pipeline.assemble._encoder.run_subprocess", side_effect=mock_fn):
         # Clear encoder probe caches so mocked values are used
-        from pipeline.encoder import get_context
+        from pipeline.assemble._encoder import get_context
         ctx = get_context()
         ctx._dim_cache.clear()
         ctx._dur_cache.clear()

@@ -14,7 +14,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .config import Config
+from ..config import Config
 
 logger = logging.getLogger("vlog.fetch_local")
 
@@ -108,7 +108,7 @@ def _extract_date(path: Path) -> datetime | None:
     if path.suffix.lower() in VIDEO_EXTENSIONS:
         # Use ffprobe to get creation_time from video metadata
         try:
-            from .media_utils import run_subprocess
+            from ..media_utils import run_subprocess
             result = run_subprocess(
                 ["ffprobe", "-v", "error", "-show_entries",
                  "format_tags=creation_time", "-of", "csv=p=0", str(path)],

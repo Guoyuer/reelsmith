@@ -17,7 +17,7 @@ import pytest
 from PIL import Image
 
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
-from pipeline.timeline import Timeline
+from pipeline.assemble._timeline import Timeline
 
 
 # ---------------------------------------------------------------------------
@@ -99,59 +99,59 @@ def _make_test_video(path: Path, duration: float = 3.0, size="320x180",
 
 class TestColorGrade:
     def test_neutral(self):
-        from pipeline.filters import color_grade as _color_grade
+        from pipeline.assemble._filters import color_grade as _color_grade
         result = _color_grade("neutral")
         assert "eq=contrast=1.02" in result
         assert "colorbalance" not in result
 
     def test_warm(self):
-        from pipeline.filters import color_grade as _color_grade
+        from pipeline.assemble._filters import color_grade as _color_grade
         result = _color_grade("warm")
         assert "colorbalance=rs=0.02" in result
         assert "bs=-0.02" in result
 
     def test_cool(self):
-        from pipeline.filters import color_grade as _color_grade
+        from pipeline.assemble._filters import color_grade as _color_grade
         result = _color_grade("cool")
         assert "rs=-0.02" in result
         assert "bs=0.02" in result
 
     def test_unknown_falls_back_to_neutral(self):
-        from pipeline.filters import color_grade as _color_grade
+        from pipeline.assemble._filters import color_grade as _color_grade
         assert _color_grade("sepia") == _color_grade("neutral")
 
 
 class TestDrawtextFilter:
     def test_basic_text(self):
-        from pipeline.filters import drawtext_filter as _drawtext_filter
+        from pipeline.assemble._filters import drawtext_filter as _drawtext_filter
         result = _drawtext_filter("Hello", "bottom", 48, 5.0)
         assert "drawtext=" in result
         assert "Hello" in result
         assert "fontcolor=white" in result
 
     def test_long_text_scales_font(self):
-        from pipeline.filters import drawtext_filter as _drawtext_filter
+        from pipeline.assemble._filters import drawtext_filter as _drawtext_filter
         short = _drawtext_filter("Hi", "bottom", 48, 5.0)
         long_text = _drawtext_filter("A very long title exceeding twenty chars", "bottom", 48, 5.0)
         assert "fontsize=48" in short
         assert "fontsize=48" not in long_text
 
     def test_positions(self):
-        from pipeline.filters import drawtext_filter as _drawtext_filter
+        from pipeline.assemble._filters import drawtext_filter as _drawtext_filter
         top = _drawtext_filter("X", "top", 48, 5.0)
         bottom = _drawtext_filter("X", "bottom", 48, 5.0)
         assert "y=50" in top
         assert "y=h-text_h-60" in bottom
 
     def test_colon_escaped(self):
-        from pipeline.filters import drawtext_filter as _drawtext_filter
+        from pipeline.assemble._filters import drawtext_filter as _drawtext_filter
         result = _drawtext_filter("10:30 AM", "bottom", 48, 5.0)
         assert "10\\:30" in result
 
 
 class TestWriteChapters:
     def test_two_segments_no_intro(self, tmp_path):
-        from pipeline.audio import write_chapters as _write_chapters
+        from pipeline.assemble._audio import write_chapters as _write_chapters
         edl = EDL(
             title="Test", target_duration=20.0, intro_style="none", outro_style="none",
             segments=[
@@ -172,7 +172,7 @@ class TestWriteChapters:
             {"path": Path("c.mp4"), "duration": 5.0, "transition": "cut",
              "transition_duration": 0.0, "keep_audio": False},
         ]
-        with patch("pipeline.timeline._probe_dur", return_value=0.0):
+        with patch("pipeline.assemble._timeline._probe_dur", return_value=0.0):
             tl = Timeline.build(clips)
         out = tmp_path / "chapters.txt"
         _write_chapters(edl, clips, out, timeline=tl)
@@ -181,7 +181,7 @@ class TestWriteChapters:
         assert lines[0] == "0:00 Beach"
 
     def test_with_intro_offsets_chapters(self, tmp_path):
-        from pipeline.audio import write_chapters as _write_chapters
+        from pipeline.assemble._audio import write_chapters as _write_chapters
         edl = EDL(
             title="Test", target_duration=20.0, intro_style="title_card", outro_style="none",
             segments=[
@@ -196,7 +196,7 @@ class TestWriteChapters:
             {"path": Path("a.mp4"), "duration": 4.0, "transition": "cut",
              "transition_duration": 0.0, "keep_audio": False},
         ]
-        with patch("pipeline.timeline._probe_dur", return_value=0.0):
+        with patch("pipeline.assemble._timeline._probe_dur", return_value=0.0):
             tl = Timeline.build(clips)
         out = tmp_path / "chapters.txt"
         _write_chapters(edl, clips, out, timeline=tl)
@@ -207,32 +207,32 @@ class TestWriteChapters:
 
 class TestEstimateBpm:
     def test_120bpm_click_track(self, tmp_path):
-        from pipeline.audio import estimate_bpm as _estimate_bpm
+        from pipeline.assemble._audio import estimate_bpm as _estimate_bpm
         wav = _make_click_wav(tmp_path / "click.wav", bpm=120, duration_s=15)
         bpm = _estimate_bpm(wav)
         assert bpm is not None
         assert 110 <= bpm <= 130, f"Expected ~120 BPM, got {bpm}"
 
     def test_90bpm_click_track(self, tmp_path):
-        from pipeline.audio import estimate_bpm as _estimate_bpm
+        from pipeline.assemble._audio import estimate_bpm as _estimate_bpm
         wav = _make_click_wav(tmp_path / "click.wav", bpm=90, duration_s=15)
         bpm = _estimate_bpm(wav)
         assert bpm is not None
         assert 80 <= bpm <= 100, f"Expected ~90 BPM, got {bpm}"
 
     def test_too_short_returns_none(self, tmp_path):
-        from pipeline.audio import estimate_bpm as _estimate_bpm
+        from pipeline.assemble._audio import estimate_bpm as _estimate_bpm
         wav = _make_click_wav(tmp_path / "short.wav", bpm=120, duration_s=1.0)
         assert _estimate_bpm(wav) is None
 
     def test_nonexistent_file_returns_none(self, tmp_path):
-        from pipeline.audio import estimate_bpm as _estimate_bpm
+        from pipeline.assemble._audio import estimate_bpm as _estimate_bpm
         assert _estimate_bpm(tmp_path / "nope.wav") is None
 
 
 class TestBeatSnapEdl:
     def test_snaps_within_tolerance(self, tmp_path):
-        from pipeline.audio import beat_snap_edl as _beat_snap_edl
+        from pipeline.assemble._audio import beat_snap_edl as _beat_snap_edl
         wav = _make_click_wav(tmp_path / "click.wav", bpm=120, duration_s=15)
         edl = EDL(
             title="Test", target_duration=30.0, intro_style="none",
@@ -252,7 +252,7 @@ class TestBeatSnapEdl:
         assert snapped >= 0
 
     def test_skips_speech_segments(self, tmp_path):
-        from pipeline.audio import beat_snap_edl as _beat_snap_edl
+        from pipeline.assemble._audio import beat_snap_edl as _beat_snap_edl
         wav = _make_click_wav(tmp_path / "click.wav", bpm=120, duration_s=15)
         edl = EDL(
             title="Test", target_duration=20.0, intro_style="none",
@@ -271,7 +271,7 @@ class TestBeatSnapEdl:
         assert [i.display_duration for i in edl.segments[0].items] == original_durs
 
     def test_no_bpm_returns_zero(self, tmp_path):
-        from pipeline.audio import beat_snap_edl as _beat_snap_edl
+        from pipeline.assemble._audio import beat_snap_edl as _beat_snap_edl
         # WAV too short → BPM detection fails → beat snap skipped
         wav = _make_click_wav(tmp_path / "short.wav", bpm=120, duration_s=1.0)
         edl = EDL(
@@ -291,7 +291,7 @@ class TestTimelineBuild:
             {"path": Path("a.mp4"), "duration": 5.0, "transition": "cut",
              "transition_duration": 0.0, "keep_audio": False},
         ]
-        with patch("pipeline.timeline._probe_dur", return_value=0.0):
+        with patch("pipeline.assemble._timeline._probe_dur", return_value=0.0):
             tl = Timeline.build(clips)
         assert len(tl.entries) == 1
         assert tl.entries[0].video_offset == 0.0
@@ -308,7 +308,7 @@ class TestTimelineBuild:
             {"path": Path("c.mp4"), "duration": 3.0, "transition": "crossfade",
              "transition_duration": 0.5, "keep_audio": True},
         ]
-        with patch("pipeline.timeline._probe_dur", return_value=0.0):
+        with patch("pipeline.assemble._timeline._probe_dur", return_value=0.0):
             tl = Timeline.build(clips)
         assert len(tl.entries) == 3
         # First clip
@@ -329,7 +329,7 @@ class TestTimelineBuild:
             {"path": Path("b.mp4"), "duration": 3.0, "transition": "crossfade",
              "transition_duration": 0.5, "keep_audio": True},
         ]
-        with patch("pipeline.timeline._probe_dur", return_value=0.0):
+        with patch("pipeline.assemble._timeline._probe_dur", return_value=0.0):
             tl = Timeline.build(clips)
         speech = tl.speech_entries()
         assert len(speech) == 1
@@ -350,7 +350,7 @@ class TestTimelineBuild:
                 "transition_duration": 0.0 if i == 0 else 0.5,
                 "keep_audio": False,
             })
-        with patch("pipeline.timeline._probe_dur", return_value=0.0):
+        with patch("pipeline.assemble._timeline._probe_dur", return_value=0.0):
             tl = Timeline.build(clips)
         assert len(tl.entries) == 12
         # Total = 12*3 - 11*0.5 = 30.5 (within group overlaps, not across groups)
@@ -372,7 +372,7 @@ class TestTimelineBuild:
             {"path": Path("c.mp4"), "duration": 3.0, "transition": "crossfade",
              "transition_duration": 0.5, "keep_audio": False},
         ]
-        with patch("pipeline.timeline._probe_dur", return_value=0.0):
+        with patch("pipeline.assemble._timeline._probe_dur", return_value=0.0):
             tl = Timeline.build(clips)
         # NOTE: Mathematically 4+3+3-0-0.5=9.5, but Timeline accumulates 10.0
         # because the crossfade offset for clip c uses running offset from cut
@@ -388,7 +388,7 @@ class TestTimelineBuild:
             {"path": Path("b.mp4"), "duration": 4.0, "transition": "cut",
              "transition_duration": 0.0, "keep_audio": False},
         ]
-        with patch("pipeline.timeline._probe_dur", return_value=0.0):
+        with patch("pipeline.assemble._timeline._probe_dur", return_value=0.0):
             tl = Timeline.build(clips)
         assert tl.entries[0].video_offset == 0.0
         assert tl.entries[1].video_offset == 3.0
@@ -541,7 +541,7 @@ class TestXfadeConcatenation:
     """Test xfade filter chain with pre-rendered clips."""
 
     def test_three_clips_xfade(self, tmp_path):
-        from pipeline.concat import concat_xfade as _concat_xfade; from pipeline.encoder import probe_duration as _probe_duration
+        from pipeline.assemble._concat import concat_xfade as _concat_xfade; from pipeline.assemble._encoder import probe_duration as _probe_duration
 
         clips = []
         for i, color in enumerate(["red", "green", "blue"]):
@@ -569,7 +569,7 @@ class TestXfadeConcatenation:
 
     def test_group_splitting_12_clips(self, tmp_path):
         """12 clips should split into groups and produce valid output."""
-        from pipeline.concat import concatenate as _concatenate; from pipeline.encoder import probe_duration as _probe_duration
+        from pipeline.assemble._concat import concatenate as _concatenate; from pipeline.assemble._encoder import probe_duration as _probe_duration
 
         clips = []
         for i in range(12):
@@ -603,7 +603,7 @@ class TestXfadeConcatenation:
 class TestSpeechTrackBuild:
     def test_speech_at_offset(self, tmp_path):
         """Speech placed at 5s offset should produce audio track >= 5s."""
-        from pipeline.audio import build_speech_track as _build_speech_track; from pipeline.encoder import probe_duration as _probe_duration
+        from pipeline.assemble._audio import build_speech_track as _build_speech_track; from pipeline.assemble._encoder import probe_duration as _probe_duration
 
         clip = _make_test_video(tmp_path / "speech_clip.mp4", duration=2.0, audio=True)
         speech_wav = tmp_path / "speech.wav"
@@ -622,7 +622,7 @@ class TestSpeechTrackBuild:
 class TestAddMusic:
     def test_music_only(self, tmp_path):
         """Video + music (no speech) → output has audio stream."""
-        from pipeline.audio import add_music as _add_music
+        from pipeline.assemble._audio import add_music as _add_music
 
         video = _make_test_video(tmp_path / "video.mp4", duration=5.0)
         music_wav = _make_click_wav(tmp_path / "music.wav", bpm=120, duration_s=10)
@@ -641,7 +641,7 @@ class TestAddMusic:
 
     def test_music_with_speech_ducking(self, tmp_path):
         """Music + speech WAV → both mixed, audio stream present."""
-        from pipeline.audio import add_music as _add_music
+        from pipeline.assemble._audio import add_music as _add_music
 
         video = _make_test_video(tmp_path / "video.mp4", duration=8.0)
         music_wav = _make_click_wav(tmp_path / "music.wav", bpm=120, duration_s=10)
