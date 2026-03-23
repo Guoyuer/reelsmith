@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import Config
@@ -35,11 +36,20 @@ from ._prompts import (
 logger = logging.getLogger("vlog.plan")
 
 
+@dataclass
+class PlanConfig:
+    style: str = "upbeat"
+    target_duration: int = 180
+    focus: str = ""
+    trip_type: str = "family"
+    language: str = "en"
+    tz_hours: int | None = None
+    model: str | None = None
+
+
 def _plan_visual(
     cfg: Config, preprocessed: dict, analysis_by_id: dict,
-    style: str, target_duration: int, focus: str,
-    trip_type: str = "family", language: str = "en",
-    tz_hours: int | None = None, model: str | None = None,
+    pc: PlanConfig,
 ) -> EDL:
     """Single-pass Gemini planning with chain-of-thought.
 
@@ -69,15 +79,16 @@ def _plan_visual(
         f"({n_videos} videos, {n_candidates - n_videos} photos)."
     )
 
-    n_items = target_duration // 4
-    trip_label = f"{trip_type} trip" if trip_type != "general" else "trip"
+    n_items = pc.target_duration // 4
+    trip_label = f"{pc.trip_type} trip" if pc.trip_type != "general" else "trip"
     family_line = ""
-    if trip_type == "family" and preprocessed.get("family_names"):
+    if pc.trip_type == "family" and preprocessed.get("family_names"):
         family_line = f"\nFamily: {', '.join(preprocessed['family_names'])}"
 
     logger.info("=== SINGLE-PASS PLANNING ===")
     logger.info("Building individual photo thumbnails and concatenated video preview...")
 
+    tz_hours = pc.tz_hours
     if tz_hours is None:
         tz_hours = preprocessed.get("tz_hours", -(time.timezone // 3600))
 
@@ -109,19 +120,19 @@ def _plan_visual(
                 line += f" ({n_vids} videos)"
             arc_lines.append(line)
 
-    min_duration = int(target_duration * 1.2)
+    min_duration = int(pc.target_duration * 1.2)
     intro_text = f"""\
-Create a {style} {trip_label} vlog EDL from the photos and videos shown below.
+Create a {pc.style} {trip_label} vlog EDL from the photos and videos shown below.
 
 {trip_summary}{family_line}
 
-**FOCUS: {focus}** — This is the creative direction. Every chapter, every selection
+**FOCUS: {pc.focus}** — This is the creative direction. Every chapter, every selection
 decision, and every text overlay should serve this focus. When choosing between two
 items of similar quality, pick the one that better supports this focus.
 
-DURATION: The vlog MUST be {target_duration}s. Select ~{n_items} items.
+DURATION: The vlog MUST be {pc.target_duration}s. Select ~{n_items} items.
 Sum of display_duration MUST reach {min_duration}s (transitions eat ~20%).
-Photos = 3-5s, videos = 5-10s. {n_items} items × ~4s avg = {target_duration}s.
+Photos = 3-5s, videos = 5-10s. {n_items} items × ~4s avg = {pc.target_duration}s.
 
 Trip structure:
 {"".join(arc_lines)}
@@ -130,7 +141,7 @@ Trip structure:
 1. Design a narrative arc — 4-6 chapters based on STORY BEATS (not locations).
 2. Select items: scan every photo and video clip. Pick the best for each chapter.
 3. Self-review checklist (fix any issues before outputting):
-   - [ ] Does the vlog serve the focus "{focus}"?
+   - [ ] Does the vlog serve the focus "{pc.focus}"?
    - [ ] Sum of display_duration >= {min_duration}s?
    - [ ] At least 40% video items? At least 50% of videos have keep_audio=true?
    - [ ] No audio=silent videos with keep_audio=true?
@@ -144,10 +155,10 @@ Candidates by day/location:"""
 
     visual_parts: list = [intro_text] + content_blocks
 
-    system_prompt = _visual_system_prompt(trip_type, language=language)
+    system_prompt = _visual_system_prompt(pc.trip_type, language=pc.language)
     logger.info(f"Sending {len(visual_parts)} parts to Gemini (single pass)...")
 
-    model_kwargs = {"model": model} if model else {}
+    model_kwargs = {"model": pc.model} if pc.model else {}
     edl_content = _gemini_call(system_prompt, visual_parts,
                                label="single pass: plan", **model_kwargs)
 
@@ -161,17 +172,17 @@ Candidates by day/location:"""
     fix_hallucinated_paths(edl, cfg.media_dir)
     validate_trim_points(edl, analysis_by_id)
     deduplicate_items(edl)
-    edl = fill_duration_gap(edl, target_duration, analysis_by_id,
-                            system_prompt, model=model)
+    edl = fill_duration_gap(edl, pc.target_duration, analysis_by_id,
+                            system_prompt, model=pc.model)
 
     actual_dur = edl.estimated_duration()
-    if actual_dur < target_duration * 0.5:
-        logger.warning(f"EDL is {actual_dur:.0f}s, target is {target_duration}s — severely underfilled")
-    elif actual_dur < target_duration * 0.8:
-        logger.warning(f"EDL is {actual_dur:.0f}s, target is {target_duration}s — underfilled")
+    if actual_dur < pc.target_duration * 0.5:
+        logger.warning(f"EDL is {actual_dur:.0f}s, target is {pc.target_duration}s — severely underfilled")
+    elif actual_dur < pc.target_duration * 0.8:
+        logger.warning(f"EDL is {actual_dur:.0f}s, target is {pc.target_duration}s — underfilled")
 
     validate_and_fix_edl(edl)
-    log_edl_summary(edl, target_duration)
+    log_edl_summary(edl, pc.target_duration)
 
     return edl
 
@@ -209,11 +220,12 @@ def plan(
     analysis_by_id: dict[str, dict] = {str(a["id"]): a for a in analysis_items}
 
     logger.info(f"Planning via Gemini with visual input (target {target_duration}s, style={style}, trip_type={trip_type}, lang={language})...")
-    edl = _plan_visual(cfg, preprocessed, analysis_by_id,
-                       style=style, target_duration=target_duration,
-                       focus=effective_focus, trip_type=trip_type,
-                       language=language, tz_hours=tz_hours,
-                       model=model)
+    plan_config = PlanConfig(
+        style=style, target_duration=target_duration,
+        focus=effective_focus, trip_type=trip_type,
+        language=language, tz_hours=tz_hours, model=model,
+    )
+    edl = _plan_visual(cfg, preprocessed, analysis_by_id, plan_config)
 
     # Post-process: force effect="none" on video items
     for seg in edl.segments:

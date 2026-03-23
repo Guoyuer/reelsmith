@@ -11,6 +11,7 @@ import logging
 import signal
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -258,95 +259,106 @@ def _log_config(log_fn, stage: str, actual: dict, defaults: dict) -> None:
     log_fn(f"[{stage}] {', '.join(parts)}")
 
 
-def _run_fetch(cfg, ws, stage_configs, display, status, log, logger):
+@dataclass
+class _PipelineContext:
+    cfg: object      # Config
+    ws: Path
+    stage_configs: dict
+    display: object  # _PipelineDisplay
+    status: dict
+    log: object      # logger.info callable
+    logger: object   # logging.Logger
+
+
+def _run_fetch(pc: _PipelineContext):
     """Execute the fetch stage."""
-    _check_interrupted(display, status, ws, logger)
-    display.start("fetch")
-    fc = stage_configs.get("fetch", {})
-    _log_config(log, "fetch", fc, {
+    _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
+    pc.display.start("fetch")
+    fc = pc.stage_configs.get("fetch", {})
+    _log_config(pc.log, "fetch", fc, {
         "source_dir": "NAS", "from_date": "", "to_date": "",
         "country": None, "district": None, "item_types": None,
     })
     t0 = time.monotonic()
-    manifest_path = ws / "manifest.json"
+    manifest_path = pc.ws / "manifest.json"
 
     if not fc.get("force") and manifest_path.exists():
         items = json.loads(manifest_path.read_text())
         dur = time.monotonic() - t0
-        log(f"Fetch: {len(items)} items (cached)")
-        display.done("fetch", f"{len(items)} items", dur)
-        status["stages"]["fetch"] = {"status": "cached", "items": len(items)}
+        pc.log(f"Fetch: {len(items)} items (cached)")
+        pc.display.done("fetch", f"{len(items)} items", dur)
+        pc.status["stages"]["fetch"] = {"status": "cached", "items": len(items)}
     else:
         if fc.get("source_dir"):
             from pipeline.fetch_local import fetch_local
-            items = fetch_local(cfg, source_dir=fc["source_dir"])
+            items = fetch_local(pc.cfg, source_dir=fc["source_dir"])
         else:
             from pipeline.fetch import fetch
             items = fetch(
-                cfg, from_date=fc.get("from_date", ""),
+                pc.cfg, from_date=fc.get("from_date", ""),
                 to_date=fc.get("to_date", ""),
                 country=fc.get("country"), first_level=fc.get("first_level"),
                 district=fc.get("district"), person_ids=fc.get("person_ids"),
                 item_types=fc.get("item_types"),
             )
         dur = time.monotonic() - t0
-        log(f"Fetch: {len(items)} items in {dur:.0f}s")
-        display.done("fetch", f"{len(items)} items", dur)
-        status["stages"]["fetch"] = {"status": "ok", "duration_s": round(dur, 1), "items": len(items)}
+        pc.log(f"Fetch: {len(items)} items in {dur:.0f}s")
+        pc.display.done("fetch", f"{len(items)} items", dur)
+        pc.status["stages"]["fetch"] = {"status": "ok", "duration_s": round(dur, 1), "items": len(items)}
 
 
-def _run_prepare(cfg, ws, stage_configs, display, status, log, logger):
+def _run_prepare(pc: _PipelineContext):
     """Execute the prepare stage."""
-    _check_interrupted(display, status, ws, logger)
-    display.start("prepare")
-    pc = stage_configs.get("prepare", {})
-    _log_config(log, "prepare", pc, {
+    _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
+    pc.display.start("prepare")
+    prep_cfg = pc.stage_configs.get("prepare", {})
+    _log_config(pc.log, "prepare", prep_cfg, {
         "force": False, "family_names": None, "tz_hours": None,
     })
     t0 = time.monotonic()
-    analysis_path = ws / "analysis.json"
-    manifest_path = ws / "manifest.json"
+    analysis_path = pc.ws / "analysis.json"
+    manifest_path = pc.ws / "manifest.json"
 
     stale = (manifest_path.exists() and analysis_path.exists()
              and manifest_path.stat().st_mtime > analysis_path.stat().st_mtime)
     if stale:
-        log("Manifest is newer \u2014 re-preparing")
+        pc.log("Manifest is newer \u2014 re-preparing")
 
-    if not pc.get("force") and not stale and analysis_path.exists():
+    if not prep_cfg.get("force") and not stale and analysis_path.exists():
         results = json.loads(analysis_path.read_text())
         n_photos = sum(1 for r in results if r.get("media_type") == "photo")
         n_videos = len(results) - n_photos
         dur = time.monotonic() - t0
-        log(f"Prepare: {len(results)} items ({n_photos} photos, {n_videos} videos) \u2014 cached")
-        display.done("prepare", f"{n_photos} photos, {n_videos} videos", dur)
-        status["stages"]["prepare"] = {"status": "cached"}
+        pc.log(f"Prepare: {len(results)} items ({n_photos} photos, {n_videos} videos) \u2014 cached")
+        pc.display.done("prepare", f"{n_photos} photos, {n_videos} videos", dur)
+        pc.status["stages"]["prepare"] = {"status": "cached"}
     else:
         from pipeline.prepare import prepare
         result = prepare(
-            cfg, family_names=pc.get("family_names"),
-            force=pc.get("force", False),
-            progress_callback=_progress_cb(logger, display, "prepare", t0),
-            tz_hours=pc.get("tz_hours"),
+            pc.cfg, family_names=prep_cfg.get("family_names"),
+            force=prep_cfg.get("force", False),
+            progress_callback=_progress_cb(pc.logger, pc.display, "prepare", t0),
+            tz_hours=prep_cfg.get("tz_hours"),
         )
         dur = time.monotonic() - t0
-        log(f"Prepare: done in {dur:.0f}s")
+        pc.log(f"Prepare: done in {dur:.0f}s")
         # Read back results to get counts for display
         if analysis_path.exists():
             results = json.loads(analysis_path.read_text())
             n_photos = sum(1 for r in results if r.get("media_type") == "photo")
             n_videos = len(results) - n_photos
-            display.done("prepare", f"{n_photos} photos, {n_videos} videos", dur)
+            pc.display.done("prepare", f"{n_photos} photos, {n_videos} videos", dur)
         else:
-            display.done("prepare", "done", dur)
-        status["stages"]["prepare"] = {"status": "ok", "duration_s": round(dur, 1)}
+            pc.display.done("prepare", "done", dur)
+        pc.status["stages"]["prepare"] = {"status": "ok", "duration_s": round(dur, 1)}
 
 
-def _run_plan(cfg, ws, stage_configs, display, status, log, logger):
+def _run_plan(pc: _PipelineContext):
     """Execute the plan stage."""
-    _check_interrupted(display, status, ws, logger)
-    display.start("plan")
-    pc = stage_configs.get("plan", {})
-    _log_config(log, "plan", pc, {
+    _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
+    pc.display.start("plan")
+    plan_cfg = pc.stage_configs.get("plan", {})
+    _log_config(pc.log, "plan", plan_cfg, {
         "style": "upbeat", "target_duration": 180, "trip_type": "family",
         "language": "en", "focus": "", "music_file": None,
         "tz_hours": None, "model": None,
@@ -355,15 +367,15 @@ def _run_plan(cfg, ws, stage_configs, display, status, log, logger):
 
     from pipeline.plan import plan as do_plan
     edl, version = do_plan(
-        cfg,
-        style=pc.get("style", "upbeat"),
-        target_duration=pc.get("target_duration", 180),
-        focus=pc.get("focus", ""),
-        trip_type=pc.get("trip_type", "family"),
-        music_file=pc.get("music_file") or None,
-        language=pc.get("language", "en"),
-        tz_hours=pc.get("tz_hours"),
-        model=pc.get("model"),
+        pc.cfg,
+        style=plan_cfg.get("style", "upbeat"),
+        target_duration=plan_cfg.get("target_duration", 180),
+        focus=plan_cfg.get("focus", ""),
+        trip_type=plan_cfg.get("trip_type", "family"),
+        music_file=plan_cfg.get("music_file") or None,
+        language=plan_cfg.get("language", "en"),
+        tz_hours=plan_cfg.get("tz_hours"),
+        model=plan_cfg.get("model"),
     )
 
     all_items = edl.all_items()
@@ -377,17 +389,17 @@ def _run_plan(cfg, ws, stage_configs, display, status, log, logger):
     dur = time.monotonic() - t0
     plan_detail = (f"v{version}: {n_photos}p+{n_videos}v, "
                    f"~{edl.estimated_duration():.0f}s")
-    display.done("plan", plan_detail, dur)
+    pc.display.done("plan", plan_detail, dur)
 
-    log(f"Plan: EDL v{version} \u2014 {len(edl.segments)} segments, "
+    pc.log(f"Plan: EDL v{version} \u2014 {len(edl.segments)} segments, "
         f"{n_photos} photos + {n_videos} videos ({vid_pct}% video), "
         f"~{edl.estimated_duration():.0f}s, {dur:.0f}s")
     if n_keep_audio:
-        log(f"  Speech preserved: {n_keep_audio} clips")
+        pc.log(f"  Speech preserved: {n_keep_audio} clips")
     for seg in edl.segments:
-        log(f"  {seg.name}: {len(seg.items)} items, transition={seg.transition}")
+        pc.log(f"  {seg.name}: {len(seg.items)} items, transition={seg.transition}")
 
-    status["stages"]["plan"] = {
+    pc.status["stages"]["plan"] = {
         "status": "ok", "version": version,
         "duration_s": round(dur, 1),
         "segments": len(edl.segments),
@@ -395,36 +407,36 @@ def _run_plan(cfg, ws, stage_configs, display, status, log, logger):
     }
 
 
-def _run_generate_music(cfg, ws, stage_configs, display, status, log, logger):
+def _run_generate_music(pc: _PipelineContext):
     """Execute the generate_music stage."""
-    _check_interrupted(display, status, ws, logger)
-    display.start("generate_music")
-    _log_config(log, "generate_music", {}, {})
+    _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
+    pc.display.start("generate_music")
+    _log_config(pc.log, "generate_music", {}, {})
     t0 = time.monotonic()
 
     from pipeline.music import generate_music_for_edl
-    track = generate_music_for_edl(cfg)
+    track = generate_music_for_edl(pc.cfg)
 
     dur = time.monotonic() - t0
     if track:
-        log(f"Music: generated {track.name} in {dur:.0f}s")
-        display.done("generate_music", track.name, dur)
-        status["stages"]["generate_music"] = {"status": "ok", "duration_s": round(dur, 1)}
+        pc.log(f"Music: generated {track.name} in {dur:.0f}s")
+        pc.display.done("generate_music", track.name, dur)
+        pc.status["stages"]["generate_music"] = {"status": "ok", "duration_s": round(dur, 1)}
     else:
-        log("Music: skipped")
-        display.done("generate_music", "skipped", dur)
-        status["stages"]["generate_music"] = {"status": "skipped"}
+        pc.log("Music: skipped")
+        pc.display.done("generate_music", "skipped", dur)
+        pc.status["stages"]["generate_music"] = {"status": "skipped"}
 
 
-def _run_assemble(cfg, ws, stage_configs, display, status, log, logger):
+def _run_assemble(pc: _PipelineContext):
     """Execute the assemble stage."""
-    _check_interrupted(display, status, ws, logger)
-    display.start("assemble")
-    ac = stage_configs.get("assemble", {})
+    _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
+    pc.display.start("assemble")
+    ac = pc.stage_configs.get("assemble", {})
     for key in ("width", "height", "fps"):
         if key not in ac:
             raise click.UsageError(f"Missing assemble config: {key} (use --resolution / -r)")
-    _log_config(log, "assemble", ac, {
+    _log_config(pc.log, "assemble", ac, {
         "version": 0, "edl_path": None,
         "width": None, "height": None, "fps": None, "quality": 1.0,
         "skip_broken": False,
@@ -437,39 +449,39 @@ def _run_assemble(cfg, ws, stage_configs, display, status, log, logger):
     edl_path = ac.get("edl_path")
     if edl_path:
         import shutil
-        version = find_latest_version(cfg) + 1
-        dest = cfg.edl_path(version)
+        version = find_latest_version(pc.cfg) + 1
+        dest = pc.cfg.edl_path(version)
         shutil.copy(edl_path, dest)
-        log(f"Using EDL from {edl_path} as v{version}")
+        pc.log(f"Using EDL from {edl_path} as v{version}")
     else:
         version = ac.get("version", 0)
         if version <= 0:
-            version = find_latest_version(cfg)
+            version = find_latest_version(pc.cfg)
 
     width = ac["width"]
     height = ac["height"]
     fps = ac["fps"]
-    log(f"Render: {width}x{height} {fps}fps (EDL v{version})")
+    pc.log(f"Render: {width}x{height} {fps}fps (EDL v{version})")
 
     out, issues = do_assemble(
-        cfg, version=version,
+        pc.cfg, version=version,
         resolution=(width, height),
         fps=fps,
-        progress_callback=_progress_cb(logger, display, "assemble", t0),
+        progress_callback=_progress_cb(pc.logger, pc.display, "assemble", t0),
         skip_broken=ac.get("skip_broken", False),
         quality=ac.get("quality", 1.0),
     )
 
     dur = time.monotonic() - t0
     size_mb = round(out.stat().st_size / 1024 / 1024, 1) if out.exists() else 0
-    log(f"Assemble: {out.name} ({size_mb}MB) in {dur:.0f}s")
-    display.done("assemble", f"{out.name} ({size_mb}MB)", dur)
+    pc.log(f"Assemble: {out.name} ({size_mb}MB) in {dur:.0f}s")
+    pc.display.done("assemble", f"{out.name} ({size_mb}MB)", dur)
 
     for issue in issues:
         level = issue.get("level", "warning")
-        log(f"  [{level.upper()}] {issue.get('check', '')}: {issue.get('message', '')}")
+        pc.log(f"  [{level.upper()}] {issue.get('check', '')}: {issue.get('message', '')}")
 
-    status["stages"]["assemble"] = {
+    pc.status["stages"]["assemble"] = {
         "status": "ok", "duration_s": round(dur, 1),
         "output": out.name, "size_mb": size_mb,
     }
@@ -510,10 +522,15 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
     }
     t_start = time.monotonic()
 
+    pc = _PipelineContext(
+        cfg=cfg, ws=ws, stage_configs=stage_configs,
+        display=display, status=status, log=log, logger=logger,
+    )
+
     try:
         for stage in active:
             if stage in _STAGE_RUNNERS:
-                _STAGE_RUNNERS[stage](cfg, ws, stage_configs, display, status, log, logger)
+                _STAGE_RUNNERS[stage](pc)
 
         status["result"] = "success"
 

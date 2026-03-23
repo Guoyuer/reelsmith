@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 from .edl import XFADE_MAP
-from .encoder import get_encoder, probe_duration
+from .encoder import RenderContext, get_encoder, probe_duration
 from .grouping import partition_into_groups
 from .media_utils import run_subprocess
 from .timeline import Timeline
@@ -15,14 +15,17 @@ from .timeline import Timeline
 logger = logging.getLogger("vlog.concat")
 
 
-def concatenate(clips: list[dict], output_path: Path,
-                w: int = 0, h: int = 0, fps: int = 0,
+def concatenate(clips: list[dict], output_path: Path, *,
+                ctx: RenderContext | None = None,
                 timeline=None) -> None:
     """Concatenate clips with transitions (video only). Speech handled separately.
 
     For reliability at high resolutions, splits into segments and xfades
     within each segment, then concats segments via demuxer.
     """
+    w = ctx.w if ctx else 0
+    h = ctx.h if ctx else 0
+    fps = ctx.fps if ctx else 0
 
     if len(clips) == 1:
         shutil.copy(str(clips[0]["path"]), str(output_path))
@@ -41,7 +44,7 @@ def concatenate(clips: list[dict], output_path: Path,
 
     if len(groups) == 1 and len(clips) <= 15:
         logger.info(f"  Single xfade ({len(clips)} clips)...")
-        concat_xfade(clips, output_path, w, h, fps, timeline=timeline)
+        concat_xfade(clips, output_path, ctx=ctx, timeline=timeline)
         return
 
     group_files: list[dict] = []
@@ -62,7 +65,7 @@ def concatenate(clips: list[dict], output_path: Path,
             concat_demuxer(group, group_path)
         else:
             logger.info(f"  Group {gi+1}/{len(groups)}: xfade {len(group)} clips...")
-            concat_xfade(group, group_path, w, h, fps)
+            concat_xfade(group, group_path, ctx=ctx)
 
         if group_path.exists():
             dur = probe_duration(group_path) or sum(c["duration"] for c in group)
@@ -91,12 +94,16 @@ def concatenate(clips: list[dict], output_path: Path,
         shutil.move(str(group_files[0]["path"]), str(output_path))
     else:
         logger.info(f"  Joining {len(group_files)} groups via concat filter...")
-        _concat_filter(group_files, output_path, w, h, fps)
+        _concat_filter(group_files, output_path, ctx=ctx)
 
 
-def _concat_filter(clips: list[dict], output_path: Path,
-                   w: int = 0, h: int = 0, fps: int = 0) -> None:
+def _concat_filter(clips: list[dict], output_path: Path, *,
+                   ctx: RenderContext | None = None) -> None:
     """Join group files using the concat filter (re-encodes, but reliable for HEVC)."""
+    w = ctx.w if ctx else 0
+    h = ctx.h if ctx else 0
+    fps = ctx.fps if ctx else 0
+
     inputs = []
     filter_parts = []
     for i, clip in enumerate(clips):
@@ -142,10 +149,13 @@ def concat_demuxer(clips: list[dict], output_path: Path) -> None:
         logger.error("concat_demuxer failed: %s", result.stderr[-500:])
 
 
-def concat_xfade(clips: list[dict], output_path: Path,
-                 w: int = 0, h: int = 0, fps: int = 0,
+def concat_xfade(clips: list[dict], output_path: Path, *,
+                 ctx: RenderContext | None = None,
                  timeline=None) -> None:
     """Concatenate with xfade transitions (video only). Uses Timeline offsets."""
+    w = ctx.w if ctx else 0
+    h = ctx.h if ctx else 0
+    fps = ctx.fps if ctx else 0
 
     if timeline is None:
         timeline = Timeline.build(clips)

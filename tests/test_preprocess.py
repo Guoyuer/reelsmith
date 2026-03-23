@@ -1,4 +1,4 @@
-"""Tests for pipeline.prepare — family detection, timeline, integration."""
+"""Tests for pipeline.prepare — family detection, timeline, analysis caching, integration."""
 
 from __future__ import annotations
 
@@ -198,3 +198,105 @@ class TestPreprocessIntegration:
         assert saved["family_names"] == ["Alice", "Bob"]
         assert "timeline" in saved
         assert len(saved["timeline"]) >= 1
+
+
+# -----------------------------------------------------------------------
+# Analysis caching (migrated from test_analyze.py)
+# -----------------------------------------------------------------------
+
+
+def _make_tiny_image(path: Path, size=(160, 90)) -> Path:
+    from PIL import Image
+    path.parent.mkdir(parents=True, exist_ok=True)
+    img = Image.new("RGB", size, color=(100, 150, 200))
+    img.save(path, "JPEG")
+    return path
+
+
+def _write_manifest(cfg, items: list[dict]) -> None:
+    for item in items:
+        item.setdefault("metadata", {"persons": []})
+        item.setdefault("takentime", 1700000000)
+        item.setdefault("item_type", 0)
+    cfg.manifest_path.write_text(json.dumps(items))
+
+
+def _make_analysis_item(item_id: int, filename: str, local_path: str, **extra) -> dict:
+    item = {
+        "id": item_id, "filename": filename, "local_path": local_path,
+        "family_count": 0, "item_type": 0,
+        "taken_iso": "2025-01-01T00:00:00+00:00", "takentime": 1735689600,
+        "metadata": {"persons": []},
+    }
+    item.update(extra)
+    return item
+
+
+class TestAnalysisCaching:
+    def test_all_items_analyzed(self, mock_config):
+        cfg = mock_config
+        img = _make_tiny_image(cfg.media_dir / "100_photo.jpg")
+        _write_manifest(cfg, [_make_analysis_item(100, "photo.jpg", str(img))])
+        preprocess(cfg)
+        results = json.loads(cfg.analysis_path.read_text())
+        assert len(results) == 1
+
+    def test_resumes_from_existing(self, mock_config):
+        cfg = mock_config
+        img = _make_tiny_image(cfg.media_dir / "101_photo.jpg")
+        _write_manifest(cfg, [_make_analysis_item(101, "photo.jpg", str(img))])
+        existing = [{"id": 101, "filename": "photo.jpg", "local_path": str(img),
+                     "vision": {"description": "already analyzed"}}]
+        cfg.analysis_path.write_text(json.dumps(existing))
+        preprocess(cfg)
+        results = json.loads(cfg.analysis_path.read_text())
+        assert results[0]["vision"]["description"] == "already analyzed"
+
+    def test_uses_shared_cache(self, mock_config):
+        cfg = mock_config
+        img = _make_tiny_image(cfg.media_dir / "102_photo.jpg")
+        _write_manifest(cfg, [_make_analysis_item(102, "photo.jpg", str(img))])
+        (cfg.cache_dir / "102.json").write_text(json.dumps({"thumbnail_path": "/fake/thumb.jpg"}))
+        preprocess(cfg)
+        results = json.loads(cfg.analysis_path.read_text())
+        assert results[0]["thumbnail_path"] == "/fake/thumb.jpg"
+
+    def test_saves_to_shared_cache(self, mock_config):
+        cfg = mock_config
+        img = _make_tiny_image(cfg.media_dir / "103_photo.jpg")
+        _write_manifest(cfg, [_make_analysis_item(103, "photo.jpg", str(img))])
+        preprocess(cfg)
+        cache_file = cfg.cache_dir / "103.json"
+        assert cache_file.exists()
+        assert "thumbnail_path" in json.loads(cache_file.read_text())
+
+    def test_exif_cached(self, mock_config):
+        cfg = mock_config
+        img = _make_tiny_image(cfg.media_dir / "200_photo.jpg")
+        _write_manifest(cfg, [_make_analysis_item(200, "photo.jpg", str(img))])
+        preprocess(cfg)
+        assert (cfg.cache_dir / "200.json").exists()
+
+    def test_exif_from_cache_used(self, mock_config):
+        cfg = mock_config
+        img = _make_tiny_image(cfg.media_dir / "201_photo.jpg")
+        _write_manifest(cfg, [_make_analysis_item(201, "photo.jpg", str(img))])
+        cache_data = {"thumbnail_path": "/fake/thumb.jpg",
+                      "exif": {"focal_length": 24.0, "aperture": 1.4, "iso": 100}}
+        (cfg.cache_dir / "201.json").write_text(json.dumps(cache_data))
+        preprocess(cfg)
+        results = json.loads(cfg.analysis_path.read_text())
+        assert results[0].get("exif") == {"focal_length": 24.0, "aperture": 1.4, "iso": 100}
+
+    def test_progress_callback(self, mock_config):
+        cfg = mock_config
+        img1 = _make_tiny_image(cfg.media_dir / "109_a.jpg")
+        img2 = _make_tiny_image(cfg.media_dir / "110_b.jpg")
+        _write_manifest(cfg, [
+            _make_analysis_item(109, "a.jpg", str(img1), takentime=1700000000),
+            _make_analysis_item(110, "b.jpg", str(img2), takentime=1700000100),
+        ])
+        calls = []
+        preprocess(cfg, progress_callback=lambda c, t, n: calls.append((c, t, n)))
+        assert len(calls) == 2
+        assert calls[0][1] == 2

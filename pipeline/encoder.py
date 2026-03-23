@@ -86,6 +86,9 @@ def detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60,
 @dataclass
 class RenderContext:
     """Per-run render state. Created by assemble(), used by all render modules."""
+    w: int = 0
+    h: int = 0
+    fps: int = 0
     quality: float = 1.0
     _encoder_cache: dict[tuple, list[str]] = field(default_factory=dict)
     _dim_cache: dict[str, tuple[int, int]] = field(default_factory=dict)
@@ -142,10 +145,11 @@ class RenderContext:
 _ctx = RenderContext()
 
 
-def init_context(quality: float = 1.0) -> RenderContext:
+def init_context(*, w: int = 0, h: int = 0, fps: int = 0,
+                  quality: float = 1.0) -> RenderContext:
     """Create a fresh RenderContext for a new assemble run."""
     global _ctx
-    _ctx = RenderContext(quality=quality)
+    _ctx = RenderContext(w=w, h=h, fps=fps, quality=quality)
     return _ctx
 
 

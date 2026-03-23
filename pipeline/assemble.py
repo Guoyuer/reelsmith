@@ -86,10 +86,19 @@ class RenderConfig:
     cfg: Config
     edl: EDL
     version: int
-    w: int
-    h: int
-    fps: int
     ctx: RenderContext
+
+    @property
+    def w(self) -> int:
+        return self.ctx.w
+
+    @property
+    def h(self) -> int:
+        return self.ctx.h
+
+    @property
+    def fps(self) -> int:
+        return self.ctx.fps
 
     @property
     def lang(self) -> str:
@@ -161,10 +170,9 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     logger.info(f"EDL validation passed ({len(edl.all_items())} items, "
          f"{len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s)")
 
-    ctx = init_context(quality=quality)
+    ctx = init_context(w=w, h=h, fps=fps, quality=quality)
 
-    rc = RenderConfig(cfg=cfg, edl=edl, version=version,
-                      w=w, h=h, fps=fps, ctx=ctx)
+    rc = RenderConfig(cfg=cfg, edl=edl, version=version, ctx=ctx)
 
     # Log all FFmpeg commands to output/ffmpeg_commands.log
     ffmpeg_log = logging.getLogger("pipeline.ffmpeg")
@@ -270,10 +278,10 @@ def _render_clips(rc: RenderConfig, *, progress_callback=None, skip_broken: bool
 
             color_temp = segment.color_temp
             if item.media_type == "photo":
-                render_photo(item, clip_path, rc.w, rc.h, rc.fps, color_temp=color_temp,
+                render_photo(item, clip_path, color_temp=color_temp,
                              text_overlay=item.text_overlay, language=rc.lang, ctx=rc.ctx)
             else:
-                render_video(item, clip_path, rc.w, rc.h, rc.fps, color_temp=color_temp,
+                render_video(item, clip_path, color_temp=color_temp,
                              text_overlay=item.text_overlay, language=rc.lang, ctx=rc.ctx)
 
         if not clip_path.exists():
@@ -377,7 +385,7 @@ def _render_clips(rc: RenderConfig, *, progress_callback=None, skip_broken: bool
             if background_photo:
                 break
         if not intro_path.exists():
-            render_title_card(rc.edl.title, rc.edl.date_range, intro_path, rc.w, rc.h, rc.fps,
+            render_title_card(rc.edl.title, rc.edl.date_range, intro_path,
                               duration=intro_dur, language=rc.lang, ctx=rc.ctx,
                               background_photo=background_photo)
         all_clips.insert(0, {
@@ -393,7 +401,7 @@ def _render_clips(rc: RenderConfig, *, progress_callback=None, skip_broken: bool
         outro_path = rc.clips_dir / f"outro_title_{rc.res_label}.mp4"
         outro_dur = rc.edl.outro_duration
         if not outro_path.exists():
-            render_title_card(rc.edl.title, "", outro_path, rc.w, rc.h, rc.fps, duration=outro_dur, language=rc.lang, ctx=rc.ctx)
+            render_title_card(rc.edl.title, "", outro_path, duration=outro_dur, language=rc.lang, ctx=rc.ctx)
         all_clips.append({
             "path": outro_path, "duration": outro_dur,
             "transition": "fade_black", "transition_duration": 1.0,
@@ -416,7 +424,7 @@ def _concat_and_mix(rc: RenderConfig, all_clips: list[dict], *, t_start: float) 
     t2 = time.monotonic()
     logger.info(f"Concatenating {len(all_clips)} clips...")
     no_music_path = rc.output_dir / f"vlog_v{rc.version}_{rc.res_label}_nomix.mp4"
-    concatenate(all_clips, no_music_path, rc.w, rc.h, rc.fps)
+    concatenate(all_clips, no_music_path, ctx=rc.ctx)
     logger.info(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
 
     # Phase 2b: Build speech audio track using Timeline as single source of truth

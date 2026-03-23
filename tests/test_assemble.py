@@ -130,11 +130,11 @@ class TestHeicConversion:
             display_duration=3.0,
         )
 
-        ctx = RenderContext()
+        ctx = RenderContext(w=3840, h=2160, fps=60)
         with patch("pipeline.render.convert_heic", side_effect=mock_convert), \
              patch("pipeline.render.run_subprocess", side_effect=mock_run), \
              patch("pipeline.encoder.run_subprocess", side_effect=mock_run):
-            _render_photo(item, out_file, 3840, 2160, 60, ctx=ctx)
+            _render_photo(item, out_file, ctx=ctx)
 
         assert len(convert_calls) == 1, "convert_heic should be called for HEIC files"
 
@@ -157,8 +157,8 @@ class TestRenderLandscapePhoto:
             display_duration=2.0,
             effect="static",
         )
-        ctx = init_context()
-        _render_photo(item, out, 320, 180, 10, ctx=ctx)
+        ctx = init_context(w=320, h=180, fps=10)
+        _render_photo(item, out, ctx=ctx)
         assert out.exists(), "Output clip should be created"
 
         w, h = ctx.probe_dimensions(out)
@@ -177,8 +177,8 @@ class TestRenderPortraitPhoto:
             media_type="photo",
             display_duration=2.0,
         )
-        ctx = init_context()
-        _render_photo(item, out, 320, 180, 10, ctx=ctx)
+        ctx = init_context(w=320, h=180, fps=10)
+        _render_photo(item, out, ctx=ctx)
         assert out.exists(), "Output clip should be created"
 
         w, h = ctx.probe_dimensions(out)
@@ -194,8 +194,8 @@ class TestRenderPortraitPhoto:
             media_type="photo",
             display_duration=2.0,
         )
-        ctx = init_context()
-        _render_photo(item, out, 320, 180, 10, ctx=ctx)
+        ctx = init_context(w=320, h=180, fps=10)
+        _render_photo(item, out, ctx=ctx)
         assert out.exists()
 
         # Extract first frame as PNG
@@ -245,8 +245,8 @@ class TestRenderPortraitVideo:
             media_type="video",
             display_duration=1.0,
         )
-        ctx = init_context()
-        _render_video(item, out, 320, 180, 10, ctx=ctx)
+        ctx = init_context(w=320, h=180, fps=10)
+        _render_video(item, out, ctx=ctx)
         assert out.exists(), "Rendered video should exist"
 
         # Extract a frame and check edges
@@ -572,3 +572,37 @@ class TestValidateOutputAllPassing:
                         dimensions="3840x2160"):
             issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160))
         assert len(issues) == 0
+
+
+# -----------------------------------------------------------------------
+# RenderReport
+# -----------------------------------------------------------------------
+
+
+class TestRenderReport:
+    def test_empty_report(self):
+        from pipeline.assemble import RenderReport
+        r = RenderReport()
+        assert r.ok_count == 0
+        assert "0/0 OK" in r.summary()
+
+    def test_all_ok(self):
+        from pipeline.assemble import RenderReport, ClipStatus
+        r = RenderReport(clips=[
+            ClipStatus("c1", "a.jpg", "ok"),
+            ClipStatus("c2", "b.jpg", "ok"),
+        ])
+        assert r.ok_count == 2
+        assert "2/2 OK" in r.summary()
+
+    def test_mixed_status(self):
+        from pipeline.assemble import RenderReport, ClipStatus
+        r = RenderReport(clips=[
+            ClipStatus("c1", "a.jpg", "ok"),
+            ClipStatus("c2", "b.jpg", "skipped", "source not found"),
+            ClipStatus("c3", "c.jpg", "failed", "timeout"),
+        ])
+        assert r.ok_count == 1
+        assert r.skipped_count == 1
+        assert r.failed_count == 1
+        assert "timeout" in r.summary()

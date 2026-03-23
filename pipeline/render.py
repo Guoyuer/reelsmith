@@ -18,11 +18,12 @@ from .media_utils import run_subprocess
 logger = logging.getLogger("vlog.render")
 
 
-def render_photo(item: EditItem, output_path: Path, w: int, h: int, fps: int, *,
+def render_photo(item: EditItem, output_path: Path, *,
                  ctx: RenderContext,
                  color_temp: str = "neutral",
                  text_overlay=None, language: str = "en") -> None:
     """Render a photo with Ken Burns effect as a video clip. Text overlay baked in."""
+    w, h, fps = ctx.w, ctx.h, ctx.fps
     source = Path(item.source_file)
 
     if source.suffix.lower() in {".heic", ".heif"}:
@@ -111,11 +112,12 @@ def render_photo(item: EditItem, output_path: Path, w: int, h: int, fps: int, *,
         raise RuntimeError(f"Photo render failed ({item.source_file}): {result.stderr[-300:]}")
 
 
-def render_video(item: EditItem, output_path: Path, w: int, h: int, fps: int, *,
+def render_video(item: EditItem, output_path: Path, *,
                  ctx: RenderContext,
                  color_temp: str = "neutral",
                  text_overlay=None, language: str = "en") -> None:
     """Trim and normalize a video clip. Text overlay baked in. Preserves audio if keep_audio."""
+    w, h, fps = ctx.w, ctx.h, ctx.fps
     cmd = ["ffmpeg", "-y"]
     if item.start_time is not None:
         cmd += ["-ss", str(item.start_time)]
@@ -164,7 +166,7 @@ def render_video(item: EditItem, output_path: Path, w: int, h: int, fps: int, *,
 
 
 def render_title_card(
-    title: str, subtitle: str, output_path: Path, w: int, h: int, fps: int, *,
+    title: str, subtitle: str, output_path: Path, *,
     ctx: RenderContext,
     duration: float = 3.0, language: str = "en",
     background_photo: str | None = None,
@@ -174,6 +176,7 @@ def render_title_card(
     If *background_photo* is provided and the file exists, the gradient is replaced
     with a heavily blurred, darkened, vignetted version of the photo.
     """
+    w, h, fps = ctx.w, ctx.h, ctx.fps
     safe_title = title.replace("'", "\u2019").replace(":", "\\:")
     font = find_font(language)
     font_arg = f":fontfile='{font}'" if font else ""
