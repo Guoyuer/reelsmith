@@ -21,11 +21,6 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-try:
-    import pillow_heif
-    pillow_heif.register_heif_opener()
-except ImportError:
-    pass
 
 from .config import Config
 from .image_utils import generate_thumbnail

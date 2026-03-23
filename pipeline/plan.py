@@ -16,11 +16,6 @@ from pathlib import Path
 
 logger = logging.getLogger("vlog.plan")
 
-try:
-    import pillow_heif
-    pillow_heif.register_heif_opener()
-except ImportError:
-    logger.debug("pillow_heif not installed — HEIC handled by convert_heic fallback")
 
 from .config import Config
 from .edl import EDL, MusicTrack
@@ -131,8 +126,6 @@ def _gemini_call(
 
     *user_parts*: list of strings and/or Part objects (text + images).
     """
-    import os
-
     from google import genai
     from google.genai import types
 
@@ -435,7 +428,6 @@ def _generate_video_previews(
     wasted frames. Full-length means 100% coverage (vs 71% with clips).
     Labels are burned during mega-preview concat, not here (keeps cache stable).
     """
-    import os
     from .media_utils import run_subprocess
 
     # 360p 1fps CRF35 — matches Gemini's internal processing rate
@@ -597,6 +589,8 @@ def _build_visual_content_blocks(
     """
 
     blocks: list = []
+    import re
+
     preview_dir = cfg.preview_clips_dir
     video_entries: list[tuple[int, float, Path]] = []  # (item_num, duration, preview_path)
 
@@ -677,7 +671,6 @@ def _build_visual_content_blocks(
 
         # Inject preview timestamps into text metadata blocks
         # Find lines like "#30: ... video=22s path=..." and add "preview=MM:SS-MM:SS"
-        import re
         for bi, block in enumerate(blocks):
             if not isinstance(block, str):
                 continue
@@ -718,7 +711,6 @@ def _build_visual_content_blocks(
         raise RuntimeError("No photos generated — check source files")
 
     # 2. Count items referenced in text metadata
-    import re
     text_item_nums = set()
     for b in blocks:
         if isinstance(b, str):
