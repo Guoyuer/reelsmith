@@ -108,14 +108,13 @@ def beat_snap_edl(edl: EDL, music_path: Path) -> int:
 
     offset = 0.0
     if edl.intro_style == "title_card":
-        offset += 3.0
-    elif edl.intro_style == "highlight_montage":
-        offset += 5.0
+        offset += edl.intro_duration
 
     snapped = 0
     total_transitions = 0
 
     for seg in edl.segments:
+        seg_max_shift = 0.2 if seg.mode == "montage" else max_shift
         has_speech = any(item.keep_audio for item in seg.items)
         if has_speech:
             offset += sum(item.display_duration for item in seg.items)
@@ -142,7 +141,7 @@ def beat_snap_edl(edl: EDL, music_path: Path) -> int:
             nearest = min(candidates, key=lambda b: abs(b - offset))
             shift = nearest - offset
 
-            if abs(shift) > max_shift:
+            if abs(shift) > seg_max_shift:
                 continue
 
             min_dur = min_photo_dur if item.media_type == "photo" else min_video_dur
@@ -213,10 +212,10 @@ def add_music(video_path: Path, music, output_path: Path, *,
         loop_filter = f"aloop=loop={loops}:size={int(music_dur * 32000)},atrim=0:{total_dur},"
 
     if speech_ranges:
-        duck_vol = music.volume * duck_ratio
-        vol_expr = str(music.volume)
-        for start, end in reversed(speech_ranges):
-            vol_expr = f"if(between(t,{start:.1f},{end:.1f}),{duck_vol:.3f},{vol_expr})"
+        vol_expr = f"{music.volume:.3f}"
+        for start, end in speech_ranges:
+            attack_start = max(0, start - 0.3)
+            vol_expr = f"({vol_expr})*(1-{1-duck_ratio:.3f}*(clip((t-{attack_start:.1f})/0.3,0,1)-clip((t-{end:.1f})/1.0,0,1)))"
         music_vol_filter = f"volume='{vol_expr}':eval=frame"
     else:
         music_vol_filter = f"volume={music.volume}"
