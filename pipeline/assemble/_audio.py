@@ -4,14 +4,11 @@ from __future__ import annotations
 
 import logging
 import math
-import shutil
 import struct as _struct
 import wave
 from pathlib import Path
 
 from ..edl import EDL
-from ..media_utils import run_subprocess
-from ._encoder import RenderContext
 
 logger = logging.getLogger("vlog.assemble.audio")
 
@@ -44,7 +41,9 @@ def estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int |
         return None
 
     if nc == 2:
-        samples = [(samples[i] + samples[i + 1]) / 2 for i in range(0, n_samples - 1, 2)]
+        samples = [
+            (samples[i] + samples[i + 1]) / 2 for i in range(0, n_samples - 1, 2)
+        ]
     elif nc > 2:
         return None
 
@@ -74,7 +73,10 @@ def estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int |
     best_corr = -1.0
 
     for lag in range(min_lag, max_lag):
-        corr = sum((energy[i] - mean_e) * (energy[i + lag] - mean_e) for i in range(len(energy) - lag))
+        corr = sum(
+            (energy[i] - mean_e) * (energy[i + lag] - mean_e)
+            for i in range(len(energy) - lag)
+        )
         if corr > best_corr:
             best_corr = corr
             best_lag = lag
@@ -155,217 +157,15 @@ def beat_snap_edl(edl: EDL, music_path: Path) -> int:
 
     if total_transitions > 0:
         pct = int(snapped / total_transitions * 100)
-        logger.info("Beat sync: snapped %d/%d transitions (%d%%) to %d BPM grid", snapped, total_transitions, pct, bpm)
+        logger.info(
+            "Beat sync: snapped %d/%d transitions (%d%%) to %d BPM grid",
+            snapped,
+            total_transitions,
+            pct,
+            bpm,
+        )
 
     return snapped
-
-
-# ---------------------------------------------------------------------------
-# Speech & music
-# ---------------------------------------------------------------------------
-
-
-def build_speech_track(
-    speech_clips: list[tuple[float, Path]],
-    total_duration: float,
-    output_path: Path,
-) -> None:
-    """Merge audio from keep_audio clips into one WAV at correct time offsets."""
-    if not speech_clips:
-        return
-
-    inputs = []
-    filter_parts = []
-    for i, (offset_s, clip_path) in enumerate(speech_clips):
-        inputs += ["-i", str(clip_path)]
-        delay_ms = int(offset_s * 1000)
-        filter_parts.append(f"[{i}:a]afade=t=in:d=0.3,afade=t=out:st=99:d=0.3,adelay={delay_ms}|{delay_ms}[a{i}]")
-
-    mix_inputs = "".join(f"[a{i}]" for i in range(len(speech_clips)))
-    filter_parts.append(f"{mix_inputs}amix=inputs={len(speech_clips)}" f":duration=longest:dropout_transition=0[out]")
-
-    cmd = (
-        ["ffmpeg", "-y"]
-        + inputs
-        + [
-            "-filter_complex",
-            ";".join(filter_parts),
-            "-map",
-            "[out]",
-            "-t",
-            str(total_duration),
-            "-c:a",
-            "pcm_s16le",
-            "-ar",
-            "48000",
-            "-ac",
-            "2",
-            str(output_path),
-        ]
-    )
-    result = run_subprocess(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"Speech track build failed: {result.stderr[-300:]}")
-
-
-def add_music(
-    video_path: Path,
-    music,
-    output_path: Path,
-    *,
-    ctx: RenderContext | None = None,
-    speech_ranges: list[tuple[float, float]] | None = None,
-    speech_audio_path: Path | None = None,
-    duck_ratio: float = 0.3,
-) -> None:
-    """Mix background music + speech audio into the video."""
-    total_dur = ctx.probe_duration(video_path) if ctx else 0.0
-    music_dur = ctx.probe_duration(Path(music.file)) if ctx else 0.0
-    fade_out_start = max(0, total_dur - music.fade_out)
-
-    loop_filter = ""
-    if music_dur > 0 and music_dur < total_dur - 1:
-        loops = int(total_dur / music_dur) + 1
-        loop_filter = f"aloop=loop={loops}:size={int(music_dur * 32000)},atrim=0:{total_dur},"
-
-    if speech_ranges:
-        vol_expr = f"{music.volume:.3f}"
-        for start, end in speech_ranges:
-            attack_start = max(0, start - 0.3)
-            gain = f"clip((t-{attack_start:.1f})/0.3,0,1)-clip((t-{end:.1f})/1.0,0,1)"
-            vol_expr = f"({vol_expr})*(1-{1-duck_ratio:.3f}*({gain}))"
-        music_vol_filter = f"volume='{vol_expr}':eval=frame"
-    else:
-        music_vol_filter = f"volume={music.volume}"
-
-    if speech_audio_path and speech_audio_path.exists():
-        audio_filter = (
-            f"[1:a]{loop_filter}{music_vol_filter},"
-            f"afade=t=in:d={music.fade_in},"
-            f"afade=t=out:st={fade_out_start}:d={music.fade_out}[bg];"
-            f"[2:a]volume=1.0,apad[speech];"
-            f"[speech][bg]amix=inputs=2:duration=first:weights=3 1,"
-            f"loudnorm=I=-16:TP=-1.5:LRA=11[a]"
-        )
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-i",
-            str(video_path),
-            "-i",
-            str(music.file),
-            "-i",
-            str(speech_audio_path),
-            "-filter_complex",
-            audio_filter,
-            "-map",
-            "0:v",
-            "-map",
-            "[a]",
-            "-shortest",
-            "-c:v",
-            "copy",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            str(output_path),
-        ]
-    else:
-        audio_filter = (
-            f"[1:a]{loop_filter}{music_vol_filter},"
-            f"afade=t=in:d={music.fade_in},"
-            f"afade=t=out:st={fade_out_start}:d={music.fade_out},"
-            f"loudnorm=I=-16:TP=-1.5:LRA=11[a]"
-        )
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-i",
-            str(video_path),
-            "-i",
-            str(music.file),
-            "-filter_complex",
-            audio_filter,
-            "-map",
-            "0:v",
-            "-map",
-            "[a]",
-            "-shortest",
-            "-c:v",
-            "copy",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            str(output_path),
-        ]
-    result = run_subprocess(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"Music mixing failed: {result.stderr[-300:]}")
-
-
-def mix_final_audio(
-    video_path: Path,
-    output_path: Path,
-    music_track=None,
-    speech_audio_path: Path | None = None,
-    speech_ranges: list[tuple[float, float]] | None = None,
-    duck_ratio: float = 0.3,
-    ctx: RenderContext | None = None,
-) -> None:
-    """Mix music and/or speech audio into the final video.
-
-    Handles three cases:
-    - Music + optional speech: mix via add_music()
-    - Speech only (no music): mux speech audio into video
-    - Neither: just move the video file to output_path
-
-    Cleans up intermediate files (video_path, speech_audio) after mixing.
-    """
-
-    has_music = music_track is not None and music_track.file and Path(music_track.file).exists()
-
-    if has_music:
-        add_music(
-            video_path,
-            music_track,
-            output_path,
-            ctx=ctx,
-            speech_ranges=speech_ranges,
-            speech_audio_path=speech_audio_path,
-            duck_ratio=duck_ratio,
-        )
-        video_path.unlink(missing_ok=True)
-        if speech_audio_path:
-            speech_audio_path.unlink(missing_ok=True)
-    elif speech_audio_path and speech_audio_path.exists():
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-i",
-            str(video_path),
-            "-i",
-            str(speech_audio_path),
-            "-map",
-            "0:v",
-            "-map",
-            "1:a",
-            "-c:v",
-            "copy",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            str(output_path),
-        ]
-        result = run_subprocess(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise RuntimeError(f"Final audio mix failed: {result.stderr[-300:]}")
-        video_path.unlink(missing_ok=True)
-        speech_audio_path.unlink(missing_ok=True)
-    else:
-        shutil.move(str(video_path), str(output_path))
 
 
 def write_chapters(edl: EDL, segment_durations: list[float], out_path: Path) -> None:
