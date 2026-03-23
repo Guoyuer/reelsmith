@@ -202,11 +202,10 @@ def _photo_filter(
     idx: int, item: EditItem, segment: Segment, ctx: RenderContext,
     fade_in: float, fade_out: float, language: str,
 ) -> str:
-    """Photo filter: scale to fill 16:9, then Ken Burns crop + lanczos.
+    """Photo filter: blurred-bg composite + Ken Burns.
 
-    Simple pipeline: source → scale-to-cover → crop+scale Ken Burns → effects.
-    No blurred-background composite — just crop to fill, same as pro editors.
-    Source resolution preserved until the final lanczos downscale.
+    Preserves full photo content (no crop). Non-16:9 photos get a blurred,
+    darkened copy of themselves as background fill.
     """
     w, h, fps = ctx.w, ctx.h, ctx.fps
     frames = int(item.display_duration * fps)
@@ -230,18 +229,12 @@ def _photo_filter(
     direction = direction_map.get(item.effect, "in")
     kb = ken_burns_filter(frames, w, h, fps, direction=direction)
 
-    # Scale source to COVER a 16:9 area, then crop to 16:9. No blurred bg.
-    # Work area at source resolution for single-step lanczos downscale.
-    src_w, src_h = ctx.probe_dimensions(Path(item.source_file))
-    min_h = int(h * 1.4)  # zoom headroom for 1.3x max
-    work_h = max(src_h, min_h)
-    work_h = work_h + (work_h % 2)
-    work_w = int(work_h * w / h)
-    work_w = work_w + (work_w % 2)
-
     return (
-        f"[{idx}:v] scale={work_w}:{work_h}:force_original_aspect_ratio=increase,"
-        f"crop={work_w}:{work_h},"
+        f"[{idx}:v] split [bg{idx}][fg{idx}];"
+        f"[bg{idx}] scale={w}:{h}:force_original_aspect_ratio=increase,"
+        f"crop={w}:{h},gblur=sigma=50,eq=brightness=-0.15:saturation=0.6 [blurred{idx}];"
+        f"[fg{idx}] scale={w}:{h}:force_original_aspect_ratio=decrease [sharp{idx}];"
+        f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2,"
         f"{kb},{cg}{sharpen}{dt}{fade} [v{idx}]"
     )
 
