@@ -451,11 +451,8 @@ def _run_pipeline(run_name: str, *, stages: list[str], fetch=None, prepare=None,
     except SystemExit:
         raise
     except Exception as e:
-        # Mark the currently-running stage as failed in display
-        for stage in active:
-            if display._status.get(stage) == "running":
-                display.fail(stage, str(e))
-                break
+        # Mark failure in display
+        display.fail("pipeline", str(e)[:80])
         logger.error(f"Pipeline failed: {e}", exc_info=True)
         status["result"] = "failure"
         status["error"] = str(e)

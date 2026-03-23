@@ -223,10 +223,14 @@ def _assemble_inner(cfg, edl, version, ctx, res_label, output_path, progress_cal
 
 def _find_first_photo(edl: EDL) -> str | None:
     """Find the first photo in the EDL for hero-photo title card background."""
+    from ..image_utils import convert_heic
+
     for seg in edl.segments:
         for item in seg.items:
             if item.media_type == "photo":
                 bg_path = Path(item.source_file)
+                if bg_path.suffix.lower() in {".heic", ".heif"}:
+                    bg_path = convert_heic(bg_path)
                 return str(bg_path)
     return None
 
