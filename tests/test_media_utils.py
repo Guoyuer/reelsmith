@@ -1,4 +1,4 @@
-"""Tests for pipeline.media_utils — shared media utility functions."""
+"""Tests for pipeline.media_utils and pipeline.image_utils."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pytest
 
 import pipeline.image_utils as _img_utils
 from pipeline.image_utils import convert_heic
-from pipeline.media_utils import strip_markdown_fences
+from pipeline.media_utils import probe_duration, run_subprocess, strip_markdown_fences
 
 
 @pytest.fixture(autouse=True)
@@ -93,3 +93,52 @@ class TestConvertHeicSkipsExisting:
 
         mock_run.assert_not_called()
         assert result == jpeg_path
+
+
+# ---------------------------------------------------------------------------
+# run_subprocess
+# ---------------------------------------------------------------------------
+
+
+class TestRunSubprocess:
+    def test_basic_command(self):
+        result = run_subprocess(["python", "-c", "print('hello')"], capture_output=True, text=True)
+        assert result.returncode == 0
+        assert "hello" in result.stdout
+
+    def test_timeout_returns_code_1(self):
+        result = run_subprocess(
+            ["python", "-c", "import time; time.sleep(10)"],
+            timeout=1,
+            capture_output=True,
+        )
+        assert result.returncode == 1  # killed by timeout
+
+    def test_nonexistent_command_raises(self):
+        with pytest.raises(FileNotFoundError):
+            run_subprocess(["nonexistent_binary_xyz"], capture_output=True)
+
+
+# ---------------------------------------------------------------------------
+# probe_duration
+# ---------------------------------------------------------------------------
+
+
+class TestProbeDuration:
+    def test_returns_duration(self):
+        fake = MagicMock()
+        fake.stdout = "123.45\n"
+        with patch("pipeline.media_utils.run_subprocess", return_value=fake):
+            assert probe_duration(Path("/fake.mp4")) == 123.45
+
+    def test_handles_empty_output(self):
+        fake = MagicMock()
+        fake.stdout = "\n"
+        with patch("pipeline.media_utils.run_subprocess", return_value=fake):
+            assert probe_duration(Path("/fake.mp4")) == 0.0
+
+    def test_handles_bad_output(self):
+        fake = MagicMock()
+        fake.stdout = "not a number\n"
+        with patch("pipeline.media_utils.run_subprocess", return_value=fake):
+            assert probe_duration(Path("/fake.mp4")) == 0.0
