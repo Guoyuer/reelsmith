@@ -97,13 +97,12 @@ videos should have keep_audio=true.
     landscape/building shots from the same location. If you've already shown a place,
     move on — the viewer got it.
 
-11. **Burst & location dedup**: Check timestamps (HH:MM:SS) — photos/videos taken within
-    60 seconds of each other at the same location are essentially the same scene.
-    Pick only the ONE best from each group:
+11. **Visual dedup**: Photos/videos showing the same scene from similar angles are duplicates.
+    LOOK at the actual images — if two photos show the same subject, same framing, same people
+    in the same pose, they are duplicates. Pick only the ONE best from each group:
     - For photos: choose the best composition and facial expression (genuine laugh > polite smile > eyes closed)
     - For videos: choose the one with the best action, audio, or framing
-    - Even if items are minutes apart, if they show the same subject/scene from similar angles, pick ONE
-    - A segment with 5+ photos from the same 10-minute window is almost always wrong — vary your selection across different moments and locations
+    - A segment with 5+ visually similar photos is almost always wrong — vary your selection
 
 12. **Text overlays**: Evocative, not descriptive. Keep rare (3-5 per vlog max).
     BAD: "Day 1 - Marina Bay", "Gardens by the Bay", "Dinner time"

@@ -24,8 +24,6 @@ def _build_visual_chapter_text(
     day: dict,
     analysis_by_id: dict,
     start_idx: int,
-    *,
-    tz_hours: int = 0,
 ) -> tuple[str, list[Path], list[str], list[dict]]:
     """Build text metadata for a chapter and collect image paths.
 
@@ -49,19 +47,6 @@ def _build_visual_chapter_text(
         local_path = a.get("local_path", "")
         media = a.get("media_type", "photo")
         persons = a.get("persons", [])
-        taken_iso = a.get("taken_iso", "")
-        time_str = ""
-        if taken_iso and len(taken_iso) >= 16:
-            try:
-                from datetime import datetime, timedelta
-
-                dt = datetime.fromisoformat(taken_iso.replace("Z", "+00:00"))
-                local_dt = dt + timedelta(hours=tz_hours)
-                time_str = local_dt.strftime("%H:%M:%S")
-            except Exception:
-                logger.debug("Could not parse timestamp %s", taken_iso, exc_info=True)
-                time_str = taken_iso[11:19]
-
         label = f"#{idx:02d}"
         # Describe who's in the photo
         if a.get("family_count", 0) >= 2:
@@ -77,8 +62,6 @@ def _build_visual_chapter_text(
         else:
             who = "unknown"
         parts = [f"{label}: {who}"]
-        if time_str:
-            parts.append(f"time={time_str}")
 
         # Per-item location
         item_loc = a.get("district") or a.get("first_level") or a.get("country")
@@ -224,7 +207,6 @@ def _build_visual_content_blocks(
     analysis_by_id: dict,
     cfg: Config,
     *,
-    tz_hours: int = 0,
     force: bool = False,
 ) -> tuple[list, list[tuple[int, float, float]]]:
     """Build multimodal parts: interleaved text + individual photos + mega video preview.
@@ -247,7 +229,6 @@ def _build_visual_content_blocks(
                 day,
                 analysis_by_id,
                 global_idx,
-                tz_hours=tz_hours,
             )
             n_items = len(photo_paths) + len(video_items)
             if n_items == 0:

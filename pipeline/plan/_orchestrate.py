@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -106,12 +105,8 @@ def _plan_visual(
         "Building individual photo thumbnails and concatenated video preview..."
     )
 
-    tz_hours = pc.tz_hours
-    if tz_hours is None:
-        tz_hours = preprocessed.get("tz_hours", -(time.timezone // 3600))
-
     content_blocks, preview_offset_table = _build_visual_content_blocks(
-        preprocessed, analysis_by_id, cfg, tz_hours=tz_hours, force=pc.force
+        preprocessed, analysis_by_id, cfg, force=pc.force
     )
     n_img = sum(
         1
