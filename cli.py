@@ -56,113 +56,42 @@ _ICON_FAILED = "\u274c"  # ❌
 
 
 class _PipelineDisplay:
-    """Live terminal progress display for pipeline stages.
+    """Terminal progress display for pipeline stages.
 
-    Uses ANSI cursor-up codes to overwrite previous output on each update.
-    Falls back to simple one-shot print lines when stderr is not a TTY.
+    Prints one line per state change (start/done/fail). No ANSI cursor
+    tricks — works reliably on all terminals including Windows Terminal.
     """
 
     def __init__(self, run_name: str, headline: str, stages: list[str]):
         self._run_name = run_name
         self._headline = headline
         self._stages = stages
-        self._is_tty = sys.stderr.isatty()
         self._t_start = time.monotonic()
-        self._prev_lines = 0  # how many lines we printed last time
-
-        # Per-stage state
-        self._status: dict[str, str] = {s: "pending" for s in stages}
-        self._detail: dict[str, str] = {s: "" for s in stages}
-        self._duration: dict[str, str] = {s: "" for s in stages}
-
-    # -- Public API --
+        self._print(f"\n\U0001f3ac {run_name} \u2014 {headline}\n")
 
     def start(self, stage: str) -> None:
-        self._status[stage] = "running"
-        self._detail[stage] = ""
-        self._duration[stage] = ""
-        self._render()
+        name = stage.replace("_", " ")
+        self._print(f"  {_ICON_RUNNING} {name}...")
 
     def update(self, stage: str, detail: str) -> None:
-        self._detail[stage] = detail
-        # Only re-render in TTY mode to avoid flooding non-TTY output
-        if self._is_tty:
-            self._render()
+        pass  # progress logged by tqdm / logger, not the display
 
     def done(self, stage: str, detail: str, duration: float) -> None:
-        self._status[stage] = "done"
-        self._detail[stage] = detail
-        cached = duration < 0.5
-        self._duration[stage] = f"{duration:.0f}s" + (" (cached)" if cached else "")
-        self._render()
+        name = stage.replace("_", " ")
+        cached = " (cached)" if duration < 0.5 else ""
+        parts = [f"  {_ICON_DONE} {name:<17s}"]
+        if detail:
+            parts.append(detail)
+        parts.append(f"{duration:.0f}s{cached}")
+        self._print("  ".join(parts))
 
     def fail(self, stage: str, error: str) -> None:
-        self._status[stage] = "failed"
-        self._detail[stage] = error[:60]
-        self._render()
+        name = stage.replace("_", " ")
+        self._print(f"  {_ICON_FAILED} {name}: {error[:80]}")
 
-    # -- Rendering --
-
-    def _icon(self, status: str) -> str:
-        return {
-            "pending": _ICON_PENDING,
-            "running": _ICON_RUNNING,
-            "done": _ICON_DONE,
-            "failed": _ICON_FAILED,
-        }.get(status, _ICON_PENDING)
-
-    def _format_stage_name(self, stage: str) -> str:
-        return stage.replace("_", " ")
-
-    def _render(self) -> None:
-        elapsed = time.monotonic() - self._t_start
-
-        lines: list[str] = []
-        lines.append("")
-        lines.append(f"\U0001f3ac {self._run_name} \u2014 {self._headline}")
-        lines.append("")
-
-        for stage in self._stages:
-            icon = self._icon(self._status[stage])
-            name = self._format_stage_name(stage)
-            detail = self._detail[stage]
-            dur = self._duration[stage]
-
-            # Build the line with aligned columns
-            stage_col = f"  {icon} {name:<17s}"
-            detail_col = f"{detail:<30s}" if detail else " " * 30
-            dur_col = f"{dur}" if dur else ""
-            lines.append(f"{stage_col}{detail_col}{dur_col}")
-
-        lines.append("")
-        lines.append(f"  Elapsed: {elapsed:.0f}s")
-        lines.append("")
-
-        if self._is_tty:
-            # Move cursor up to overwrite previous output
-            if self._prev_lines > 0:
-                sys.stderr.write(f"\033[{self._prev_lines}F")
-                # Clear each line we're about to overwrite
-                for _ in range(self._prev_lines):
-                    sys.stderr.write("\033[2K\033[1B")
-                sys.stderr.write(f"\033[{self._prev_lines}F")
-
-            output = "\n".join(lines)
-            sys.stderr.write(output)
-            sys.stderr.flush()
-            self._prev_lines = len(lines)
-        else:
-            # Non-TTY: only print when a stage completes or fails
-            for stage in self._stages:
-                st = self._status[stage]
-                if st in ("done", "failed") and not getattr(self, f"_printed_{stage}", False):
-                    icon = self._icon(st)
-                    name = self._format_stage_name(stage)
-                    detail = self._detail[stage]
-                    dur = self._duration[stage]
-                    sys.stderr.write(f"{icon} {name}: {detail}  {dur}\n")
-                    sys.stderr.flush()
-                    setattr(self, f"_printed_{stage}", True)
+    def _print(self, msg: str) -> None:
+        sys.stderr.write(msg + "\n")
+        sys.stderr.flush()
 
 
 # ---------------------------------------------------------------------------
