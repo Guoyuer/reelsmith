@@ -10,6 +10,16 @@ from .media_utils import run_subprocess
 
 logger = logging.getLogger("vlog.image_utils")
 
+# Set by init_heic_dir() from Config; convert_heic uses this instead of source.parent
+_heic_dest_dir: Path | None = None
+
+
+def init_heic_dir(dest_dir: Path) -> None:
+    """Set the global HEIC conversion output directory."""
+    global _heic_dest_dir
+    _heic_dest_dir = dest_dir
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
 
 def convert_heic(source: Path, dest_dir: Path | None = None) -> Path:
     """Convert a HEIC/HEIF image to JPEG.
@@ -17,26 +27,10 @@ def convert_heic(source: Path, dest_dir: Path | None = None) -> Path:
     Tries backends in order: pillow-heif (cross-platform), macOS sips,
     ImageMagick. At least one must be available.
 
-    Parameters
-    ----------
-    source : Path
-        Path to the .heic/.heif file.
-    dest_dir : Path | None
-        Directory for the output JPEG. Defaults to the same directory as *source*.
-
-    Returns
-    -------
-    Path
-        Path to the converted JPEG. If the JPEG already exists, conversion is
-        skipped and the existing path is returned.
-
-    Raises
-    ------
-    RuntimeError
-        If no backend succeeds.
+    Output goes to *dest_dir* if given, else the module-level dir set by
+    ``init_heic_dir()``, else *source.parent* as last resort.
     """
-
-    dest_dir = dest_dir or source.parent
+    dest_dir = dest_dir or _heic_dest_dir or source.parent
     jpeg_path = dest_dir / f"_converted_{source.stem}.jpg"
     if jpeg_path.exists():
         return jpeg_path

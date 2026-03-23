@@ -19,6 +19,7 @@ from .audio import beat_snap_edl, build_speech_track, mix_final_audio, write_cha
 from .concat import concatenate
 from .config import Config
 from .edl import EDL, load_latest_edl, validate_edl
+from .image_utils import init_heic_dir
 from .encoder import (
     get_context,
     init_context,
@@ -87,6 +88,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     of dicts with keys: level ("error"/"warning"), check, message.
     """
     cfg.ensure_dirs()
+    init_heic_dir(cfg.heic_converted_dir)
 
     # Validate render parameters
     w, h = resolution

@@ -7,8 +7,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import pipeline.image_utils as _img_utils
 from pipeline.image_utils import convert_heic
 from pipeline.media_utils import strip_markdown_fences
+
+
+@pytest.fixture(autouse=True)
+def _reset_heic_dir():
+    """Ensure tests use source.parent, not a stale global dir."""
+    _img_utils._heic_dest_dir = None
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ class Config:
     cache_dir: Path = Path("./workspace/analysis_cache")
     thumbnails_dir: Path = Path("./workspace/thumbnails")
     preview_clips_dir: Path = Path("./workspace/preview_clips")
+    heic_converted_dir: Path = Path("./workspace/heic_converted")
     music_dir: Path = Path("./workspace/music")
 
     # Per-run directories and files (derived from workspace)
@@ -62,6 +63,7 @@ class Config:
             cache_dir=base / "analysis_cache",
             thumbnails_dir=base / "thumbnails",
             preview_clips_dir=base / "preview_clips",
+            heic_converted_dir=base / "heic_converted",
             music_dir=base / "music",
         )
         return cfg
@@ -74,6 +76,7 @@ class Config:
             self.cache_dir,
             self.thumbnails_dir,
             self.preview_clips_dir,
+            self.heic_converted_dir,
             self.music_dir,
         ]:
             d.mkdir(parents=True, exist_ok=True)

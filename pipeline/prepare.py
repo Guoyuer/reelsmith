@@ -23,7 +23,7 @@ from tqdm import tqdm
 
 
 from .config import Config
-from .image_utils import generate_thumbnail
+from .image_utils import generate_thumbnail, init_heic_dir
 from .media_utils import run_subprocess
 
 logger = logging.getLogger("vlog.prepare")
@@ -44,6 +44,7 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
     3. Save preprocessed.json + analysis.json
     """
     cfg.ensure_dirs()
+    init_heic_dir(cfg.heic_converted_dir)
     manifest = json.loads(cfg.manifest_path.read_text())
 
     # --- Family detection ---

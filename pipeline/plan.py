@@ -1176,6 +1176,9 @@ def plan(
             "Get a key at https://ai.google.dev/gemini-api/docs/api-key"
         )
 
+    from .image_utils import init_heic_dir
+    init_heic_dir(cfg.heic_converted_dir)
+
     effective_focus = focus or _default_focus(trip_type)
     preprocessed = json.loads(cfg.preprocessed_path.read_text())
     analysis_items = json.loads(cfg.analysis_path.read_text())

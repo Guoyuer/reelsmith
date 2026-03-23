@@ -34,6 +34,7 @@ def mock_config(tmp_path: Path):
         cache_dir=tmp_path / "workspace" / "analysis_cache",
         thumbnails_dir=tmp_path / "workspace" / "thumbnails",
         preview_clips_dir=tmp_path / "workspace" / "preview_clips",
+        heic_converted_dir=tmp_path / "workspace" / "heic_converted",
     )
     cfg.ensure_dirs()
     return cfg

@@ -903,6 +903,7 @@ def workspace(clean, yes):
         ("preview_clips", "Video preview clips (shared)", ws / "preview_clips"),
         ("analysis_cache", "Analysis cache", ws / "analysis_cache"),
         ("thumbnails", "Photo thumbnails", ws / "thumbnails"),
+        ("heic_converted", "HEIC→JPEG conversions", ws / "heic_converted"),
     ]
 
     total = 0
@@ -1038,6 +1039,7 @@ def workspace(clean, yes):
         targets += [("analysis_cache", ws / "analysis_cache"),
                     ("thumbnails", ws / "thumbnails"),
                     ("preview_clips", ws / "preview_clips"),
+                    ("heic_converted", ws / "heic_converted"),
                     ("music", ws / "music")]
     if clean == "all":
         targets.append(("runs", ws / "runs"))

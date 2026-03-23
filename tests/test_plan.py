@@ -490,6 +490,7 @@ class TestPreGeminiValidation:
                 cache_dir=Path(td) / "cache",
                 thumbnails_dir=Path(td) / "thumbs",
                 preview_clips_dir=Path(td) / "previews",
+                heic_converted_dir=Path(td) / "heic_converted",
             )
             cfg.ensure_dirs()
 
@@ -598,6 +599,7 @@ class TestContentBlockValidation:
             cache_dir=tmp_path / "cache",
             thumbnails_dir=tmp_path / "thumbs",
             preview_clips_dir=tmp_path / "previews",
+            heic_converted_dir=tmp_path / "heic_converted",
         )
         cfg.ensure_dirs()
 
