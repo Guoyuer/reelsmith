@@ -530,19 +530,7 @@ def _run_assemble(pc: _PipelineContext):
     from pipeline.assemble import assemble as do_assemble
     from pipeline.edl import find_latest_version
 
-    # Handle edl_path: copy external EDL as new version
-    if ac.edl_path:
-        import shutil
-
-        version = find_latest_version(pc.cfg) + 1
-        dest = pc.cfg.edl_path(version)
-        shutil.copy(ac.edl_path, dest)
-        pc.log(f"Using EDL from {ac.edl_path} as v{version}")
-        # Update config with resolved version
-        from dataclasses import replace
-
-        ac = replace(ac, version=version, edl_path=None)
-    elif not ac.version:
+    if not ac.version:
         from dataclasses import replace
 
         ac = replace(ac, version=find_latest_version(pc.cfg))
@@ -1023,25 +1011,22 @@ def plan(
 
 @cli.command()
 @_name_option
-@click.option("-v", "--version", default=None, type=int, help="EDL version to render")
 @click.option(
-    "--edl",
-    "edl_path",
+    "-v",
+    "--version",
     default=None,
-    type=click.Path(exists=True),
-    help="EDL JSON path (overrides version)",
+    type=int,
+    help="EDL version to render (default: latest)",
 )
 @_apply_options(_assemble_options)
-def assemble(run_name, version, edl_path, resolution, quality):
+def assemble(run_name, version, resolution, quality):
     """Re-render the vlog from current or specified EDL version."""
     from pipeline.assemble import AssembleConfig
 
     w, h, fps = resolution
     _run_pipeline(
         run_name,
-        assemble=AssembleConfig(
-            w=w, h=h, fps=fps, quality=quality, version=version, edl_path=edl_path
-        ),
+        assemble=AssembleConfig(w=w, h=h, fps=fps, quality=quality, version=version),
         stages=["assemble"],
     )
 

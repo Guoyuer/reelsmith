@@ -30,7 +30,6 @@ class AssembleConfig:
     fps: int
     quality: float = 1.0
     version: int | None = None
-    edl_path: str | None = None
 
     def __post_init__(self) -> None:
         if self.w <= 0 or self.h <= 0:
