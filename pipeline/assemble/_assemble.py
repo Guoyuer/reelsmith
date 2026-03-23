@@ -49,12 +49,21 @@ def assemble(
     """Render a vlog from an EDL. Returns (output_path, validation_issues)."""
     cfg.ensure_dirs()
 
-    # Load & validate EDL
+    # Load EDL & resolve bare filenames to full paths
     version = ac.version or 0
     if version > 0:
         edl = EDL.model_validate_json(cfg.edl_path(version).read_text())
     else:
         edl, version = load_latest_edl(cfg)
+
+    # Resolve bare filenames (e.g. "87574_photo.heic") to full paths under media_dir
+    for seg in edl.segments:
+        for item in seg.items:
+            source = Path(item.source_file)
+            if not source.exists():
+                full = cfg.media_dir / source.name
+                if full.exists():
+                    item.source_file = str(full)
 
     issues = validate_edl(edl, strict=False)
     errors = [i for i in issues if i["level"] == "error"]
