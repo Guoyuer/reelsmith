@@ -94,7 +94,7 @@ class TestProbeDimensions:
         fake_result.stdout = "3840x2160\n"
         fake_result.returncode = 0
 
-        ctx = RenderContext()
+        ctx = RenderContext(w=1920, h=1080, fps=30)
         with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake_result):
             w, h = ctx.probe_dimensions(Path("/fake/video.mp4"))
         assert (w, h) == (3840, 2160)
@@ -105,7 +105,7 @@ class TestProbeDimensions:
         fake_result.stdout = ""
         fake_result.returncode = 1
 
-        ctx = RenderContext()
+        ctx = RenderContext(w=1920, h=1080, fps=30)
         with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake_result):
             w, h = ctx.probe_dimensions(Path("/fake/bad.mp4"))
         assert (w, h) == (0, 0)
@@ -386,7 +386,7 @@ def _patch_validation(**kwargs):
         patch("pipeline.assemble._encoder.run_subprocess", side_effect=mock_fn),
         patch("pipeline.media_utils.run_subprocess", side_effect=mock_fn),
     ):
-        yield RenderContext()
+        yield RenderContext(w=1920, h=1080, fps=30)
 
 
 class TestValidateOutputFileChecks:

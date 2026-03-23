@@ -85,9 +85,9 @@ def detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60, qual
 class RenderContext:
     """Per-run render state. Created by assemble(), passed to all render modules."""
 
-    w: int = 0
-    h: int = 0
-    fps: int = 0
+    w: int
+    h: int
+    fps: int
     quality: float = 1.0
     _encoder_cache: dict[tuple, list[str]] = field(default_factory=dict)
     _dim_cache: dict[str, tuple[int, int]] = field(default_factory=dict)

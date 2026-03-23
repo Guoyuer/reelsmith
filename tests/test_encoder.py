@@ -10,14 +10,14 @@ from pipeline.assemble._encoder import RenderContext, target_bitrate
 
 class TestRenderContext:
     def test_new_context_has_empty_caches(self):
-        ctx1 = RenderContext(quality=0.5)
+        ctx1 = RenderContext(w=1920, h=1080, fps=30, quality=0.5)
         ctx1._dim_cache["test"] = (100, 100)
-        ctx2 = RenderContext(quality=1.0)
+        ctx2 = RenderContext(w=1920, h=1080, fps=30, quality=1.0)
         assert ctx2.quality == 1.0
         assert "test" not in ctx2._dim_cache
 
     def test_probe_dimensions_caches(self):
-        ctx = RenderContext()
+        ctx = RenderContext(w=1920, h=1080, fps=30)
         fake = MagicMock()
         fake.stdout = "1920x1080\n"
         with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
@@ -28,7 +28,7 @@ class TestRenderContext:
         assert dims2 == (1920, 1080)
 
     def test_probe_duration_caches(self):
-        ctx = RenderContext()
+        ctx = RenderContext(w=1920, h=1080, fps=30)
         fake = MagicMock()
         fake.stdout = "123.45\n"
         with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
@@ -39,14 +39,14 @@ class TestRenderContext:
         assert dur2 == 123.45
 
     def test_probe_dimensions_handles_bad_output(self):
-        ctx = RenderContext()
+        ctx = RenderContext(w=1920, h=1080, fps=30)
         fake = MagicMock()
         fake.stdout = "garbage\n"
         with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
             assert ctx.probe_dimensions(Path("/bad")) == (0, 0)
 
     def test_probe_duration_handles_bad_output(self):
-        ctx = RenderContext()
+        ctx = RenderContext(w=1920, h=1080, fps=30)
         fake = MagicMock()
         fake.stdout = "\n"
         with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
