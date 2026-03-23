@@ -315,14 +315,24 @@ def _generate_video_previews(
         if done % 20 == 0 or done == total:
             logger.info(f"  Video previews: {done}/{total}")
 
+    def _run_preview(cmd, path=None):
+        result = run_subprocess(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            logger.warning(
+                "Preview failed for %s: %s", path, (result.stderr or "")[-200:]
+            )
+        return result
+
     parallel_tasks = [
-        (p, lambda cmd=cmd: run_subprocess(cmd, capture_output=True))
-        for p, cmd in tasks
+        (p, lambda cmd=cmd, p=p: _run_preview(cmd, path=p)) for p, cmd in tasks
     ]
     run_parallel(parallel_tasks, max_workers, progress_fn=_progress)
 
     n_ok = sum(1 for p, _ in tasks if p.exists() and p.stat().st_size > 500)
+    n_failed = len(tasks) - n_ok
     logger.info(f"  Video previews done: {n_ok}/{len(tasks)} OK")
+    if n_failed:
+        logger.warning(f"  Video previews: {n_failed} failed (check warnings above)")
 
 
 # ---------------------------------------------------------------------------

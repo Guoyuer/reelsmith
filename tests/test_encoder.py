@@ -36,11 +36,11 @@ class TestRenderContext:
         ctx = RenderContext(w=1920, h=1080, fps=30)
         fake = MagicMock()
         fake.stdout = "123.45\n"
-        with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
+        with patch("pipeline.media_utils.run_subprocess", return_value=fake):
             dur = ctx.probe_duration(Path("/fake/video.mp4"))
         assert dur == 123.45
         with patch(
-            "pipeline.assemble._encoder.run_subprocess",
+            "pipeline.media_utils.run_subprocess",
             side_effect=RuntimeError("should not be called"),
         ):
             dur2 = ctx.probe_duration(Path("/fake/video.mp4"))
@@ -57,7 +57,7 @@ class TestRenderContext:
         ctx = RenderContext(w=1920, h=1080, fps=30)
         fake = MagicMock()
         fake.stdout = "\n"
-        with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
+        with patch("pipeline.media_utils.run_subprocess", return_value=fake):
             assert ctx.probe_duration(Path("/bad")) == 0.0
 
 

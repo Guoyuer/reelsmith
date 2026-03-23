@@ -69,7 +69,7 @@ def _build_composite_music(
     for i, (dur, track) in enumerate(segment_tracks):
         trim_dur = dur + (crossfade if i < len(segment_tracks) - 1 else 0)
         trimmed_path = output_path.parent / f"_seg_music_{i}.wav"
-        run_subprocess(
+        result = run_subprocess(
             [
                 "ffmpeg",
                 "-y",
@@ -86,7 +86,13 @@ def _build_composite_music(
                 str(trimmed_path),
             ],
             capture_output=True,
+            text=True,
         )
+        if result.returncode != 0:
+            logger.warning(
+                "Trim failed for segment %d: %s", i, (result.stderr or "")[-200:]
+            )
+            continue
         if trimmed_path.exists():
             trimmed.append(trimmed_path)
             inputs += ["-i", str(trimmed_path)]
@@ -106,7 +112,9 @@ def _build_composite_music(
     for i in range(1, len(trimmed)):
         in_label = "[0:a]" if i == 1 else f"[a{i-1}]"
         out_label = f"[a{i}]" if i < len(trimmed) - 1 else "[out]"
-        filter_parts.append(f"{in_label}[{i}:a]acrossfade=d={crossfade}:c1=tri:c2=tri{out_label}")
+        filter_parts.append(
+            f"{in_label}[{i}:a]acrossfade=d={crossfade}:c1=tri:c2=tri{out_label}"
+        )
 
     cmd = (
         ["ffmpeg", "-y"]
@@ -135,7 +143,11 @@ def _build_composite_music(
         logger.error("Composite music build failed: %s", result.stderr[-200:])
         return False
 
-    logger.info("Composite music: %d segments crossfaded into %s", len(segment_tracks), output_path.name)
+    logger.info(
+        "Composite music: %d segments crossfaded into %s",
+        len(segment_tracks),
+        output_path.name,
+    )
     return True
 
 
@@ -168,7 +180,9 @@ def generate_music_for_edl(cfg, *, progress_callback=None) -> Path | None:
     for i, seg in enumerate(edl.segments):
         seg_dur = int(_segment_duration(seg))
         mood = seg.music_mood or f"{edl.style} travel vlog background music"
-        logger.info('  Segment %d/%d: "%s" (%ds)', i + 1, len(edl.segments), seg.name, seg_dur)
+        logger.info(
+            '  Segment %d/%d: "%s" (%ds)', i + 1, len(edl.segments), seg.name, seg_dur
+        )
         logger.info("    Mood: %s", mood)
 
         track = generate_music(
@@ -192,7 +206,10 @@ def generate_music_for_edl(cfg, *, progress_callback=None) -> Path | None:
 
     # Build composite with crossfades
     music_cache.mkdir(parents=True, exist_ok=True)
-    composite_path = music_cache / f"composite_{edl.trip_type}_{edl.style}_{int(edl.estimated_duration())}s.wav"
+    composite_path = (
+        music_cache
+        / f"composite_{edl.trip_type}_{edl.style}_{int(edl.estimated_duration())}s.wav"
+    )
     if not _build_composite_music(segment_tracks, composite_path, crossfade=2.0):
         # Fallback: use first segment's track
         logger.warning("Composite build failed, using first segment track")
