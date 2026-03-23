@@ -524,8 +524,8 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
 # CLI
 # ---------------------------------------------------------------------------
 
-def _run_name(ctx: click.Context) -> str:
-    return ctx.obj["run_name"] or "default"
+_name_option = click.option("-n", "--name", "run_name", default="default",
+                            help="Run name (subdirectory under workspace/runs/)")
 
 
 ITEM_TYPE_NAMES = {"photo": 0, "video": 1, "live": 3, "motion": 6}
@@ -555,18 +555,13 @@ class _CliGroup(click.Group):
 
 
 @click.group(cls=_CliGroup)
-@click.option("--run-name", "-n", default=None,
-              help="Run name (subdirectory under workspace/runs/)")
-@click.pass_context
-def cli(ctx: click.Context, run_name: str | None) -> None:
+def cli() -> None:
     """Automated vlog pipeline: fetch \u2192 prepare \u2192 plan \u2192 generate_music \u2192 assemble.
 
     \b
     Example:
-      python run.py -n singapore full -s local -p ./photos -r 1080p30 --duration 180
+      python run.py full -n singapore -s local -p ./photos -r 1080p30 --duration 180
     """
-    ctx.ensure_object(dict)
-    ctx.obj["run_name"] = run_name
 
 
 # ---------------------------------------------------------------------------
@@ -726,15 +721,15 @@ def _fetch_cfg_from_source(source, path, from_date, to_date, country, district, 
 # ---------------------------------------------------------------------------
 
 @cli.command()
+@_name_option
 @_apply_options(_source_options)
 @_tz_option
 @_force_option
-@click.pass_context
-def prepare(ctx, source, path, from_date, to_date, country, district, item_types,
+def prepare(run_name, source, path, from_date, to_date, country, district, item_types,
             tz_hours, force):
     """Fetch and prepare media (local folder or NAS)."""
     fetch_cfg = _fetch_cfg_from_source(source, path, from_date, to_date, country, district, item_types)
-    _run_pipeline(_run_name(ctx), {
+    _run_pipeline(run_name, {
         "fetch": fetch_cfg,
         "prepare": _prepare_cfg(force, tz_hours),
     }, stages=["fetch", "prepare"])
@@ -745,13 +740,13 @@ def prepare(ctx, source, path, from_date, to_date, country, district, item_types
 # ---------------------------------------------------------------------------
 
 @cli.command()
+@_name_option
 @_apply_options(_source_options)
 @_tz_option
 @_force_option
 @_apply_options(_plan_options)
 @_apply_options(_assemble_options)
-@click.pass_context
-def full(ctx, source, path, from_date, to_date, country, district, item_types,
+def full(run_name, source, path, from_date, to_date, country, district, item_types,
          tz_hours, force,
          duration, trip_type, style, focus, lang, model, music,
          resolution, quality):
@@ -769,28 +764,28 @@ def full(ctx, source, path, from_date, to_date, country, district, item_types,
         "assemble": {"skip_broken": True, "width": w, "height": h,
                      "fps": fps, "quality": quality},
     }
-    _run_pipeline(_run_name(ctx), cfg, stages=stages)
+    _run_pipeline(run_name, cfg, stages=stages)
 
 
 @cli.command()
+@_name_option
 @_apply_options(_plan_options)
 @_tz_option
-@click.pass_context
-def plan(ctx, duration, trip_type, style, focus, lang, model,
+def plan(run_name, duration, trip_type, style, focus, lang, model,
          music, tz_hours):
     """Re-plan only (uses cached media + analysis). Run assemble separately to render."""
     plan_cfg, extras, extra_stages = _plan_and_music_cfg(
         style, duration, focus, trip_type, lang, model, music, tz_hours)
     stages = ["plan"] + extra_stages
-    _run_pipeline(_run_name(ctx), {"plan": plan_cfg, **extras}, stages=stages)
+    _run_pipeline(run_name, {"plan": plan_cfg, **extras}, stages=stages)
 
 
 @cli.command()
+@_name_option
 @click.option("-v", "--version", default=None, type=int, help="EDL version to render")
 @click.option("--edl", "edl_path", default=None, type=click.Path(exists=True), help="EDL JSON path (overrides version)")
 @_apply_options(_assemble_options)
-@click.pass_context
-def assemble(ctx, version, edl_path, resolution, quality):
+def assemble(run_name, version, edl_path, resolution, quality):
     """Re-render the vlog from current or specified EDL version."""
     w, h, fps = resolution
     ac: dict = {"width": w, "height": h, "fps": fps, "quality": quality}
@@ -798,7 +793,7 @@ def assemble(ctx, version, edl_path, resolution, quality):
         ac["version"] = version
     if edl_path is not None:
         ac["edl_path"] = edl_path
-    _run_pipeline(_run_name(ctx), {"assemble": ac}, stages=["assemble"])
+    _run_pipeline(run_name, {"assemble": ac}, stages=["assemble"])
 
 
 # ---------------------------------------------------------------------------
