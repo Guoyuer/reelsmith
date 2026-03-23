@@ -45,8 +45,14 @@ def _gemini_call(
     model_id = model if model.startswith("models/") else f"models/{model}"
     try:
         client.models.get(model=model_id)
-    except Exception as e:
-        raise RuntimeError(f"Model '{model}' not available: {e}") from e
+    except Exception:
+        available = sorted(
+            m.name.removeprefix("models/") for m in client.models.list()
+            if "flash" in m.name or "pro" in m.name
+        )
+        raise RuntimeError(
+            f"Model '{model}' not available. Options:\n  " + "\n  ".join(available)
+        )
 
     # Validate thinking_level
     valid_thinking = ("OFF", "MINIMAL", "LOW", "MEDIUM", "HIGH")
