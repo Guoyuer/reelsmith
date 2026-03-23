@@ -6,7 +6,7 @@ Automated vlog generation from photos and videos. Fetches media from a local fol
 
 ```mermaid
 flowchart LR
-    subgraph "CLI: python run.py"
+    subgraph "CLI: vlog"
         direction LR
         FM[fetch] --> PR[prepare]
         PR --> PL[plan]
@@ -209,29 +209,44 @@ Shared files are reused across runs — a second run for the same trip skips med
 ## Pipeline Stages
 
 ### 1. fetch
-Downloads photos/videos from Synology Photos API (filtered by date range, location, item types) or copies from a local folder.
+Downloads photos/videos from Synology Photos API (filtered by date range, location, item types) or scans a local folder. Builds `manifest.json`.
 
 ### 2. prepare
-Processes media for visual planning:
-- Family member auto-detection from NAS face recognition data
-- Timeline construction (day / time_block / location)
-- Photo thumbnails (600px, cached per-file)
-- EXIF extraction (cached per-file)
-- Video duration probing (cached per-file)
+All heavy media processing happens here — plan and assemble only read cached outputs.
+
+**Photos:**
+```
+source photo (HEIC/JPG/PNG, 3000-4000px)
+  → PIL opens directly (pillow-heif for HEIC)
+  → resize to 400px, quality 70
+  → cache: workspace/thumbnails/{stem}_thumb.jpg
+```
+
+**Videos:**
+```
+source video (MOV/MP4, 1080p-4K)
+  → ffprobe: duration, resolution, FPS, orientation
+  → ffmpeg loudnorm: audio level (silent/quiet/normal/loud, first 30s)
+  → cache: workspace/analysis_cache/{id}.json
+
+  → generate 360p 1fps preview (with audio, for Gemini to watch+listen)
+  → cache: workspace/preview_clips/preview_{id}.mp4
+```
+
+Also: family member auto-detection (NAS face data), timeline construction (day → time_block → location).
 
 ### 3. plan
-Gemini sees actual photos (400px thumbnails inline) and watches/listens to video clips (one concatenated 360p 1fps mega-preview via Files API). Single-pass planning with chain-of-thought:
-- Designs narrative arc (chapters by story beat, not location)
-- Selects photos/videos, assigns trim points, speed ramps, transitions, color temperature
-- Sets `keep_audio=true` on videos with meaningful speech/laughter
-- Self-reviews pacing, variety, and video/photo balance
+Reads cached thumbnails and previews — no heavy processing. Calls Gemini once.
 
-Prompts are externalized to `pipeline/prompts/` (editable without code changes). Fault tolerance includes fuzzy path matching for hallucinated file paths, trim point clamping, and duration validation with optional follow-up Gemini call.
+- Reads photo thumbnail bytes directly (no PIL, no resize)
+- Burns #XX labels on video previews + concatenates into one mega-preview (single FFmpeg call, cached across plan re-runs)
+- Uploads mega-preview via Files API, sends photo thumbnails inline
+- Gemini designs narrative arc, selects items, assigns transitions/speed/audio/text
 
-Outputs versioned EDL (`edl_v{N}.json`). Requires `GEMINI_API_KEY`.
+Fault tolerance: fuzzy path matching, trim point clamping, deduplication, duration validation with optional follow-up call. Outputs versioned `edl_v{N}.json`.
 
 ### 4. generate_music
-Generates background music from EDL `music_mood` descriptions. Skipped when `--music none` or a custom file path is provided.
+Generates background music from EDL `music_mood` descriptions. Skipped when `--music none`.
 
 | `--music` | Backend | Speed | Quality |
 |-----------|---------|-------|---------|
@@ -240,10 +255,24 @@ Generates background music from EDL `music_mood` descriptions. Skipped when `--m
 ### 5. assemble
 Renders the final video in 4 phases:
 
-1. **Clip rendering** — parallel via `parallel.run_parallel()` (3 NVENC / 2 VideoToolbox / cpu_count/2 libx264 workers). Photos get Ken Burns effects, videos trimmed with speed ramps. Clips cached per resolution.
-2. **Concatenation** — segment-level xfade transitions (groups of ≤10 clips for reliability). 8 transition types: crossfade, dissolve, smoothleft, smoothright, circlecrop, fade_black, wipe_left, fadewhite.
-3. **Audio mixing** — music + speech with ducking (music ramps to 30% during speech). Title cards for intro/outro.
-4. **Validation** — 6 automated checks (file size, duration, streams, codec, A/V sync, resolution).
+**Photos:**
+```
+thumbnail (already cached)
+  → HEIC? convert to JPEG first (cache: workspace/heic_converted/)
+  → FFmpeg: Ken Burns (cosine eased) + color grade + text overlay + portrait blur
+  → cache: workspace/runs/{name}/clips/seg00_item00_{res}.mp4
+```
+
+**Videos:**
+```
+source video
+  → FFmpeg: trim (start_time→end_time) + speed ramp + color grade + text overlay + portrait blur
+  → cache: workspace/runs/{name}/clips/seg00_item00_{res}.mp4
+```
+
+Then: xfade concatenation (groups of ≤10) → speech track + music mixing (ducking with 300ms attack / 1000ms release) → title cards (hero-photo background) → 6-check validation.
+
+Clips cached per resolution — switching from 1080p30 to 4k60 doesn't re-render existing clips. Output: `vlog_v{N}_{res}.mp4`.
 
 All FFmpeg commands logged to `output/ffmpeg_commands.log`.
 
