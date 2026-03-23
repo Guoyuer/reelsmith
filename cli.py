@@ -91,9 +91,9 @@ class _PipelineDisplay:
                 from rich.live import Live
 
                 self._live = Live(
-                    self._render_panel(),
                     console=self._get_console(),
                     refresh_per_second=4,
+                    get_renderable=self._render_panel,
                 )
                 self._live.start()
             except ImportError:
