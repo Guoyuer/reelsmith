@@ -542,12 +542,29 @@ def _parse_item_types(value: str) -> list[int]:
     return result
 
 
-@click.group()
+class _CliGroup(click.Group):
+    """Custom group that hints at missing subcommand on unknown options."""
+    def parse_args(self, ctx, args):
+        try:
+            return super().parse_args(ctx, args)
+        except click.UsageError as e:
+            if "No such option" in str(e) or "no such option" in str(e):
+                hint = "Did you forget a command? Use: full, prepare, plan, assemble, workspace"
+                raise click.UsageError(f"{e}\n\nHint: {hint}") from None
+            raise
+
+
+@click.group(cls=_CliGroup)
 @click.option("--run-name", "-n", default=None,
               help="Run name (subdirectory under workspace/runs/)")
 @click.pass_context
 def cli(ctx: click.Context, run_name: str | None) -> None:
-    """Automated vlog pipeline: fetch \u2192 prepare \u2192 plan \u2192 generate_music \u2192 assemble."""
+    """Automated vlog pipeline: fetch \u2192 prepare \u2192 plan \u2192 generate_music \u2192 assemble.
+
+    \b
+    Example:
+      python run.py -n singapore full -s local -p ./photos -r 1080p30 --duration 180
+    """
     ctx.ensure_object(dict)
     ctx.obj["run_name"] = run_name
 
