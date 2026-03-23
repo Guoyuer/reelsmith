@@ -44,7 +44,8 @@ with variety shots (establishing shots, details, transitions between locations).
 
 **Selection budget**: For a target_duration of N seconds, select roughly N/4 items
 (e.g., 180s → ~45 items). This accounts for ~4s average per item. At least 40% MUST
-be videos and at least 50% of those videos should have keep_audio=true.
+be videos (50% for family trips — see narrative guidance) and at least 50% of those
+videos should have keep_audio=true.
 
 ## Narrative principles
 
