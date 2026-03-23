@@ -50,9 +50,13 @@ class PlanConfig:
 
     def __post_init__(self) -> None:
         if self.target_duration <= 0:
-            raise ValueError(f"target_duration must be positive: {self.target_duration}")
+            raise ValueError(
+                f"target_duration must be positive: {self.target_duration}"
+            )
         if self.trip_type not in TRIP_TYPES:
-            raise ValueError(f"Unknown trip_type '{self.trip_type}'. Valid: {TRIP_TYPES}")
+            raise ValueError(
+                f"Unknown trip_type '{self.trip_type}'. Valid: {TRIP_TYPES}"
+            )
 
 
 def _plan_visual(
@@ -98,7 +102,9 @@ def _plan_visual(
         family_line = f"\nFamily: {', '.join(preprocessed['family_names'])}"
 
     logger.info("=== SINGLE-PASS PLANNING ===")
-    logger.info("Building individual photo thumbnails and concatenated video preview...")
+    logger.info(
+        "Building individual photo thumbnails and concatenated video preview..."
+    )
 
     tz_hours = pc.tz_hours
     if tz_hours is None:
@@ -107,16 +113,27 @@ def _plan_visual(
     content_blocks, preview_offset_table = _build_visual_content_blocks(
         preprocessed, analysis_by_id, cfg, tz_hours=tz_hours, force=pc.force
     )
-    n_img = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "image_bytes")
-    n_vid_clips = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "video_bytes")
+    n_img = sum(
+        1
+        for b in content_blocks
+        if isinstance(b, dict) and b.get("type") == "image_bytes"
+    )
+    n_vid_clips = sum(
+        1
+        for b in content_blocks
+        if isinstance(b, dict) and b.get("type") == "video_bytes"
+    )
     n_text = sum(1 for b in content_blocks if isinstance(b, str))
-    logger.info(f"Visual content: {n_text} text blocks, {n_img} photos, {n_vid_clips} video file(s)")
+    logger.info(
+        f"Visual content: {n_text} text blocks, {n_img} photos, {n_vid_clips} video file(s)"
+    )
     if progress_callback:
-        progress_callback(1, 3, "content ready")
+        progress_callback(1, 3, "build request")
 
     if n_candidates > 0 and n_text == 0:
         raise RuntimeError(
-            f"Have {n_candidates} candidates but 0 text blocks — " f"analysis_by_id key mismatch (int vs str?)"
+            f"Have {n_candidates} candidates but 0 text blocks — "
+            f"analysis_by_id key mismatch (int vs str?)"
         )
 
     # Build trip structure summary for arc thinking
@@ -127,7 +144,11 @@ def _plan_visual(
             loc = ch["location"]
             block = ch["time_block"]
             count = len(ch.get("item_ids", []))
-            n_vids = sum(1 for iid in ch["item_ids"] if analysis_by_id.get(str(iid), {}).get("media_type") == "video")
+            n_vids = sum(
+                1
+                for iid in ch["item_ids"]
+                if analysis_by_id.get(str(iid), {}).get("media_type") == "video"
+            )
             line = f"  [{block.upper()}] {loc} — {count} items"
             if n_vids:
                 line += f" ({n_vids} videos)"
@@ -176,33 +197,45 @@ Candidates by day/location:"""
         model_kwargs["model"] = pc.model
     if pc.thinking_level:
         model_kwargs["thinking_level"] = pc.thinking_level
-    edl_content = _gemini_call(system_prompt, visual_parts, label="single pass: plan", **model_kwargs)
+    edl_content = _gemini_call(
+        system_prompt, visual_parts, label="single pass: plan", **model_kwargs
+    )
 
     logger.info(f"=== [Gemini] EDL RESPONSE ({len(edl_content)} chars) ===")
     for line in edl_content.split("\n"):
         logger.info(f"  | {line}")
     logger.info("=== [Gemini] END RESPONSE ===")
     if progress_callback:
-        progress_callback(2, 3, "EDL received")
+        progress_callback(2, 3, "gemini API")
 
     # --- Post-processing pipeline ---
     edl = parse_and_convert_timestamps(edl_content, preview_offset_table)
     fix_hallucinated_paths(edl, cfg.media_dir)
     validate_trim_points(edl, analysis_by_id)
     deduplicate_items(edl)
-    edl = fill_duration_gap(edl, pc.target_duration, analysis_by_id, system_prompt,
-                            model=pc.model, thinking_level=pc.thinking_level)
+    edl = fill_duration_gap(
+        edl,
+        pc.target_duration,
+        analysis_by_id,
+        system_prompt,
+        model=pc.model,
+        thinking_level=pc.thinking_level,
+    )
 
     actual_dur = edl.estimated_duration()
     if actual_dur < pc.target_duration * 0.5:
-        logger.warning(f"EDL is {actual_dur:.0f}s, target is {pc.target_duration}s — severely underfilled")
+        logger.warning(
+            f"EDL is {actual_dur:.0f}s, target is {pc.target_duration}s — severely underfilled"
+        )
     elif actual_dur < pc.target_duration * 0.8:
-        logger.warning(f"EDL is {actual_dur:.0f}s, target is {pc.target_duration}s — underfilled")
+        logger.warning(
+            f"EDL is {actual_dur:.0f}s, target is {pc.target_duration}s — underfilled"
+        )
 
     validate_and_fix_edl(edl)
     log_edl_summary(edl, pc.target_duration)
     if progress_callback:
-        progress_callback(3, 3, "done")
+        progress_callback(3, 3, "post-process")
 
     return edl
 
@@ -248,7 +281,13 @@ def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, i
         music_file=pc.music_file,
         force=pc.force,
     )
-    edl = _plan_visual(cfg, preprocessed, analysis_by_id, visual_pc, progress_callback=progress_callback)
+    edl = _plan_visual(
+        cfg,
+        preprocessed,
+        analysis_by_id,
+        visual_pc,
+        progress_callback=progress_callback,
+    )
 
     # Post-process: force effect="none" on video items
     for seg in edl.segments:
