@@ -175,12 +175,20 @@ def compute_fade_params(edl: EDL) -> list[list[tuple[float, float]]]:
 
 
 def _fade_expr(duration: float, fade_in: float, fade_out: float) -> str:
+    """Video normalization: format + SAR + PTS reset + fades + hard trim.
+
+    The trim at the end is CRITICAL — FFmpeg 8 filter_complex ignores
+    input-level -t, so without this, -loop 1 photos produce infinite frames.
+    """
     parts = ["format=yuv420p", "setsar=1", "setpts=PTS-STARTPTS"]
     if fade_in > 0:
         parts.append(f"fade=t=in:d={fade_in}")
     if fade_out > 0:
         st = max(0, duration - fade_out)
         parts.append(f"fade=t=out:st={st:.3f}:d={fade_out}")
+    # Hard trim ensures finite output (prevents -loop 1 infinite frames)
+    parts.append(f"trim=duration={duration:.6f}")
+    parts.append("setpts=PTS-STARTPTS")
     return "," + ",".join(parts)
 
 
