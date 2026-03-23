@@ -225,6 +225,9 @@ Candidates by day/location:"""
         thinking_level=pc.thinking_level,
     )
 
+    # Re-resolve paths (fill_duration_gap may return a new EDL with bare filenames)
+    fix_hallucinated_paths(edl, cfg.media_dir)
+
     actual_dur = edl.estimated_duration()
     if actual_dur < pc.target_duration * 0.5:
         logger.warning(

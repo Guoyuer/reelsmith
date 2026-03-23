@@ -253,7 +253,7 @@ def fill_duration_gap(
                 if mt == "video" and a.get("video_duration")
                 else ""
             )
-            unused_lines.append(f"  {mt} path={path}{dur_info}")
+            unused_lines.append(f"  {mt} file={Path(path).name}{dur_info}")
     if len(unused_lines) > 200:
         unused_lines = unused_lines[:200]
 

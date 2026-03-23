@@ -239,7 +239,8 @@ class _PipelineDisplay:
         self._refresh()
 
     def fail(self, stage: str, error: str) -> None:
-        self._stage_data[stage].update(state="failed", detail=error[:60])
+        if stage in self._stage_data:
+            self._stage_data[stage].update(state="failed", detail=error[:60])
         self._refresh()
 
     def stop(self) -> None:
