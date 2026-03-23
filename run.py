@@ -790,19 +790,8 @@ def full_nas(ctx, from_date, to_date, country, district, item_types,
 
 
 @cli.command()
-@click.option("--duration", default=60, type=int, help="Target vlog length in seconds")
-@click.option("--trip-type", default="family",
-              type=click.Choice(["family", "solo", "food", "adventure", "architecture", "general"]))
-@click.option("--style", default="upbeat",
-              type=click.Choice(["upbeat", "cinematic", "reflective", "energetic"]))
-@click.option("--focus", default="", help="What to emphasize")
-@click.option("--lang", default="en", type=click.Choice(["en", "cn", "both"]),
-              help="Text language")
-@click.option("--model", default=None, help="Gemini model (default: VLOG_MODEL env or gemini-3-flash-preview)")
-@click.option("--music", default="auto",
-              help="Music: auto (Gemini Lyria), local (MusicGen), none, or path to WAV")
-@click.option("--timezone", "--tz", "tz_hours", default=None, type=int,
-              help="UTC offset in hours (e.g. 8 for SGT)")
+@_apply_options(_plan_options)
+@_tz_option
 @click.pass_context
 def plan(ctx, duration, trip_type, style, focus, lang, model,
          music, tz_hours):
@@ -839,10 +828,7 @@ def plan(ctx, duration, trip_type, style, focus, lang, model,
 @cli.command()
 @click.option("-v", "--version", default=None, type=int, help="EDL version to render")
 @click.option("--edl", "edl_path", default=None, type=click.Path(exists=True), help="EDL JSON path (overrides version)")
-@click.option("--resolution", "-r", required=True, callback=_parse_resolution,
-              expose_value=True, is_eager=False,
-              help="Resolution preset (4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30) or WxHxFPS")
-@click.option("--quality", default=1.0, type=float, help="Bitrate multiplier")
+@_apply_options(_assemble_options)
 @click.pass_context
 def assemble(ctx, version, edl_path, resolution, quality):
     """Re-render the vlog from current or specified EDL version."""
