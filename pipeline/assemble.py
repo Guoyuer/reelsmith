@@ -82,19 +82,34 @@ class RenderReport:
 
 @dataclass
 class RenderConfig:
-    """All parameters needed by the assemble inner pipeline."""
+    """Render parameters for the assemble pipeline."""
     cfg: Config
     edl: EDL
     version: int
     w: int
     h: int
     fps: int
-    lang: str
-    clips_dir: Path
-    output_dir: Path
-    output_path: Path
-    res_label: str
     ctx: RenderContext
+
+    @property
+    def lang(self) -> str:
+        return self.edl.language
+
+    @property
+    def res_label(self) -> str:
+        return f"{self.h}p{self.fps}"
+
+    @property
+    def clips_dir(self) -> Path:
+        return self.cfg.clips_dir
+
+    @property
+    def output_dir(self) -> Path:
+        return self.cfg.output_dir
+
+    @property
+    def output_path(self) -> Path:
+        return self.output_dir / f"vlog_v{self.version}_{self.res_label}.mp4"
 
 
 # ---------------------------------------------------------------------------
@@ -146,28 +161,17 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     logger.info(f"EDL validation passed ({len(edl.all_items())} items, "
          f"{len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s)")
 
-    clips_dir = cfg.clips_dir
-    output_dir = cfg.output_dir
-    res_label = f"{h}p{fps}"  # e.g. "1080p30", "2160p60"
-    output_path = output_dir / f"vlog_v{version}_{res_label}.mp4"
-
-    lang = edl.language
-
     ctx = init_context(quality=quality)
+
+    rc = RenderConfig(cfg=cfg, edl=edl, version=version,
+                      w=w, h=h, fps=fps, ctx=ctx)
 
     # Log all FFmpeg commands to output/ffmpeg_commands.log
     ffmpeg_log = logging.getLogger("pipeline.ffmpeg")
-    log_path = output_dir / "ffmpeg_commands.log"
+    log_path = rc.output_dir / "ffmpeg_commands.log"
     _fh = logging.FileHandler(log_path, mode="w", encoding="utf-8")
     _fh.setLevel(logging.INFO)
     ffmpeg_log.addHandler(_fh)
-
-    rc = RenderConfig(
-        cfg=cfg, edl=edl, version=version,
-        w=w, h=h, fps=fps, lang=lang,
-        clips_dir=clips_dir, output_dir=output_dir,
-        output_path=output_path, res_label=res_label, ctx=ctx,
-    )
 
     try:
         return _assemble_inner(rc, progress_callback=progress_callback, skip_broken=skip_broken)
