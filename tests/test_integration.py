@@ -11,8 +11,6 @@ import struct
 import subprocess
 import wave
 from pathlib import Path
-from unittest.mock import patch
-
 import pytest
 from PIL import Image
 
@@ -172,8 +170,7 @@ class TestWriteChapters:
             {"path": Path("c.mp4"), "duration": 5.0, "transition": "cut",
              "transition_duration": 0.0, "keep_audio": False},
         ]
-        with patch("pipeline.assemble._timeline._probe_dur", return_value=0.0):
-            tl = Timeline.build(clips)
+        tl = Timeline.build(clips)
         out = tmp_path / "chapters.txt"
         _write_chapters(edl, clips, out, timeline=tl)
         lines = out.read_text().strip().split("\n")
@@ -196,8 +193,7 @@ class TestWriteChapters:
             {"path": Path("a.mp4"), "duration": 4.0, "transition": "cut",
              "transition_duration": 0.0, "keep_audio": False},
         ]
-        with patch("pipeline.assemble._timeline._probe_dur", return_value=0.0):
-            tl = Timeline.build(clips)
+        tl = Timeline.build(clips)
         out = tmp_path / "chapters.txt"
         _write_chapters(edl, clips, out, timeline=tl)
         lines = out.read_text().strip().split("\n")
@@ -291,8 +287,7 @@ class TestTimelineBuild:
             {"path": Path("a.mp4"), "duration": 5.0, "transition": "cut",
              "transition_duration": 0.0, "keep_audio": False},
         ]
-        with patch("pipeline.assemble._timeline._probe_dur", return_value=0.0):
-            tl = Timeline.build(clips)
+        tl = Timeline.build(clips)
         assert len(tl.entries) == 1
         assert tl.entries[0].video_offset == 0.0
         assert tl.entries[0].end_time == 5.0
@@ -308,8 +303,7 @@ class TestTimelineBuild:
             {"path": Path("c.mp4"), "duration": 3.0, "transition": "crossfade",
              "transition_duration": 0.5, "keep_audio": True},
         ]
-        with patch("pipeline.assemble._timeline._probe_dur", return_value=0.0):
-            tl = Timeline.build(clips)
+        tl = Timeline.build(clips)
         assert len(tl.entries) == 3
         # First clip
         assert tl.entries[0].video_offset == 0.0
@@ -329,8 +323,7 @@ class TestTimelineBuild:
             {"path": Path("b.mp4"), "duration": 3.0, "transition": "crossfade",
              "transition_duration": 0.5, "keep_audio": True},
         ]
-        with patch("pipeline.assemble._timeline._probe_dur", return_value=0.0):
-            tl = Timeline.build(clips)
+        tl = Timeline.build(clips)
         speech = tl.speech_entries()
         assert len(speech) == 1
         assert speech[0].index == 1
@@ -350,8 +343,7 @@ class TestTimelineBuild:
                 "transition_duration": 0.0 if i == 0 else 0.5,
                 "keep_audio": False,
             })
-        with patch("pipeline.assemble._timeline._probe_dur", return_value=0.0):
-            tl = Timeline.build(clips)
+        tl = Timeline.build(clips)
         assert len(tl.entries) == 12
         # Total = 12*3 - 11*0.5 = 30.5 (within group overlaps, not across groups)
         # But group splitting means only within-group clips overlap.
@@ -372,8 +364,7 @@ class TestTimelineBuild:
             {"path": Path("c.mp4"), "duration": 3.0, "transition": "crossfade",
              "transition_duration": 0.5, "keep_audio": False},
         ]
-        with patch("pipeline.assemble._timeline._probe_dur", return_value=0.0):
-            tl = Timeline.build(clips)
+        tl = Timeline.build(clips)
         # NOTE: Mathematically 4+3+3-0-0.5=9.5, but Timeline accumulates 10.0
         # because the crossfade offset for clip c uses running offset from cut
         # transitions (which don't subtract td). This only affects mixed
@@ -388,8 +379,7 @@ class TestTimelineBuild:
             {"path": Path("b.mp4"), "duration": 4.0, "transition": "cut",
              "transition_duration": 0.0, "keep_audio": False},
         ]
-        with patch("pipeline.assemble._timeline._probe_dur", return_value=0.0):
-            tl = Timeline.build(clips)
+        tl = Timeline.build(clips)
         assert tl.entries[0].video_offset == 0.0
         assert tl.entries[1].video_offset == 3.0
         assert abs(tl.total_duration() - 7.0) < 0.01
@@ -540,7 +530,7 @@ class TestXfadeConcatenation:
     """Test xfade filter chain with pre-rendered clips."""
 
     def test_three_clips_xfade(self, tmp_path):
-        from pipeline.assemble._concat import concat_xfade as _concat_xfade; from pipeline.assemble._encoder import probe_duration as _probe_duration
+        from pipeline.assemble._concat import concat_xfade as _concat_xfade; from pipeline.media_utils import probe_duration as _probe_duration
 
         clips = []
         for i, color in enumerate(["red", "green", "blue"]):
@@ -568,7 +558,7 @@ class TestXfadeConcatenation:
 
     def test_group_splitting_12_clips(self, tmp_path):
         """12 clips should split into groups and produce valid output."""
-        from pipeline.assemble._concat import concatenate as _concatenate; from pipeline.assemble._encoder import probe_duration as _probe_duration
+        from pipeline.assemble._concat import concatenate as _concatenate; from pipeline.media_utils import probe_duration as _probe_duration
 
         clips = []
         for i in range(12):
@@ -602,7 +592,7 @@ class TestXfadeConcatenation:
 class TestSpeechTrackBuild:
     def test_speech_at_offset(self, tmp_path):
         """Speech placed at 5s offset should produce audio track >= 5s."""
-        from pipeline.assemble._audio import build_speech_track as _build_speech_track; from pipeline.assemble._encoder import probe_duration as _probe_duration
+        from pipeline.assemble._audio import build_speech_track as _build_speech_track; from pipeline.media_utils import probe_duration as _probe_duration
 
         clip = _make_test_video(tmp_path / "speech_clip.mp4", duration=2.0, audio=True)
         speech_wav = tmp_path / "speech.wav"

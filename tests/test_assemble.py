@@ -9,7 +9,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pipeline.assemble._assemble import _validate_output
-from pipeline.assemble._encoder import is_portrait as _is_portrait, RenderContext, init_context
+from pipeline.assemble._encoder import RenderContext
+from pipeline.assemble._filters import is_portrait as _is_portrait
 from pipeline.assemble._filters import build_portrait_photo_filter as _build_portrait_photo_filter
 from pipeline.assemble._render import render_photo as _render_photo, render_video as _render_video
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
@@ -157,7 +158,7 @@ class TestRenderLandscapePhoto:
             display_duration=2.0,
             effect="static",
         )
-        ctx = init_context(w=320, h=180, fps=10)
+        ctx = RenderContext(w=320, h=180, fps=10)
         _render_photo(item, out, ctx=ctx)
         assert out.exists(), "Output clip should be created"
 
@@ -177,7 +178,7 @@ class TestRenderPortraitPhoto:
             media_type="photo",
             display_duration=2.0,
         )
-        ctx = init_context(w=320, h=180, fps=10)
+        ctx = RenderContext(w=320, h=180, fps=10)
         _render_photo(item, out, ctx=ctx)
         assert out.exists(), "Output clip should be created"
 
@@ -194,7 +195,7 @@ class TestRenderPortraitPhoto:
             media_type="photo",
             display_duration=2.0,
         )
-        ctx = init_context(w=320, h=180, fps=10)
+        ctx = RenderContext(w=320, h=180, fps=10)
         _render_photo(item, out, ctx=ctx)
         assert out.exists()
 
@@ -245,7 +246,7 @@ class TestRenderPortraitVideo:
             media_type="video",
             display_duration=1.0,
         )
-        ctx = init_context(w=320, h=180, fps=10)
+        ctx = RenderContext(w=320, h=180, fps=10)
         _render_video(item, out, ctx=ctx)
         assert out.exists(), "Rendered video should exist"
 
@@ -337,16 +338,15 @@ from contextlib import contextmanager
 
 @contextmanager
 def _patch_validation(**kwargs):
-    """Patch both assemble and encoder run_subprocess for validation tests."""
+    """Patch both assemble and encoder run_subprocess for validation tests.
+
+    Yields a fresh RenderContext so validation can probe dimensions/duration.
+    """
     mock_fn = _mock_subprocess_for_validation(**kwargs)
     with patch("pipeline.assemble._assemble.run_subprocess", side_effect=mock_fn), \
-         patch("pipeline.assemble._encoder.run_subprocess", side_effect=mock_fn):
-        # Clear encoder probe caches so mocked values are used
-        from pipeline.assemble._encoder import get_context
-        ctx = get_context()
-        ctx._dim_cache.clear()
-        ctx._dur_cache.clear()
-        yield
+         patch("pipeline.assemble._encoder.run_subprocess", side_effect=mock_fn), \
+         patch("pipeline.media_utils.run_subprocess", side_effect=mock_fn):
+        yield RenderContext()
 
 
 class TestValidateOutputFileChecks:
@@ -378,8 +378,8 @@ class TestValidateOutputFileChecks:
         out = tmp_path / "ok.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation():
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        with _patch_validation() as ctx:
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
         # Should pass all checks (no errors for a well-formed mock)
         errors = [i for i in issues if i["level"] == "error"]
         assert len(errors) == 0
@@ -393,8 +393,8 @@ class TestValidateOutputDuration:
         out = tmp_path / "short.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl(duration=120.0)  # expected ~120s
-        with _patch_validation(duration="50.0"):
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        with _patch_validation(duration="50.0") as ctx:
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
         dur_issues = [i for i in issues if i["check"] == "duration"]
         assert len(dur_issues) == 1
         assert dur_issues[0]["level"] == "error"
@@ -405,8 +405,8 @@ class TestValidateOutputDuration:
         out = tmp_path / "medium.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl(duration=100.0)  # expected ~100s
-        with _patch_validation(duration="70.0"):
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        with _patch_validation(duration="70.0") as ctx:
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
         dur_issues = [i for i in issues if i["check"] == "duration"]
         assert len(dur_issues) == 1
         assert dur_issues[0]["level"] == "warning"
@@ -416,8 +416,8 @@ class TestValidateOutputDuration:
         out = tmp_path / "good.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl(duration=100.0)
-        with _patch_validation(duration="95.0"):
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        with _patch_validation(duration="95.0") as ctx:
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
         dur_issues = [i for i in issues if i["check"] == "duration"]
         assert len(dur_issues) == 0
 
@@ -426,8 +426,8 @@ class TestValidateOutputDuration:
         out = tmp_path / "bad.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation(duration="0"):
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        with _patch_validation(duration="0") as ctx:
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
         dur_issues = [i for i in issues if i["check"] == "duration"]
         assert len(dur_issues) == 1
         assert dur_issues[0]["level"] == "error"
@@ -441,8 +441,8 @@ class TestValidateOutputStreams:
         out = tmp_path / "nostream.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation(streams="aac,audio,60.0\n"):
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        with _patch_validation(streams="aac,audio,60.0\n") as ctx:
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
         stream_issues = [i for i in issues if i["check"] == "video_stream"]
         assert len(stream_issues) == 1
         assert stream_issues[0]["level"] == "error"
@@ -452,8 +452,8 @@ class TestValidateOutputStreams:
         out = tmp_path / "noaudio.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation(streams="hevc,video,60.0\n"):
-            issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160))
+        with _patch_validation(streams="hevc,video,60.0\n") as ctx:
+            issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160), ctx=ctx)
         audio_issues = [i for i in issues if i["check"] == "audio_stream"]
         assert len(audio_issues) == 1
         assert audio_issues[0]["level"] == "warning"
@@ -463,8 +463,8 @@ class TestValidateOutputStreams:
         out = tmp_path / "videoonly.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation(streams="hevc,video,60.0\n"):
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        with _patch_validation(streams="hevc,video,60.0\n") as ctx:
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
         audio_speech = [i for i in issues if i["check"] == "audio_stream"]
         assert len(audio_speech) == 0
 
@@ -476,8 +476,8 @@ class TestValidateOutputStreams:
         music_file = tmp_path / "music.mp3"
         music_file.write_bytes(b"\x00" * 100)
         edl = _make_edl(music_file=str(music_file))
-        with _patch_validation(streams="hevc,video,60.0\n"):
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        with _patch_validation(streams="hevc,video,60.0\n") as ctx:
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
         music_issues = [i for i in issues if i["check"] == "audio_stream_music"]
         assert len(music_issues) == 1
         assert music_issues[0]["level"] == "warning"
@@ -491,8 +491,8 @@ class TestValidateOutputCodec:
         out = tmp_path / "ok.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation(streams="hevc,video,60.0\naac,audio,60.0\n"):
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        with _patch_validation(streams="hevc,video,60.0\naac,audio,60.0\n") as ctx:
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
         codec_issues = [i for i in issues if i["check"] == "video_codec"]
         assert len(codec_issues) == 0
 
@@ -501,8 +501,8 @@ class TestValidateOutputCodec:
         out = tmp_path / "weird.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation(streams="vp9,video,60.0\naac,audio,60.0\n"):
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        with _patch_validation(streams="vp9,video,60.0\naac,audio,60.0\n") as ctx:
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
         codec_issues = [i for i in issues if i["check"] == "video_codec"]
         assert len(codec_issues) == 1
         assert codec_issues[0]["level"] == "warning"
@@ -516,8 +516,8 @@ class TestValidateOutputAVSync:
         out = tmp_path / "drifted.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation(vid_stream_dur="52.0", aud_stream_dur="60.0"):
-            issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160))
+        with _patch_validation(vid_stream_dur="52.0", aud_stream_dur="60.0") as ctx:
+            issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160), ctx=ctx)
         sync_issues = [i for i in issues if i["check"] == "av_sync"]
         assert len(sync_issues) == 1
         assert "longer" in sync_issues[0]["message"]
@@ -527,8 +527,8 @@ class TestValidateOutputAVSync:
         out = tmp_path / "synced.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation(vid_stream_dur="60.0", aud_stream_dur="58.0"):
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        with _patch_validation(vid_stream_dur="60.0", aud_stream_dur="58.0") as ctx:
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
         sync_issues = [i for i in issues if i["check"] == "av_sync"]
         assert len(sync_issues) == 0
 
@@ -541,8 +541,8 @@ class TestValidateOutputResolution:
         out = tmp_path / "ok.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation():
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        with _patch_validation() as ctx:
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
         res_issues = [i for i in issues if i["check"] == "resolution"]
         assert len(res_issues) == 0
 
@@ -551,8 +551,8 @@ class TestValidateOutputResolution:
         out = tmp_path / "wrongres.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
-        with _patch_validation(dimensions="1920x1080"):
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
+        with _patch_validation(dimensions="1920x1080") as ctx:
+            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
         res_issues = [i for i in issues if i["check"] == "resolution"]
         assert len(res_issues) == 1
         assert res_issues[0]["level"] == "warning"
@@ -569,8 +569,8 @@ class TestValidateOutputAllPassing:
         edl = _make_edl(duration=60.0)
         with _patch_validation(streams="hevc,video,58.0\naac,audio,58.0\n",
                         duration="58.0",
-                        dimensions="3840x2160"):
-            issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160))
+                        dimensions="3840x2160") as ctx:
+            issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160), ctx=ctx)
         assert len(issues) == 0
 
 

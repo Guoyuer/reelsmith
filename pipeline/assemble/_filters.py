@@ -130,3 +130,8 @@ def portrait_bg_filter(w: int, h: int) -> str:
         f"[fg]scale=-1:{h}[sharp];"
         f"[blurred][sharp]overlay=(W-w)/2:(H-h)/2"
     )
+
+
+def is_portrait(src_w: int, src_h: int) -> bool:
+    """Return True if the source is clearly portrait (height > width * 1.2)."""
+    return src_w > 0 and src_h > src_w * 1.2

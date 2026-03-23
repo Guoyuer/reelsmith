@@ -5,17 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from pipeline.assemble._encoder import RenderContext, init_context, get_context, target_bitrate
+from pipeline.assemble._encoder import RenderContext, target_bitrate
 
 
 class TestRenderContext:
-    def test_init_context_resets_caches(self):
-        ctx1 = init_context(quality=0.5)
+    def test_new_context_has_empty_caches(self):
+        ctx1 = RenderContext(quality=0.5)
         ctx1._dim_cache["test"] = (100, 100)
-        ctx2 = init_context(quality=1.0)
+        ctx2 = RenderContext(quality=1.0)
         assert ctx2.quality == 1.0
         assert "test" not in ctx2._dim_cache
-        assert ctx2 is get_context()
 
     def test_probe_dimensions_caches(self):
         ctx = RenderContext()

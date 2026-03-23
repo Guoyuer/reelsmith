@@ -56,6 +56,20 @@ def run_subprocess(cmd: list[str], timeout: int = 300, **kwargs) -> subprocess.C
     )
 
 
+def probe_duration(path) -> float:
+    """Get media file duration via ffprobe (uncached, for simple one-off probes)."""
+    from pathlib import Path
+    result = run_subprocess(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True,
+    )
+    try:
+        return float(result.stdout.strip().split("\n")[0])
+    except (ValueError, IndexError):
+        return 0.0
+
+
 def strip_markdown_fences(text: str) -> str:
     """Remove markdown code fences (```json ... ```) if present.
 

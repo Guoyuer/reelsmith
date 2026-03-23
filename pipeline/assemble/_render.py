@@ -7,10 +7,10 @@ import logging
 from pathlib import Path
 
 from ..edl import EditItem
-from ._encoder import RenderContext, is_portrait
+from ._encoder import RenderContext
 from ._filters import (
     build_portrait_photo_filter, color_grade, drawtext_filter, find_font,
-    zoompan_filter, portrait_bg_filter,
+    is_portrait, zoompan_filter, portrait_bg_filter,
 )
 from ..image_utils import convert_heic
 from ..media_utils import run_subprocess
@@ -50,7 +50,7 @@ def render_photo(item: EditItem, output_path: Path, *,
 
     src_w, src_h = ctx.probe_dimensions(source)
     portrait = is_portrait(src_w, src_h)
-    enc = ctx.get_encoder(w, h, fps)
+    enc = ctx.get_encoder()
 
     if portrait:
         portrait_zoom_rate = 0.001 + (0.08 / frames)
@@ -141,7 +141,7 @@ def render_video(item: EditItem, output_path: Path, *,
 
     src_w, src_h = ctx.probe_dimensions(Path(item.source_file))
     portrait = is_portrait(src_w, src_h)
-    enc = ctx.get_encoder(w, h, fps)
+    enc = ctx.get_encoder()
 
     cg = color_grade(color_temp)
     if portrait:
@@ -232,7 +232,7 @@ def render_title_card(
 
     fade = f",fade=t=in:d=0.5,fade=t=out:st={duration - 0.8}:d=0.8"
 
-    enc = ctx.get_encoder(w, h, fps)
+    enc = ctx.get_encoder()
 
     if use_photo_bg:
         cmd = [

@@ -80,12 +80,12 @@ def detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60,
 
 
 # ---------------------------------------------------------------------------
-# RenderContext — replaces scattered module-level globals
+# RenderContext — per-run render state, passed explicitly (no globals)
 # ---------------------------------------------------------------------------
 
 @dataclass
 class RenderContext:
-    """Per-run render state. Created by assemble(), used by all render modules."""
+    """Per-run render state. Created by assemble(), passed to all render modules."""
     w: int = 0
     h: int = 0
     fps: int = 0
@@ -94,10 +94,14 @@ class RenderContext:
     _dim_cache: dict[str, tuple[int, int]] = field(default_factory=dict)
     _dur_cache: dict[str, float] = field(default_factory=dict)
 
-    def get_encoder(self, width: int = 3840, height: int = 2160, fps: int = 60) -> list[str]:
-        key = (width, height, fps, self.quality)
+    def get_encoder(self, width: int | None = None, height: int | None = None, fps: int | None = None) -> list[str]:
+        """Get encoder args, defaulting to this context's resolution. Cached."""
+        w = width or self.w
+        h = height or self.h
+        f = fps or self.fps
+        key = (w, h, f, self.quality)
         if key not in self._encoder_cache:
-            self._encoder_cache[key] = detect_hw_encoder(width, height, fps, self.quality)
+            self._encoder_cache[key] = detect_hw_encoder(w, h, f, self.quality)
         return self._encoder_cache[key]
 
     def probe_dimensions(self, path: Path) -> tuple[int, int]:
@@ -139,37 +143,3 @@ class RenderContext:
             dur = 0.0
         self._dur_cache[key] = dur
         return dur
-
-
-# Module-level context — set by init_context(), read by module-level functions.
-_ctx = RenderContext()
-
-
-def init_context(*, w: int = 0, h: int = 0, fps: int = 0,
-                  quality: float = 1.0) -> RenderContext:
-    """Create a fresh RenderContext for a new assemble run."""
-    global _ctx
-    _ctx = RenderContext(w=w, h=h, fps=fps, quality=quality)
-    return _ctx
-
-
-def get_context() -> RenderContext:
-    """Get the current RenderContext."""
-    return _ctx
-
-
-# ---------------------------------------------------------------------------
-# Module-level convenience functions (delegate to _ctx)
-# ---------------------------------------------------------------------------
-
-def get_encoder(width: int = 3840, height: int = 2160, fps: int = 60) -> list[str]:
-    return _ctx.get_encoder(width, height, fps)
-
-
-def probe_duration(path: Path) -> float:
-    return _ctx.probe_duration(path)
-
-
-def is_portrait(src_w: int, src_h: int) -> bool:
-    """Return True if the source is clearly portrait (height > width * 1.2)."""
-    return src_w > 0 and src_h > src_w * 1.2

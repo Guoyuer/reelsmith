@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 from ..edl import XFADE_MAP
-from ._encoder import RenderContext, get_encoder, probe_duration
+from ._encoder import RenderContext
 from ._grouping import partition_into_groups
 from ..media_utils import run_subprocess
 from ._timeline import Timeline
@@ -23,10 +23,6 @@ def concatenate(clips: list[dict], output_path: Path, *,
     For reliability at high resolutions, splits into segments and xfades
     within each segment, then concats segments via demuxer.
     """
-    w = ctx.w if ctx else 0
-    h = ctx.h if ctx else 0
-    fps = ctx.fps if ctx else 0
-
     if len(clips) == 1:
         shutil.copy(str(clips[0]["path"]), str(output_path))
         return
@@ -68,7 +64,7 @@ def concatenate(clips: list[dict], output_path: Path, *,
             concat_xfade(group, group_path, ctx=ctx)
 
         if group_path.exists():
-            dur = probe_duration(group_path) or sum(c["duration"] for c in group)
+            dur = ctx.probe_duration(group_path) or sum(c["duration"] for c in group)
             group_files.append({"path": group_path, "duration": dur,
                                 "transition": "cut", "transition_duration": 0.0})
             logger.info(f"  Group {gi+1}/{len(groups)}: done ({dur:.1f}s)")
@@ -76,7 +72,7 @@ def concatenate(clips: list[dict], output_path: Path, *,
             logger.info(f"  Group {gi+1}/{len(groups)}: xfade failed, falling back to demuxer...")
             concat_demuxer(group, group_path)
             if group_path.exists():
-                dur = probe_duration(group_path) or sum(c["duration"] for c in group)
+                dur = ctx.probe_duration(group_path) or sum(c["duration"] for c in group)
                 group_files.append({"path": group_path, "duration": dur,
                                     "transition": "cut", "transition_duration": 0.0})
 
@@ -100,10 +96,6 @@ def concatenate(clips: list[dict], output_path: Path, *,
 def _concat_filter(clips: list[dict], output_path: Path, *,
                    ctx: RenderContext | None = None) -> None:
     """Join group files using the concat filter (re-encodes, but reliable for HEVC)."""
-    w = ctx.w if ctx else 0
-    h = ctx.h if ctx else 0
-    fps = ctx.fps if ctx else 0
-
     inputs = []
     filter_parts = []
     for i, clip in enumerate(clips):
@@ -116,7 +108,7 @@ def _concat_filter(clips: list[dict], output_path: Path, *,
     cmd = ["ffmpeg", "-y"] + inputs + [
         "-filter_complex", fc,
         "-map", "[v]",
-        *get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
+        *ctx.get_encoder(), "-pix_fmt", "yuv420p",
         str(output_path),
     ]
     result = run_subprocess(cmd, capture_output=True, text=True)
@@ -125,7 +117,7 @@ def _concat_filter(clips: list[dict], output_path: Path, *,
         logger.info("Falling back to concat demuxer...")
         concat_demuxer(clips, output_path)
     else:
-        actual = probe_duration(output_path)
+        actual = ctx.probe_duration(output_path)
         logger.info("concat filter OK: %.1fs from %d inputs", actual, len(clips))
 
 
@@ -153,12 +145,8 @@ def concat_xfade(clips: list[dict], output_path: Path, *,
                  ctx: RenderContext | None = None,
                  timeline=None) -> None:
     """Concatenate with xfade transitions (video only). Uses Timeline offsets."""
-    w = ctx.w if ctx else 0
-    h = ctx.h if ctx else 0
-    fps = ctx.fps if ctx else 0
-
     if timeline is None:
-        timeline = Timeline.build(clips)
+        timeline = Timeline.build(clips, ctx=ctx)
 
     inputs = []
     for clip in clips:
@@ -198,12 +186,12 @@ def concat_xfade(clips: list[dict], output_path: Path, *,
     cmd = ["ffmpeg", "-y"] + inputs + [
         "-filter_complex", filter_complex,
         "-map", "[vout]",
-        *get_encoder(w, h, fps), "-pix_fmt", "yuv420p",
+        *ctx.get_encoder(), "-pix_fmt", "yuv420p",
         str(output_path),
     ]
     result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        clip_durs = [f"{probe_duration(c['path']) or 0:.1f}s" for c in clips]
+        clip_durs = [f"{ctx.probe_duration(c['path']) or 0:.1f}s" for c in clips]
         logger.error("xfade FAILED for %s (%d clips: %s)", output_path.name, len(clips), clip_durs)
         logger.debug("filter: %s", filter_complex)
         logger.error("stderr: %s", result.stderr[-300:])

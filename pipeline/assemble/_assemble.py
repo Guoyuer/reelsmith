@@ -20,12 +20,7 @@ from ._concat import concatenate
 from ..config import Config
 from ..edl import EDL, load_latest_edl, validate_edl
 from ..image_utils import init_heic_dir
-from ._encoder import (
-    RenderContext,
-    get_context,
-    init_context,
-    probe_duration,
-)
+from ._encoder import RenderContext
 from ..media_utils import run_subprocess
 from ..parallel import run_parallel
 from ._render import render_photo, render_video, render_title_card
@@ -181,7 +176,7 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
     logger.info(f"EDL validation passed ({len(edl.all_items())} items, "
          f"{len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s)")
 
-    ctx = init_context(w=w, h=h, fps=ac.fps, quality=ac.quality)
+    ctx = RenderContext(w=w, h=h, fps=ac.fps, quality=ac.quality)
 
     job = AssembleJob(cfg=cfg, edl=edl, version=version, ctx=ctx)
 
@@ -214,13 +209,13 @@ def _assemble_inner(job: AssembleJob, *, progress_callback=None, skip_broken: bo
     # Phase 2 + 2b + 3: Concatenate, speech track, music mix
     validation_issues, chapters_path = _concat_and_mix(job, all_clips, t_start=t1)
 
-    duration = probe_duration(job.output_path)
+    duration = job.ctx.probe_duration(job.output_path)
     total_time = time.monotonic() - t1
     logger.info(f"Done: {job.output_path} ({duration:.1f}s, rendered in {total_time:.0f}s)")
 
     # Phase 4: Validate output
     has_speech = any(c.get("keep_audio") for c in all_clips)
-    validation_issues = _validate_output(job.output_path, job.edl, has_speech, (job.w, job.h))
+    validation_issues = _validate_output(job.output_path, job.edl, has_speech, (job.w, job.h), ctx=job.ctx)
     errors = [i for i in validation_issues if i["level"] == "error"]
     warnings = [i for i in validation_issues if i["level"] == "warning"]
 
@@ -254,7 +249,7 @@ def _render_clips(job: AssembleJob, *, progress_callback=None, skip_broken: bool
     dicts ready for concatenation.
     """
     # Determine parallel workers based on encoder type
-    encoder = job.ctx.get_encoder(job.w, job.h, job.fps)
+    encoder = job.ctx.get_encoder()
     encoder_str = " ".join(encoder)
     if "nvenc" in encoder_str:
         max_workers = int(os.environ.get("VLOG_PARALLEL_CLIPS", "3"))
@@ -440,13 +435,13 @@ def _concat_and_mix(job: AssembleJob, all_clips: list[dict], *, t_start: float) 
 
     # Phase 2b: Build speech audio track using Timeline as single source of truth
     # Build timeline with MEASURED group durations (fixes speech sync drift)
-    tl = Timeline.build_actual(all_clips, job.output_dir)
+    tl = Timeline.build_actual(all_clips, job.output_dir, ctx=job.ctx)
     tl.dump()
 
     speech_audio_path = None
     speech_ka_indices = [i for i, c in enumerate(all_clips) if c.get("keep_audio")]
     if speech_ka_indices:
-        video_dur = probe_duration(no_music_path)
+        video_dur = job.ctx.probe_duration(no_music_path)
 
         speech_clips = []
         for e in tl.speech_entries():
@@ -462,13 +457,14 @@ def _concat_and_mix(job: AssembleJob, all_clips: list[dict], *, t_start: float) 
     # Phase 3: Mix music + speech (delegated to audio module)
     t3 = time.monotonic()
     if job.edl.music and Path(job.edl.music.file).exists():
-        music_dur = probe_duration(Path(job.edl.music.file))
-        video_dur = probe_duration(no_music_path)
+        music_dur = job.ctx.probe_duration(Path(job.edl.music.file))
+        video_dur = job.ctx.probe_duration(no_music_path)
         logger.info(f"Mixing music: video={video_dur:.1f}s, music={music_dur:.1f}s, "
               f"volume={job.edl.music.volume}, fade_in={job.edl.music.fade_in}s, fade_out={job.edl.music.fade_out}s")
     mix_final_audio(no_music_path, job.output_path,
                     music_track=job.edl.music, speech_audio_path=speech_audio_path,
-                    speech_ranges=speech_ranges, duck_ratio=job.edl.music_duck_ratio)
+                    speech_ranges=speech_ranges, duck_ratio=job.edl.music_duck_ratio,
+                    ctx=job.ctx)
     logger.info(f"Phase 3 (audio): {time.monotonic() - t3:.1f}s")
 
     # Generate YouTube chapter markers (using Timeline offsets)
@@ -487,6 +483,7 @@ def _validate_output(
     edl: EDL,
     has_speech: bool,
     resolution: tuple[int, int],
+    ctx: RenderContext | None = None,
 ) -> list[dict]:
     """Validate the rendered output video. Returns a list of issue dicts.
 
@@ -520,8 +517,9 @@ def _validate_output(
 
     # --- 2. Duration check ---
     expected_duration = edl.estimated_duration()
-    get_context()._dur_cache.pop(str(output_path), None)
-    actual_duration = probe_duration(output_path)
+    if ctx is not None:
+        ctx.invalidate(output_path)
+    actual_duration = ctx.probe_duration(output_path) if ctx else 0.0
 
     if actual_duration <= 0:
         _error("duration", "Could not probe output duration (ffprobe returned 0)")
@@ -596,9 +594,9 @@ def _validate_output(
                       f"— possible sync issue")
 
     # --- 6. Resolution check ---
-    if has_video_stream:
-        get_context().invalidate(output_path)
-        out_w, out_h = get_context().probe_dimensions(output_path)
+    if has_video_stream and ctx is not None:
+        ctx.invalidate(output_path)
+        out_w, out_h = ctx.probe_dimensions(output_path)
         exp_w, exp_h = resolution
         if out_w > 0 and out_h > 0:
             if out_w != exp_w or out_h != exp_h:

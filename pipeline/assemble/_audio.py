@@ -10,7 +10,7 @@ import wave
 from pathlib import Path
 
 from ..edl import EDL
-from ._encoder import probe_duration
+from ._encoder import RenderContext
 from ..media_utils import run_subprocess
 
 logger = logging.getLogger("vlog.audio")
@@ -198,12 +198,13 @@ def build_speech_track(
 
 
 def add_music(video_path: Path, music, output_path: Path, *,
+              ctx: RenderContext | None = None,
               speech_ranges: list[tuple[float, float]] | None = None,
               speech_audio_path: Path | None = None,
               duck_ratio: float = 0.3) -> None:
     """Mix background music + speech audio into the video."""
-    total_dur = probe_duration(video_path)
-    music_dur = probe_duration(Path(music.file))
+    total_dur = ctx.probe_duration(video_path) if ctx else 0.0
+    music_dur = ctx.probe_duration(Path(music.file)) if ctx else 0.0
     fade_out_start = max(0, total_dur - music.fade_out)
 
     loop_filter = ""
@@ -267,6 +268,7 @@ def mix_final_audio(
     speech_audio_path: Path | None = None,
     speech_ranges: list[tuple[float, float]] | None = None,
     duck_ratio: float = 0.3,
+    ctx: RenderContext | None = None,
 ) -> None:
     """Mix music and/or speech audio into the final video.
 
@@ -281,7 +283,7 @@ def mix_final_audio(
     has_music = music_track is not None and music_track.file and Path(music_track.file).exists()
 
     if has_music:
-        add_music(video_path, music_track, output_path,
+        add_music(video_path, music_track, output_path, ctx=ctx,
                   speech_ranges=speech_ranges, speech_audio_path=speech_audio_path,
                   duck_ratio=duck_ratio)
         video_path.unlink(missing_ok=True)

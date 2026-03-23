@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ._grouping import partition_into_groups
-from ._encoder import probe_duration as _probe_dur
+from ._encoder import RenderContext
 
 logger = logging.getLogger("vlog.timeline")
 
@@ -44,18 +44,19 @@ class Timeline:
     - chapter markers: chapter_offsets()
     """
     entries: list[TimelineEntry] = field(default_factory=list)
+    ctx: RenderContext | None = field(default=None, repr=False)
 
     @staticmethod
-    def build(all_clips: list[dict]) -> "Timeline":
+    def build(all_clips: list[dict], ctx: RenderContext | None = None) -> "Timeline":
         """Compute timeline from clip metadata (mathematical estimate).
 
         Uses probed clip durations and transition_duration to compute offsets.
         For more accurate results after rendering, use build_actual().
         """
-        tl = Timeline()
+        tl = Timeline(ctx=ctx)
 
         for i, clip in enumerate(all_clips):
-            dur = _probe_dur(clip["path"]) or clip["duration"]
+            dur = (ctx.probe_duration(clip["path"]) if ctx else 0.0) or clip["duration"]
             td = clip["transition_duration"]
             tr = clip["transition"]
             if tr == "cut":
@@ -75,17 +76,18 @@ class Timeline:
         return tl
 
     @staticmethod
-    def build_actual(all_clips: list[dict], output_dir: Path) -> "Timeline":
+    def build_actual(all_clips: list[dict], output_dir: Path,
+                     ctx: RenderContext | None = None) -> "Timeline":
         """Compute timeline using MEASURED group file durations.
 
         After concatenate() renders group files (_group_0.mp4, etc.),
         this reads their actual durations instead of estimating mathematically.
         This fixes speech sync drift caused by xfade frame rounding.
         """
-        tl = Timeline()
+        tl = Timeline(ctx=ctx)
 
         for i, clip in enumerate(all_clips):
-            dur = _probe_dur(clip["path"]) or clip["duration"]
+            dur = (ctx.probe_duration(clip["path"]) if ctx else 0.0) or clip["duration"]
             td = clip["transition_duration"]
             tr = clip["transition"]
             if tr == "cut":
@@ -147,8 +149,8 @@ class Timeline:
 
             # Use ACTUAL rendered group duration if file exists
             group_file = output_dir / f"_group_{gi}.mp4"
-            if group_file.exists():
-                global_offset += _probe_dur(group_file)
+            if group_file.exists() and self.ctx is not None:
+                global_offset += self.ctx.probe_duration(group_file)
             else:
                 group_dur = sum(self.entries[idx].actual_duration for idx in group_indices)
                 group_overlap = sum(self.entries[idx].transition_duration for idx in group_indices[1:])
