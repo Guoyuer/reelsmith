@@ -31,6 +31,7 @@ def fetch_local(cfg: Config, fc: FetchConfig) -> list[dict]:
     Points directly to source files (no copying or linking).
     """
     cfg.ensure_dirs()
+    assert fc.source_dir is not None
     source = Path(fc.source_dir)
     if not source.is_dir():
         raise FileNotFoundError(f"Source directory not found: {source}")
@@ -124,7 +125,7 @@ def _extract_date(path: Path) -> datetime | None:
     try:
         from PIL import Image
         img = Image.open(path)
-        exif = img._getexif()
+        exif = img._getexif()  # type: ignore[attr-defined]
         if exif:
             date_str = exif.get(36867) or exif.get(306)  # DateTimeOriginal or DateTime
             if date_str:
@@ -168,7 +169,7 @@ def _extract_gps(path: Path) -> tuple[float | None, float | None]:
     try:
         from PIL import Image
         img = Image.open(path)
-        exif = img._getexif()
+        exif = img._getexif()  # type: ignore[attr-defined]
         if not exif:
             return None, None
 

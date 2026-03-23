@@ -236,7 +236,7 @@ def plan(cfg: Config, pc: PlanConfig) -> tuple[EDL, int]:
     # Set metadata on the EDL
     edl.trip_type = pc.trip_type
     edl.style = pc.style
-    edl.language = pc.language
+    edl.language = pc.language  # type: ignore[assignment]  # validated by CLI
     edl.intro_style = edl.intro_style or "title_card"
     edl.outro_style = edl.outro_style or "fade_title"
     if not edl.date_range:

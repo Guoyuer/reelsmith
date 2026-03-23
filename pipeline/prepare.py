@@ -439,7 +439,7 @@ def _read_exif(path) -> dict:
         from PIL import Image
         from PIL.ExifTags import TAGS
         img = Image.open(path)
-        exif_data = img._getexif()
+        exif_data = img._getexif()  # type: ignore[attr-defined]
         if not exif_data:
             return {}
         exif = {TAGS.get(k, k): v for k, v in exif_data.items()}

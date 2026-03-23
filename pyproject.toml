@@ -32,6 +32,7 @@ select = ["E", "F", "W", "I"]
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "basic"
+reportOptionalMemberAccess = "warning"
 
 [tool.pytest.ini_options]
 addopts = "-m 'not integration'"

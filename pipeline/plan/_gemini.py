@@ -73,7 +73,7 @@ def _gemini_call(
                     uploaded = client.files.upload(file=tf_path)
                     while uploaded.state.name != "ACTIVE":
                         time.sleep(2)
-                        uploaded = client.files.get(name=uploaded.name)
+                        uploaded = client.files.get(name=uploaded.name or "")
                     logger.info(f"  Video uploaded and ACTIVE: {uploaded.name}")
                     n_uploaded += 1
                 finally:
@@ -131,7 +131,7 @@ def _gemini_call(
             if getattr(part, 'thought', False) and part.text:
                 logger.info(f"  [Thinking] {part.text[:500]}...")
             if getattr(part, 'executable_code', None):
-                code = part.executable_code.code
+                code = part.executable_code.code or ""
                 logger.info(f"  [Code] {code[:300]}{'...' if len(code) > 300 else ''}")
             if getattr(part, 'code_execution_result', None):
                 result = part.code_execution_result

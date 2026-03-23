@@ -14,8 +14,16 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
+
+if TYPE_CHECKING:
+    from pipeline.assemble import AssembleConfig
+    from pipeline.config import Config
+    from pipeline.fetch import FetchConfig
+    from pipeline.plan import PlanConfig
+    from pipeline.prepare import PrepareConfig
 
 # ---------------------------------------------------------------------------
 # SIGINT handler — first Ctrl+C sets flag, second force-quits
@@ -238,15 +246,14 @@ def _check_interrupted(display: _PipelineDisplay, status: dict, ws: Path, logger
 
 @dataclass
 class _PipelineContext:
-    cfg: object      # Config
-    display: object  # _PipelineDisplay
+    cfg: Config
     status: dict
-    logger: object   # logging.Logger
-    # Typed stage configs (None = stage not active)
-    fetch: object = None      # FetchConfig | None
-    prepare: object = None    # PrepareConfig | None
-    plan: object = None       # PlanConfig | None
-    assemble: object = None   # AssembleConfig | None
+    logger: logging.Logger
+    display: _PipelineDisplay | None = None
+    fetch: FetchConfig | None = None
+    prepare: PrepareConfig | None = None
+    plan: PlanConfig | None = None
+    assemble: AssembleConfig | None = None
 
     @property
     def ws(self) -> Path:
@@ -257,7 +264,7 @@ class _PipelineContext:
 
 
 def _run_fetch(pc: _PipelineContext):
-    """Execute the fetch stage."""
+    assert pc.fetch is not None and pc.display is not None
     _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
     pc.display.start("fetch")
     t0 = time.monotonic()
@@ -284,7 +291,7 @@ def _run_fetch(pc: _PipelineContext):
 
 
 def _run_prepare(pc: _PipelineContext):
-    """Execute the prepare stage."""
+    assert pc.prepare is not None and pc.display is not None
     _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
     pc.display.start("prepare")
     t0 = time.monotonic()
@@ -325,6 +332,7 @@ def _run_prepare(pc: _PipelineContext):
 
 def _run_plan(pc: _PipelineContext):
     """Execute the plan stage."""
+    assert pc.plan is not None and pc.display is not None
     _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
     pc.display.start("plan")
     t0 = time.monotonic()
@@ -363,6 +371,7 @@ def _run_plan(pc: _PipelineContext):
 
 def _run_generate_music(pc: _PipelineContext):
     """Execute the generate_music stage."""
+    assert pc.display is not None
     _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
     pc.display.start("generate_music")
     t0 = time.monotonic()
@@ -382,7 +391,7 @@ def _run_generate_music(pc: _PipelineContext):
 
 
 def _run_assemble(pc: _PipelineContext):
-    """Execute the assemble stage."""
+    assert pc.assemble is not None and pc.display is not None
     _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
     pc.display.start("assemble")
     t0 = time.monotonic()
