@@ -272,12 +272,13 @@ def _run_fetch(pc: _PipelineContext):
         pc.status["stages"]["fetch"] = {"status": "cached", "items": len(items)}
     else:
         fc = pc.fetch
+        cb = _progress_cb(pc.logger, pc.display, "fetch", t0)
         if fc.source_dir:
             from pipeline.fetch import fetch_local
-            items = fetch_local(pc.cfg, fc)
+            items = fetch_local(pc.cfg, fc, progress_callback=cb)
         else:
             from pipeline.fetch import fetch
-            items = fetch(pc.cfg, fc)
+            items = fetch(pc.cfg, fc, progress_callback=cb)
         dur = time.monotonic() - t0
         pc.log(f"Fetch: {len(items)} items in {dur:.0f}s")
         pc.display.done("fetch", f"{len(items)} items", dur)
@@ -331,7 +332,8 @@ def _run_plan(pc: _PipelineContext):
     t0 = time.monotonic()
 
     from pipeline.plan import plan as do_plan
-    edl, version = do_plan(pc.cfg, pc.plan)
+    edl, version = do_plan(pc.cfg, pc.plan,
+                           progress_callback=_progress_cb(pc.logger, pc.display, "plan", t0))
 
     all_items = edl.all_items()
     n_videos = sum(1 for i in all_items if i.media_type == "video")
@@ -369,7 +371,10 @@ def _run_generate_music(pc: _PipelineContext):
     t0 = time.monotonic()
 
     from pipeline.music import generate_music_for_edl
-    track = generate_music_for_edl(pc.cfg)
+    track = generate_music_for_edl(
+        pc.cfg,
+        progress_callback=_progress_cb(pc.logger, pc.display, "generate_music", t0),
+    )
 
     dur = time.monotonic() - t0
     if track:
@@ -693,7 +698,7 @@ def full(run_name, source, path, from_date, to_date, country, district, item_typ
         prepare=PrepareConfig(force=force, tz_hours=tz_hours),
         plan=PlanConfig(style=style, target_duration=duration, focus=focus,
                         trip_type=trip_type, language=lang, model=model,
-                        music_file=music_file, tz_hours=tz_hours),
+                        music_file=music_file, tz_hours=tz_hours, force=force),
         assemble=AssembleConfig(w=w, h=h, fps=fps, quality=quality, skip_broken=True),
         stages=stages,
     )
@@ -703,8 +708,9 @@ def full(run_name, source, path, from_date, to_date, country, district, item_typ
 @_name_option
 @_apply_options(_plan_options)
 @_tz_option
+@_force_option
 def plan(run_name, duration, trip_type, style, focus, lang, model,
-         music, tz_hours):
+         music, tz_hours, force):
     """Re-plan only (uses cached media + analysis). Run assemble separately to render."""
     from pipeline.plan import PlanConfig
 
@@ -716,7 +722,7 @@ def plan(run_name, duration, trip_type, style, focus, lang, model,
     _run_pipeline(run_name,
         plan=PlanConfig(style=style, target_duration=duration, focus=focus,
                         trip_type=trip_type, language=lang, model=model,
-                        music_file=music_file, tz_hours=tz_hours),
+                        music_file=music_file, tz_hours=tz_hours, force=force),
         stages=stages,
     )
 

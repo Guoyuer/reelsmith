@@ -15,7 +15,7 @@ from ._filters import (
 from ..image_utils import convert_heic
 from ..media_utils import run_subprocess
 
-logger = logging.getLogger("vlog.render")
+logger = logging.getLogger("vlog.assemble.render")
 
 
 def render_photo(item: EditItem, output_path: Path, *,

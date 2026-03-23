@@ -13,7 +13,7 @@ from pathlib import Path
 from ._grouping import partition_into_groups
 from ._encoder import RenderContext
 
-logger = logging.getLogger("vlog.timeline")
+logger = logging.getLogger("vlog.assemble.timeline")
 
 
 @dataclass

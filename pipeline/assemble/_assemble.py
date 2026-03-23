@@ -181,7 +181,7 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
     job = AssembleJob(cfg=cfg, edl=edl, version=version, ctx=ctx)
 
     # Log all FFmpeg commands to output/ffmpeg_commands.log
-    ffmpeg_log = logging.getLogger("pipeline.ffmpeg")
+    ffmpeg_log = logging.getLogger("vlog.ffmpeg")
     log_path = job.output_dir / "ffmpeg_commands.log"
     _fh = logging.FileHandler(log_path, mode="w", encoding="utf-8")
     _fh.setLevel(logging.INFO)
@@ -556,7 +556,7 @@ def _validate_output(
                 try:
                     stream_durations[codec_type] = float(parts[2].strip())
                 except (ValueError, TypeError):
-                    pass
+                    logger.debug("Could not parse stream duration from %r", line, exc_info=True)
 
     has_video_stream = "video" in codec_types
     has_audio_stream = "audio" in codec_types

@@ -46,11 +46,12 @@ class PlanConfig:
     tz_hours: int | None = None
     model: str | None = None
     music_file: str | None = None
+    force: bool = False
 
 
 def _plan_visual(
     cfg: Config, preprocessed: dict, analysis_by_id: dict,
-    pc: PlanConfig,
+    pc: PlanConfig, *, progress_callback=None,
 ) -> EDL:
     """Single-pass Gemini planning with chain-of-thought.
 
@@ -94,11 +95,13 @@ def _plan_visual(
         tz_hours = preprocessed.get("tz_hours", -(time.timezone // 3600))
 
     content_blocks, preview_offset_table = _build_visual_content_blocks(
-        preprocessed, analysis_by_id, cfg, tz_hours=tz_hours)
+        preprocessed, analysis_by_id, cfg, tz_hours=tz_hours, force=pc.force)
     n_img = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "image_bytes")
     n_vid_clips = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "video_bytes")
     n_text = sum(1 for b in content_blocks if isinstance(b, str))
     logger.info(f"Visual content: {n_text} text blocks, {n_img} photos, {n_vid_clips} video file(s)")
+    if progress_callback:
+        progress_callback(1, 3, "content ready")
 
     if n_candidates > 0 and n_text == 0:
         raise RuntimeError(
@@ -167,6 +170,8 @@ Candidates by day/location:"""
     for line in edl_content.split("\n"):
         logger.info(f"  | {line}")
     logger.info("=== [Gemini] END RESPONSE ===")
+    if progress_callback:
+        progress_callback(2, 3, "EDL received")
 
     # --- Post-processing pipeline ---
     edl, _ = parse_and_convert_timestamps(edl_content, preview_offset_table)
@@ -184,6 +189,8 @@ Candidates by day/location:"""
 
     validate_and_fix_edl(edl)
     log_edl_summary(edl, pc.target_duration)
+    if progress_callback:
+        progress_callback(3, 3, "done")
 
     return edl
 
@@ -192,7 +199,7 @@ Candidates by day/location:"""
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def plan(cfg: Config, pc: PlanConfig) -> tuple[EDL, int]:
+def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, int]:
     """Generate an EDL from preprocessed + analysis data using the visual planner."""
     if pc.trip_type not in TRIP_TYPES:
         logger.warning(f"Unknown trip_type '{pc.trip_type}', falling back to 'general'")
@@ -201,6 +208,7 @@ def plan(cfg: Config, pc: PlanConfig) -> tuple[EDL, int]:
             focus=pc.focus, trip_type="general",
             language=pc.language, tz_hours=pc.tz_hours,
             model=pc.model, music_file=pc.music_file,
+            force=pc.force,
         )
 
     if not os.getenv("GEMINI_API_KEY", ""):
@@ -221,8 +229,10 @@ def plan(cfg: Config, pc: PlanConfig) -> tuple[EDL, int]:
         focus=effective_focus, trip_type=pc.trip_type,
         language=pc.language, tz_hours=pc.tz_hours,
         model=pc.model, music_file=pc.music_file,
+        force=pc.force,
     )
-    edl = _plan_visual(cfg, preprocessed, analysis_by_id, visual_pc)
+    edl = _plan_visual(cfg, preprocessed, analysis_by_id, visual_pc,
+                        progress_callback=progress_callback)
 
     # Post-process: force effect="none" on video items
     for seg in edl.segments:

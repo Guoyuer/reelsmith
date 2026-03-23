@@ -17,13 +17,13 @@ from pathlib import Path
 from ..config import Config
 from ._nas import FetchConfig
 
-logger = logging.getLogger("vlog.fetch_local")
+logger = logging.getLogger("vlog.fetch.local")
 
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
-def fetch_local(cfg: Config, fc: FetchConfig) -> list[dict]:
+def fetch_local(cfg: Config, fc: FetchConfig, *, progress_callback=None) -> list[dict]:
     """Scan a local folder for photos/videos and build a manifest.
 
     Uses all media files found — no date filtering.
@@ -91,6 +91,8 @@ def fetch_local(cfg: Config, fc: FetchConfig) -> list[dict]:
                 pass
 
         manifest.append(entry)
+        if progress_callback:
+            progress_callback(i, len(files), src_path.name)
         if i % 100 == 0 or i == len(files):
             logger.info("[%d/%d] Scanned", i, len(files))
 
@@ -117,7 +119,7 @@ def _extract_date(path: Path) -> datetime | None:
                 dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                 return dt
         except Exception:
-            pass
+            logger.debug("Could not extract video date via ffprobe from %s", path, exc_info=True)
         # ffprobe failed — try filename
         return _parse_date_from_filename(path.stem)
 
@@ -131,7 +133,7 @@ def _extract_date(path: Path) -> datetime | None:
                 dt = datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
                 return dt.replace(tzinfo=timezone.utc)
     except Exception:
-        pass
+        logger.debug("Could not extract EXIF date from %s", path, exc_info=True)
 
     # PIL/FFmpeg failed — try parsing date from filename (common patterns)
     return _parse_date_from_filename(path.stem)
@@ -189,4 +191,5 @@ def _extract_gps(path: Path) -> tuple[float | None, float | None]:
             lon = -lon
         return lat, lon
     except Exception:
+        logger.debug("Could not extract GPS from %s", path, exc_info=True)
         return None, None

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-logger = logging.getLogger("vlog.music_prompts")
+logger = logging.getLogger("vlog.music.prompts")
 
 # Prompt templates per trip_type + style
 MUSIC_PROMPTS: dict[str, dict[str, str]] = {

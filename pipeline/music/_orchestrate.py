@@ -114,7 +114,7 @@ def _build_composite_music(
     return True
 
 
-def generate_music_for_edl(cfg) -> Path | None:
+def generate_music_for_edl(cfg, *, progress_callback=None) -> Path | None:
     """Generate per-segment music and build a composite track with crossfades.
 
     Called by the generate_music stage. Generates one Lyria track per
@@ -156,6 +156,8 @@ def generate_music_for_edl(cfg) -> Path | None:
             logger.info("    Generated: %s", track.name)
         else:
             logger.warning("    FAILED — segment will be silent")
+        if progress_callback:
+            progress_callback(i + 1, len(edl.segments), seg.name)
 
     if not segment_tracks:
         logger.warning("No music generated for any segment")

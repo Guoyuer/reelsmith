@@ -13,7 +13,7 @@ from ..edl import EDL
 from ._encoder import RenderContext
 from ..media_utils import run_subprocess
 
-logger = logging.getLogger("vlog.audio")
+logger = logging.getLogger("vlog.assemble.audio")
 
 
 # ---------------------------------------------------------------------------

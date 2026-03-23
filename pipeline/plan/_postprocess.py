@@ -24,11 +24,8 @@ logger = logging.getLogger("vlog.plan")
 def parse_and_convert_timestamps(
     edl_content: str,
     preview_offset_table: list[tuple[int, float, float]],
-) -> tuple[EDL, str]:
-    """Parse Gemini JSON response and convert preview timestamps to trim points.
-
-    Returns (edl, cleaned_json_str).
-    """
+) -> EDL:
+    """Parse Gemini JSON response and convert preview timestamps to trim points."""
     edl_content = strip_markdown_fences(edl_content)
     raw = json.loads(edl_content)
 
@@ -66,8 +63,8 @@ def parse_and_convert_timestamps(
     if n_converted:
         logger.info(f"  Converted {n_converted} preview timestamps to local trim points")
 
-    edl = EDL.model_validate_json(json.dumps(raw))
-    return edl, json.dumps(raw)
+    edl = EDL.model_validate(raw)
+    return edl
 
 
 def fix_hallucinated_paths(edl: EDL, media_dir: Path) -> int:
@@ -204,7 +201,7 @@ def fill_duration_gap(
         raw2 = json.loads(edl_content2)
         if "music" in raw2 and isinstance(raw2["music"], str):
             raw2["music"] = None
-        edl2 = EDL.model_validate_json(json.dumps(raw2))
+        edl2 = EDL.model_validate(raw2)
         new_dur = edl2.estimated_duration()
         if new_dur > actual_dur:
             logger.info(f"  Duration fix: {actual_dur:.0f}s → {new_dur:.0f}s")

@@ -23,10 +23,10 @@ class FetchConfig:
     person_ids: list[int] | None = None
     item_types: list[int] | None = None
 
-logger = logging.getLogger("vlog.fetch")
+logger = logging.getLogger("vlog.fetch.nas")
 
 
-def fetch(cfg: Config, fc: FetchConfig) -> list[dict]:
+def fetch(cfg: Config, fc: FetchConfig, *, progress_callback=None) -> list[dict]:
     """Query the Synology Photos API, download all matching items, and build a manifest."""
     cfg.ensure_dirs()
     raw_dir = cfg.media_dir
@@ -125,6 +125,8 @@ def fetch(cfg: Config, fc: FetchConfig) -> list[dict]:
             if video_path:
                 entry["live_video_path"] = str(video_path)
             manifest.append(entry)
+            if progress_callback:
+                progress_callback(i, len(items), filename)
 
     manifest_path.write_text(json.dumps(manifest, indent=2))
     newly_fetched = len(items) - meta_cached

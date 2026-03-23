@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-logger = logging.getLogger("vlog.filters")
+logger = logging.getLogger("vlog.assemble.filters")
 
 
 def build_portrait_photo_filter(
