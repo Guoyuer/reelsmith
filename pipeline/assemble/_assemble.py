@@ -1,8 +1,8 @@
 """Stage 4: Render the vlog from an EDL.
 
 7 FFmpeg calls total:
-  Phase 1: 6 per-segment renders (filter_complex_script + concat=v=1:a=1)
-  Phase 2: 1 final concat (demuxer copy) + music overlay
+  Phase 1: 6 per-segment renders (filter_complex_script + concat=v=1:a=1) → .ts
+  Phase 2: 1 MPEG-TS concat (copy) + music overlay → .mp4
 """
 
 from __future__ import annotations
@@ -84,7 +84,7 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
     )
 
     fade_params = compute_fade_params(edl)
-    segment_files: list[Path] = [output_dir / f"_seg_{i}_{res_label}.mp4" for i in range(len(edl.segments))]
+    segment_files: list[Path] = [output_dir / f"_seg_{i}_{res_label}.ts" for i in range(len(edl.segments))]
 
     # Build per-segment FFmpeg commands (must be sequential — graph needs ctx.probe)
     segment_cmds: list[tuple[int, list[str]]] = []
@@ -139,25 +139,22 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
     t2 = time.monotonic()
     logger.info("Phase 2: Concat + music...")
 
-    # Concat demuxer (video + speech audio copy, no re-encode)
+    # Concat (video + speech audio copy, no re-encode)
     nomix_path = output_path  # if no music, this is the final output
     has_music = edl.music and Path(edl.music.file).exists()
 
     if has_music:
         nomix_path = output_dir / f"vlog_v{version}_{res_label}_nomix.mp4"
 
-    list_path = output_dir / f"_concat_{res_label}.txt"
-    with open(list_path, "w") as f:
-        for seg_file in segment_files:
-            safe = str(seg_file.resolve()).replace("\\", "/")
-            f.write(f"file '{safe}'\n")
-
+    # MPEG-TS concat: byte-level concatenation preserves PTS correctly
+    # (MP4 concat demuxer fails with HEVC B-frame PTS offsets)
+    concat_input = "concat:" + "|".join(
+        str(f.resolve()).replace("\\", "/") for f in segment_files
+    )
     cmd = [
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-        "-i", str(list_path),
+        "ffmpeg", "-y",
+        "-i", concat_input,
         "-c:v", "copy", "-c:a", "copy",
-        "-fflags", "+genpts",
-        "-avoid_negative_ts", "make_zero",
         str(nomix_path),
     ]
     result = run_subprocess(cmd, capture_output=True, text=True, timeout=60)
