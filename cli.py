@@ -62,22 +62,26 @@ class _PipelineDisplay:
     Falls back to simple line-by-line output when stderr is not a TTY.
     """
 
+    _SPINNER_FRAMES = "\u280b\u2819\u2838\u2830\u2826\u280e"  # braille spinner
+
     def __init__(self, run_name: str, headline: str, stages: list[str]):
         self._run_name = run_name
         self._headline = headline
         self._stages = stages
         self._t_start = time.monotonic()
-        self._stage_status: dict[str, tuple[str, str, float]] = {}  # stage → (icon, detail, dur)
+        # stage → (state, detail, progress_current, progress_total, duration)
+        self._stage_data: dict[str, dict] = {}
         self._current_stage: str | None = None
         self._live = None
+        self._tick = 0
 
         for s in stages:
-            self._stage_status[s] = (_ICON_PENDING, "", 0)
+            self._stage_data[s] = {"state": "pending", "detail": "", "current": 0, "total": 0, "dur": 0}
 
         if sys.stderr.isatty():
             try:
                 from rich.live import Live
-                self._live = Live(self._render_panel(), console=self._get_console(), refresh_per_second=2)
+                self._live = Live(self._render_panel(), console=self._get_console(), refresh_per_second=4)
                 self._live.start()
             except ImportError:
                 pass
@@ -90,47 +94,97 @@ class _PipelineDisplay:
         from rich.console import Console
         return Console(stderr=True)
 
-    def _render_panel(self) -> str:
-        """Build the status panel text."""
-        from rich.text import Text
+    def _render_panel(self):
         from rich.table import Table
         from rich.panel import Panel
+        from rich.text import Text
 
+        self._tick += 1
         elapsed = time.monotonic() - self._t_start
-        table = Table.grid(padding=(0, 2))
-        table.add_column(width=3)
-        table.add_column(width=18)
-        table.add_column()
+
+        table = Table.grid(padding=(0, 1))
+        table.add_column(width=2)   # icon
+        table.add_column(width=16)  # stage name
+        table.add_column()          # detail + progress
 
         for s in self._stages:
-            icon, detail, dur = self._stage_status[s]
+            d = self._stage_data[s]
             name = s.replace("_", " ")
-            time_str = f"{dur:.0f}s" if dur > 0 else ""
-            row_detail = f"{detail}  {time_str}".strip() if detail or time_str else ""
-            table.add_row(icon, name, row_detail)
+
+            if d["state"] == "pending":
+                icon = Text(_ICON_PENDING, style="dim")
+                label = Text(name, style="dim")
+                info = Text("")
+            elif d["state"] == "running":
+                spinner = self._SPINNER_FRAMES[self._tick % len(self._SPINNER_FRAMES)]
+                icon = Text(spinner, style="bold cyan")
+                label = Text(name, style="bold cyan")
+                info = self._build_progress(d)
+            elif d["state"] == "done":
+                icon = Text(_ICON_DONE)
+                label = Text(name, style="green")
+                dur_s = f"{d['dur']:.0f}s"
+                cached = " (cached)" if d["dur"] < 0.5 else ""
+                detail = d["detail"]
+                info = Text(f"{detail}  {dur_s}{cached}".strip(), style="green")
+            else:  # failed
+                icon = Text(_ICON_FAILED)
+                label = Text(name, style="bold red")
+                info = Text(d["detail"][:50], style="red")
+
+            table.add_row(icon, label, info)
 
         panel = Panel(
             table,
-            title=f"\U0001f3ac {self._run_name} \u2014 {self._headline}",
-            subtitle=f"elapsed {elapsed:.0f}s",
-            border_style="blue",
-            width=70,
+            title=f"[bold]\U0001f3ac {self._run_name}[/bold] \u2014 {self._headline}",
+            subtitle=f"[dim]elapsed {elapsed:.0f}s[/dim]",
+            border_style="bright_blue",
+            width=72,
+            padding=(0, 1),
         )
         return panel
 
+    def _build_progress(self, d: dict):
+        """Build progress text with mini bar for a running stage."""
+        from rich.text import Text
+
+        cur, total = d["current"], d["total"]
+        detail = d["detail"]
+
+        if total > 0:
+            pct = cur / total
+            bar_w = 20
+            filled = int(pct * bar_w)
+            bar = "\u2588" * filled + "\u2591" * (bar_w - filled)
+            elapsed = time.monotonic() - self._t_start
+            return Text(f"{bar} {cur}/{total} {pct:.0%}  {detail}", style="cyan")
+        elif detail:
+            return Text(detail, style="cyan")
+        return Text("", style="cyan")
+
     def start(self, stage: str) -> None:
         self._current_stage = stage
-        self._stage_status[stage] = (_ICON_RUNNING, "", 0)
+        self._stage_data[stage].update(state="running", detail="", current=0, total=0)
         self._refresh()
 
     def update(self, stage: str, detail: str) -> None:
-        icon, _, dur = self._stage_status.get(stage, (_ICON_RUNNING, "", 0))
-        self._stage_status[stage] = (icon, detail, dur)
+        d = self._stage_data.get(stage)
+        if not d:
+            return
+        d["detail"] = detail
+        # Parse "42/125" format for progress bar
+        if "/" in detail:
+            try:
+                parts = detail.split("/")
+                d["current"] = int(parts[0])
+                d["total"] = int(parts[1])
+            except (ValueError, IndexError):
+                pass
         self._refresh()
 
     def done(self, stage: str, detail: str, duration: float) -> None:
         cached = " (cached)" if duration < 0.5 else ""
-        self._stage_status[stage] = (_ICON_DONE, f"{detail}{cached}", duration)
+        self._stage_data[stage].update(state="done", detail=f"{detail}{cached}", dur=duration)
         self._current_stage = None
         self._refresh()
         if not self._live:
@@ -139,7 +193,7 @@ class _PipelineDisplay:
             sys.stderr.flush()
 
     def fail(self, stage: str, error: str) -> None:
-        self._stage_status[stage] = (_ICON_FAILED, error[:60], 0)
+        self._stage_data[stage].update(state="failed", detail=error[:60])
         self._refresh()
         if not self._live:
             name = stage.replace("_", " ")
@@ -211,7 +265,7 @@ def _progress_cb(logger: logging.Logger, display: _PipelineDisplay, stage: str, 
     def cb(current: int, total: int, name: str) -> None:
         if total == 0:
             return
-        # Update display on every callback
+        # Update display with progress + current item name
         display.update(stage, f"{current}/{total}")
         # Log at ~10% intervals to file
         if current % max(total // 10, 1) == 0 or current == total:
