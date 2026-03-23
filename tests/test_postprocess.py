@@ -244,7 +244,10 @@ class TestValidateTrimPoints:
         )
         analysis = {"1": {"local_path": "/media/clip.mp4", "video_duration": 60.0}}
         fixed, removed = validate_trim_points(edl, analysis)
-        assert fixed == 1 or removed == 1  # either clamped or removed
+        assert fixed == 1  # start clamped to vid_dur-2, end clamped to vid_dur
+        assert removed == 0
+        assert edl.all_items()[0].start_time == 58.0
+        assert edl.all_items()[0].end_time == 60.0
 
     def test_end_past_duration_clamped(self):
         edl = _make_edl(
@@ -362,9 +365,11 @@ class TestFillDurationGap:
                 }
             ],
         }
-        with patch("pipeline.plan._postprocess._gemini_call", return_value=json.dumps(bigger_raw)):
+        with patch("pipeline.plan._postprocess._gemini_call", return_value=json.dumps(bigger_raw)) as mock_call:
             result = fill_duration_gap(edl, 60, {"2": {"local_path": "b.jpg", "media_type": "photo"}}, "system")
-        assert result.estimated_duration() > edl.estimated_duration()
+        mock_call.assert_called_once()
+        assert result.estimated_duration() > 5.0  # original was only 5s
+        assert len(result.all_items()) == 2
 
     def test_gemini_failure_returns_original(self):
         edl = _make_edl([EditItem(source_file="a.jpg", media_type="photo", display_duration=5.0)])
@@ -401,7 +406,8 @@ class TestValidateAndFixEdl:
 
 
 class TestLogEdlSummary:
-    def test_does_not_crash(self):
+    def test_logs_summary_without_error(self, caplog):
+        import logging
         edl = _make_edl(
             [
                 EditItem(source_file="a.jpg", media_type="photo", display_duration=4.0),
@@ -414,4 +420,11 @@ class TestLogEdlSummary:
                 ),
             ]
         )
-        log_edl_summary(edl, 60)  # should not raise
+        with caplog.at_level(logging.INFO, logger="vlog.plan"):
+            log_edl_summary(edl, 60)
+        # Verify key info was logged
+        log_text = caplog.text
+        assert "PARSED EDL" in log_text
+        assert "Test" in log_text  # title
+        assert "1 photos" in log_text or "photo" in log_text
+        assert "1 videos" in log_text or "video" in log_text

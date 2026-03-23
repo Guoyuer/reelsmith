@@ -61,7 +61,7 @@ class TestPrepareVideoAnalysis:
 class TestReadExif:
     """Test EXIF extraction from photos."""
 
-    def test_reads_focal_length(self, tmp_path):
+    def test_returns_dict_for_jpeg(self, tmp_path):
         from pipeline.prepare import _read_exif
 
         img_path = tmp_path / "photo.jpg"
@@ -71,8 +71,10 @@ class TestReadExif:
 
         exif = _read_exif(img_path)
         assert isinstance(exif, dict)
+        # PIL-generated images have no EXIF, so dict should be empty
+        assert len(exif) == 0
 
-    def test_handles_missing_exif(self, tmp_path):
+    def test_returns_empty_dict_when_exif_missing(self, tmp_path):
         from pipeline.prepare import _read_exif
 
         img_path = tmp_path / "photo.png"
@@ -82,6 +84,13 @@ class TestReadExif:
 
         exif = _read_exif(img_path)
         assert isinstance(exif, dict)
+        assert len(exif) == 0
+
+    def test_returns_empty_dict_for_nonexistent_file(self, tmp_path):
+        from pipeline.prepare import _read_exif
+
+        exif = _read_exif(tmp_path / "nonexistent.jpg")
+        assert exif == {}
 
 
 class TestPrepareVideo:
@@ -150,6 +159,42 @@ class TestPrepareFullFlow:
         result = prepare(cfg, PrepareConfig())
         assert cfg.analysis_path.exists()
         assert cfg.preprocessed_path.exists()
+
+    def test_stale_cache_reruns_when_manifest_newer(self, tmp_path):
+        """If manifest is newer than analysis, prepare should re-run."""
+        from pipeline.config import Config
+        from pipeline.prepare import PrepareConfig, prepare
+
+        cfg = Config(workspace=tmp_path)
+        cfg.ensure_dirs()
+
+        from PIL import Image
+        photo = cfg.media_dir / "photo.jpg"
+        Image.new("RGB", (100, 100), "red").save(photo, "JPEG")
+
+        manifest = [{
+            "id": 1, "filename": "photo.jpg",
+            "local_path": str(photo), "item_type": 0,
+            "takentime": 1700000000,
+            "taken_iso": "2023-11-14T14:13:20+00:00",
+            "filesize": 5000, "metadata": {"persons": []},
+        }]
+        cfg.manifest_path.write_text(json.dumps(manifest))
+
+        # First prepare
+        prepare(cfg, PrepareConfig())
+        assert cfg.analysis_path.exists()
+        first_mtime = cfg.analysis_path.stat().st_mtime
+
+        # Make manifest newer than analysis
+        import time
+        time.sleep(0.05)
+        cfg.manifest_path.write_text(json.dumps(manifest))
+
+        # Second prepare — should re-run because manifest is newer
+        prepare(cfg, PrepareConfig())
+        second_mtime = cfg.analysis_path.stat().st_mtime
+        assert second_mtime > first_mtime  # analysis was regenerated
 
 
 class TestHasDenseKeyframes:

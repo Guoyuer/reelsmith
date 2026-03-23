@@ -234,10 +234,15 @@ class TestPlanOrchestration:
 
         calls = []
         def cb(done, total, detail):
-            calls.append((done, total))
+            calls.append((done, total, detail))
 
         with _patch_gemini(json.dumps(fake_edl))[0], _patch_gemini(json.dumps(fake_edl))[1]:
             from pipeline.plan import plan
             plan(cfg, PlanConfig(target_duration=60), progress_callback=cb)
 
         assert len(calls) >= 2  # at least content-ready + done
+        # Verify progress is monotonically increasing
+        dones = [c[0] for c in calls]
+        assert dones == sorted(dones)
+        # Last call should have done == total
+        assert calls[-1][0] == calls[-1][1]

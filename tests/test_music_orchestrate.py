@@ -74,7 +74,7 @@ class TestSegmentDuration:
             transition="cut",
         )
         dur = _segment_duration(seg)
-        assert dur == 5.0  # minimum
+        assert abs(dur - 5.0) < 0.01  # minimum 5s
 
 
 class TestGenerateMusicForEdl:
