@@ -30,7 +30,7 @@ def concatenate(clips: list[dict], output_path: Path, **_kwargs) -> None:
     cmd = [
         "ffmpeg", "-y", "-f", "concat", "-safe", "0",
         "-i", str(list_path),
-        "-c:v", "copy", "-c:a", "copy",
+        "-c:v", "copy", "-an",
         "-fflags", "+genpts",
         "-avoid_negative_ts", "make_zero",
         str(output_path),
