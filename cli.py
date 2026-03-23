@@ -505,23 +505,23 @@ _plan_options = [
     click.option("--lang", default="en", type=click.Choice(["en", "cn", "both"]), help="Text language for overlays and chapters"),
     click.option(
         "--planning", required=True,
-        help="Planning quality: fast (~$0.01), balanced (~$0.05), quality (~$0.50), or raw model ID",
+        help="Preset (fast/balanced/quality) or model:thinking (e.g. gemini-2.5-flash:high)",
     ),
-    click.option("--model", default=None, hidden=True, help="Gemini model override (power user)"),
     click.option("--music", default="auto", help="auto=Gemini Lyria (default), /path/to/file, none=no music"),
 ]
 
 
-def _resolve_planning(planning: str, model_override: str | None) -> tuple[str, str]:
-    """Resolve planning preset + overrides into (model, thinking_level)."""
+def _resolve_planning(planning: str) -> tuple[str, str]:
+    """Resolve planning preset or model:thinking into (model, thinking_level).
+
+    Accepts: 'fast', 'balanced', 'quality', 'gemini-2.5-flash', 'gemini-2.5-flash:low'
+    """
     if planning in _PLANNING_PRESETS:
-        model, thinking = _PLANNING_PRESETS[planning]
-    else:
-        # Treat as raw model ID
-        model, thinking = planning, "HIGH"
-    if model_override:
-        model = model_override
-    return model, thinking
+        return _PLANNING_PRESETS[planning]
+    if ":" in planning:
+        model, thinking = planning.rsplit(":", 1)
+        return model, thinking.upper()
+    return planning, "HIGH"
 
 _RESOLUTION_PRESETS = {
     "4k60": (3840, 2160, 60),
@@ -676,7 +676,6 @@ def full(
     focus,
     lang,
     planning,
-    model,
     music,
     resolution,
     quality,
@@ -686,7 +685,7 @@ def full(
     from pipeline.plan import PlanConfig
     from pipeline.prepare import PrepareConfig
 
-    resolved_model, resolved_thinking = _resolve_planning(planning, model)
+    resolved_model, resolved_thinking = _resolve_planning(planning)
     w, h, fps = resolution
     stages = ["fetch", "prepare", "plan"]
     music_file = None if music == "none" else music
@@ -720,11 +719,11 @@ def full(
 @_apply_options(_plan_options)
 @_tz_option
 @_force_option
-def plan(run_name, duration, trip_type, style, focus, lang, planning, model, music, tz_hours, force):
+def plan(run_name, duration, trip_type, style, focus, lang, planning, music, tz_hours, force):
     """Re-plan only (uses cached media + analysis). Run assemble separately to render."""
     from pipeline.plan import PlanConfig
 
-    resolved_model, resolved_thinking = _resolve_planning(planning, model)
+    resolved_model, resolved_thinking = _resolve_planning(planning)
     music_file = None if music == "none" else music
     stages = ["plan"]
     if music != "none":
