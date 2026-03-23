@@ -343,8 +343,6 @@ python -m pytest tests/                           # all tests (255 tests)
 
 ## Key design decisions
 
-- **Gemini sees real media, not metadata** — photos sent as actual images (not descriptions), videos sent as watchable previews with audio. Gemini judges visually and aurally, producing far better selections than text-only approaches.
-- **Prepare once, iterate fast** — all heavy processing (thumbnails, video probing, previews) happens in `prepare`. Changing style/focus/duration only re-runs `plan` (a single Gemini API call) without re-processing media.
-- **No external services** — single Python process, no Dagster/Celery/Redis. `pip install -e .` and go.
-- **Externalized creative control** — prompts, narrative rules, and language directives are editable .md/.json files, not buried in code. Trip type personality is a JSON blob, not a code branch.
-- **Resolution as a cache dimension** — clips tagged by resolution (`seg00_item00_1080p30.mp4`). Preview at 1080p30, then render 4k60 without re-encoding the 1080p clips. Both outputs coexist.
+- **Let AI see, not read** — Gemini receives actual photos and watches video previews with audio. It selects items by visual and aural judgment, not by parsing metadata tags. This is the core bet: a model that "sees" like a human editor makes better vlogs than any amount of smart metadata filtering.
+- **AI decides the story, code executes it** — Gemini controls all creative decisions (narrative arc, selection, pacing, transitions, text, music mood). FFmpeg only executes the spec. The boundary is the EDL: a JSON file that captures every creative choice and can be re-rendered without re-calling Gemini.
+- **Prepare once, iterate fast** — heavy media processing (thumbnails, video probes, previews) runs once. After that, changing style/focus/duration is a single Gemini API call — no FFmpeg, no file I/O, seconds not minutes.
