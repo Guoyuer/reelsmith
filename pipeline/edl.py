@@ -227,6 +227,8 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
             # Duration
             if item.display_duration <= 0:
                 _error(f"{item_label}: display_duration <= 0 ({item.display_duration})")
+            elif item.display_duration < 2.0:
+                _warn(f"{item_label}: display_duration too short ({item.display_duration}s, min 2s)")
             elif item.display_duration > 120:
                 _warn(f"{item_label}: display_duration very long ({item.display_duration}s)")
             total_display += item.display_duration
@@ -257,8 +259,6 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
                     _error(f"{item_label}: photo cannot have keep_audio=True")
                 if item.start_time is not None or item.end_time is not None:
                     _error(f"{item_label}: photo should not have start_time/end_time")
-                if item.display_duration < 1.5:
-                    _warn(f"{item_label}: photo duration very short ({item.display_duration}s)")
 
             # Text overlay checks
             if item.text_overlay:

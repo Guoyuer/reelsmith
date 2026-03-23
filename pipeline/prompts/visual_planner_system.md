@@ -123,8 +123,10 @@ be videos and at least 50% of those videos should have keep_audio=true.
 
 - **DURATION IS MANDATORY**: Sum ALL items' display_duration. It MUST reach target_duration.
   Use code execution to verify the sum before outputting.
-- display_duration: 2.5-4s per photo, 4-8s for video clips.
+- display_duration: 3-4s per photo, 4-8s for video clips. **MINIMUM 2s for ANY item.**
+  Clips under 2s are too short to register visually — never create them.
   **For videos with trim points: display_duration MUST equal (preview_end - preview_start) / playback_speed.**
+  If this formula gives < 2s, widen the trim window until it reaches at least 2s.
   Example: trim 02:05-02:12 (7s) at speed 1.0 → display_duration=7.0.
   Example: trim 02:05-02:09 (4s) at speed 0.5 → display_duration=8.0.
   Do NOT set display_duration independently from trim points.
