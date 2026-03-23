@@ -6,7 +6,7 @@ individual photo thumbnails and watches video clips (with audio) to create an ED
 Requires GEMINI_API_KEY in .env.
 """
 
-from ._orchestrate import plan
+from ._orchestrate import plan, PlanConfig
 
 # Re-exports for backward compatibility (tests import these by name)
 from ._prompts import (  # noqa: F401
@@ -27,4 +27,4 @@ from ._preview import (  # noqa: F401
     _build_visual_content_blocks,
 )
 
-__all__ = ["plan"]
+__all__ = ["plan", "PlanConfig"]

@@ -289,18 +289,23 @@ def _run_fetch(pc: _PipelineContext):
         pc.display.done("fetch", f"{len(items)} items", dur)
         pc.status["stages"]["fetch"] = {"status": "cached", "items": len(items)}
     else:
-        if fc.get("source_dir"):
+        from pipeline.fetch import FetchConfig
+        fetch_cfg = FetchConfig(
+            source_dir=fc.get("source_dir"),
+            from_date=fc.get("from_date", ""),
+            to_date=fc.get("to_date", ""),
+            country=fc.get("country"),
+            first_level=fc.get("first_level"),
+            district=fc.get("district"),
+            person_ids=fc.get("person_ids"),
+            item_types=fc.get("item_types"),
+        )
+        if fetch_cfg.source_dir:
             from pipeline.fetch_local import fetch_local
-            items = fetch_local(pc.cfg, source_dir=fc["source_dir"])
+            items = fetch_local(pc.cfg, fetch_cfg)
         else:
             from pipeline.fetch import fetch
-            items = fetch(
-                pc.cfg, from_date=fc.get("from_date", ""),
-                to_date=fc.get("to_date", ""),
-                country=fc.get("country"), first_level=fc.get("first_level"),
-                district=fc.get("district"), person_ids=fc.get("person_ids"),
-                item_types=fc.get("item_types"),
-            )
+            items = fetch(pc.cfg, fetch_cfg)
         dur = time.monotonic() - t0
         pc.log(f"Fetch: {len(items)} items in {dur:.0f}s")
         pc.display.done("fetch", f"{len(items)} items", dur)
@@ -333,12 +338,15 @@ def _run_prepare(pc: _PipelineContext):
         pc.display.done("prepare", f"{n_photos} photos, {n_videos} videos", dur)
         pc.status["stages"]["prepare"] = {"status": "cached"}
     else:
-        from pipeline.prepare import prepare
-        result = prepare(
-            pc.cfg, family_names=prep_cfg.get("family_names"),
+        from pipeline.prepare import PrepareConfig, prepare
+        prepare_cfg = PrepareConfig(
             force=prep_cfg.get("force", False),
-            progress_callback=_progress_cb(pc.logger, pc.display, "prepare", t0),
             tz_hours=prep_cfg.get("tz_hours"),
+            family_names=prep_cfg.get("family_names"),
+        )
+        result = prepare(
+            pc.cfg, prepare_cfg,
+            progress_callback=_progress_cb(pc.logger, pc.display, "prepare", t0),
         )
         dur = time.monotonic() - t0
         pc.log(f"Prepare: done in {dur:.0f}s")
@@ -365,9 +373,8 @@ def _run_plan(pc: _PipelineContext):
     })
     t0 = time.monotonic()
 
-    from pipeline.plan import plan as do_plan
-    edl, version = do_plan(
-        pc.cfg,
+    from pipeline.plan import plan as do_plan, PlanConfig
+    plan_pc = PlanConfig(
         style=plan_cfg.get("style", "upbeat"),
         target_duration=plan_cfg.get("target_duration", 180),
         focus=plan_cfg.get("focus", ""),
@@ -377,6 +384,7 @@ def _run_plan(pc: _PipelineContext):
         tz_hours=plan_cfg.get("tz_hours"),
         model=plan_cfg.get("model"),
     )
+    edl, version = do_plan(pc.cfg, plan_pc)
 
     all_items = edl.all_items()
     n_videos = sum(1 for i in all_items if i.media_type == "video")
@@ -443,7 +451,7 @@ def _run_assemble(pc: _PipelineContext):
     })
     t0 = time.monotonic()
 
-    from pipeline.assemble import assemble as do_assemble
+    from pipeline.assemble import assemble as do_assemble, AssembleConfig
     from pipeline.edl import find_latest_version
 
     edl_path = ac.get("edl_path")
@@ -463,13 +471,16 @@ def _run_assemble(pc: _PipelineContext):
     fps = ac["fps"]
     pc.log(f"Render: {width}x{height} {fps}fps (EDL v{version})")
 
-    out, issues = do_assemble(
-        pc.cfg, version=version,
-        resolution=(width, height),
-        fps=fps,
-        progress_callback=_progress_cb(pc.logger, pc.display, "assemble", t0),
-        skip_broken=ac.get("skip_broken", False),
+    assemble_cfg = AssembleConfig(
+        w=width, h=height, fps=fps,
         quality=ac.get("quality", 1.0),
+        version=version,
+        edl_path=edl_path,
+        skip_broken=ac.get("skip_broken", False),
+    )
+    out, issues = do_assemble(
+        pc.cfg, assemble_cfg,
+        progress_callback=_progress_cb(pc.logger, pc.display, "assemble", t0),
     )
 
     dur = time.monotonic() - t0

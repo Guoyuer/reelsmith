@@ -17,6 +17,7 @@ import logging
 import os
 import sys
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -29,25 +30,34 @@ from .media_utils import run_subprocess
 
 logger = logging.getLogger("vlog.prepare")
 
+
+@dataclass
+class PrepareConfig:
+    force: bool = False
+    tz_hours: int | None = None
+    family_names: list[str] | None = None
+
 # Default timezone: system local (replaces hardcoded SGT)
 _LOCAL_TZ = datetime.now(timezone.utc).astimezone().tzinfo
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
-def prepare(cfg: Config, *, family_names: list[str] | None = None,
-            force: bool = False, progress_callback=None,
-            tz_hours: int | None = None) -> dict:
+def prepare(cfg: Config, pc: PrepareConfig | None = None, *,
+            progress_callback=None) -> dict:
     """Prepare all media for Gemini visual planning.
 
     1. Read manifest, detect family, build timeline
     2. Generate thumbnails + EXIF for photos, probe duration for videos
     3. Save preprocessed.json + analysis.json
     """
+    if pc is None:
+        pc = PrepareConfig()
     cfg.ensure_dirs()
     manifest = json.loads(cfg.manifest_path.read_text())
 
     # --- Family detection ---
+    family_names = pc.family_names
     if not family_names:
         family_names = _detect_family(manifest)
     logger.info(f"Family members: {family_names}")
@@ -59,8 +69,8 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
         item["family_names"] = family_in_photo
 
     # --- Build timeline ---
-    if tz_hours is not None:
-        tz = timezone(timedelta(hours=tz_hours))
+    if pc.tz_hours is not None:
+        tz = timezone(timedelta(hours=pc.tz_hours))
     else:
         tz = _LOCAL_TZ
     timeline = _build_timeline(manifest, tz=tz)
@@ -77,7 +87,7 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
     analysis_path = cfg.analysis_path
 
     existing: dict[int, dict] = {}
-    if analysis_path.exists() and not force:
+    if analysis_path.exists() and not pc.force:
         for entry in json.loads(analysis_path.read_text()):
             existing[entry["id"]] = entry
 

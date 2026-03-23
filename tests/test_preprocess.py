@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from pipeline.config import Config
-from pipeline.prepare import _build_timeline, _detect_family, prepare as preprocess
+from pipeline.prepare import PrepareConfig, _build_timeline, _detect_family, prepare as preprocess
 
 # Fixed timezone for deterministic tests (UTC)
 _UTC = timezone.utc
@@ -67,7 +67,7 @@ class TestFamilyCount:
         with patch.dict(os.environ, {}, clear=True), \
              patch("pipeline.config.load_dotenv"):
             cfg = Config.load(workspace=str(ws))
-        preprocess(cfg, family_names=["Alice", "Bob"])
+        preprocess(cfg, PrepareConfig(family_names=["Alice", "Bob"]))
         # Read the analysis.json to check items
         analysis = json.loads((ws / "analysis.json").read_text())
         return analysis
@@ -189,7 +189,7 @@ class TestPreprocessIntegration:
              patch("pipeline.config.load_dotenv"):
             cfg = Config.load(workspace=str(ws))
 
-        result = preprocess(cfg, family_names=["Alice", "Bob"])
+        result = preprocess(cfg, PrepareConfig(family_names=["Alice", "Bob"]))
 
         out_path = ws / "preprocessed.json"
         assert out_path.exists()

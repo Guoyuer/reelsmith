@@ -484,14 +484,7 @@ class TestPreGeminiValidation:
         from pathlib import Path
 
         with tempfile.TemporaryDirectory() as td:
-            cfg = Config(
-                workspace=Path(td),
-                media_dir=Path(td) / "media",
-                cache_dir=Path(td) / "cache",
-                thumbnails_dir=Path(td) / "thumbs",
-                preview_clips_dir=Path(td) / "previews",
-                heic_converted_dir=Path(td) / "heic_converted",
-            )
+            cfg = Config(workspace=Path(td))
             cfg.ensure_dirs()
 
             preprocessed = {"timeline": [{"date": "2025-01-01", "day_name": "Mon",
@@ -593,22 +586,15 @@ class TestContentBlockValidation:
         from pipeline.plan import _build_visual_content_blocks
         from pipeline.config import Config
 
-        cfg = Config(
-            workspace=tmp_path,
-            media_dir=tmp_path / "media",
-            cache_dir=tmp_path / "cache",
-            thumbnails_dir=tmp_path / "thumbs",
-            preview_clips_dir=tmp_path / "previews",
-            heic_converted_dir=tmp_path / "heic_converted",
-        )
+        cfg = Config(workspace=tmp_path)
         cfg.ensure_dirs()
 
         # Create a real JPEG file + its thumbnail (as prepare stage would)
         from PIL import Image
-        img_path = tmp_path / "media" / "photo.jpg"
+        img_path = cfg.media_dir / "photo.jpg"
         img_path.parent.mkdir(exist_ok=True)
         Image.new("RGB", (100, 100), "red").save(img_path, "JPEG")
-        thumb_path = tmp_path / "thumbs" / "photo_thumb.jpg"
+        thumb_path = cfg.thumbnails_dir / "photo_thumb.jpg"
         Image.new("RGB", (100, 100), "red").save(thumb_path, "JPEG")
 
         preprocessed = {"timeline": [{"date": "2025-01-01", "day_name": "Mon",

@@ -139,8 +139,6 @@ def mock_config(tmp_path: Path) -> Config:
     cfg = Config(
         api_base="http://fake:8000",
         workspace=tmp_path / "workspace",
-        media_dir=tmp_path / "workspace" / "media",
-        cache_dir=tmp_path / "workspace" / "analysis_cache",
     )
     cfg.ensure_dirs()
     return cfg

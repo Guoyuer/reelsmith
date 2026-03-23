@@ -9,36 +9,39 @@ from dotenv import load_dotenv
 
 @dataclass
 class Config:
-    api_base: str = "http://localhost:8000"
     workspace: Path = Path("./workspace")
+    api_base: str = "http://localhost:8000"
+
+    @property
+    def _base(self) -> Path:
+        """Shared root: workspace/../.. if in runs/xxx, else workspace itself."""
+        return self.workspace.parent.parent if self.workspace.parent.name == "runs" else self.workspace
+
     # Shared directories (across all runs)
-    media_dir: Path = Path("./workspace/media")
-    cache_dir: Path = Path("./workspace/analysis_cache")
-    thumbnails_dir: Path = Path("./workspace/thumbnails")
-    preview_clips_dir: Path = Path("./workspace/preview_clips")
-    heic_converted_dir: Path = Path("./workspace/heic_converted")
-    music_dir: Path = Path("./workspace/music")
-
-    # Per-run directories and files (derived from workspace)
     @property
-    def clips_dir(self) -> Path:
-        return self.workspace / "clips"
-
+    def media_dir(self) -> Path: return self._base / "media"
     @property
-    def output_dir(self) -> Path:
-        return self.workspace / "output"
-
+    def cache_dir(self) -> Path: return self._base / "analysis_cache"
     @property
-    def manifest_path(self) -> Path:
-        return self.workspace / "manifest.json"
-
+    def thumbnails_dir(self) -> Path: return self._base / "thumbnails"
     @property
-    def analysis_path(self) -> Path:
-        return self.workspace / "analysis.json"
-
+    def preview_clips_dir(self) -> Path: return self._base / "preview_clips"
     @property
-    def preprocessed_path(self) -> Path:
-        return self.workspace / "preprocessed.json"
+    def heic_converted_dir(self) -> Path: return self._base / "heic_converted"
+    @property
+    def music_dir(self) -> Path: return self._base / "music"
+
+    # Per-run directories and files
+    @property
+    def clips_dir(self) -> Path: return self.workspace / "clips"
+    @property
+    def output_dir(self) -> Path: return self.workspace / "output"
+    @property
+    def manifest_path(self) -> Path: return self.workspace / "manifest.json"
+    @property
+    def analysis_path(self) -> Path: return self.workspace / "analysis.json"
+    @property
+    def preprocessed_path(self) -> Path: return self.workspace / "preprocessed.json"
 
     def edl_path(self, version: int) -> Path:
         return self.workspace / f"edl_v{version}.json"
@@ -52,31 +55,15 @@ class Config:
     def load(cls, workspace: str | None = None) -> Config:
         load_dotenv()
         ws = Path(workspace or os.getenv("WORKSPACE", "./workspace"))
-        # Shared dirs live at the workspace root (grandparent of run dirs)
-        # If workspace is workspace/runs/myrun, shared = workspace/
-        # If workspace is ./workspace, shared = ./workspace/
-        base = ws.parent.parent if ws.parent.name == "runs" else ws
-        cfg = cls(
-            api_base=os.getenv("SYNOLOGY_API_BASE", cls.api_base),
+        return cls(
             workspace=ws,
-            media_dir=base / "media",
-            cache_dir=base / "analysis_cache",
-            thumbnails_dir=base / "thumbnails",
-            preview_clips_dir=base / "preview_clips",
-            heic_converted_dir=base / "heic_converted",
-            music_dir=base / "music",
+            api_base=os.getenv("SYNOLOGY_API_BASE", cls.api_base),
         )
-        return cfg
 
     def ensure_dirs(self) -> None:
         for d in [
-            self.clips_dir,
-            self.output_dir,
-            self.media_dir,
-            self.cache_dir,
-            self.thumbnails_dir,
-            self.preview_clips_dir,
-            self.heic_converted_dir,
-            self.music_dir,
+            self.clips_dir, self.output_dir,
+            self.media_dir, self.cache_dir, self.thumbnails_dir,
+            self.preview_clips_dir, self.heic_converted_dir, self.music_dir,
         ]:
             d.mkdir(parents=True, exist_ok=True)
