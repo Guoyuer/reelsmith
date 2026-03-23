@@ -241,7 +241,16 @@ def _run_prepare(pc: _PipelineContext):
     if stale:
         pc.log("Manifest is newer \u2014 re-preparing")
 
-    if not prep.force and not stale and analysis_path.exists():
+    # Check for incomplete prepare (e.g. interrupted mid-run)
+    incomplete = False
+    if not stale and analysis_path.exists() and manifest_path.exists():
+        n_manifest = len(json.loads(manifest_path.read_text()))
+        n_analysis = len(json.loads(analysis_path.read_text()))
+        if n_analysis < n_manifest:
+            incomplete = True
+            pc.log(f"Prepare incomplete ({n_analysis}/{n_manifest} items) \u2014 resuming")
+
+    if not prep.force and not stale and not incomplete and analysis_path.exists():
         results = json.loads(analysis_path.read_text())
         n_photos = sum(1 for r in results if r.get("media_type") == "photo")
         n_videos = len(results) - n_photos
