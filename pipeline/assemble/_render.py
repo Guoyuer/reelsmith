@@ -315,6 +315,8 @@ def render_title_card(
             "-y",
             "-loop",
             "1",
+            "-framerate",
+            str(fps),
             "-i",
             background_photo,
             "-t",
@@ -324,6 +326,8 @@ def render_title_card(
             *enc,
             "-pix_fmt",
             "yuv420p",
+            "-r",
+            str(fps),
             "-an",
             str(output_path),
         ]
@@ -336,6 +340,8 @@ def render_title_card(
             *enc,
             "-pix_fmt",
             "yuv420p",
+            "-r",
+            str(fps),
             "-an",
             str(output_path),
         ]

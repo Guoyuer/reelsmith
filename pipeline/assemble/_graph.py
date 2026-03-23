@@ -58,7 +58,10 @@ def build_segment_graph(
     if title_card_path and title_card_path.exists():
         idx = len(inputs)
         inputs.append(["-i", str(title_card_path)])
-        filters.append(f"[{idx}:v] setpts=PTS-STARTPTS [v{idx}]")
+        # Normalize to match segment content: fps + format + SAR + PTS reset
+        filters.append(
+            f"[{idx}:v] fps={fps},format=yuv420p,setsar=1,setpts=PTS-STARTPTS [v{idx}]"
+        )
         filters.append(f"aevalsrc=0:d={intro_duration}:s=48000:c=stereo [a{idx}]")
         segment_pairs.append((f"[v{idx}]", f"[a{idx}]"))
 
@@ -76,7 +79,9 @@ def build_segment_graph(
         if item.media_type == "photo":
             frames = int(item.display_duration * fps)
             exact_dur = frames / fps
-            inputs.append(["-loop", "1", "-t", str(exact_dur), "-i", str(source)])
+            # -framerate ensures input generates frames at target fps,
+            # so Ken Burns crop expressions using frame number 'n' are correct
+            inputs.append(["-loop", "1", "-framerate", str(fps), "-t", str(exact_dur), "-i", str(source)])
             vf = _photo_filter(idx, item, segment, ctx, fade_in, fade_out, language)
             filters.append(vf)
             filters.append(f"aevalsrc=0:d={exact_dur}:s=48000:c=stereo [a{idx}]")
@@ -114,7 +119,9 @@ def build_segment_graph(
     if outro_card_path and outro_card_path.exists():
         idx = len(inputs)
         inputs.append(["-i", str(outro_card_path)])
-        filters.append(f"[{idx}:v] setpts=PTS-STARTPTS [v{idx}]")
+        filters.append(
+            f"[{idx}:v] fps={fps},format=yuv420p,setsar=1,setpts=PTS-STARTPTS [v{idx}]"
+        )
         filters.append(f"aevalsrc=0:d={outro_duration}:s=48000:c=stereo [a{idx}]")
         segment_pairs.append((f"[v{idx}]", f"[a{idx}]"))
 
