@@ -682,42 +682,55 @@ def _apply_options(options):
 
 
 # ---------------------------------------------------------------------------
-# prepare: fetch + analyze media
+# Shared source options (--source local|nas, --path, NAS filters)
 # ---------------------------------------------------------------------------
 
-@cli.group()
-def prepare():
-    """Fetch and analyze media (local folder or NAS)."""
-    pass
+_source_options = [
+    click.option("--source", "-s", required=True, type=click.Choice(["local", "nas"]),
+                 help="Media source: local folder or Synology NAS"),
+    click.option("--path", "-p", default=None, type=click.Path(exists=True),
+                 help="Local folder path (required when --source local)"),
+    click.option("-f", "--from-date", default=None, help="NAS start date YYYY-MM-DD (required when --source nas)"),
+    click.option("-t", "--to-date", default=None, help="NAS end date YYYY-MM-DD (required when --source nas)"),
+    click.option("--country", default=None, help="NAS filter: country"),
+    click.option("--district", default=None, help="NAS filter: district/city"),
+    click.option("--item-types", default=None, help="NAS filter: photo,video,live,motion"),
+]
 
 
-@prepare.command("local")
-@click.argument("path", type=click.Path(exists=True))
+def _validate_source(source, path, from_date, to_date):
+    """Validate source-specific required options."""
+    if source == "local":
+        if not path:
+            raise click.UsageError("--path is required when --source is local")
+    else:
+        if not from_date or not to_date:
+            raise click.UsageError("--from-date and --to-date are required when --source is nas")
+
+
+def _fetch_cfg_from_source(source, path, from_date, to_date, country, district, item_types):
+    """Build fetch config from source options."""
+    _validate_source(source, path, from_date, to_date)
+    if source == "local":
+        return _fetch_cfg_local(path)
+    return _fetch_cfg_nas(from_date, to_date, country, district, item_types)
+
+
+# ---------------------------------------------------------------------------
+# prepare: fetch + media processing
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@_apply_options(_source_options)
 @_tz_option
 @_force_option
 @click.pass_context
-def prepare_local(ctx, path, tz_hours, force):
-    """Prepare media from a local folder."""
+def prepare(ctx, source, path, from_date, to_date, country, district, item_types,
+            tz_hours, force):
+    """Fetch and prepare media (local folder or NAS)."""
+    fetch_cfg = _fetch_cfg_from_source(source, path, from_date, to_date, country, district, item_types)
     _run_pipeline(_run_name(ctx), {
-        "fetch": _fetch_cfg_local(path),
-        "prepare": _prepare_cfg(force, tz_hours),
-    }, stages=["fetch", "prepare"])
-
-
-@prepare.command("nas")
-@click.option("-f", "--from-date", required=True, help="Start date (YYYY-MM-DD)")
-@click.option("-t", "--to-date", required=True, help="End date (YYYY-MM-DD)")
-@click.option("--country", default=None, help="Filter by country")
-@click.option("--district", default=None, help="Filter by district/city")
-@click.option("--item-types", default=None, help="Media types: photo,video,live,motion")
-@_tz_option
-@_force_option
-@click.pass_context
-def prepare_nas(ctx, from_date, to_date, country, district, item_types,
-                tz_hours, force):
-    """Prepare media from Synology NAS (date range)."""
-    _run_pipeline(_run_name(ctx), {
-        "fetch": _fetch_cfg_nas(from_date, to_date, country, district, item_types),
+        "fetch": fetch_cfg,
         "prepare": _prepare_cfg(force, tz_hours),
     }, stages=["fetch", "prepare"])
 
@@ -726,60 +739,25 @@ def prepare_nas(ctx, from_date, to_date, country, district, item_types,
 # full: end-to-end pipeline
 # ---------------------------------------------------------------------------
 
-@cli.group()
-def full():
+@cli.command()
+@_apply_options(_source_options)
+@_tz_option
+@_force_option
+@_apply_options(_plan_options)
+@_apply_options(_assemble_options)
+@click.pass_context
+def full(ctx, source, path, from_date, to_date, country, district, item_types,
+         tz_hours, force,
+         duration, trip_type, style, focus, lang, model, music,
+         resolution, quality):
     """Run the full pipeline end-to-end."""
-    pass
-
-
-@full.command("local")
-@click.argument("path", type=click.Path(exists=True))
-@_tz_option
-@_force_option
-@_apply_options(_plan_options)
-@_apply_options(_assemble_options)
-@click.pass_context
-def full_local(ctx, path, tz_hours, force,
-               duration, trip_type, style, focus, lang, model, music,
-               resolution, quality):
-    """Full pipeline from a local folder."""
+    fetch_cfg = _fetch_cfg_from_source(source, path, from_date, to_date, country, district, item_types)
     w, h, fps = resolution
     plan_cfg, extras, extra_stages = _plan_and_music_cfg(
         style, duration, focus, trip_type, lang, model, music, tz_hours)
     stages = ["fetch", "prepare", "plan"] + extra_stages + ["assemble"]
     cfg = {
-        "fetch": _fetch_cfg_local(path),
-        "prepare": _prepare_cfg(force, tz_hours),
-        "plan": plan_cfg,
-        **extras,
-        "assemble": {"skip_broken": True, "width": w, "height": h,
-                     "fps": fps, "quality": quality},
-    }
-    _run_pipeline(_run_name(ctx), cfg, stages=stages)
-
-
-@full.command("nas")
-@click.option("-f", "--from-date", required=True, help="Start date (YYYY-MM-DD)")
-@click.option("-t", "--to-date", required=True, help="End date (YYYY-MM-DD)")
-@click.option("--country", default=None, help="Filter by country")
-@click.option("--district", default=None, help="Filter by district/city")
-@click.option("--item-types", default=None, help="Media types: photo,video,live,motion")
-@_tz_option
-@_force_option
-@_apply_options(_plan_options)
-@_apply_options(_assemble_options)
-@click.pass_context
-def full_nas(ctx, from_date, to_date, country, district, item_types,
-             tz_hours, force,
-             duration, trip_type, style, focus, lang, model, music,
-             resolution, quality):
-    """Full pipeline from Synology NAS (date range)."""
-    w, h, fps = resolution
-    plan_cfg, extras, extra_stages = _plan_and_music_cfg(
-        style, duration, focus, trip_type, lang, model, music, tz_hours)
-    stages = ["fetch", "prepare", "plan"] + extra_stages + ["assemble"]
-    cfg = {
-        "fetch": _fetch_cfg_nas(from_date, to_date, country, district, item_types),
+        "fetch": fetch_cfg,
         "prepare": _prepare_cfg(force, tz_hours),
         "plan": plan_cfg,
         **extras,

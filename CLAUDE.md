@@ -6,13 +6,13 @@ Run pipeline via `python run.py` CLI. Stages execute directly in a single Python
 
 ```bash
 # Full pipeline from local folder
-python run.py -n singapore full local ./photos -r 4k60 --duration 180 --lang cn --tz 8
+python run.py -n singapore full -s local -p ./photos -r 4k60 --duration 180 --lang cn --tz 8
 
 # Full pipeline from NAS
-python run.py -n singapore full nas -f 2025-06-13 -t 2025-06-17 -r 1080p30 --duration 180
+python run.py -n singapore full -s nas -f 2025-06-13 -t 2025-06-17 -r 1080p30 --duration 180
 
 # Prepare only (fetch + media processing)
-python run.py -n singapore prepare local ./photos --tz 8
+python run.py -n singapore prepare -s local -p ./photos --tz 8
 
 # Re-plan only (no render)
 python run.py -n singapore plan --duration 180 --lang cn
@@ -126,7 +126,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - Text overlays baked into clips via drawtext filter with drop shadow (no separate encode pass)
 - Title card uses first EDL photo as blurred background (fallback: purple gradient)
 - CLI `prepare` = fetch + prepare (family detection, thumbnails, EXIF, video probing); CLI `plan` = plan + generate_music (when `--music` is not `none`); CLI `assemble` = render. `full` = all stages
-- `full local PATH` / `full nas -f -t` — source type is a subcommand, not a flag
+- `--source local --path PATH` / `--source nas -f -t` — source type is a flag, `--path` required for local, `-f`/`-t` required for NAS
 - `--resolution` / `-r` is required for both `full` and `assemble` — no default. Presets: 4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30, or custom WxHxFPS
 - Clips cached per resolution (`seg00_item00_1080p30.mp4`); switching resolution doesn't re-render existing clips
 - Output files include resolution: `vlog_v1_1080p30.mp4` — different resolutions coexist
