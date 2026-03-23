@@ -230,10 +230,10 @@ def _has_dense_keyframes(source: Path) -> bool:
 
 
 def _generate_video_previews(video_items: list[dict], preview_dir: Path, *, force: bool = False) -> None:
-    """Generate one full-length preview per video (360p 1fps + audio)."""
+    """Generate one full-length preview per video (480p 1fps + audio)."""
     from .parallel import run_parallel
 
-    encoder = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "40"]
+    encoder = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "34"]
     max_workers = max(4, (os.cpu_count() or 4) // 2)
 
     # When force=True, delete all existing previews so they get regenerated
@@ -280,7 +280,7 @@ def _generate_video_previews(video_items: list[dict], preview_dir: Path, *, forc
                         "-i",
                         str(source),
                         "-vf",
-                        "fps=1,scale=360:-2",
+                        "fps=1,scale=480:-2",
                         *encoder,
                         "-c:a",
                         "aac",
