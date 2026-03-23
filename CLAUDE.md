@@ -11,11 +11,14 @@ python run.py -n singapore full --source workspace/media --duration 180 --lang c
 # NAS source (date range)
 python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 --duration 180
 
-# Re-plan only (uses cached media + analysis)
+# Re-plan only (no render — run assemble separately)
 python run.py -n singapore plan --duration 180 --lang cn
 
-# Re-render only
+# Re-render from latest EDL (defaults 1080p30)
 python run.py -n singapore assemble
+
+# Re-render at 4K60
+python run.py -n singapore assemble --width 3840 --height 2160 --fps 60
 ```
 
 Logs go to terminal AND `workspace/runs/{name}/run_{timestamp}.log`. Run summary in `workspace/runs/{name}/run_status.json`.
@@ -73,7 +76,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - **Music mood** — per-segment descriptions fed to Lyria RealTime prompt
 - **Text overlays** — evocative titles, not just "Day 1 - Marina Bay"
 - **Pacing** — display_duration per item, effect choices
-- **Transitions** — 7 xfade types (crossfade, dissolve, smoothleft, smoothright, circlecrop, fade_black, wipe_left); separate intra-segment and inter-segment transition fields
+- **Transitions** — 8 xfade types (crossfade, dissolve, smoothleft, smoothright, circlecrop, fade_black, wipe_left, fadewhite); separate intra-segment and inter-segment transition fields
 - **Montage mode** — segment `mode: "montage"` for quick-cut energy bursts
 - **Color temperature** — per-segment `color_temp` (warm/cool/neutral)
 
@@ -81,11 +84,11 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 
 - **Family detection** — family_count from NAS face data (top 5 persons appearing in ≥3% of items)
 - **FFmpeg rendering** — parallel clip assembly from EDL (3 NVENC workers by default, `VLOG_PARALLEL_CLIPS` env var)
-- **Ken Burns effects** — applied per EDL effect field (forced to "none" for videos)
+- **Ken Burns effects** — cosine-eased zoompan per EDL effect field (forced to "none" for videos)
 - **Thumbnail/keyframe generation** — Pillow resize, FFmpeg extraction
 - **Codec** — HEVC (hevc_nvenc/hevc_videotoolbox) on GPU, H.264 (libx264) on CPU; auto-detected
 - **Bitrate** — HEVC at 65% of H.264 YouTube rates with `--quality` multiplier
-- **Audio ducking** — music volume drops to 30% during speech clips (configurable via `music_duck_ratio` in EDL)
+- **Audio ducking** — music ramps down (300ms attack) to 30% during speech, ramps up (1000ms release) after; configurable via `music_duck_ratio` in EDL
 - **Color grading** — subtle contrast/saturation boost, temperature shift per segment
 - **YouTube chapter markers** — timestamps from EDL segment boundaries
 - **Text overlays** — baked into clips during render (single FFmpeg pass, no separate overlay step)
@@ -109,12 +112,15 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - tqdm auto-disabled when stderr is not a TTY
 - Stale cache auto-invalidation: prepare re-runs if upstream file is newer (mtime check)
 - FFmpeg subprocesses have a 5-minute timeout (prevents hanging on corrupt files)
-- Ken Burns is forced to "none" on video items (native motion conflicts with zoompan)
+- Ken Burns uses cosine easing (ease-in/ease-out); forced to "none" on video items (native motion conflicts with zoompan)
 - `--music auto` uses Gemini Lyria RealTime; `--music local` uses MusicGen — single flag controls both backend and intent
 - `--lang en|cn|both` controls text language (title, overlays, chapters); cn/both auto-selects CJK font
 - Clip rendering is parallel via `parallel.run_parallel()`: 3 workers for NVENC, 2 for VideoToolbox, cpu_count/2 for libx264
 - HEVC auto-detected: hevc_nvenc (Win/Linux) or hevc_videotoolbox (macOS); falls back to H.264 NVENC → libx264
 - ffprobe results cached per assemble run via RenderContext (dimensions + duration)
-- Text overlays baked into clips via drawtext filter (no separate encode pass)
-- Render settings (resolution, fps, quality) stored in EDL at plan time, read by assemble
+- Text overlays baked into clips via drawtext filter with drop shadow (no separate encode pass)
+- Title card uses first EDL photo as blurred background (fallback: purple gradient)
+- `plan` subcommand only plans + generates music; does NOT render. Run `assemble` separately
+- `full` defaults to 4K60; `assemble` defaults to 1080p30 — different defaults by design
+- `contact_sheets_dir` in config.py is dead code (photos sent individually, not as contact sheets)
 - RenderReport tracks per-clip status (ok/skipped/failed with reason)

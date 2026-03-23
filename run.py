@@ -657,14 +657,10 @@ def full(ctx, from_date, to_date, source, duration, trip_type, style, focus,
               help="Music: auto (Gemini Lyria), local (MusicGen), none, or path to WAV")
 @click.option("--timezone", "--tz", "tz_hours", default=None, type=int,
               help="UTC offset in hours (e.g. 8 for SGT)")
-@click.option("--width", default=1920, type=int, help="Output width")
-@click.option("--height", default=1080, type=int, help="Output height")
-@click.option("--fps", default=30, type=int, help="Output FPS")
-@click.option("--quality", default=1.0, type=float, help="Bitrate multiplier")
 @click.pass_context
 def plan(ctx, duration, trip_type, style, focus, lang, model,
-         music, tz_hours, width, height, fps, quality):
-    """Re-plan and re-assemble (uses cached media + analysis)."""
+         music, tz_hours):
+    """Re-plan only (uses cached media + analysis). Run assemble separately to render."""
     plan_cfg: dict = {
         "style": style, "target_duration": duration,
         "focus": focus, "trip_type": trip_type, "language": lang,
@@ -675,21 +671,23 @@ def plan(ctx, duration, trip_type, style, focus, lang, model,
         plan_cfg["model"] = model
 
     music_backend = "gemini"
+    stages = ["plan"]
     if music == "local":
         plan_cfg["music_file"] = "auto"
         music_backend = "local"
+        stages.append("generate_music")
     elif music == "none":
         pass
     elif music == "auto":
         plan_cfg["music_file"] = "auto"
+        stages.append("generate_music")
     else:
         plan_cfg["music_file"] = music
 
-    _run_pipeline(_run_name(ctx), {
-        "plan": plan_cfg,
-        "generate_music": {"music_backend": music_backend},
-        "assemble": {"width": width, "height": height, "fps": fps, "quality": quality},
-    }, stages=["plan", "generate_music", "assemble"])
+    stage_cfg: dict = {"plan": plan_cfg}
+    if "generate_music" in stages:
+        stage_cfg["generate_music"] = {"music_backend": music_backend}
+    _run_pipeline(_run_name(ctx), stage_cfg, stages=stages)
 
 
 @cli.command()

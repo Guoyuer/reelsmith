@@ -24,6 +24,7 @@ all = ["pillow-heif>=0.18", "torch>=2.0", "transformers>=4.30", "scipy>=1.10"]
 vlog = "run:cli"
 
 [tool.pytest.ini_options]
+addopts = "-m 'not integration'"
 markers = [
-    "integration: tests requiring FFmpeg and real media rendering",
+    "integration: tests requiring FFmpeg and real media rendering (excluded by default, run with -m integration)",
 ]
