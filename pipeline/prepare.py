@@ -102,7 +102,7 @@ def prepare(
     for i, item in enumerate(manifest, 1):
         item_id = item["id"]
         if progress_callback:
-            progress_callback(i, len(manifest), "analysis")
+            progress_callback(i, len(manifest), "scan")
 
         if item_id in existing:
             results.append(existing[item_id])
@@ -311,7 +311,7 @@ def _generate_video_previews(
 
     def _progress(done, total):
         if progress_callback:
-            progress_callback(done, total, "video previews")
+            progress_callback(done, total, "previews")
         if done % 20 == 0 or done == total:
             logger.info(f"  Video previews: {done}/{total}")
 
