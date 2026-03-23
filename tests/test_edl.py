@@ -120,3 +120,47 @@ class TestJsonRoundtrip:
         )
         restored = EDL.model_validate_json(edl.model_dump_json())
         assert restored.music is None
+
+
+# -----------------------------------------------------------------------
+# EDL persistence helpers
+# -----------------------------------------------------------------------
+
+
+class TestEDLPersistence:
+    def test_save_and_load(self, tmp_path):
+        from pipeline.edl import save_edl, load_latest_edl
+        from pipeline.config import Config
+
+        cfg = Config(workspace=tmp_path)
+        cfg.ensure_dirs()
+        edl = EDL(title="Test", target_duration=30, segments=[
+            Segment(name="S1", items=[
+                EditItem(source_file="a.jpg", media_type="photo"),
+            ]),
+        ])
+        save_edl(cfg, edl, version=3)
+        assert (tmp_path / "edl_v3.json").exists()
+
+        loaded, version = load_latest_edl(cfg)
+        assert version == 3
+        assert loaded.title == "Test"
+
+    def test_find_latest_version(self, tmp_path):
+        from pipeline.edl import find_latest_version
+        from pipeline.config import Config
+
+        cfg = Config(workspace=tmp_path)
+        (tmp_path / "edl_v1.json").write_text("{}")
+        (tmp_path / "edl_v5.json").write_text("{}")
+        (tmp_path / "edl_v3.json").write_text("{}")
+        assert find_latest_version(cfg) == 5
+
+    def test_no_edl_raises(self, tmp_path):
+        from pipeline.edl import load_latest_edl
+        from pipeline.config import Config
+
+        cfg = Config(workspace=tmp_path)
+        cfg.ensure_dirs()
+        with pytest.raises(FileNotFoundError):
+            load_latest_edl(cfg)

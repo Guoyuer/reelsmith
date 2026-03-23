@@ -645,3 +645,47 @@ class TestLocalTimeConversion:
             tz_hours=0,
         )
         assert "14:30" in text
+
+
+# -----------------------------------------------------------------------
+# Prompt file loading (low-level)
+# -----------------------------------------------------------------------
+
+
+class TestPromptFileLoading:
+    def test_load_system_template(self):
+        from pipeline.plan import _load_system_template
+        template = _load_system_template()
+        assert "{guidance}" in template
+        assert "{lang_instruction}" in template
+        assert len(template) > 1000
+
+    def test_load_narrative_guidance(self):
+        from pipeline.plan import _load_narrative_guidance
+        data = _load_narrative_guidance()
+        assert "family" in data
+        assert "general" in data
+        assert "_default_focus" in data
+
+    def test_load_lang_instructions(self):
+        from pipeline.plan import _load_lang_instructions
+        data = _load_lang_instructions()
+        assert "en" in data
+        assert "cn" in data
+        assert "both" in data
+
+    def test_unknown_trip_type_falls_back(self):
+        from pipeline.plan import _visual_system_prompt
+        prompt = _visual_system_prompt("nonexistent", "en")
+        assert "Balanced storytelling" in prompt
+
+    def test_missing_prompt_file_raises(self, tmp_path):
+        from pipeline.plan import _load_json
+        import pipeline.plan._prompts as prompts_mod
+        orig = prompts_mod._PROMPTS_DIR
+        try:
+            prompts_mod._PROMPTS_DIR = tmp_path / "nonexistent"
+            with pytest.raises(FileNotFoundError):
+                _load_json("anything.json")
+        finally:
+            prompts_mod._PROMPTS_DIR = orig
