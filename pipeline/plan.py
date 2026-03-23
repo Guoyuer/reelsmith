@@ -619,28 +619,17 @@ def _build_visual_content_blocks(
 
             blocks.append(text)
 
-            # Send each photo individually — each gets full token budget from Gemini
+            # Send each photo's pre-built thumbnail (400px JPEG from prepare stage)
             for pi, p in enumerate(photo_paths):
                 thumb = cfg.thumbnails_dir / f"{p.stem}_thumb.jpg"
-                img_path = thumb if thumb.exists() else p
-                if img_path.exists():
-                    from PIL import Image
-                    import io
-                    try:
-                        if img_path.suffix.lower() in {".heic", ".heif"}:
-                            from .image_utils import convert_heic
-                            img_path = convert_heic(img_path)
-                        img = Image.open(img_path)
-                        img.thumbnail((400, 400))
-                        buf = io.BytesIO()
-                        img.save(buf, "JPEG", quality=70)
-                        blocks.append({
-                            "type": "image_bytes",
-                            "mime_type": "image/jpeg",
-                            "data": buf.getvalue(),
-                        })
-                    except Exception:
-                        pass  # skip unreadable images
+                if not thumb.exists():
+                    raise FileNotFoundError(
+                        f"Thumbnail missing for {p.name} — run prepare first")
+                blocks.append({
+                    "type": "image_bytes",
+                    "mime_type": "image/jpeg",
+                    "data": thumb.read_bytes(),
+                })
 
             # Collect video info for concatenated mega-preview (built after loop)
             for vi in video_items:
@@ -1175,9 +1164,6 @@ def plan(
             "GEMINI_API_KEY not set. Add it to .env for visual planning. "
             "Get a key at https://ai.google.dev/gemini-api/docs/api-key"
         )
-
-    from .image_utils import init_heic_dir
-    init_heic_dir(cfg.heic_converted_dir)
 
     effective_focus = focus or _default_focus(trip_type)
     preprocessed = json.loads(cfg.preprocessed_path.read_text())

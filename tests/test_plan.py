@@ -603,11 +603,13 @@ class TestContentBlockValidation:
         )
         cfg.ensure_dirs()
 
-        # Create a real JPEG file via PIL
+        # Create a real JPEG file + its thumbnail (as prepare stage would)
         from PIL import Image
         img_path = tmp_path / "media" / "photo.jpg"
         img_path.parent.mkdir(exist_ok=True)
         Image.new("RGB", (100, 100), "red").save(img_path, "JPEG")
+        thumb_path = tmp_path / "thumbs" / "photo_thumb.jpg"
+        Image.new("RGB", (100, 100), "red").save(thumb_path, "JPEG")
 
         preprocessed = {"timeline": [{"date": "2025-01-01", "day_name": "Mon",
                         "chapters": [{"time_block": "morning", "location": "x",

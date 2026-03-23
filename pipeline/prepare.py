@@ -3,7 +3,7 @@
 Merges preprocess + analyze into one stage:
 - Family member auto-detection + family_count per item
 - Timeline construction (day → time_block → location)
-- Photo thumbnails (600px, cached)
+- Photo thumbnails (400px JPEG, cached — used directly by plan stage)
 - EXIF extraction (cached)
 - Video duration probing (cached)
 
@@ -23,7 +23,7 @@ from tqdm import tqdm
 
 
 from .config import Config
-from .image_utils import generate_thumbnail, init_heic_dir
+from .image_utils import generate_thumbnail
 from .media_utils import run_subprocess
 
 logger = logging.getLogger("vlog.prepare")
@@ -44,7 +44,6 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
     3. Save preprocessed.json + analysis.json
     """
     cfg.ensure_dirs()
-    init_heic_dir(cfg.heic_converted_dir)
     manifest = json.loads(cfg.manifest_path.read_text())
 
     # --- Family detection ---
@@ -364,7 +363,7 @@ def _read_exif(path) -> dict:
 def _prepare_photo(entry, item_id, local_path, cfg, cache_file):
     """Generate thumbnail and extract EXIF for a photo."""
     thumb_dir = cfg.thumbnails_dir
-    thumb = generate_thumbnail(local_path, thumb_dir, size=600)
+    thumb = generate_thumbnail(local_path, thumb_dir, size=400, quality=70)
     exif = _read_exif(local_path)
     cache_data = {}
     if thumb:
