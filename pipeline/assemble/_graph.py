@@ -66,8 +66,6 @@ def build_filter_graph(
     w, h, fps = ctx.w, ctx.h, ctx.fps
     inputs: list[list[str]] = []
     video_filters: list[str] = []  # per-clip filter chains
-    video_labels: list[str] = []  # output labels for concat
-    audio_labels: list[str] = []  # speech audio labels for amix
     speech_offsets: list[tuple[float, Path]] = []
 
     # --- Compute fade params (same logic as old _assemble.py) ---
@@ -94,22 +92,25 @@ def build_filter_graph(
                         fade_out = next_segment.transition_duration if next_segment.transition != "cut" else 0.0
         fade_params.append((fade_in, fade_out))
 
-    # --- Add title card as first input ---
+    # --- Segment pairs: each clip outputs [vN] + [aN] for concat ---
+    # Clips with keep_audio use real audio; others get generated silence.
+    # concat=n=N:v=1:a=1 syncs both streams — no manual offset computation.
+
+    segment_pairs: list[tuple[str, str]] = []  # (video_label, audio_label)
+
+    # Title card (no audio → silence)
     if title_card_path and title_card_path.exists():
         idx = len(inputs)
         inputs.append(["-i", str(title_card_path)])
         video_filters.append(f"[{idx}:v] setpts=PTS-STARTPTS [{_vlabel(idx)}]")
-        video_labels.append(f"[{_vlabel(idx)}]")
+        video_filters.append(f"aevalsrc=0:d={edl.intro_duration}:s=48000:c=stereo [{_alabel(idx)}]")
+        segment_pairs.append((f"[{_vlabel(idx)}]", f"[{_alabel(idx)}]"))
 
-    # --- Track cumulative offset for speech positioning ---
-    offset = edl.intro_duration if title_card_path else 0.0
-
-    # --- Per-item filter chains ---
+    # Per-item filter chains
     for fi, (seg_idx, item_idx, item, segment) in enumerate(flat_items):
         fade_in, fade_out = fade_params[fi]
         source = Path(item.source_file)
 
-        # HEIC conversion for photos
         if item.media_type == "photo" and source.suffix.lower() in {".heic", ".heif"}:
             from ..image_utils import convert_heic
             source = convert_heic(source)
@@ -117,13 +118,13 @@ def build_filter_graph(
         idx = len(inputs)
 
         if item.media_type == "photo":
-            # Photo input: -loop 1 -t duration
             inputs.append(["-loop", "1", "-t", str(item.display_duration), "-i", str(source)])
             vf = _photo_filter_chain(idx, item, segment, ctx, fade_in, fade_out, language)
             video_filters.append(vf)
-            clip_dur = item.display_duration
+            # Silent audio matching photo duration
+            video_filters.append(f"aevalsrc=0:d={item.display_duration}:s=48000:c=stereo [{_alabel(idx)}]")
+            segment_pairs.append((f"[{_vlabel(idx)}]", f"[{_alabel(idx)}]"))
         else:
-            # Video input: -ss start -t duration
             inp = []
             if item.start_time is not None:
                 inp += ["-ss", str(item.start_time)]
@@ -131,7 +132,7 @@ def build_filter_graph(
             duration = item.display_duration
             if item.start_time is not None and item.end_time is not None:
                 duration = item.end_time - item.start_time
-            inp = ["-t", str(duration)] + inp  # -t before -i for input duration limit
+            inp = ["-t", str(duration)] + inp
             inputs.append(inp)
 
             speed = item.playback_speed or 1.0
@@ -139,97 +140,66 @@ def build_filter_graph(
             vf = _video_filter_chain(idx, item, segment, ctx, fade_in, fade_out, output_dur, language)
             video_filters.append(vf)
 
-            # Speech audio
             if item.keep_audio:
+                # Real audio from video, with optional speed adjustment
                 af = f"[{idx}:a] "
                 if speed != 1.0:
                     af += f"atempo={speed},"
-                delay_ms = int(offset * 1000)
-                af += f"afade=t=in:d=0.3,afade=t=out:st=99:d=0.3,"
-                af += f"adelay={delay_ms}|{delay_ms}"
-                alabel = f"a{idx}"
-                af += f" [{alabel}]"
+                af += f"afade=t=in:d=0.3,afade=t=out:st={max(0, output_dur - 0.3):.1f}:d=0.3"
+                af += f" [{_alabel(idx)}]"
                 video_filters.append(af)
-                audio_labels.append(f"[{alabel}]")
-                speech_offsets.append((offset, source))
+            else:
+                # Silent audio matching video output duration
+                video_filters.append(f"aevalsrc=0:d={output_dur:.3f}:s=48000:c=stereo [{_alabel(idx)}]")
 
-            clip_dur = output_dur
+            segment_pairs.append((f"[{_vlabel(idx)}]", f"[{_alabel(idx)}]"))
+            speech_offsets.append((0.0, source))  # offset unused now but kept for ducking
 
-        video_labels.append(f"[{_vlabel(idx)}]")
-        offset += clip_dur
-
-    # --- Add outro card ---
+    # Outro card (no audio → silence)
     if outro_card_path and outro_card_path.exists():
         idx = len(inputs)
         inputs.append(["-i", str(outro_card_path)])
         video_filters.append(f"[{idx}:v] setpts=PTS-STARTPTS [{_vlabel(idx)}]")
-        video_labels.append(f"[{_vlabel(idx)}]")
-        offset += edl.outro_duration
+        video_filters.append(f"aevalsrc=0:d={edl.outro_duration}:s=48000:c=stereo [{_alabel(idx)}]")
+        segment_pairs.append((f"[{_vlabel(idx)}]", f"[{_alabel(idx)}]"))
 
-    total_duration = offset
-
-    # --- Concat all video streams ---
-    n = len(video_labels)
-    concat_line = "".join(video_labels) + f" concat=n={n}:v=1:a=0 [vout]"
+    # --- Concat video + audio together (perfect sync) ---
+    n = len(segment_pairs)
+    concat_inputs = "".join(f"{v}{a}" for v, a in segment_pairs)
+    concat_line = f"{concat_inputs} concat=n={n}:v=1:a=1 [vout][speech_raw]"
     video_filters.append(concat_line)
 
-    # --- Audio mixing ---
-    audio_out = None
+    # --- Audio mixing: speech_raw from concat + optional music ---
+    audio_out = "[speech_raw]"  # default: just the concat audio (speech + silence)
     music_input_idx = None
 
     if music_path and music_path.exists():
         music_input_idx = len(inputs)
         inputs.append(["-i", str(music_path)])
 
-    if audio_labels or music_input_idx is not None:
-        audio_lines = []
+        # Estimate total duration for music looping/fading
+        total_duration = edl.estimated_duration()
+        music_dur = ctx.probe_duration(music_path) or total_duration
 
-        # Speech mix
-        speech_label = None
-        if audio_labels:
-            if len(audio_labels) == 1:
-                speech_label = audio_labels[0].strip("[]")
-            else:
-                speech_mix = "".join(audio_labels) + f" amix=inputs={len(audio_labels)}:duration=longest:dropout_transition=0 [speech]"
-                audio_lines.append(speech_mix)
-                speech_label = "speech"
+        music_chain = f"[{music_input_idx}:a] "
+        if music_dur < total_duration:
+            loops = int(total_duration / music_dur) + 1
+            samples = int(music_dur * 48000)
+            music_chain += f"aloop=loop={loops}:size={samples},atrim=0:{total_duration:.3f},"
+        music_chain += f"volume={music_volume:.3f}:eval=frame,"
+        music_chain += f"afade=t=in:d={music_fade_in},"
+        fade_out_start = max(0, total_duration - music_fade_out)
+        music_chain += f"afade=t=out:st={fade_out_start:.3f}:d={music_fade_out}"
+        music_chain += " [bg]"
+        video_filters.append(music_chain)
 
-        # Music processing
-        music_label = None
-        if music_input_idx is not None:
-            music_chain = f"[{music_input_idx}:a] "
-            # Loop if music is shorter than video
-            music_dur = ctx.probe_duration(music_path)
-            if music_dur and music_dur < total_duration:
-                loops = int(total_duration / music_dur) + 1
-                samples = int(music_dur * 48000)
-                music_chain += f"aloop=loop={loops}:size={samples},atrim=0:{total_duration:.3f},"
-            # Volume with ducking
-            vol_expr = _ducking_expression(music_volume, duck_ratio, speech_offsets, total_duration)
-            music_chain += f"volume='{vol_expr}':eval=frame,"
-            music_chain += f"afade=t=in:d={music_fade_in},"
-            fade_out_start = max(0, total_duration - music_fade_out)
-            music_chain += f"afade=t=out:st={fade_out_start:.3f}:d={music_fade_out}"
-            music_chain += " [bg]"
-            audio_lines.append(music_chain)
-            music_label = "bg"
-
-        # Final audio mix
-        if speech_label and music_label:
-            audio_lines.append(
-                f"[{speech_label}] volume=1.0,apad [sp]; "
-                f"[sp][{music_label}] amix=inputs=2:duration=first:weights=3 1,"
-                f"loudnorm=I=-16:TP=-1.5:LRA=11 [aout]"
-            )
-            audio_out = "[aout]"
-        elif speech_label:
-            audio_lines.append(f"[{speech_label}] loudnorm=I=-16:TP=-1.5:LRA=11 [aout]")
-            audio_out = "[aout]"
-        elif music_label:
-            audio_lines.append(f"[{music_label}] loudnorm=I=-16:TP=-1.5:LRA=11 [aout]")
-            audio_out = "[aout]"
-
-        video_filters.extend(audio_lines)
+        # Mix speech (from concat) + music
+        video_filters.append(
+            f"[speech_raw] apad [sp];\n"
+            f"[sp][bg] amix=inputs=2:duration=first:weights=3 1,"
+            f"loudnorm=I=-16:TP=-1.5:LRA=11 [aout]"
+        )
+        audio_out = "[aout]"
 
     script = ";\n".join(video_filters)
     return GraphResult(
@@ -248,6 +218,10 @@ def build_filter_graph(
 
 def _vlabel(idx: int) -> str:
     return f"v{idx}"
+
+
+def _alabel(idx: int) -> str:
+    return f"a{idx}"
 
 
 def _fade_expr(duration: float, fade_in: float, fade_out: float) -> str:
