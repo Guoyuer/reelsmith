@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..media_utils import run_subprocess
 from ._encoder import RenderContext
-from ._filters import find_font
+from ._filters import escape_drawtext, find_font
 
 logger = logging.getLogger("vlog.assemble.render")
 
@@ -28,7 +28,7 @@ def render_title_card(
     with a heavily blurred, darkened, vignetted version of the photo.
     """
     w, h, fps = ctx.w, ctx.h, ctx.fps
-    safe_title = title.replace("'", "\u2019").replace(":", "\\:")
+    safe_title = escape_drawtext(title)
     font = find_font(language)
     font_arg = f":fontfile='{font}'" if font else ""
 
@@ -71,7 +71,7 @@ def render_title_card(
 
     sub_text = ""
     if subtitle:
-        safe_sub = subtitle.replace("'", "\u2019").replace(":", "\\:")
+        safe_sub = escape_drawtext(subtitle)
         sub_text = (
             f",drawtext=text='{safe_sub}'{font_arg}"
             f":fontsize={int(h * 0.035)}:fontcolor=white@0.6"

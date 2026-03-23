@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..media_utils import probe_duration as _probe_duration_uncached
 from ..media_utils import run_subprocess
 
 logger = logging.getLogger("vlog.assemble.encoder")
@@ -37,7 +39,9 @@ def target_bitrate(width: int, height: int, fps: int, quality: float = 1.0) -> s
     return f"{max(base, 1)}M"
 
 
-def detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60, quality: float = 1.0) -> list[str]:
+def detect_hw_encoder(
+    width: int = 3840, height: int = 2160, fps: int = 60, quality: float = 1.0
+) -> list[str]:
     """Detect best hardware encoder: prefers HEVC (smaller files, same speed on GPU)."""
     import sys
 
@@ -49,7 +53,9 @@ def detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60, qual
     if sys.platform == "darwin":
         try:
             test = run_subprocess(
-                _test_cmd + ["-c:v", "hevc_videotoolbox", "-f", "null", "-"], capture_output=True, text=True
+                _test_cmd + ["-c:v", "hevc_videotoolbox", "-f", "null", "-"],
+                capture_output=True,
+                text=True,
             )
             if test.returncode == 0:
                 return ["-c:v", "hevc_videotoolbox", "-b:v", hevc_br]
@@ -58,18 +64,50 @@ def detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60, qual
         return ["-c:v", "h264_videotoolbox", "-b:v", h264_br]
 
     try:
-        result = run_subprocess(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True)
+        result = run_subprocess(
+            ["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True
+        )
         encoders = result.stdout or ""
 
         if "hevc_nvenc" in encoders:
-            test = run_subprocess(_test_cmd + ["-c:v", "hevc_nvenc", "-f", "null", "-"], capture_output=True, text=True)
+            test = run_subprocess(
+                _test_cmd + ["-c:v", "hevc_nvenc", "-f", "null", "-"],
+                capture_output=True,
+                text=True,
+            )
             if test.returncode == 0:
-                return ["-c:v", "hevc_nvenc", "-preset", "p4", "-rc", "vbr", "-b:v", hevc_br, "-maxrate", hevc_br]
+                return [
+                    "-c:v",
+                    "hevc_nvenc",
+                    "-preset",
+                    "p4",
+                    "-rc",
+                    "vbr",
+                    "-b:v",
+                    hevc_br,
+                    "-maxrate",
+                    hevc_br,
+                ]
 
         if "h264_nvenc" in encoders:
-            test = run_subprocess(_test_cmd + ["-c:v", "h264_nvenc", "-f", "null", "-"], capture_output=True, text=True)
+            test = run_subprocess(
+                _test_cmd + ["-c:v", "h264_nvenc", "-f", "null", "-"],
+                capture_output=True,
+                text=True,
+            )
             if test.returncode == 0:
-                return ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-b:v", h264_br, "-maxrate", h264_br]
+                return [
+                    "-c:v",
+                    "h264_nvenc",
+                    "-preset",
+                    "p4",
+                    "-rc",
+                    "vbr",
+                    "-b:v",
+                    h264_br,
+                    "-maxrate",
+                    h264_br,
+                ]
     except (OSError, subprocess.SubprocessError) as e:
         logger.debug("HW encoder probe failed: %s", e)
 
@@ -98,10 +136,16 @@ class RenderContext:
             raise ValueError(f"Resolution must be even: {self.w}x{self.h}")
         if self.fps <= 0 or self.fps > 120:
             raise ValueError(f"Invalid fps: {self.fps}")
+
     _dim_cache: dict[str, tuple[int, int]] = field(default_factory=dict)
     _dur_cache: dict[str, float] = field(default_factory=dict)
 
-    def get_encoder(self, width: int | None = None, height: int | None = None, fps: int | None = None) -> list[str]:
+    def get_encoder(
+        self,
+        width: int | None = None,
+        height: int | None = None,
+        fps: int | None = None,
+    ) -> list[str]:
         """Get encoder args, defaulting to this context's resolution. Cached."""
         w = width or self.w
         h = height or self.h
@@ -141,7 +185,6 @@ class RenderContext:
             text=True,
         )
         try:
-            import json
             data = json.loads(result.stdout)
             stream = data["streams"][0]
             w, h = int(stream["width"]), int(stream["height"])
@@ -168,15 +211,6 @@ class RenderContext:
         key = str(path)
         if key in self._dur_cache:
             return self._dur_cache[key]
-        result = run_subprocess(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
-            capture_output=True,
-            text=True,
-        )
-        try:
-            dur = float(result.stdout.strip().split("\n")[0])
-        except (ValueError, IndexError):
-            logger.debug("Could not probe duration for %s", path, exc_info=True)
-            dur = 0.0
+        dur = _probe_duration_uncached(path)
         self._dur_cache[key] = dur
         return dur

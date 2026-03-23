@@ -11,6 +11,18 @@ logger = logging.getLogger("vlog.assemble.filters")
 _VALID_COLOR_TEMPS = {"neutral", "warm", "cool"}
 
 
+def escape_drawtext(text: str) -> str:
+    """Escape text for FFmpeg drawtext filter (handles : [ ] = ' \\)."""
+    return (
+        text.replace("\\", "\\\\")
+        .replace("'", "\u2019")
+        .replace(":", "\\:")
+        .replace("[", "\\[")
+        .replace("]", "\\]")
+        .replace("=", "\\=")
+    )
+
+
 def color_grade(color_temp: str = "neutral") -> str:
     """Subtle color grade with optional temperature shift."""
     if color_temp not in _VALID_COLOR_TEMPS:
@@ -53,12 +65,17 @@ def find_font(language: str = "en") -> str:
 
 
 def drawtext_filter(
-    text: str, position: str, font_size: int, clip_duration: float, language: str = "en", out_h: int = 0
+    text: str,
+    position: str,
+    font_size: int,
+    clip_duration: float,
+    language: str = "en",
+    out_h: int = 0,
 ) -> str:
     """Build a drawtext filter string for text overlay (no leading comma)."""
     y_positions = {"top": "50", "center": "(h-text_h)/2", "bottom": "h-text_h-60"}
     y_expr = y_positions.get(position, y_positions["bottom"])
-    safe_text = text.replace("'", "\u2019").replace(":", "\\:")
+    safe_text = escape_drawtext(text)
     # Scale font to output height; base=48 at 1080p
     if out_h > 0:
         font_size = max(font_size, int(out_h * 0.055))
