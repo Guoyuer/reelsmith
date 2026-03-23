@@ -84,11 +84,11 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
     )
 
     fade_params = compute_fade_params(edl)
-    segment_files: list[Path] = []
+    segment_files: list[Path] = [output_dir / f"_seg_{i}_{res_label}.mp4" for i in range(len(edl.segments))]
 
+    # Build per-segment FFmpeg commands (must be sequential — graph needs ctx.probe)
+    segment_cmds: list[tuple[int, list[str]]] = []
     for seg_idx, segment in enumerate(edl.segments):
-        seg_path = output_dir / f"_seg_{seg_idx}_{res_label}.mp4"
-
         graph = build_segment_graph(
             segment, ctx,
             fade_params=fade_params[seg_idx],
@@ -98,7 +98,6 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
             intro_duration=edl.intro_duration if seg_idx == 0 else 0.0,
             outro_duration=edl.outro_duration if seg_idx == len(edl.segments) - 1 else 0.0,
         )
-
         script_path = output_dir / f"_seg_{seg_idx}_{res_label}.txt"
         script_path.write_text(graph.script, encoding="utf-8")
 
@@ -110,21 +109,28 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
         cmd += ["-map", "[vout]", "-map", "[aout]"]
         cmd += [*enc, "-pix_fmt", "yuv420p"]
         cmd += ["-c:a", "aac", "-b:a", "192k"]
-        cmd += [str(seg_path)]
+        cmd += [str(segment_files[seg_idx])]
+        segment_cmds.append((seg_idx, cmd))
+        logger.info(f"  Segment {seg_idx}: {len(segment.items)} items, {len(graph.inputs)} inputs")
 
-        logger.info(f"  Segment {seg_idx}: {len(segment.items)} items, {len(graph.inputs)} inputs...")
+    # Render segments in parallel (3 NVENC sessions max)
+    from ..parallel import run_parallel
+    max_workers = 3 if "nvenc" in " ".join(ctx.get_encoder()) else 2
+
+    def _render_seg(seg_idx, cmd):
         result = run_subprocess(cmd, capture_output=True, text=True, timeout=600)
         if result.returncode != 0:
-            raise RuntimeError(
-                f"Segment {seg_idx} render failed: {result.stderr[-500:]}"
-            )
+            raise RuntimeError(f"Segment {seg_idx} failed: {result.stderr[-500:]}")
+        return seg_idx
 
-        dur = ctx.probe_duration(seg_path) or 0.0
+    tasks = [(idx, lambda idx=idx, cmd=cmd: _render_seg(idx, cmd)) for idx, cmd in segment_cmds]
+    results = run_parallel(tasks, max_workers)
+
+    for seg_idx, result in results:
+        if isinstance(result, Exception):
+            raise RuntimeError(f"Segment {seg_idx} render failed: {result}")
+        dur = ctx.probe_duration(segment_files[seg_idx]) or 0.0
         logger.info(f"  Segment {seg_idx}: {dur:.1f}s")
-        segment_files.append(seg_path)
-
-        if progress_callback:
-            progress_callback(seg_idx + 1, len(edl.segments) + 1, f"segment {seg_idx}")
 
     t_phase1 = time.monotonic() - t_start
     logger.info(f"Phase 1: {t_phase1:.0f}s ({len(segment_files)} segments)")
@@ -207,6 +213,11 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
     t_phase2 = time.monotonic() - t2
     total_time = time.monotonic() - t_start
 
+    # Chapters (before cleanup — needs segment files for durations)
+    chapters_path = output_dir / f"chapters_v{version}_{res_label}.txt"
+    seg_durations = [ctx.probe_duration(f) or 0.0 for f in segment_files]
+    write_chapters(edl, seg_durations, chapters_path)
+
     # Clean up segment files
     for seg_file in segment_files:
         seg_file.unlink(missing_ok=True)
@@ -214,12 +225,8 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
     if progress_callback:
         progress_callback(len(edl.segments) + 1, len(edl.segments) + 1, "done")
 
-    # Duration + chapters
     final_dur = ctx.probe_duration(output_path) or 0.0
     logger.info(f"Done: {output_path.name} ({final_dur:.1f}s, rendered in {total_time:.0f}s)")
-
-    chapters_path = output_dir / f"chapters_v{version}_{res_label}.txt"
-    write_chapters(edl, [], chapters_path)
 
     # Validate
     has_speech = any(item.keep_audio for item in edl.all_items())

@@ -368,20 +368,19 @@ def mix_final_audio(
         shutil.move(str(video_path), str(output_path))
 
 
-def write_chapters(edl: EDL, all_clips: list[dict], out_path: Path, timeline=None) -> None:
+def write_chapters(edl: EDL, segment_durations: list[float], out_path: Path) -> None:
     """Write YouTube-compatible chapter markers from EDL segments.
 
-    Requires a Timeline object (single source of truth for offsets).
+    segment_durations: probed duration of each rendered segment file.
     """
-    if timeline is None:
-        raise ValueError("write_chapters requires a Timeline object")
-
-    chapters = timeline.chapter_offsets(edl, all_clips)
+    offset = edl.intro_duration if edl.intro_style != "none" else 0.0
     lines = []
-    for offset, name in chapters:
+    for seg_idx, seg in enumerate(edl.segments):
         minutes = int(offset) // 60
         seconds = int(offset) % 60
-        lines.append(f"{minutes}:{seconds:02d} {name}")
+        lines.append(f"{minutes}:{seconds:02d} {seg.name}")
+        if seg_idx < len(segment_durations):
+            offset += segment_durations[seg_idx]
 
     out_path.write_text("\n".join(lines))
     logger.info("YouTube chapters: %s (%d chapters)", out_path.name, len(lines))
