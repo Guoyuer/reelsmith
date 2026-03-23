@@ -41,6 +41,18 @@ def _gemini_call(
         )
     client = genai.Client(api_key=api_key)
 
+    # Validate model exists
+    model_id = model if model.startswith("models/") else f"models/{model}"
+    try:
+        client.models.get(model=model_id)
+    except Exception as e:
+        raise RuntimeError(f"Model '{model}' not available: {e}") from e
+
+    # Validate thinking_level
+    valid_thinking = {"OFF", "LOW", "HIGH"}
+    if thinking_level not in valid_thinking:
+        raise ValueError(f"Invalid thinking_level '{thinking_level}'. Must be one of: {valid_thinking}")
+
     # First pass: calculate total media size to decide inline vs Files API
     n_text = 0
     n_media = 0
