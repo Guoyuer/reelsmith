@@ -313,6 +313,8 @@ def _progress_cb(
 
     def cb(current: int, total: int, name: str) -> None:
         if total == 0:
+            # Status text only (no progress bar)
+            display.update(stage, name)
             return
         # Send as sub-stage progress: "name:current/total"
         display.update(stage, f"{name}:{current}/{total}")

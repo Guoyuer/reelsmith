@@ -128,7 +128,7 @@ def _plan_visual(
         f"Visual content: {n_text} text blocks, {n_img} photos, {n_vid_clips} video file(s)"
     )
     if progress_callback:
-        progress_callback(1, 3, "build request")
+        progress_callback(0, 0, "uploading...")
 
     if n_candidates > 0 and n_text == 0:
         raise RuntimeError(
@@ -193,7 +193,7 @@ Candidates by day/location:"""
     logger.info(f"Sending {len(visual_parts)} parts to Gemini (single pass)...")
 
     if progress_callback:
-        progress_callback(2, 3, "gemini API")
+        progress_callback(0, 0, "waiting for gemini...")
 
     model_kwargs: dict = {}
     if pc.model:
@@ -210,6 +210,8 @@ Candidates by day/location:"""
     logger.info("=== [Gemini] END RESPONSE ===")
 
     # --- Post-processing pipeline ---
+    if progress_callback:
+        progress_callback(0, 0, "post-processing...")
     edl = parse_and_convert_timestamps(edl_content, preview_offset_table)
     fix_hallucinated_paths(edl, cfg.media_dir)
     validate_trim_points(edl, analysis_by_id)
@@ -235,8 +237,6 @@ Candidates by day/location:"""
 
     validate_and_fix_edl(edl)
     log_edl_summary(edl, pc.target_duration)
-    if progress_callback:
-        progress_callback(3, 3, "post-process")
 
     return edl
 
