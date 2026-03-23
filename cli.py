@@ -474,7 +474,7 @@ def _run_pipeline(run_name: str, *, stages: list[str], fetch=None, prepare=None,
 # ---------------------------------------------------------------------------
 
 _name_option = click.option(
-    "-n", "--name", "run_name", default="default", help="Run name (subdirectory under workspace/runs/)"
+    "-n", "--name", "run_name", required=True, help="Run name (subdirectory under workspace/runs/)"
 )
 
 
@@ -507,11 +507,11 @@ class _CliGroup(click.Group):
 
 @click.group(cls=_CliGroup)
 def cli() -> None:
-    """Automated vlog pipeline: fetch \u2192 prepare \u2192 plan \u2192 generate_music \u2192 assemble.
+    """Automated vlog pipeline: fetch → prepare → plan → generate_music → assemble.
 
     \b
     Example:
-      python run.py full -n singapore -s local -p ./photos -r 1080p30 --duration 180
+      vlog full -n singapore -s local -p ./photos -r 1080p30 --duration 180
     """
 
 
@@ -527,16 +527,22 @@ _tz_option = click.option(
 _force_option = click.option("--force", is_flag=True, help="Force re-analyze (ignore cached)")
 
 _plan_options = [
-    click.option("--duration", default=60, type=int, help="Target vlog length in seconds"),
+    click.option("--duration", required=True, type=int, help="Target vlog length in seconds (e.g. 60, 180, 300)"),
     click.option(
         "--trip-type",
         default="family",
         type=click.Choice(["family", "solo", "food", "adventure", "architecture", "general"]),
+        help="Narrative style: family=close-ups+laughter, solo=landscapes+wonder, food=dishes+markets, etc.",
     ),
-    click.option("--style", default="upbeat", type=click.Choice(["upbeat", "cinematic", "reflective", "energetic"])),
-    click.option("--focus", default="", help="What to emphasize"),
-    click.option("--lang", default="en", type=click.Choice(["en", "cn", "both"]), help="Text language"),
-    click.option("--model", default=None, help="Gemini model override"),
+    click.option(
+        "--style",
+        default="upbeat",
+        type=click.Choice(["upbeat", "cinematic", "reflective", "energetic"]),
+        help="Pacing and mood: upbeat=lively, cinematic=dramatic, reflective=calm, energetic=fast-cut",
+    ),
+    click.option("--focus", default="", help="Creative direction (e.g. 'family happiness; exotic street food')"),
+    click.option("--lang", default="en", type=click.Choice(["en", "cn", "both"]), help="Text language for overlays and chapters"),
+    click.option("--model", default=None, help="Gemini model override (default: gemini-3-flash-preview)"),
     click.option("--music", default="auto", help="auto=Gemini Lyria (default), /path/to/file, none=no music"),
 ]
 
