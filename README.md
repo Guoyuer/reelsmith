@@ -341,6 +341,22 @@ python -m pytest tests/ -m integration           # integration tests (requires F
 python -m pytest tests/                           # all tests (255 tests)
 ```
 
+## How it evolved
+
+This project went through 350+ commits of architectural pivots before arriving at the current design. The history is a story of **removing complexity**.
+
+**v1: Local AI stack** — Started with Ollama (llava for vision, llama3 for text), Whisper for speech detection, OpenCV for face detection, HSV histograms for deduplication, and a scoring-based "tier" system to rank photos. The AI read text descriptions of media, never seeing the actual images. Planning was multi-pass: algorithmic pre-selection → LLM refinement → human feedback loop. Music via local MusicGen model.
+
+**v2: Orchestration era** — Added Prefect for workflow management. Replaced Prefect with Dagster (asset-based model fit better). Built elaborate UI integration: real-time progress, per-asset metadata, structured logs. CLI submitted runs to Dagster webserver. `start.sh` launched 3 services (Ollama, Synology API, Dagster). The system worked but required too many moving parts.
+
+**v3: Gemini pivot** — Switched to Gemini Flash for planning. First with contact sheets (grid images) and filmstrip clips. Then the key realization: **send actual photos and full video previews with audio**. Gemini's visual and aural judgment was better than all the local processing combined.
+
+**v4: The great removal** — Removed Ollama, Whisper, OpenCV, MusicGen, face detection, scene classification, motion analysis, speech detection, visual deduplication, tier scoring, multi-pass planning, the feedback loop, Dagster, and the service launcher. Each removal made the output *better*, not worse — Gemini seeing the actual media made all that preprocessing unnecessary.
+
+**v5: Current design** — Single Python process, 5 stages, one Gemini API call for planning. The codebase is smaller than v2 despite producing better results. The remaining complexity is in FFmpeg rendering (Ken Burns, transitions, audio mixing), which is irreducibly necessary.
+
+The lesson: **the best architecture was the one with the fewest components**. Every local AI model we removed was a model that was worse than Gemini at the same task, adding latency and bugs for negative value.
+
 ## Key design decisions
 
 - **Let AI see, not read** — Gemini receives actual photos and watches video previews with audio. It selects items by visual and aural judgment, not by parsing metadata tags. This is the core bet: a model that "sees" like a human editor makes better vlogs than any amount of smart metadata filtering.
