@@ -21,6 +21,7 @@ from .config import Config
 from .edl import EDL, load_latest_edl, validate_edl
 from .image_utils import init_heic_dir
 from .encoder import (
+    RenderContext,
     get_context,
     init_context,
     probe_duration,
@@ -73,6 +74,27 @@ class RenderReport:
             parts.append(f"{self.failed_count} failed ({', '.join(f'{c.clip_name}: {c.reason}' for c in failed)})")
         return ", ".join(parts)
 
+
+
+# ---------------------------------------------------------------------------
+# Render configuration — bundles the 12 parameters for _assemble_inner
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RenderConfig:
+    """All parameters needed by the assemble inner pipeline."""
+    cfg: Config
+    edl: EDL
+    version: int
+    w: int
+    h: int
+    fps: int
+    lang: str
+    clips_dir: Path
+    output_dir: Path
+    output_path: Path
+    res_label: str
+    ctx: RenderContext
 
 
 # ---------------------------------------------------------------------------
@@ -140,24 +162,76 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     _fh.setLevel(logging.INFO)
     ffmpeg_log.addHandler(_fh)
 
+    rc = RenderConfig(
+        cfg=cfg, edl=edl, version=version,
+        w=w, h=h, fps=fps, lang=lang,
+        clips_dir=clips_dir, output_dir=output_dir,
+        output_path=output_path, res_label=res_label, ctx=ctx,
+    )
+
     try:
-        return _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
-                               output_dir, output_path, res_label, progress_callback, skip_broken, ctx)
+        return _assemble_inner(rc, progress_callback=progress_callback, skip_broken=skip_broken)
     finally:
         ffmpeg_log.removeHandler(_fh)
         _fh.close()
         logger.info(f"FFmpeg commands logged to: {log_path}")
 
 
-def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
-                    output_dir, output_path, res_label, progress_callback, skip_broken, ctx):
+def _assemble_inner(rc: RenderConfig, *, progress_callback=None, skip_broken: bool = False):
 
     # Beat sync: snap transitions to music beats (before rendering clips)
-    if edl.music and Path(edl.music.file).exists():
-        beat_snap_edl(edl, Path(edl.music.file))
+    if rc.edl.music and Path(rc.edl.music.file).exists():
+        beat_snap_edl(rc.edl, Path(rc.edl.music.file))
 
+    t1 = time.monotonic()
+
+    # Phase 1 + 1b: Render clips (parallel) and intro/outro
+    all_clips, report = _render_clips(rc, progress_callback=progress_callback, skip_broken=skip_broken)
+
+    # Phase 2 + 2b + 3: Concatenate, speech track, music mix
+    validation_issues, chapters_path = _concat_and_mix(rc, all_clips, t_start=t1)
+
+    duration = probe_duration(rc.output_path)
+    total_time = time.monotonic() - t1
+    logger.info(f"Done: {rc.output_path} ({duration:.1f}s, rendered in {total_time:.0f}s)")
+
+    # Phase 4: Validate output
+    has_speech = any(c.get("keep_audio") for c in all_clips)
+    validation_issues = _validate_output(rc.output_path, rc.edl, has_speech, (rc.w, rc.h))
+    errors = [i for i in validation_issues if i["level"] == "error"]
+    warnings = [i for i in validation_issues if i["level"] == "warning"]
+
+    if warnings:
+        logger.info(f"Validation: {len(warnings)} warning(s)")
+        for issue in warnings:
+            logger.info(f"  WARNING [{issue['check']}]: {issue['message']}")
+    if errors:
+        logger.info(f"Validation: {len(errors)} error(s)")
+        for issue in errors:
+            logger.info(f"  ERROR [{issue['check']}]: {issue['message']}")
+        raise RuntimeError(
+            f"Output validation failed with {len(errors)} error(s): "
+            + "; ".join(i["message"] for i in errors)
+        )
+
+    if not validation_issues:
+        logger.info("Validation: all checks passed")
+
+    return rc.output_path, validation_issues
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 + 1b: Parallel clip rendering + intro/outro
+# ---------------------------------------------------------------------------
+
+def _render_clips(rc: RenderConfig, *, progress_callback=None, skip_broken: bool = False) -> tuple[list[dict], RenderReport]:
+    """Render all EDL items as normalized clips (parallel), plus intro/outro.
+
+    Returns (all_clips, report) where all_clips is an ordered list of clip
+    dicts ready for concatenation.
+    """
     # Determine parallel workers based on encoder type
-    encoder = ctx.get_encoder(w, h, fps)
+    encoder = rc.ctx.get_encoder(rc.w, rc.h, rc.fps)
     encoder_str = " ".join(encoder)
     if "nvenc" in encoder_str:
         max_workers = int(os.environ.get("VLOG_PARALLEL_CLIPS", "3"))
@@ -166,11 +240,10 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
     else:
         max_workers = max(1, (os.cpu_count() or 4) // 2)
 
-    # Phase 1: Render each item as a normalized clip (parallel)
     t1 = time.monotonic()
 
     tasks: list[tuple] = []
-    for seg_idx, segment in enumerate(edl.segments):
+    for seg_idx, segment in enumerate(rc.edl.segments):
         for item_idx, item in enumerate(segment.items):
             tasks.append((len(tasks), seg_idx, item_idx, item, segment))
 
@@ -183,8 +256,8 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
                 file=sys.stdout, disable=not sys.stdout.isatty())
 
     def _do_render(order, seg_idx, item_idx, item, segment):
-        clip_name = f"seg{seg_idx:02d}_item{item_idx:02d}_{res_label}.mp4"
-        clip_path = clips_dir / clip_name
+        clip_name = f"seg{seg_idx:02d}_item{item_idx:02d}_{rc.res_label}.mp4"
+        clip_path = rc.clips_dir / clip_name
 
         if not clip_path.exists():
             source = Path(item.source_file)
@@ -193,11 +266,11 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
 
             color_temp = segment.color_temp
             if item.media_type == "photo":
-                render_photo(item, clip_path, w, h, fps, color_temp=color_temp,
-                             text_overlay=item.text_overlay, language=lang, ctx=ctx)
+                render_photo(item, clip_path, rc.w, rc.h, rc.fps, color_temp=color_temp,
+                             text_overlay=item.text_overlay, language=rc.lang, ctx=rc.ctx)
             else:
-                render_video(item, clip_path, w, h, fps, color_temp=color_temp,
-                             text_overlay=item.text_overlay, language=lang, ctx=ctx)
+                render_video(item, clip_path, rc.w, rc.h, rc.fps, color_temp=color_temp,
+                             text_overlay=item.text_overlay, language=rc.lang, ctx=rc.ctx)
 
         if not clip_path.exists():
             return clip_name, item.source_file, None, "render failed"
@@ -238,7 +311,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
     # Build all_clips list with transitions (must be in order)
     all_clips: list[dict] = []
     idx = 0
-    for seg_idx, segment in enumerate(edl.segments):
+    for seg_idx, segment in enumerate(rc.edl.segments):
         for item_idx, item in enumerate(segment.items):
             clip_path = clip_results[idx]
             idx += 1
@@ -287,12 +360,12 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
         raise RuntimeError("No clips rendered — check source files in EDL")
 
     # Phase 1b: Render intro/outro clips
-    if edl.intro_style == "title_card" and edl.title:
-        intro_path = clips_dir / f"intro_title_{res_label}.mp4"
-        intro_dur = edl.intro_duration
+    if rc.edl.intro_style == "title_card" and rc.edl.title:
+        intro_path = rc.clips_dir / f"intro_title_{rc.res_label}.mp4"
+        intro_dur = rc.edl.intro_duration
         # Find first photo in EDL for hero-photo background
         background_photo = None
-        for seg in edl.segments:
+        for seg in rc.edl.segments:
             for item in seg.items:
                 if item.media_type == "photo":
                     background_photo = item.source_file
@@ -300,8 +373,8 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
             if background_photo:
                 break
         if not intro_path.exists():
-            render_title_card(edl.title, edl.date_range, intro_path, w, h, fps,
-                              duration=intro_dur, language=lang, ctx=ctx,
+            render_title_card(rc.edl.title, rc.edl.date_range, intro_path, rc.w, rc.h, rc.fps,
+                              duration=intro_dur, language=rc.lang, ctx=rc.ctx,
                               background_photo=background_photo)
         all_clips.insert(0, {
             "path": intro_path, "duration": intro_dur,
@@ -312,27 +385,39 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
             all_clips[1]["transition"] = "fade_black"
             all_clips[1]["transition_duration"] = 1.0
 
-    if edl.outro_style == "fade_title" and edl.title:
-        outro_path = clips_dir / f"outro_title_{res_label}.mp4"
-        outro_dur = edl.outro_duration
+    if rc.edl.outro_style == "fade_title" and rc.edl.title:
+        outro_path = rc.clips_dir / f"outro_title_{rc.res_label}.mp4"
+        outro_dur = rc.edl.outro_duration
         if not outro_path.exists():
-            render_title_card(edl.title, "", outro_path, w, h, fps, duration=outro_dur, language=lang, ctx=ctx)
+            render_title_card(rc.edl.title, "", outro_path, rc.w, rc.h, rc.fps, duration=outro_dur, language=rc.lang, ctx=rc.ctx)
         all_clips.append({
             "path": outro_path, "duration": outro_dur,
             "transition": "fade_black", "transition_duration": 1.0,
             "keep_audio": False, "media_type": "video",
         })
 
+    return all_clips, report
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 + 2b + 3: Concatenation, speech track, music mix
+# ---------------------------------------------------------------------------
+
+def _concat_and_mix(rc: RenderConfig, all_clips: list[dict], *, t_start: float) -> tuple[list[dict], Path]:
+    """Concatenate clips with transitions, build speech track, and mix audio.
+
+    Returns (validation_issues, chapters_path).
+    """
     # Phase 2: Concatenate with transitions (video only)
     t2 = time.monotonic()
     logger.info(f"Concatenating {len(all_clips)} clips...")
-    no_music_path = output_dir / f"vlog_v{version}_{res_label}_nomix.mp4"
-    concatenate(all_clips, no_music_path, w, h, fps)
+    no_music_path = rc.output_dir / f"vlog_v{rc.version}_{rc.res_label}_nomix.mp4"
+    concatenate(all_clips, no_music_path, rc.w, rc.h, rc.fps)
     logger.info(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
 
     # Phase 2b: Build speech audio track using Timeline as single source of truth
     # Build timeline with MEASURED group durations (fixes speech sync drift)
-    tl = Timeline.build_actual(all_clips, output_dir)
+    tl = Timeline.build_actual(all_clips, rc.output_dir)
     tl.dump()
 
     speech_audio_path = None
@@ -344,7 +429,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
         for e in tl.speech_entries():
             speech_clips.append((e.video_offset, e.path))
 
-        speech_audio_path = output_dir / f"vlog_v{version}_{res_label}_speech.wav"
+        speech_audio_path = rc.output_dir / f"vlog_v{rc.version}_{rc.res_label}_speech.wav"
         build_speech_track(speech_clips, video_dur, speech_audio_path)
         logger.info(f"Speech track: {len(speech_clips)} clips at "
               f"{', '.join(f'{o:.1f}s' for o, _ in speech_clips)}")
@@ -353,47 +438,21 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
 
     # Phase 3: Mix music + speech (delegated to audio module)
     t3 = time.monotonic()
-    if edl.music and Path(edl.music.file).exists():
-        music_dur = probe_duration(Path(edl.music.file))
+    if rc.edl.music and Path(rc.edl.music.file).exists():
+        music_dur = probe_duration(Path(rc.edl.music.file))
         video_dur = probe_duration(no_music_path)
         logger.info(f"Mixing music: video={video_dur:.1f}s, music={music_dur:.1f}s, "
-              f"volume={edl.music.volume}, fade_in={edl.music.fade_in}s, fade_out={edl.music.fade_out}s")
-    mix_final_audio(no_music_path, output_path,
-                    music_track=edl.music, speech_audio_path=speech_audio_path,
-                    speech_ranges=speech_ranges, duck_ratio=edl.music_duck_ratio)
+              f"volume={rc.edl.music.volume}, fade_in={rc.edl.music.fade_in}s, fade_out={rc.edl.music.fade_out}s")
+    mix_final_audio(no_music_path, rc.output_path,
+                    music_track=rc.edl.music, speech_audio_path=speech_audio_path,
+                    speech_ranges=speech_ranges, duck_ratio=rc.edl.music_duck_ratio)
     logger.info(f"Phase 3 (audio): {time.monotonic() - t3:.1f}s")
 
-    duration = probe_duration(output_path)
-    total_time = time.monotonic() - t1
-    logger.info(f"Done: {output_path} ({duration:.1f}s, rendered in {total_time:.0f}s)")
-
     # Generate YouTube chapter markers (using Timeline offsets)
-    chapters_path = output_dir / f"chapters_v{version}_{res_label}.txt"
-    write_chapters(edl, all_clips, chapters_path, timeline=tl)
+    chapters_path = rc.output_dir / f"chapters_v{rc.version}_{rc.res_label}.txt"
+    write_chapters(rc.edl, all_clips, chapters_path, timeline=tl)
 
-    # Phase 4: Validate output
-    has_speech = bool(speech_ka_indices)
-    validation_issues = _validate_output(output_path, edl, has_speech, (w, h))
-    errors = [i for i in validation_issues if i["level"] == "error"]
-    warnings = [i for i in validation_issues if i["level"] == "warning"]
-
-    if warnings:
-        logger.info(f"Validation: {len(warnings)} warning(s)")
-        for issue in warnings:
-            logger.info(f"  WARNING [{issue['check']}]: {issue['message']}")
-    if errors:
-        logger.info(f"Validation: {len(errors)} error(s)")
-        for issue in errors:
-            logger.info(f"  ERROR [{issue['check']}]: {issue['message']}")
-        raise RuntimeError(
-            f"Output validation failed with {len(errors)} error(s): "
-            + "; ".join(i["message"] for i in errors)
-        )
-
-    if not validation_issues:
-        logger.info("Validation: all checks passed")
-
-    return output_path, validation_issues
+    return [], chapters_path
 
 
 # ---------------------------------------------------------------------------
