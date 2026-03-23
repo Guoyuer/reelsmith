@@ -97,7 +97,8 @@ def prepare(cfg: Config, pc: PrepareConfig | None = None, *, progress_callback=N
 
     cache_dir = cfg.cache_dir
     results = []
-    use_tqdm = hasattr(sys.stderr, "fileno") and sys.stderr.isatty()
+    # Disable tqdm when progress_callback is provided (rich live panel handles display)
+    use_tqdm = not progress_callback and hasattr(sys.stderr, "fileno") and sys.stderr.isatty()
     pbar = tqdm(
         total=len(manifest),
         desc="Preparing",
