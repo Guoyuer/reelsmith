@@ -206,34 +206,66 @@ workspace/
 
 Shared files are reused across runs — a second run for the same trip skips media download, thumbnails, and preview clip generation.
 
+## Media Processing
+
+### Photo pipeline
+
+```
+prepare                          plan                             assemble
+───────                          ────                             ────────
+source photo                     read thumbnail bytes             source photo (original)
+(HEIC/JPG/PNG, 3000-4000px)      → send inline to Gemini          → HEIC? convert to JPEG
+  │                                                                  (cache: heic_converted/)
+  ↓                                                                → FFmpeg: Ken Burns (cosine
+PIL open (pillow-heif for HEIC)                                      eased) + color grade +
+  → resize to 400px, q70                                             text overlay (drop shadow)
+  → save as JPEG                                                   → portrait: blurred bg +
+                                                                     sharp fg overlay
+cache: thumbnails/{stem}_thumb.jpg                                 cache: clips/seg_item_{res}.mp4
+```
+
+### Video pipeline
+
+```
+prepare                          plan                             assemble
+───────                          ────                             ────────
+source video                     read cached previews             source video (original)
+(MOV/MP4, 1080p-4K)              → burn #XX labels +              → FFmpeg: trim (start→end)
+  │                                concat into mega-preview         + speed ramp (setpts)
+  ↓                                (single FFmpeg call)             + color grade + text overlay
+ffprobe: duration, resolution,   → upload mega-preview             → portrait: blurred bg
+  FPS, orientation                 via Files API                  → output duration =
+ffmpeg loudnorm: audio level     → send to Gemini                   source_dur / speed
+  (first 30s → silent/quiet/
+   normal/loud)                  mega-preview cached across       cache: clips/seg_item_{res}.mp4
+  → cache: analysis_cache/       plan re-runs (hash key)
+    {id}.json
+
+generate 360p 1fps preview
+  (with audio, for Gemini
+   to watch + listen)
+  → cache: preview_clips/
+    preview_{id}.mp4
+```
+
+### Cache summary
+
+| Directory | Contents | Created by | Shared across runs |
+|-----------|----------|------------|--------------------|
+| `workspace/thumbnails/` | 400px JPEG per photo | prepare | yes |
+| `workspace/analysis_cache/` | ffprobe + audio level per video | prepare | yes |
+| `workspace/preview_clips/` | 360p 1fps preview per video | prepare | yes |
+| `workspace/preview_clips/_mega_preview.*` | labeled concatenated preview | plan | yes (cached by hash) |
+| `workspace/heic_converted/` | full-size JPEG for HEIC photos | assemble | yes |
+| `workspace/runs/{name}/clips/` | rendered clips per resolution | assemble | no (per run) |
+
 ## Pipeline Stages
 
 ### 1. fetch
 Downloads photos/videos from Synology Photos API (filtered by date range, location, item types) or scans a local folder. Builds `manifest.json`.
 
 ### 2. prepare
-All heavy media processing happens here — plan and assemble only read cached outputs.
-
-**Photos:**
-```
-source photo (HEIC/JPG/PNG, 3000-4000px)
-  → PIL opens directly (pillow-heif for HEIC)
-  → resize to 400px, quality 70
-  → cache: workspace/thumbnails/{stem}_thumb.jpg
-```
-
-**Videos:**
-```
-source video (MOV/MP4, 1080p-4K)
-  → ffprobe: duration, resolution, FPS, orientation
-  → ffmpeg loudnorm: audio level (silent/quiet/normal/loud, first 30s)
-  → cache: workspace/analysis_cache/{id}.json
-
-  → generate 360p 1fps preview (with audio, for Gemini to watch+listen)
-  → cache: workspace/preview_clips/preview_{id}.mp4
-```
-
-Also: family member auto-detection (NAS face data), timeline construction (day → time_block → location).
+All heavy media processing happens here — plan and assemble only read cached outputs. Generates thumbnails, video metadata, audio levels, and 360p previews. Also: family member auto-detection (NAS face data), timeline construction (day → time_block → location).
 
 ### 3. plan
 Reads cached thumbnails and previews — no heavy processing. Calls Gemini once.
@@ -255,26 +287,12 @@ Generates background music from EDL `music_mood` descriptions. Skipped when `--m
 ### 5. assemble
 Renders the final video in 4 phases:
 
-**Photos:**
-```
-thumbnail (already cached)
-  → HEIC? convert to JPEG first (cache: workspace/heic_converted/)
-  → FFmpeg: Ken Burns (cosine eased) + color grade + text overlay + portrait blur
-  → cache: workspace/runs/{name}/clips/seg00_item00_{res}.mp4
-```
-
-**Videos:**
-```
-source video
-  → FFmpeg: trim (start_time→end_time) + speed ramp + color grade + text overlay + portrait blur
-  → cache: workspace/runs/{name}/clips/seg00_item00_{res}.mp4
-```
-
-Then: xfade concatenation (groups of ≤10) → speech track + music mixing (ducking with 300ms attack / 1000ms release) → title cards (hero-photo background) → 6-check validation.
+1. **Clip rendering** — parallel (3 NVENC / 2 VideoToolbox / cpu_count/2 libx264 workers). Cached per resolution.
+2. **Concatenation** — xfade transitions in groups of ≤10. 8 types: crossfade, dissolve, smoothleft, smoothright, circlecrop, fade_black, wipe_left, fadewhite.
+3. **Audio mixing** — music + speech with ducking (300ms attack, 1000ms release). Title cards with hero-photo background.
+4. **Validation** — 6 checks: file size, duration, streams, codec, A/V sync, resolution.
 
 Clips cached per resolution — switching from 1080p30 to 4k60 doesn't re-render existing clips. Output: `vlog_v{N}_{res}.mp4`.
-
-All FFmpeg commands logged to `output/ffmpeg_commands.log`.
 
 ## Trip Types
 
