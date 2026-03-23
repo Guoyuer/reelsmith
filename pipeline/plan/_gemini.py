@@ -126,6 +126,7 @@ def _gemini_call(
             max_output_tokens=32000,
             temperature=0.7,
             media_resolution=types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+            thinking_config=types.ThinkingConfig(thinking_level="HIGH"),
         ),
     )
 
