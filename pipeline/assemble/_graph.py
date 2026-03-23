@@ -224,19 +224,18 @@ def _photo_filter(
     direction = direction_map.get(item.effect, "in")
     kb = ken_burns_filter(frames, w, h, fps, direction=direction)
 
-    # Scale source to COVER the 16:9 frame (crop edges, no black bars or blur bg).
-    # Use source-native resolution for zoom headroom — single lanczos downscale.
+    # Scale source to COVER a 16:9 area, then crop to 16:9. No blurred bg.
+    # Work area at source resolution for single-step lanczos downscale.
     src_w, src_h = ctx.probe_dimensions(Path(item.source_file))
-    min_dim = int(max(w, h) * 1.4)  # zoom headroom for 1.3x max
-    cover_w = max(src_w, min_dim)
-    cover_h = max(src_h, min_dim)
-    # Ensure even
-    cover_w = cover_w + (cover_w % 2)
-    cover_h = cover_h + (cover_h % 2)
+    min_h = int(h * 1.4)  # zoom headroom for 1.3x max
+    work_h = max(src_h, min_h)
+    work_h = work_h + (work_h % 2)
+    work_w = int(work_h * w / h)
+    work_w = work_w + (work_w % 2)
 
     return (
-        f"[{idx}:v] scale={cover_w}:{cover_h}:force_original_aspect_ratio=increase,"
-        f"crop={cover_w}:{cover_h},"
+        f"[{idx}:v] scale={work_w}:{work_h}:force_original_aspect_ratio=increase,"
+        f"crop={work_w}:{work_h},"
         f"{kb},{cg}{sharpen}{dt}{fade} [v{idx}]"
     )
 
