@@ -50,7 +50,9 @@ def parse_and_convert_timestamps(
                         # Guard: minimum 2s clip
                         if local_end - local_start < 2.0:
                             local_start = max(0, local_start - 1)
-                            local_end = min(local_start + max(pe_secs - ps_secs, 5.0), dur)
+                            local_end = min(
+                                local_start + max(pe_secs - ps_secs, 5.0), dur
+                            )
                         item["start_time"] = round(local_start, 1)
                         item["end_time"] = round(local_end, 1)
                         item["display_duration"] = round(local_end - local_start, 1)
@@ -63,22 +65,37 @@ def parse_and_convert_timestamps(
                 else:
                     logger.warning(f"preview {ps} not in any clip, keeping as-is")
     if n_converted:
-        logger.info(f"  Converted {n_converted} preview timestamps to local trim points")
+        logger.info(
+            f"  Converted {n_converted} preview timestamps to local trim points"
+        )
 
     edl = EDL.model_validate(raw)
     return edl
 
 
 def fix_hallucinated_paths(edl: EDL, media_dir: Path) -> int:
-    """Fuzzy-match hallucinated file paths. Returns count of removed items."""
+    """Resolve filenames to full paths, fuzzy-match hallucinated names.
+
+    Gemini outputs just filenames (e.g. '87656_IMG.heic'). This resolves
+    them to full paths under media_dir, with fuzzy fallback for typos.
+    Returns count of removed items (unresolvable).
+    """
     removed_count = 0
     for seg in edl.segments:
         valid_items = []
         for item in seg.items:
             source = Path(item.source_file)
+            # Already a full path that exists
             if source.exists():
                 valid_items.append(item)
                 continue
+            # Try as filename under media_dir
+            full = media_dir / source.name
+            if full.exists():
+                item.source_file = str(full)
+                valid_items.append(item)
+                continue
+            # Fuzzy match (Gemini may hallucinate parts of the filename)
             name = source.name
             parts = name.split("_", 1)
             candidates = list(media_dir.glob(f"*{parts[-1]}")) if len(parts) > 1 else []
@@ -94,7 +111,9 @@ def fix_hallucinated_paths(edl: EDL, media_dir: Path) -> int:
         seg.items = valid_items
     edl.segments = [s for s in edl.segments if s.items]
     if removed_count:
-        logger.info(f"  Path validation: removed {removed_count} items with missing sources")
+        logger.info(
+            f"  Path validation: removed {removed_count} items with missing sources"
+        )
     return removed_count
 
 
@@ -107,7 +126,14 @@ def validate_trim_points(edl: EDL, analysis_by_id: dict) -> tuple[int, int]:
         for item in seg.items:
             if item.media_type == "video" and item.start_time is not None:
                 vid_dur = analysis_by_id.get(
-                    next((aid for aid, a in analysis_by_id.items() if a.get("local_path") == item.source_file), None),
+                    next(
+                        (
+                            aid
+                            for aid, a in analysis_by_id.items()
+                            if a.get("local_path") == item.source_file
+                        ),
+                        None,
+                    ),
                     {},
                 ).get("video_duration")
                 if vid_dur and vid_dur > 0:
@@ -119,7 +145,10 @@ def validate_trim_points(edl: EDL, analysis_by_id: dict) -> tuple[int, int]:
                         item.end_time = vid_dur
                         changed = True
                     # Ensure minimum 2s trim after clamping
-                    if item.end_time is not None and item.end_time - item.start_time < 2.0:
+                    if (
+                        item.end_time is not None
+                        and item.end_time - item.start_time < 2.0
+                    ):
                         # Try widening: move start earlier, then end later
                         needed = 2.0 - (item.end_time - item.start_time)
                         item.start_time = max(0, item.start_time - needed)
@@ -151,7 +180,11 @@ def validate_trim_points(edl: EDL, analysis_by_id: dict) -> tuple[int, int]:
     dur_fixed = 0
     for seg in edl.segments:
         for item in seg.items:
-            if item.media_type == "video" and item.start_time is not None and item.end_time is not None:
+            if (
+                item.media_type == "video"
+                and item.start_time is not None
+                and item.end_time is not None
+            ):
                 trim_dur = item.end_time - item.start_time
                 speed = item.playback_speed or 1.0
                 expected = trim_dur / speed
@@ -205,7 +238,9 @@ def fill_duration_gap(
         return edl
 
     deficit = min_dur - actual_dur
-    logger.info(f"  Duration: {actual_dur:.0f}s < {min_dur:.0f}s needed — requesting {deficit:.0f}s more content")
+    logger.info(
+        f"  Duration: {actual_dur:.0f}s < {min_dur:.0f}s needed — requesting {deficit:.0f}s more content"
+    )
 
     used = {item.source_file for item in edl.all_items()}
     unused_lines = []
@@ -213,7 +248,11 @@ def fill_duration_gap(
         path = a.get("local_path", "")
         if path and path not in used:
             mt = a.get("media_type", "photo")
-            dur_info = f" duration={a['video_duration']:.0f}s" if mt == "video" and a.get("video_duration") else ""
+            dur_info = (
+                f" duration={a['video_duration']:.0f}s"
+                if mt == "video" and a.get("video_duration")
+                else ""
+            )
             unused_lines.append(f"  {mt} path={path}{dur_info}")
     if len(unused_lines) > 200:
         unused_lines = unused_lines[:200]
@@ -222,7 +261,9 @@ def fill_duration_gap(
         f"Your EDL totals {actual_dur:.0f}s of display_duration, but the target "
         f"is {target_duration}s (need ≥{min_dur:.0f}s with transition headroom). "
         f"Add {deficit:.0f}s more content by inserting items into existing segments.\n\n"
-        f"UNUSED CANDIDATES (pick from these):\n" + "\n".join(unused_lines[:100]) + "\n\n"
+        f"UNUSED CANDIDATES (pick from these):\n"
+        + "\n".join(unused_lines[:100])
+        + "\n\n"
         "Return the COMPLETE updated EDL JSON (all segments, all items — "
         "original + new). Keep the same structure and format."
     )
@@ -248,7 +289,9 @@ def fill_duration_gap(
             logger.info(f"  Duration fix: {actual_dur:.0f}s → {new_dur:.0f}s")
             return edl2
         else:
-            logger.warning(f"Duration fix didn't improve ({new_dur:.0f}s), keeping original")
+            logger.warning(
+                f"Duration fix didn't improve ({new_dur:.0f}s), keeping original"
+            )
     except Exception as e:
         logger.warning(f"Duration fix parse failed ({e}), keeping original")
     return edl
@@ -264,8 +307,17 @@ def validate_and_fix_edl(edl: EDL) -> None:
             for seg in edl.segments:
                 for item in seg.items:
                     ext = Path(item.source_file).suffix.lower()
-                    if item.media_type == "video" and ext in {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}:
-                        logger.info(f"  Auto-fix: {Path(item.source_file).name} video→photo")
+                    if item.media_type == "video" and ext in {
+                        ".jpg",
+                        ".jpeg",
+                        ".png",
+                        ".heic",
+                        ".heif",
+                        ".webp",
+                    }:
+                        logger.info(
+                            f"  Auto-fix: {Path(item.source_file).name} video→photo"
+                        )
                         item.media_type = "photo"
                         item.effect = "ken_burns_in"
                         item.start_time = None
@@ -285,7 +337,10 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
 
     logger.info("=== [Gemini] PARSED EDL ===")
     logger.info(f"  Title: {edl.title}")
-    logger.info(f"  Segments: {len(edl.segments)}, Items: {len(all_items)} " f"({n_photos} photos + {n_videos} videos)")
+    logger.info(
+        f"  Segments: {len(edl.segments)}, Items: {len(all_items)} "
+        f"({n_photos} photos + {n_videos} videos)"
+    )
     logger.info(
         f"  Duration: {actual_dur:.0f}s (target: {target_duration}s, "
         f"{'OK' if actual_dur >= target_duration * 0.8 else 'UNDERFILLED'})"
@@ -296,7 +351,9 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
 
     for si, seg in enumerate(edl.segments):
         seg_dur = sum(i.display_duration for i in seg.items)
-        logger.info(f"  --- Segment {si}: {seg.name} ({len(seg.items)} items, {seg_dur:.0f}s) ---")
+        logger.info(
+            f"  --- Segment {si}: {seg.name} ({len(seg.items)} items, {seg_dur:.0f}s) ---"
+        )
         logger.info(
             f"    Transition: {seg.transition} ({seg.transition_duration}s) | "
             f"Mode: {seg.mode} | Color: {seg.color_temp}"
@@ -305,7 +362,11 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
         if seg.narrative_rationale:
             logger.info(f"    Rationale: {seg.narrative_rationale[:150]}")
         for item in seg.items:
-            trim = f" trim={item.start_time:.0f}-{item.end_time:.0f}s" if item.start_time is not None else ""
+            trim = (
+                f" trim={item.start_time:.0f}-{item.end_time:.0f}s"
+                if item.start_time is not None
+                else ""
+            )
             flags = []
             if item.keep_audio:
                 flags.append("SPEECH")

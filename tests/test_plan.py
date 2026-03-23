@@ -26,8 +26,16 @@ def _make_test_edl(items: list | None = None) -> EDL:
     """Build a minimal EDL for testing."""
     if items is None:
         items = [
-            EditItem(source_file="/media/photo1.jpg", media_type="photo", display_duration=4.0),
-            EditItem(source_file="/media/photo2.jpg", media_type="photo", display_duration=4.0),
+            EditItem(
+                source_file="/media/photo1.jpg",
+                media_type="photo",
+                display_duration=4.0,
+            ),
+            EditItem(
+                source_file="/media/photo2.jpg",
+                media_type="photo",
+                display_duration=4.0,
+            ),
         ]
     return EDL(
         title="Test",
@@ -90,10 +98,16 @@ SAMPLE_DAY = {
 
 class TestDefaultFocus:
     def test_family_default(self):
-        assert "family" in _default_focus("family").lower() or "happiness" in _default_focus("family").lower()
+        assert (
+            "family" in _default_focus("family").lower()
+            or "happiness" in _default_focus("family").lower()
+        )
 
     def test_solo_default(self):
-        assert "journey" in _default_focus("solo").lower() or "discovery" in _default_focus("solo").lower()
+        assert (
+            "journey" in _default_focus("solo").lower()
+            or "discovery" in _default_focus("solo").lower()
+        )
 
     def test_all_trip_types_have_focus(self):
         for tt in ["family", "solo", "food", "adventure", "architecture", "general"]:
@@ -115,7 +129,9 @@ class TestFormatDateRange:
         assert result == "June 13-16, 2025"
 
     def test_multi_month(self):
-        result = _format_date_range(["2025-06-28", "2025-06-30", "2025-07-01", "2025-07-03"])
+        result = _format_date_range(
+            ["2025-06-28", "2025-06-30", "2025-07-01", "2025-07-03"]
+        )
         assert result == "June 28 - July 3, 2025"
 
     def test_single_date(self):
@@ -264,7 +280,7 @@ class TestBuildVisualChapterText:
             SAMPLE_ANALYSIS,
             start_idx=1,
         )
-        assert "path=/media/1_IMG_001.jpg" in text
+        assert "file=1_IMG_001.jpg" in text
 
     def test_numbering_starts_at_start_idx(self):
         text, _, _, _ = _build_visual_chapter_text(
@@ -308,13 +324,21 @@ class TestFilesApiThreshold:
 
     def test_small_payload_uses_inline(self):
         # 1KB of data — should use inline
-        parts = [{"type": "image_bytes", "data": b"\x00" * 1024, "mime_type": "image/jpeg"}]
+        parts = [
+            {"type": "image_bytes", "data": b"\x00" * 1024, "mime_type": "image/jpeg"}
+        ]
         total = sum(len(p.get("data", b"")) for p in parts)
         assert total < 20 * 1024 * 1024
 
     def test_large_payload_triggers_files_api(self):
         # 25MB of data — should trigger Files API
-        parts = [{"type": "video_bytes", "data": b"\x00" * (25 * 1024 * 1024), "mime_type": "video/mp4"}]
+        parts = [
+            {
+                "type": "video_bytes",
+                "data": b"\x00" * (25 * 1024 * 1024),
+                "mime_type": "video/mp4",
+            }
+        ]
         total = sum(len(p.get("data", b"")) for p in parts)
         assert total > 20 * 1024 * 1024
 
@@ -383,7 +407,13 @@ class TestPreGeminiValidation:
                     {
                         "date": "2025-01-01",
                         "day_name": "Mon",
-                        "chapters": [{"time_block": "morning", "location": "x", "item_ids": [1, 2, 3]}],
+                        "chapters": [
+                            {
+                                "time_block": "morning",
+                                "location": "x",
+                                "item_ids": [1, 2, 3],
+                            }
+                        ],
                     }
                 ]
             }
@@ -433,15 +463,21 @@ class TestEdlDedup:
                 Segment(
                     name="s1",
                     items=[
-                        EditItem(source_file="a.mp4", media_type="video", display_duration=5),
+                        EditItem(
+                            source_file="a.mp4", media_type="video", display_duration=5
+                        ),
                     ],
                     transition="crossfade",
                 ),
                 Segment(
                     name="s2",
                     items=[
-                        EditItem(source_file="a.mp4", media_type="video", display_duration=5),
-                        EditItem(source_file="b.jpg", media_type="photo", display_duration=3),
+                        EditItem(
+                            source_file="a.mp4", media_type="video", display_duration=5
+                        ),
+                        EditItem(
+                            source_file="b.jpg", media_type="photo", display_duration=3
+                        ),
                     ],
                     transition="crossfade",
                 ),
@@ -480,7 +516,11 @@ class TestEdlDedup:
         )
         seen: set[str] = set()
         for seg in edl.segments:
-            unique = [i for i in seg.items if i.source_file not in seen and not seen.add(i.source_file)]
+            unique = [
+                i
+                for i in seg.items
+                if i.source_file not in seen and not seen.add(i.source_file)
+            ]
             seg.items = unique
 
         assert len(edl.segments[0].items) == 2
@@ -516,11 +556,20 @@ class TestContentBlockValidation:
                 {
                     "date": "2025-01-01",
                     "day_name": "Mon",
-                    "chapters": [{"time_block": "morning", "location": "x", "item_ids": [1]}],
+                    "chapters": [
+                        {"time_block": "morning", "location": "x", "item_ids": [1]}
+                    ],
                 }
             ]
         }
-        analysis = {"1": {"id": 1, "filename": "photo.jpg", "local_path": str(img_path), "media_type": "photo"}}
+        analysis = {
+            "1": {
+                "id": 1,
+                "filename": "photo.jpg",
+                "local_path": str(img_path),
+                "media_type": "photo",
+            }
+        }
 
         blocks, _ = _build_visual_content_blocks(preprocessed, analysis, cfg)
 

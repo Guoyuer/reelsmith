@@ -65,7 +65,11 @@ def _build_visual_chapter_text(
         label = f"#{idx:02d}"
         # Describe who's in the photo
         if a.get("family_count", 0) >= 2:
-            who = f"family together ({','.join(persons[:3])})" if persons else "family together"
+            who = (
+                f"family together ({','.join(persons[:3])})"
+                if persons
+                else "family together"
+            )
         elif a.get("family_count", 0) == 1:
             who = f"{persons[0]}" if persons else "one family member"
         elif persons:
@@ -110,7 +114,7 @@ def _build_visual_chapter_text(
             photo_paths.append(Path(local_path))
             photo_labels.append(label)
 
-        parts.append(f"path={local_path}")
+        parts.append(f"file={Path(local_path).name}")
         lines.append(" ".join(parts))
         idx += 1
 
@@ -119,7 +123,9 @@ def _build_visual_chapter_text(
     n_photos = len(photo_paths)
     n_videos = len(video_items)
     media_note = f"{n_photos} photos" + (f", {n_videos} videos" if n_videos else "")
-    header = f"\n--- {day['day_name']} {day['date']}, {block} near {loc} ({media_note}) ---"
+    header = (
+        f"\n--- {day['day_name']} {day['date']}, {block} near {loc} ({media_note}) ---"
+    )
     text = header + "\n" + "\n".join(lines)
     return text, photo_paths, photo_labels, video_items
 
@@ -164,7 +170,9 @@ def _concat_previews(
         )
     vf = ",".join(drawtext_parts) if drawtext_parts else "null"
 
-    logger.info(f"Building mega-preview ({len(video_entries)} videos, {offset:.0f}s)...")
+    logger.info(
+        f"Building mega-preview ({len(video_entries)} videos, {offset:.0f}s)..."
+    )
     run_subprocess(
         [
             "ffmpeg",
@@ -204,7 +212,9 @@ def _concat_previews(
     if output_path.exists():
         actual_dur = probe_duration(output_path)
         if abs(actual_dur - offset) > 5:
-            raise RuntimeError(f"Mega-preview duration mismatch: expected {offset:.0f}s, got {actual_dur:.0f}s")
+            raise RuntimeError(
+                f"Mega-preview duration mismatch: expected {offset:.0f}s, got {actual_dur:.0f}s"
+            )
 
     return offset_table, output_path
 
@@ -249,7 +259,9 @@ def _build_visual_content_blocks(
             for pi, p in enumerate(photo_paths):
                 thumb = cfg.thumbnails_dir / f"{p.stem}_thumb.jpg"
                 if not thumb.exists():
-                    raise FileNotFoundError(f"Thumbnail missing for {p.name} — run prepare first")
+                    raise FileNotFoundError(
+                        f"Thumbnail missing for {p.name} — run prepare first"
+                    )
                 blocks.append(
                     {
                         "type": "image_bytes",
@@ -284,14 +296,18 @@ def _build_visual_content_blocks(
                 meta_path.unlink()
             logger.info("Force: deleted cached mega-preview")
 
-        cache_key = hashlib.md5(str([(n, p.name, d) for n, d, p in video_entries]).encode()).hexdigest()
+        cache_key = hashlib.md5(
+            str([(n, p.name, d) for n, d, p in video_entries]).encode()
+        ).hexdigest()
 
         cached_meta = None
         if mega_path.exists() and meta_path.exists():
             try:
                 cached_meta = json.loads(meta_path.read_text())
             except (json.JSONDecodeError, OSError):
-                logger.debug("Could not read mega-preview cache %s", meta_path, exc_info=True)
+                logger.debug(
+                    "Could not read mega-preview cache %s", meta_path, exc_info=True
+                )
 
         if cached_meta and cached_meta.get("key") == cache_key:
             logger.info(f"Mega-preview cached ({len(video_entries)} videos)")
@@ -347,8 +363,12 @@ def _build_visual_content_blocks(
 
     # --- Validate everything before sending to Gemini ---
     n_text_blocks = sum(1 for b in blocks if isinstance(b, str))
-    n_images = sum(1 for b in blocks if isinstance(b, dict) and b.get("type") == "image_bytes")
-    n_videos = sum(1 for b in blocks if isinstance(b, dict) and b.get("type") == "video_bytes")
+    n_images = sum(
+        1 for b in blocks if isinstance(b, dict) and b.get("type") == "image_bytes"
+    )
+    n_videos = sum(
+        1 for b in blocks if isinstance(b, dict) and b.get("type") == "video_bytes"
+    )
 
     if n_text_blocks == 0:
         raise RuntimeError("No text blocks generated — check analysis_by_id key types")
@@ -362,7 +382,9 @@ def _build_visual_content_blocks(
     if len(text_item_nums) == 0:
         raise RuntimeError("No items (#XX) found in text metadata")
 
-    video_nums_in_mega = {num for num, _, _ in video_entries} if video_entries else set()
+    video_nums_in_mega = (
+        {num for num, _, _ in video_entries} if video_entries else set()
+    )
     missing_in_text = video_nums_in_mega - text_item_nums
     if missing_in_text:
         raise RuntimeError(
@@ -370,19 +392,18 @@ def _build_visual_content_blocks(
             f"{sorted(missing_in_text)[:10]}. Numbering out of sync."
         )
 
-    path_pattern = re.compile(r"path=(\S+)")
-    missing_files = []
+    file_pattern = re.compile(r"file=(\S+)")
+    n_files = 0
     for b in blocks:
         if isinstance(b, str):
-            for m in path_pattern.finditer(b):
-                p = Path(m.group(1))
-                if not p.exists():
-                    missing_files.append(str(p))
-    if missing_files:
-        raise RuntimeError(f"{len(missing_files)} source files don't exist: {missing_files[:5]}")
+            n_files += len(file_pattern.findall(b))
+    if n_files == 0 and len(text_item_nums) > 0:
+        raise RuntimeError("No file= references found in text metadata")
 
     inline_bytes = sum(
-        len(b.get("data", b"")) for b in blocks if isinstance(b, dict) and b.get("type") == "image_bytes"
+        len(b.get("data", b""))
+        for b in blocks
+        if isinstance(b, dict) and b.get("type") == "image_bytes"
     )
     if inline_bytes > 75 * 1024 * 1024:
         raise RuntimeError(
@@ -390,7 +411,11 @@ def _build_visual_content_blocks(
             f"(100MB base64). Reduce photo count or thumbnail size."
         )
 
-    video_bytes = sum(len(b.get("data", b"")) for b in blocks if isinstance(b, dict) and b.get("type") == "video_bytes")
+    video_bytes = sum(
+        len(b.get("data", b""))
+        for b in blocks
+        if isinstance(b, dict) and b.get("type") == "video_bytes"
+    )
 
     logger.info(
         f"Validation OK: {n_text_blocks} text, {n_images} images ({inline_bytes / 1024 / 1024:.1f}MB), "

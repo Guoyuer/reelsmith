@@ -152,7 +152,7 @@ videos should have keep_audio=true.
   (quick 1-2s cuts, no transitions, builds excitement before a calm segment)
 - color_temp: "neutral" (default), "warm" (family/food/indoor), "cool" (night/architecture).
   Use conservatively — most segments should be neutral.
-- CRITICAL: source_file must be the EXACT path value from the text metadata
+- CRITICAL: source_file must be the EXACT filename from the text metadata (the "file=" value)
 
 ## How your EDL gets rendered
 
@@ -196,7 +196,7 @@ Think step-by-step, then output valid JSON only:
       "segment_transition_duration": 1.0,
       "items": [
         {{
-          "source_file": "<exact path from metadata>",
+          "source_file": "<exact filename from file= in metadata>",
           "media_type": "photo|video",
           "display_duration": 3.0-10.0 (MUST = (preview_end - preview_start) / playback_speed for videos),
           "preview_start": null or "MM:SS" (video trim start in preview video),
