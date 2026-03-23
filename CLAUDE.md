@@ -6,10 +6,10 @@ Run pipeline via `python run.py` CLI. Stages execute directly in a single Python
 
 ```bash
 # Full pipeline from local folder
-python run.py -n singapore full local ./photos --duration 180 --lang cn --tz 8
+python run.py -n singapore full local ./photos -r 4k60 --duration 180 --lang cn --tz 8
 
 # Full pipeline from NAS
-python run.py -n singapore full nas -f 2025-06-13 -t 2025-06-17 --duration 180
+python run.py -n singapore full nas -f 2025-06-13 -t 2025-06-17 -r 1080p30 --duration 180
 
 # Prepare only (fetch + analyze)
 python run.py -n singapore prepare local ./photos --tz 8
@@ -17,11 +17,14 @@ python run.py -n singapore prepare local ./photos --tz 8
 # Re-plan only (no render)
 python run.py -n singapore plan --duration 180 --lang cn
 
-# Render (defaults 1080p30, output: vlog_v1_1080p30.mp4)
-python run.py -n singapore assemble
+# Render at 1080p30 (output: vlog_v1_1080p30.mp4)
+python run.py -n singapore assemble -r 1080p30
 
 # Render at 4K60 (output: vlog_v1_2160p60.mp4, reuses 1080p clips won't conflict)
-python run.py -n singapore assemble --width 3840 --height 2160 --fps 60
+python run.py -n singapore assemble -r 4k60
+
+# Custom resolution
+python run.py -n singapore assemble -r 2560x1440x60
 ```
 
 Logs go to terminal AND `workspace/runs/{name}/run_{timestamp}.log`. Run summary in `workspace/runs/{name}/run_status.json`.
@@ -125,7 +128,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - Title card uses first EDL photo as blurred background (fallback: purple gradient)
 - `prepare` = fetch + analyze; `plan` = plan + music; `assemble` = render. `full` = all three
 - `full local PATH` / `full nas -f -t` — source type is a subcommand, not a flag
-- `full` defaults to 4K60; `assemble` defaults to 1080p30 — different defaults by design
+- `--resolution` / `-r` is required for both `full` and `assemble` — no default. Presets: 4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30, or custom WxHxFPS
 - Clips cached per resolution (`seg00_item00_1080p30.mp4`); switching resolution doesn't re-render existing clips
 - Output files include resolution: `vlog_v1_1080p30.mp4` — different resolutions coexist
 - `workspace --clean safe|cache|media|all` — `safe` removes old outputs + intermediates only

@@ -450,9 +450,12 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
             _check_interrupted(display, status, ws, logger)
             display.start("assemble")
             ac = stage_configs.get("assemble", {})
+            for key in ("width", "height", "fps"):
+                if key not in ac:
+                    raise click.UsageError(f"Missing assemble config: {key} (use --resolution / -r)")
             _log_config(log, "assemble", ac, {
                 "version": 0, "edl_path": None,
-                "width": 1920, "height": 1080, "fps": 30, "quality": 1.0,
+                "width": None, "height": None, "fps": None, "quality": 1.0,
                 "skip_broken": False,
             })
             t0 = time.monotonic()
@@ -472,9 +475,9 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
                 if version <= 0:
                     version = find_latest_version(cfg)
 
-            width = ac.get("width", 1920)
-            height = ac.get("height", 1080)
-            fps = ac.get("fps", 30)
+            width = ac["width"]
+            height = ac["height"]
+            fps = ac["fps"]
             log(f"Render: {width}x{height} {fps}fps (EDL v{version})")
 
             out, issues = do_assemble(
@@ -632,10 +635,38 @@ _plan_options = [
                  help="auto=Gemini Lyria (default), local=MusicGen, /path/to/file, none=no music"),
 ]
 
+_RESOLUTION_PRESETS = {
+    "4k60":    (3840, 2160, 60),
+    "4k30":    (3840, 2160, 30),
+    "2k60":    (2560, 1440, 60),
+    "2k30":    (2560, 1440, 30),
+    "1080p60": (1920, 1080, 60),
+    "1080p30": (1920, 1080, 30),
+    "720p30":  (1280, 720,  30),
+}
+
+
+def _parse_resolution(ctx, param, value: str) -> tuple[int, int, int]:
+    """Parse resolution preset (e.g. '4k60', '1080p30') or WxHxFPS (e.g. '1920x1080x30')."""
+    key = value.lower().replace(" ", "")
+    if key in _RESOLUTION_PRESETS:
+        return _RESOLUTION_PRESETS[key]
+    # Try WxHxFPS format
+    parts = key.split("x")
+    if len(parts) == 3:
+        try:
+            w, h, fps = int(parts[0]), int(parts[1]), int(parts[2])
+            return (w, h, fps)
+        except ValueError:
+            pass
+    presets = ", ".join(_RESOLUTION_PRESETS)
+    raise click.BadParameter(f"Unknown resolution '{value}'. Use a preset ({presets}) or WxHxFPS (e.g. 1920x1080x30)")
+
+
 _assemble_options = [
-    click.option("--width", default=3840, type=int, help="Output width (default: 3840)"),
-    click.option("--height", default=2160, type=int, help="Output height (default: 2160)"),
-    click.option("--fps", default=60, type=int, help="Output FPS (default: 60)"),
+    click.option("--resolution", "-r", required=True, callback=_parse_resolution,
+                 expose_value=True, is_eager=False,
+                 help="Resolution preset (4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30) or WxHxFPS"),
     click.option("--quality", default=1.0, type=float,
                  help="Bitrate multiplier: 0.5=smaller, 1.0=YouTube (default), 2.0=master"),
 ]
@@ -710,8 +741,9 @@ def full():
 @click.pass_context
 def full_local(ctx, path, tz_hours, force,
                duration, trip_type, style, focus, lang, model, music,
-               width, height, fps, quality):
+               resolution, quality):
     """Full pipeline from a local folder."""
+    w, h, fps = resolution
     plan_cfg, extras, extra_stages = _plan_and_music_cfg(
         style, duration, focus, trip_type, lang, model, music, tz_hours)
     stages = ["fetch", "prepare", "plan"] + extra_stages + ["assemble"]
@@ -720,7 +752,7 @@ def full_local(ctx, path, tz_hours, force,
         "prepare": _prepare_cfg(force, tz_hours),
         "plan": plan_cfg,
         **extras,
-        "assemble": {"skip_broken": True, "width": width, "height": height,
+        "assemble": {"skip_broken": True, "width": w, "height": h,
                      "fps": fps, "quality": quality},
     }
     _run_pipeline(_run_name(ctx), cfg, stages=stages)
@@ -740,8 +772,9 @@ def full_local(ctx, path, tz_hours, force,
 def full_nas(ctx, from_date, to_date, country, district, item_types,
              tz_hours, force,
              duration, trip_type, style, focus, lang, model, music,
-             width, height, fps, quality):
+             resolution, quality):
     """Full pipeline from Synology NAS (date range)."""
+    w, h, fps = resolution
     plan_cfg, extras, extra_stages = _plan_and_music_cfg(
         style, duration, focus, trip_type, lang, model, music, tz_hours)
     stages = ["fetch", "prepare", "plan"] + extra_stages + ["assemble"]
@@ -750,7 +783,7 @@ def full_nas(ctx, from_date, to_date, country, district, item_types,
         "prepare": _prepare_cfg(force, tz_hours),
         "plan": plan_cfg,
         **extras,
-        "assemble": {"skip_broken": True, "width": width, "height": height,
+        "assemble": {"skip_broken": True, "width": w, "height": h,
                      "fps": fps, "quality": quality},
     }
     _run_pipeline(_run_name(ctx), cfg, stages=stages)
@@ -806,14 +839,15 @@ def plan(ctx, duration, trip_type, style, focus, lang, model,
 @cli.command()
 @click.option("-v", "--version", default=None, type=int, help="EDL version to render")
 @click.option("--edl", "edl_path", default=None, type=click.Path(exists=True), help="EDL JSON path (overrides version)")
-@click.option("--width", default=1920, type=int, help="Output width")
-@click.option("--height", default=1080, type=int, help="Output height")
-@click.option("--fps", default=30, type=int, help="Output FPS")
+@click.option("--resolution", "-r", required=True, callback=_parse_resolution,
+              expose_value=True, is_eager=False,
+              help="Resolution preset (4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30) or WxHxFPS")
 @click.option("--quality", default=1.0, type=float, help="Bitrate multiplier")
 @click.pass_context
-def assemble(ctx, version, edl_path, width, height, fps, quality):
+def assemble(ctx, version, edl_path, resolution, quality):
     """Re-render the vlog from current or specified EDL version."""
-    ac: dict = {"width": width, "height": height, "fps": fps, "quality": quality}
+    w, h, fps = resolution
+    ac: dict = {"width": w, "height": h, "fps": fps, "quality": quality}
     if version is not None:
         ac["version"] = version
     if edl_path is not None:

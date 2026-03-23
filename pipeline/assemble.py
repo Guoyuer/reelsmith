@@ -87,7 +87,7 @@ class RenderReport:
 # ---------------------------------------------------------------------------
 
 def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_broken: bool = False,
-             resolution: tuple[int, int] = (1920, 1080), fps: int = 30,
+             resolution: tuple[int, int], fps: int,
              quality: float = 1.0) -> tuple[Path, list[dict]]:
     """Read latest edl_v{N}.json and render the vlog video.
 
