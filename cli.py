@@ -562,8 +562,8 @@ _assemble_options = [
         help="Resolution preset (4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30) or WxHxFPS",
     ),
     click.option(
-        "--visual-quality", "quality", default=1.0, type=float,
-        help="Visual quality (bitrate multiplier): 0.5=smaller, 1.0=YouTube (default), 2.0=master",
+        "--bitrate", "quality", default=1.0, type=float,
+        help="Bitrate multiplier: 0.5=smaller, 1.0=YouTube (default), 2.0=master",
     ),
 ]
 
