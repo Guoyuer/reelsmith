@@ -49,9 +49,9 @@ def _gemini_call(
         raise RuntimeError(f"Model '{model}' not available: {e}") from e
 
     # Validate thinking_level
-    valid_thinking = {"OFF", "LOW", "HIGH"}
+    valid_thinking = ("OFF", "MINIMAL", "LOW", "MEDIUM", "HIGH")
     if thinking_level not in valid_thinking:
-        raise ValueError(f"Invalid thinking_level '{thinking_level}'. Must be one of: {valid_thinking}")
+        raise ValueError(f"Invalid thinking_level '{thinking_level}'. Must be one of: {', '.join(valid_thinking)}")
 
     # First pass: calculate total media size to decide inline vs Files API
     n_text = 0
