@@ -227,10 +227,6 @@ class Timeline:
 
         return chapters
 
-    def xfade_offsets(self) -> list[float]:
-        """Offsets for the xfade filter chain (video_offset per clip)."""
-        return [e.video_offset for e in self.entries]
-
     def dump(self) -> None:
         """Print the full timeline for debugging."""
         logger.info("=== Timeline ===")

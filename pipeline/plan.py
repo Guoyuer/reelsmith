@@ -116,20 +116,6 @@ def _timestamp_to_secs(ts: str) -> float:
     return 0.0
 
 
-def _preview_ts_to_local(
-    preview_ts: str, offset_table: list[tuple[int, float, float]],
-) -> tuple[int, float] | None:
-    """Convert a preview timestamp to (item_num, local_seconds).
-
-    offset_table: [(item_num, clip_duration, offset_in_preview), ...]
-    Returns None if timestamp doesn't fall within any clip.
-    """
-    secs = _timestamp_to_secs(preview_ts)
-    for item_num, dur, offset in offset_table:
-        if offset <= secs < offset + dur:
-            return item_num, round(secs - offset, 1)
-    return None
-
 
 # ---------------------------------------------------------------------------
 # Gemini API call helper
@@ -617,7 +603,6 @@ def _build_visual_content_blocks(
     Photos are sent as individual 400px thumbnails (each gets full token budget).
     Videos are concatenated into one mega-preview with burned-in #XX labels.
     """
-    from .media_utils import run_subprocess
 
     blocks: list = []
     preview_dir = cfg.preview_clips_dir
@@ -803,7 +788,6 @@ def _build_visual_content_blocks(
 
 def _plan_visual(
     cfg: Config, preprocessed: dict, analysis_by_id: dict,
-    analysis_items: list[dict],
     style: str, target_duration: int, focus: str,
     trip_type: str = "family", language: str = "en",
     tz_hours: int | None = None, model: str | None = None,
@@ -1140,13 +1124,13 @@ Candidates by day/location:"""
     all_items = edl.all_items()
     n_videos = sum(1 for i in all_items if i.media_type == "video")
     n_photos = len(all_items) - n_videos
-    n_keep_audio = sum(1 for i in edl.all_items() if i.keep_audio)
-    n_text_overlay = sum(1 for i in edl.all_items() if i.text_overlay)
-    n_speed_ramp = sum(1 for i in edl.all_items() if i.playback_speed != 1.0)
+    n_keep_audio = sum(1 for i in all_items if i.keep_audio)
+    n_text_overlay = sum(1 for i in all_items if i.text_overlay)
+    n_speed_ramp = sum(1 for i in all_items if i.playback_speed != 1.0)
 
     logger.info(f"=== [Gemini] PARSED EDL ===")
     logger.info(f"  Title: {edl.title}")
-    logger.info(f"  Segments: {len(edl.segments)}, Items: {len(edl.all_items())} "
+    logger.info(f"  Segments: {len(edl.segments)}, Items: {len(all_items)} "
          f"({n_photos} photos + {n_videos} videos)")
     logger.info(f"  Duration: {actual_dur:.0f}s (target: {target_duration}s, "
          f"{'OK' if actual_dur >= target_duration * 0.8 else 'UNDERFILLED'})")
@@ -1214,7 +1198,7 @@ def plan(
     analysis_by_id: dict[str, dict] = {str(a["id"]): a for a in analysis_items}
 
     logger.info(f"Planning via Gemini with visual input (target {target_duration}s, style={style}, trip_type={trip_type}, lang={language})...")
-    edl = _plan_visual(cfg, preprocessed, analysis_by_id, analysis_items,
+    edl = _plan_visual(cfg, preprocessed, analysis_by_id,
                        style=style, target_duration=target_duration,
                        focus=effective_focus, trip_type=trip_type,
                        language=language, tz_hours=tz_hours,

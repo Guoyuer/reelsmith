@@ -36,8 +36,6 @@ logger = logging.getLogger("vlog.prepare")
 # Default timezone: system local (replaces hardcoded SGT)
 _LOCAL_TZ = datetime.now(timezone.utc).astimezone().tzinfo
 
-SKIP_PREFIXES = ("screenshot", "screen_", "pano_")
-PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 

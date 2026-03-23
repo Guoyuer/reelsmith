@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import signal
 import sys
 import time
@@ -424,16 +423,11 @@ def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | Non
         if "generate_music" in active:
             _check_interrupted(display, status, ws, logger)
             display.start("generate_music")
-            mc = stage_configs.get("generate_music", {})
-            _log_config(log, "generate_music", mc, {
-                "music_backend": "gemini",
-            })
+            _log_config(log, "generate_music", {}, {})
             t0 = time.monotonic()
 
             from pipeline.music import generate_music_for_edl
-            track = generate_music_for_edl(
-                cfg, music_backend=mc.get("music_backend", "gemini"),
-            )
+            track = generate_music_for_edl(cfg)
 
             dur = time.monotonic() - t0
             if track:
@@ -598,20 +592,14 @@ def _plan_and_music_cfg(style: str, duration: int, focus: str, trip_type: str,
     if model:
         plan_cfg["model"] = model
 
-    music_backend = "gemini"
     extra_stages: list[str] = []
     extras: dict = {}
-    if music == "local":
-        plan_cfg["music_file"] = "auto"
-        music_backend = "local"
-        extra_stages.append("generate_music")
-        extras["generate_music"] = {"music_backend": music_backend}
-    elif music == "none":
+    if music == "none":
         pass
     elif music == "auto":
         plan_cfg["music_file"] = "auto"
         extra_stages.append("generate_music")
-        extras["generate_music"] = {"music_backend": music_backend}
+        extras["generate_music"] = {}
     else:
         plan_cfg["music_file"] = music
     return plan_cfg, extras, extra_stages
@@ -632,7 +620,7 @@ _plan_options = [
     click.option("--lang", default="en", type=click.Choice(["en", "cn", "both"]), help="Text language"),
     click.option("--model", default=None, help="Gemini model override"),
     click.option("--music", default="auto",
-                 help="auto=Gemini Lyria (default), local=MusicGen, /path/to/file, none=no music"),
+                 help="auto=Gemini Lyria (default), /path/to/file, none=no music"),
 ]
 
 _RESOLUTION_PRESETS = {
@@ -774,33 +762,10 @@ def full(ctx, source, path, from_date, to_date, country, district, item_types,
 def plan(ctx, duration, trip_type, style, focus, lang, model,
          music, tz_hours):
     """Re-plan only (uses cached media + analysis). Run assemble separately to render."""
-    plan_cfg: dict = {
-        "style": style, "target_duration": duration,
-        "focus": focus, "trip_type": trip_type, "language": lang,
-    }
-    if tz_hours is not None:
-        plan_cfg["tz_hours"] = tz_hours
-    if model:
-        plan_cfg["model"] = model
-
-    music_backend = "gemini"
-    stages = ["plan"]
-    if music == "local":
-        plan_cfg["music_file"] = "auto"
-        music_backend = "local"
-        stages.append("generate_music")
-    elif music == "none":
-        pass
-    elif music == "auto":
-        plan_cfg["music_file"] = "auto"
-        stages.append("generate_music")
-    else:
-        plan_cfg["music_file"] = music
-
-    stage_cfg: dict = {"plan": plan_cfg}
-    if "generate_music" in stages:
-        stage_cfg["generate_music"] = {"music_backend": music_backend}
-    _run_pipeline(_run_name(ctx), stage_cfg, stages=stages)
+    plan_cfg, extras, extra_stages = _plan_and_music_cfg(
+        style, duration, focus, trip_type, lang, model, music, tz_hours)
+    stages = ["plan"] + extra_stages
+    _run_pipeline(_run_name(ctx), {"plan": plan_cfg, **extras}, stages=stages)
 
 
 @cli.command()

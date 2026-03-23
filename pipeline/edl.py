@@ -122,15 +122,11 @@ def save_edl(cfg: Config, edl: EDL, version: int) -> Path:
 
 
 def load_latest_edl(cfg: Config) -> tuple[EDL, int]:
-    """Load the latest edl_v{N}.json. Falls back to edl.json for migration."""
+    """Load the latest edl_v{N}.json."""
     version = find_latest_version(cfg)
-    if version > 0:
-        path = cfg.edl_path(version)
-    else:
-        path = cfg.workspace / "edl.json"
-        if not path.exists():
-            raise FileNotFoundError(f"No EDL found in {cfg.workspace}")
-        version = 1
+    if version == 0:
+        raise FileNotFoundError(f"No EDL found in {cfg.workspace}")
+    path = cfg.edl_path(version)
     return EDL.model_validate_json(path.read_text()), version
 
 
