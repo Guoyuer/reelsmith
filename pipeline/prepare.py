@@ -102,7 +102,7 @@ def prepare(
     for i, item in enumerate(manifest, 1):
         item_id = item["id"]
         if progress_callback:
-            progress_callback(i, len(manifest), item["filename"])
+            progress_callback(i, len(manifest), "analysis")
 
         if item_id in existing:
             results.append(existing[item_id])

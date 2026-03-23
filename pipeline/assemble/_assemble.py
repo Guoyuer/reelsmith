@@ -43,7 +43,9 @@ class AssembleConfig:
             raise ValueError(f"Invalid quality: {self.quality}")
 
 
-def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tuple[Path, list[dict]]:
+def assemble(
+    cfg: Config, ac: AssembleConfig, *, progress_callback=None
+) -> tuple[Path, list[dict]]:
     """Render a vlog from an EDL. Returns (output_path, validation_issues)."""
     cfg.ensure_dirs()
 
@@ -57,10 +59,16 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
     issues = validate_edl(edl, strict=False)
     errors = [i for i in issues if i["level"] == "error"]
     for i in issues:
-        logger.info(f"  EDL {'ERROR' if i['level'] == 'error' else 'WARNING'}: {i['message']}")
+        logger.info(
+            f"  EDL {'ERROR' if i['level'] == 'error' else 'WARNING'}: {i['message']}"
+        )
     if errors:
-        raise ValueError(f"EDL validation failed: {'; '.join(i['message'] for i in errors)}")
-    logger.info(f"EDL: {len(edl.all_items())} items, {len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s")
+        raise ValueError(
+            f"EDL validation failed: {'; '.join(i['message'] for i in errors)}"
+        )
+    logger.info(
+        f"EDL: {len(edl.all_items())} items, {len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s"
+    )
 
     ctx = RenderContext(w=ac.w, h=ac.h, fps=ac.fps, quality=ac.quality)
     res_label = f"{ac.h}p{ac.fps}"
@@ -84,19 +92,24 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
     )
 
     fade_params = compute_fade_params(edl)
-    segment_files: list[Path] = [output_dir / f"_seg_{i}_{res_label}.ts" for i in range(len(edl.segments))]
+    segment_files: list[Path] = [
+        output_dir / f"_seg_{i}_{res_label}.ts" for i in range(len(edl.segments))
+    ]
 
     # Build per-segment FFmpeg commands (must be sequential — graph needs ctx.probe)
     segment_cmds: list[tuple[int, list[str]]] = []
     for seg_idx, segment in enumerate(edl.segments):
         graph = build_segment_graph(
-            segment, ctx,
+            segment,
+            ctx,
             fade_params=fade_params[seg_idx],
             language=edl.language,
             title_card_path=intro_path if seg_idx == 0 else None,
             outro_card_path=outro_path if seg_idx == len(edl.segments) - 1 else None,
             intro_duration=edl.intro_duration if seg_idx == 0 else 0.0,
-            outro_duration=edl.outro_duration if seg_idx == len(edl.segments) - 1 else 0.0,
+            outro_duration=edl.outro_duration
+            if seg_idx == len(edl.segments) - 1
+            else 0.0,
         )
         script_path = output_dir / f"_seg_{seg_idx}_{res_label}.txt"
         script_path.write_text(graph.script, encoding="utf-8")
@@ -111,10 +124,13 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
         cmd += ["-c:a", "aac", "-b:a", "192k"]
         cmd += [str(segment_files[seg_idx])]
         segment_cmds.append((seg_idx, cmd))
-        logger.info(f"  Segment {seg_idx}: {len(segment.items)} items, {len(graph.inputs)} inputs")
+        logger.info(
+            f"  Segment {seg_idx}: {len(segment.items)} items, {len(graph.inputs)} inputs"
+        )
 
     # Render segments in parallel (3 NVENC sessions max)
     from ..parallel import run_parallel
+
     max_workers = 3 if "nvenc" in " ".join(ctx.get_encoder()) else 2
 
     def _render_seg(seg_idx, cmd):
@@ -123,20 +139,24 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
             raise RuntimeError(f"Segment {seg_idx} failed: {result.stderr[-500:]}")
         return seg_idx
 
-    tasks = [(idx, lambda idx=idx, cmd=cmd: _render_seg(idx, cmd)) for idx, cmd in segment_cmds]
+    tasks = [
+        (idx, lambda idx=idx, cmd=cmd: _render_seg(idx, cmd))
+        for idx, cmd in segment_cmds
+    ]
     results = run_parallel(tasks, max_workers)
 
-    for seg_idx, result in results:
+    for i, (seg_idx, result) in enumerate(results):
         if isinstance(result, Exception):
             raise RuntimeError(f"Segment {seg_idx} render failed: {result}")
         dur = ctx.probe_duration(segment_files[seg_idx]) or 0.0
         logger.info(f"  Segment {seg_idx}: {dur:.1f}s")
+        if progress_callback:
+            progress_callback(i + 1, len(segment_cmds), "render")
 
     t_phase1 = time.monotonic() - t_start
     logger.info(f"Phase 1: {t_phase1:.0f}s ({len(segment_files)} segments)")
 
     # --- Phase 2: Final concat + music ---
-    t2 = time.monotonic()
     logger.info("Phase 2: Concat + music...")
 
     # Concat (video + speech audio copy, no re-encode)
@@ -156,9 +176,18 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
             f.write(f"file '{safe}'\n")
 
     cmd = [
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-        "-i", str(list_path),
-        "-c:v", "copy", "-c:a", "copy",
+        "ffmpeg",
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(list_path),
+        "-c:v",
+        "copy",
+        "-c:a",
+        "copy",
         str(nomix_path),
     ]
     result = run_subprocess(cmd, capture_output=True, text=True, timeout=60)
@@ -176,7 +205,7 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
         fade_in = edl.music.fade_in
         fade_out = edl.music.fade_out
 
-        music_chain = f"[1:a] "
+        music_chain = "[1:a] "
         if music_dur < total_dur:
             loops = int(total_dur / music_dur) + 1
             samples = int(music_dur * 48000)
@@ -194,12 +223,24 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
         )
 
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(nomix_path),
-            "-i", str(music_path),
-            "-filter_complex", fc,
-            "-map", "0:v", "-map", "[aout]",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(nomix_path),
+            "-i",
+            str(music_path),
+            "-filter_complex",
+            fc,
+            "-map",
+            "0:v",
+            "-map",
+            "[aout]",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
             "-shortest",
             str(output_path),
         ]
@@ -211,7 +252,6 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
 
         nomix_path.unlink(missing_ok=True)
 
-    t_phase2 = time.monotonic() - t2
     total_time = time.monotonic() - t_start
 
     # Chapters (before cleanup — needs segment files for durations)
@@ -224,10 +264,12 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
         seg_file.unlink(missing_ok=True)
 
     if progress_callback:
-        progress_callback(len(edl.segments) + 1, len(edl.segments) + 1, "done")
+        progress_callback(len(segment_cmds), len(segment_cmds), "concat + mix")
 
     final_dur = ctx.probe_duration(output_path) or 0.0
-    logger.info(f"Done: {output_path.name} ({final_dur:.1f}s, rendered in {total_time:.0f}s)")
+    logger.info(
+        f"Done: {output_path.name} ({final_dur:.1f}s, rendered in {total_time:.0f}s)"
+    )
 
     # Validate
     has_speech = any(item.keep_audio for item in edl.all_items())
@@ -254,8 +296,12 @@ def _render_title_card_if_needed(edl, kind, path, ctx, res_label) -> Path | None
         if not path.exists():
             bg = _find_first_photo(edl)
             render_title_card(
-                edl.title, edl.date_range, path,
-                duration=edl.intro_duration, language=edl.language, ctx=ctx,
+                edl.title,
+                edl.date_range,
+                path,
+                duration=edl.intro_duration,
+                language=edl.language,
+                ctx=ctx,
                 background_photo=bg,
             )
         if not path.exists():
@@ -263,7 +309,14 @@ def _render_title_card_if_needed(edl, kind, path, ctx, res_label) -> Path | None
         return path
     elif kind == "outro" and edl.outro_style == "fade_title" and edl.title:
         if not path.exists():
-            render_title_card(edl.title, "", path, duration=edl.outro_duration, language=edl.language, ctx=ctx)
+            render_title_card(
+                edl.title,
+                "",
+                path,
+                duration=edl.outro_duration,
+                language=edl.language,
+                ctx=ctx,
+            )
         if not path.exists():
             raise RuntimeError(f"Outro title card render failed: {path}")
         return path
@@ -272,6 +325,7 @@ def _render_title_card_if_needed(edl, kind, path, ctx, res_label) -> Path | None
 
 def _find_first_photo(edl: EDL) -> str | None:
     from ..image_utils import convert_heic
+
     for seg in edl.segments:
         for item in seg.items:
             if item.media_type == "photo":
@@ -309,8 +363,18 @@ def _validate_output(output_path, edl, has_speech, resolution, ctx=None):
             _warn("duration", f"{actual_dur:.1f}s < 80% of expected {expected:.1f}s")
 
     stream_result = run_subprocess(
-        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name", "-of", "csv=p=0",
-         str(output_path)], capture_output=True, text=True,
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type,codec_name",
+            "-of",
+            "csv=p=0",
+            str(output_path),
+        ],
+        capture_output=True,
+        text=True,
     )
     has_video = "video" in stream_result.stdout
     has_audio = "audio" in stream_result.stdout

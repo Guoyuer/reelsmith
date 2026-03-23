@@ -82,6 +82,8 @@ class _PipelineDisplay:
                 "current": 0,
                 "total": 0,
                 "dur": 0,
+                "subs": {},  # sub_name → {"current": N, "total": N}
+                "sub_order": [],  # ordered sub-stage names
             }
 
         if sys.stderr.isatty():
@@ -127,7 +129,7 @@ class _PipelineDisplay:
                 spinner = self._SPINNER_FRAMES[self._tick % len(self._SPINNER_FRAMES)]
                 icon = Text(spinner, style="bold cyan")
                 label = Text(name, style="bold cyan")
-                info = self._build_progress(d)
+                info = self._build_progress(d) if not d["subs"] else Text("")
             elif d["state"] == "done":
                 icon = Text(_ICON_DONE)
                 label = Text(name, style="green")
@@ -141,6 +143,13 @@ class _PipelineDisplay:
                 info = Text(d["detail"][:50], style="red")
 
             table.add_row(icon, label, info)
+
+            # Sub-stage progress rows
+            if d["state"] == "running" and d["subs"]:
+                for sub_name in d["sub_order"]:
+                    sub = d["subs"][sub_name]
+                    sub_bar = self._build_sub_progress(sub_name, sub)
+                    table.add_row(Text(""), Text(""), sub_bar)
 
         panel = Panel(
             table,
@@ -172,6 +181,21 @@ class _PipelineDisplay:
             return Text(label, style="cyan")
         return Text("", style="cyan")
 
+    def _build_sub_progress(self, name: str, sub: dict):
+        """Build a sub-stage progress line."""
+        from rich.text import Text
+
+        cur, total = sub["current"], sub["total"]
+        if total > 0:
+            pct = cur / total
+            bar_w = 16
+            filled = int(pct * bar_w)
+            bar = "\u2588" * filled + "\u2591" * (bar_w - filled)
+            return Text(
+                f"  {name:<14s} {bar} {cur}/{total} {pct:.0%}", style="dim cyan"
+            )
+        return Text(f"  {name}", style="dim cyan")
+
     def start(self, stage: str) -> None:
         self._current_stage = stage
         self._stage_data[stage].update(state="running", label="", current=0, total=0)
@@ -181,7 +205,20 @@ class _PipelineDisplay:
         d = self._stage_data.get(stage)
         if not d:
             return
-        # Parse "42/125" format for progress bar
+        # Sub-stage format: "sub_name:current/total"
+        if ":" in detail and "/" in detail:
+            try:
+                sub_name, progress = detail.split(":", 1)
+                cur_s, tot_s = progress.split("/")
+                cur, tot = int(cur_s), int(tot_s)
+                if sub_name not in d["subs"]:
+                    d["sub_order"].append(sub_name)
+                d["subs"][sub_name] = {"current": cur, "total": tot}
+                self._refresh()
+                return
+            except (ValueError, IndexError):
+                pass
+        # Simple "current/total" format (no sub-stage)
         if "/" in detail:
             try:
                 parts = detail.split("/")
@@ -277,9 +314,8 @@ def _progress_cb(
     def cb(current: int, total: int, name: str) -> None:
         if total == 0:
             return
-        display.update(stage, f"{current}/{total}")
-        if name:
-            display.update(stage, name)
+        # Send as sub-stage progress: "name:current/total"
+        display.update(stage, f"{name}:{current}/{total}")
         # Log at ~10% intervals to file
         if current % max(total // 10, 1) == 0 or current == total:
             elapsed = time.monotonic() - t0
