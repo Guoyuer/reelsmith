@@ -1,4 +1,4 @@
-"""Tests for music generation backends (local MusicGen + Gemini Lyria RealTime)."""
+"""Tests for music generation (Gemini Lyria RealTime)."""
 
 from __future__ import annotations
 
@@ -70,26 +70,12 @@ class TestWriteWav:
 # ---------------------------------------------------------------------------
 
 class TestGenerateMusic:
-    def test_dispatches_to_local(self, tmp_path: Path):
-        from pipeline.music import generate_music
-
-        with patch("pipeline.music.generate_music_local", return_value=tmp_path / "track.wav") as mock:
-            result = generate_music(
-                "family", "upbeat", 30, tmp_path, music_backend="local",
-            )
-
-        mock.assert_called_once_with(
-            trip_type="family", style="upbeat", target_duration=30,
-            cache_dir=tmp_path, mood="",
-        )
-        assert result == tmp_path / "track.wav"
-
     def test_dispatches_to_gemini(self, tmp_path: Path):
         from pipeline.music import generate_music
 
         with patch("pipeline.music_gemini.generate_music_gemini", return_value=tmp_path / "track.wav") as mock:
             result = generate_music(
-                "family", "upbeat", 30, tmp_path, music_backend="gemini",
+                "family", "upbeat", 30, tmp_path,
             )
 
         mock.assert_called_once_with(
@@ -98,21 +84,13 @@ class TestGenerateMusic:
         )
         assert result == tmp_path / "track.wav"
 
-    def test_unknown_backend_falls_back_to_local(self, tmp_path: Path):
-        from pipeline.music import generate_music
-
-        with patch("pipeline.music.generate_music_local", return_value=None) as mock:
-            generate_music("family", "upbeat", 30, tmp_path, music_backend="unknown")
-
-        mock.assert_called_once()
-
     def test_passes_mood(self, tmp_path: Path):
         from pipeline.music import generate_music
 
-        with patch("pipeline.music.generate_music_local", return_value=None) as mock:
+        with patch("pipeline.music_gemini.generate_music_gemini", return_value=None) as mock:
             generate_music(
                 "solo", "cinematic", 60, tmp_path,
-                mood="gentle piano", music_backend="local",
+                mood="gentle piano",
             )
 
         mock.assert_called_once_with(
@@ -290,13 +268,12 @@ class TestGenerateMusicForEdl:
         cfg = Config.load(str(ws))
 
         with patch("pipeline.music.generate_music", return_value=None) as mock:
-            generate_music_for_edl(cfg, music_backend="gemini")
+            generate_music_for_edl(cfg)
 
         mock.assert_called_once()
         _, kwargs = mock.call_args
         assert kwargs["trip_type"] == "family"
         assert kwargs["style"] == "upbeat"
-        assert kwargs["music_backend"] == "gemini"
         assert "gentle piano" in kwargs["mood"]
 
     def test_updates_edl_on_success(self, tmp_path: Path):
@@ -310,7 +287,7 @@ class TestGenerateMusicForEdl:
         fake_track.write_bytes(b"RIFF" + b"\x00" * 100)
 
         with patch("pipeline.music.generate_music", return_value=fake_track):
-            result = generate_music_for_edl(cfg, music_backend="local")
+            result = generate_music_for_edl(cfg)
 
         assert result is not None
 
@@ -326,24 +303,9 @@ class TestGenerateMusicForEdl:
         cfg = Config.load(str(ws))
 
         with patch("pipeline.music.generate_music", return_value=None):
-            result = generate_music_for_edl(cfg, music_backend="local")
+            result = generate_music_for_edl(cfg)
 
         assert result is None
-
-
-# ---------------------------------------------------------------------------
-# Dagster config tests
-# ---------------------------------------------------------------------------
-
-class TestGenerateMusicConfig:
-    def test_default_backend_is_gemini(self):
-        """Default music backend in run.py is 'gemini'."""
-        # Previously tested via Dagster config; now just verify the CLI default
-        assert True  # Default is hardcoded in run.py _run_pipeline as "gemini"
-
-    def test_local_backend_option(self):
-        """--music local sets backend to 'local'."""
-        assert True  # Verified via CLI integration
 
 
 # ---------------------------------------------------------------------------

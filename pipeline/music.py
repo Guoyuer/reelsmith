@@ -1,10 +1,9 @@
-"""Music generation for vlogs — dispatcher + local MusicGen backend.
+"""Music generation for vlogs — Gemini Lyria RealTime backend.
 
-Supports two backends:
-  - "local": Meta's MusicGen (facebook/musicgen-medium) via HuggingFace transformers
-  - "gemini": Google's Lyria RealTime API via WebSocket streaming
+Generates per-segment music based on EDL music_mood descriptions,
+then crossfades them into a single composite track.
 
-Falls back gracefully if model/API unavailable — vlog renders without music.
+Falls back gracefully if API unavailable — vlog renders without music.
 """
 
 from __future__ import annotations
@@ -18,122 +17,16 @@ logger = logging.getLogger("vlog.music")
 from .music_prompts import get_prompt as _get_prompt
 
 
-def generate_music_local(
-    trip_type: str,
-    style: str,
-    target_duration: int,
-    cache_dir: Path,
-    mood: str = "",
-) -> Path | None:
-    """Generate background music via MusicGen (local backend).
-
-    Returns path to generated wav, or None if unavailable.
-    Caches tracks in cache_dir to avoid regenerating.
-    """
-
-    # Check cache — keyed by trip_type, style, AND duration
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_key = f"{trip_type}_{style}_{target_duration}s"
-    cache_meta = cache_dir / f"{cache_key}.json"
-    if cache_meta.exists():
-        meta = json.loads(cache_meta.read_text())
-        cached_path = Path(meta.get("path", ""))
-        if cached_path.exists():
-            logger.info("Using cached music: %s", cached_path.name)
-            return cached_path
-
-    # Use Gemini's music_mood if available, otherwise fall back to template
-    prompt = mood if mood else _get_prompt(trip_type, style)
-    model_name = "facebook/musicgen-medium"
-    logger.info("=== Music Generation ===")
-    logger.info("Model: %s", model_name)
-    logger.info("Prompt: '%s'", prompt)
-    logger.info("Target duration: %ds", target_duration)
-    logger.info("Cache key: %s", cache_key)
-
-    try:
-        import time
-        import scipy.io.wavfile
-        import torch
-        from transformers import AutoProcessor, AutoConfig
-
-        logger.info("Loading MusicGen model (this may download ~6GB on first run)...")
-        t0 = time.time()
-        processor = AutoProcessor.from_pretrained(model_name)
-
-        # Load config first, then model with explicit config to avoid
-        # transformers bug where config_class=MusicgenDecoderConfig
-        config = AutoConfig.from_pretrained(model_name)
-        from transformers import MusicgenForConditionalGeneration
-        from transformers.models.musicgen.configuration_musicgen import MusicgenConfig
-        MusicgenForConditionalGeneration.config_class = MusicgenConfig
-        model = MusicgenForConditionalGeneration.from_pretrained(model_name, config=config)
-        sr = model.config.audio_encoder.sampling_rate
-        params_m = sum(p.numel() for p in model.parameters()) / 1e6
-        logger.info("Model loaded in %.0fs (%.0fM params, sr=%dHz)", time.time()-t0, params_m, sr)
-
-        # ~50 tokens per second of audio, capped at model's max_position_embeddings
-        max_positions = model.config.decoder.max_position_embeddings
-        max_tokens = min(int(target_duration * 50), max_positions - 10)
-        actual_dur = max_tokens / 50
-        if actual_dur < target_duration:
-            logger.warning("Model max position limit: capping at %.0fs "
-                           "(requested %ds, max_positions=%d)", actual_dur, target_duration, max_positions)
-        logger.info("Generating %ds audio (%d tokens)... "
-                    "Estimated time: ~%dmin", target_duration, max_tokens, target_duration * 20 // 60)
-        inputs = processor(text=[prompt], padding=True, return_tensors="pt")
-        t0 = time.time()
-        with torch.no_grad():
-            audio = model.generate(**inputs, max_new_tokens=max_tokens)
-        gen_time = time.time() - t0
-
-        dur = audio.shape[-1] / sr
-        logger.info("Generated %.1fs of audio in %.0fs (%.1fx realtime)", dur, gen_time, gen_time/dur)
-
-        out_path = cache_dir / f"{cache_key}.wav"
-        logger.info("Saving to %s...", out_path)
-        audio_np = audio[0, 0].cpu().numpy()
-        scipy.io.wavfile.write(str(out_path), sr, audio_np)
-
-        cache_meta.write_text(json.dumps({
-            "path": str(out_path),
-            "prompt": prompt,
-            "duration": round(dur, 1),
-            "trip_type": trip_type,
-            "style": style,
-            "model": model_name,
-            "gen_time_s": round(gen_time, 1),
-        }))
-
-        logger.info("Music saved: %s (%dKB)", out_path.name, out_path.stat().st_size // 1024)
-        return out_path
-
-    except Exception as e:
-        import traceback
-        logger.error("Music generation failed: %s", e)
-        logger.error(traceback.format_exc())
-        return None
-
-
 def generate_music(
     trip_type: str,
     style: str,
     target_duration: int,
     cache_dir: Path,
     mood: str = "",
-    music_backend: str = "local",
 ) -> Path | None:
-    """Generate background music using the specified backend.
-
-    music_backend: "local" (MusicGen) or "gemini" (Lyria RealTime API)
-    """
-    if music_backend == "gemini":
-        from .music_gemini import generate_music_gemini
-        return generate_music_gemini(
-            trip_type=trip_type, style=style, target_duration=target_duration,
-            cache_dir=cache_dir, mood=mood,
-        )
-    return generate_music_local(
+    """Generate background music via Gemini Lyria RealTime API."""
+    from .music_gemini import generate_music_gemini
+    return generate_music_gemini(
         trip_type=trip_type, style=style, target_duration=target_duration,
         cache_dir=cache_dir, mood=mood,
     )
@@ -221,10 +114,7 @@ def _build_composite_music(
     return True
 
 
-def generate_music_for_edl(
-    cfg,
-    music_backend: str = "local",
-) -> Path | None:
+def generate_music_for_edl(cfg) -> Path | None:
     """Generate per-segment music and build a composite track with crossfades.
 
     Called by the generate_music stage. Generates one Lyria track per
@@ -247,7 +137,7 @@ def generate_music_for_edl(
     music_cache = cfg.music_dir
 
     # Generate per-segment music tracks
-    logger.info("Generating per-segment music: %d segments, backend=%s", len(edl.segments), music_backend)
+    logger.info("Generating per-segment music: %d segments", len(edl.segments))
     segment_tracks: list[tuple[float, Path]] = []
 
     for i, seg in enumerate(edl.segments):
@@ -260,7 +150,6 @@ def generate_music_for_edl(
             trip_type=edl.trip_type, style=edl.style,
             target_duration=seg_dur,
             cache_dir=music_cache, mood=mood,
-            music_backend=music_backend,
         )
         if track:
             seg.music_file = str(track)

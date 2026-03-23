@@ -145,7 +145,7 @@ python run.py -n <name> full [OPTIONS]
 
 | Flag | Default | Values | Description |
 |------|---------|--------|-------------|
-| `--music` | `auto` | `auto`, `local`, `/path/to/file`, `none` | `auto` = Gemini Lyria (~8s). `local` = MusicGen (~20 min). Path = custom file |
+| `--music` | `auto` | `auto`, `/path/to/file`, `none` | `auto` = Gemini Lyria (~8s). Path = custom file |
 
 **Other:**
 
@@ -236,7 +236,6 @@ Generates background music from EDL `music_mood` descriptions. Skipped when `--m
 | `--music` | Backend | Speed | Quality |
 |-----------|---------|-------|---------|
 | `auto` (default) | Gemini Lyria RealTime | ~8s for 60s | 48kHz stereo |
-| `local` | MusicGen (facebook/musicgen-medium) | ~20 min for 60s | 32kHz mono |
 
 ### 5. assemble
 Renders the final video in 4 phases:
@@ -268,8 +267,7 @@ Narrative guidance per trip type (editable in `pipeline/prompts/narrative_guidan
 - **Gemini API key** — `GEMINI_API_KEY` in `.env`
 - **Synology Photos API** — only for `--source nas` (the [synology-photos-project](../synology-photos-project) backend)
 
-Optional (installed with `pip install -e ".[music]"`):
-- **PyTorch + transformers + scipy** — local MusicGen (`--music local`)
+No local AI models needed — everything runs via Gemini API.
 
 ### Platform Notes
 
@@ -284,10 +282,7 @@ Optional (installed with `pip install -e ".[music]"`):
 | Component | Model | RAM | Notes |
 |-----------|-------|-----|-------|
 | Planning | Gemini 3 Flash (remote) | — | Sees photos + listens to videos |
-| Music (default) | Lyria RealTime (remote) | — | `--music auto` |
-| Music (local) | MusicGen medium | ~6GB | `--music local` |
-
-With defaults, no local AI models are needed — everything runs via Gemini API.
+| Music | Lyria RealTime (remote) | — | `--music auto` |
 
 ## Testing
 

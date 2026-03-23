@@ -118,7 +118,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - Stale cache auto-invalidation: prepare re-runs if upstream file is newer (mtime check)
 - FFmpeg subprocesses have a 5-minute timeout (prevents hanging on corrupt files)
 - Ken Burns uses cosine easing (ease-in/ease-out); only applies to photos (videos use a separate render path)
-- `--music auto` uses Gemini Lyria RealTime; `--music local` uses MusicGen — single flag controls both backend and intent
+- `--music auto` uses Gemini Lyria RealTime; `--music /path/to/file` uses custom audio; `--music none` disables music
 - `--lang en|cn|both` controls text language (title, overlays, chapters); cn/both auto-selects CJK font
 - Clip rendering is parallel via `parallel.run_parallel()`: 3 workers for NVENC, 2 for VideoToolbox, cpu_count/2 for libx264
 - HEVC auto-detected: hevc_nvenc (Win/Linux) or hevc_videotoolbox (macOS); falls back to H.264 NVENC → libx264
