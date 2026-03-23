@@ -387,110 +387,6 @@ def _build_visual_chapter_text(
 
 
 
-def _has_dense_keyframes(source: Path) -> bool:
-    """Check if video has keyframe interval <= 2s (safe for -skip_frame nokey).
-
-    Probes first 10s to estimate keyframe density. Returns False for
-    long-GOP videos (GoPro ProTune, surveillance cams) where skipping
-    non-keyframes would cause frame duplication in 1fps output.
-    """
-    from .media_utils import run_subprocess
-    try:
-        r = run_subprocess(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-read_intervals", "%+10",  # probe first 10s only
-             "-show_entries", "packet=pts_time,flags",
-             "-of", "csv=p=0", str(source)],
-            capture_output=True, text=True, timeout=10,
-        )
-        keyframe_times = []
-        for line in r.stdout.strip().split("\n"):
-            parts = line.strip().split(",")
-            if len(parts) == 2 and "K" in parts[1]:
-                try:
-                    keyframe_times.append(float(parts[0]))
-                except ValueError:
-                    pass
-        if len(keyframe_times) < 2:
-            return False
-        avg_interval = (keyframe_times[-1] - keyframe_times[0]) / (len(keyframe_times) - 1)
-        return avg_interval <= 2.0
-    except Exception:
-        return False  # fallback to safe full decode
-
-
-def _generate_video_previews(
-    video_items: list[dict], preview_dir: Path,
-) -> None:
-    """Generate one full-length preview per video (360p 1fps + audio).
-
-    Gemini processes video at 1fps internally — sending 1fps means zero
-    wasted frames. Full-length means 100% coverage (vs 71% with clips).
-    Labels are burned during mega-preview concat, not here (keeps cache stable).
-    """
-    from .media_utils import run_subprocess
-
-    # 360p 1fps CRF35 — matches Gemini's internal processing rate
-    # -hwaccel auto: GPU-accelerated decode (~1.3x)
-    # -skip_frame nokey: only decode keyframes (~7x) — safe when GOP <= 2s
-    # Combined: ~22x faster. Falls back to full decode for long-GOP videos.
-    encoder = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "40"]
-    max_workers = max(4, (os.cpu_count() or 4) // 2)
-
-    # Clean orphaned previews from previous runs
-    current_ids = {str(vi["id"]) for vi in video_items}
-    for old in preview_dir.glob("preview_*.mp4"):
-        if old.name.startswith("_"):
-            continue  # skip _mega_preview
-        # Extract vid_id from preview_{vid_id}.mp4 or legacy preview_{vid_id}_n{num}.mp4
-        pid = old.stem.replace("preview_", "").split("_n")[0]
-        if pid not in current_ids:
-            old.unlink()
-
-    tasks: list[tuple[Path, list[str]]] = []
-    for vi in video_items:
-        vid_id = vi["id"]
-        source = Path(vi.get("local_path", ""))
-        dur = vi.get("video_duration", 0)
-        if not source.exists() or dur <= 0:
-            continue
-
-        preview_path = preview_dir / f"preview_{vid_id}.mp4"
-        if not preview_path.exists():
-            # Use -skip_frame nokey when keyframe interval <= 2s (most phone/drone videos).
-            # For long-GOP videos (GoPro ProTune, etc.), skip it to avoid frame duplication.
-            skip = ["-skip_frame", "nokey"] if _has_dense_keyframes(source) else []
-            tasks.append((preview_path, [
-                "ffmpeg", "-y",
-                "-hwaccel", "auto", *skip,
-                "-i", str(source),
-                "-vf", "fps=1,scale=360:-2",
-                *encoder,
-                "-c:a", "aac", "-b:a", "64k", "-ac", "1",
-                str(preview_path),
-            ]))
-
-    cached = len(video_items) - len(tasks)
-    if cached:
-        logger.info(f"Video previews: {cached} cached, {len(tasks)} to generate")
-    if not tasks:
-        return
-
-    logger.info(f"Generating {len(tasks)} video clips (CPU x{max_workers})...")
-
-    from .parallel import run_parallel
-
-    def _progress(done, total):
-        if done % 20 == 0 or done == total:
-            logger.info(f"  Video clips: {done}/{total}")
-
-    parallel_tasks = [(p, lambda cmd=cmd: run_subprocess(cmd, capture_output=True)) for p, cmd in tasks]
-    run_parallel(parallel_tasks, max_workers, progress_fn=_progress)
-
-    n_ok = sum(1 for p, _ in tasks if p.exists() and p.stat().st_size > 500)
-    logger.info(f"  Video clips done: {n_ok}/{len(tasks)} OK")
-
-
 def _concat_previews(
     video_entries: list[tuple[int, float, Path]],
     output_path: Path,
@@ -596,17 +492,6 @@ def _build_visual_content_blocks(
 
     global_idx = 1  # continuous numbering across chapters
 
-    # Pre-generate ALL video previews (no labels — labels added during concat)
-    all_video_items = []
-    for day in preprocessed["timeline"]:
-        for chapter in day["chapters"]:
-            for item_id in chapter.get("item_ids", []):
-                a = analysis_by_id.get(str(item_id))
-                if a and a.get("media_type") == "video":
-                    all_video_items.append(a)
-    if all_video_items:
-        _generate_video_previews(all_video_items, preview_dir)
-
     for day in preprocessed["timeline"]:
         for chapter in day["chapters"]:
             text, photo_paths, photo_labels, video_items = _build_visual_chapter_text(
@@ -644,11 +529,35 @@ def _build_visual_content_blocks(
 
             global_idx += n_items
 
-    # Build one concatenated mega-preview from all video previews
+    # Build one concatenated mega-preview from all video previews (cached)
     offset_table: list[tuple[int, float, float]] = []
     if video_entries:
         mega_path = preview_dir / "_mega_preview.mp4"
-        offset_table, mega_path = _concat_previews(video_entries, mega_path)
+        meta_path = preview_dir / "_mega_preview.json"
+
+        # Cache key: ordered list of (item_num, vid_id, duration)
+        import hashlib
+        cache_key = hashlib.md5(
+            str([(n, p.name, d) for n, d, p in video_entries]).encode()
+        ).hexdigest()
+
+        # Check if cached mega-preview is still valid
+        cached_meta = None
+        if mega_path.exists() and meta_path.exists():
+            try:
+                cached_meta = json.loads(meta_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        if cached_meta and cached_meta.get("key") == cache_key:
+            logger.info(f"Mega-preview cached ({len(video_entries)} videos)")
+            offset_table = [tuple(e) for e in cached_meta["offset_table"]]
+        else:
+            offset_table, mega_path = _concat_previews(video_entries, mega_path)
+            meta_path.write_text(json.dumps({
+                "key": cache_key,
+                "offset_table": offset_table,
+            }))
 
         # Build preview timestamp index for the text metadata
         # Maps item_num → "MM:SS-MM:SS" (or H:MM:SS for >1hr previews)

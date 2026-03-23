@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -159,7 +160,97 @@ def prepare(cfg: Config, *, family_names: list[str] | None = None,
     logger.info(f"Prepared: {len(results)} items ({n_photos} photos, {n_videos} videos, "
                 f"{newly} newly analyzed)")
 
+    # Generate 360p 1fps video previews (cached per video, used by plan stage)
+    video_items = [r for r in results if r.get("media_type") == "video"]
+    if video_items:
+        _generate_video_previews(video_items, cfg.preview_clips_dir)
+
     return preprocessed
+
+
+# ---------------------------------------------------------------------------
+# Video preview generation (360p 1fps, cached per video)
+# ---------------------------------------------------------------------------
+
+
+def _has_dense_keyframes(source: Path) -> bool:
+    """Check if video has keyframe interval <= 2s (safe for -skip_frame nokey)."""
+    try:
+        r = run_subprocess(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-read_intervals", "%+10",
+             "-show_entries", "packet=pts_time,flags",
+             "-of", "csv=p=0", str(source)],
+            capture_output=True, text=True, timeout=10,
+        )
+        keyframe_times = []
+        for line in r.stdout.strip().split("\n"):
+            parts = line.strip().split(",")
+            if len(parts) == 2 and "K" in parts[1]:
+                try:
+                    keyframe_times.append(float(parts[0]))
+                except ValueError:
+                    pass
+        if len(keyframe_times) < 2:
+            return False
+        avg_interval = (keyframe_times[-1] - keyframe_times[0]) / (len(keyframe_times) - 1)
+        return avg_interval <= 2.0
+    except Exception:
+        return False
+
+
+def _generate_video_previews(video_items: list[dict], preview_dir: Path) -> None:
+    """Generate one full-length preview per video (360p 1fps + audio)."""
+    from .parallel import run_parallel
+
+    encoder = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "40"]
+    max_workers = max(4, (os.cpu_count() or 4) // 2)
+
+    # Clean orphaned previews
+    current_ids = {str(vi["id"]) for vi in video_items}
+    for old in preview_dir.glob("preview_*.mp4"):
+        if old.name.startswith("_"):
+            continue
+        pid = old.stem.replace("preview_", "").split("_n")[0]
+        if pid not in current_ids:
+            old.unlink()
+
+    tasks: list[tuple[Path, list[str]]] = []
+    for vi in video_items:
+        vid_id = vi["id"]
+        source = Path(vi.get("local_path", ""))
+        dur = vi.get("video_duration", 0)
+        if not source.exists() or dur <= 0:
+            continue
+        preview_path = preview_dir / f"preview_{vid_id}.mp4"
+        if not preview_path.exists():
+            skip = ["-skip_frame", "nokey"] if _has_dense_keyframes(source) else []
+            tasks.append((preview_path, [
+                "ffmpeg", "-y", "-hwaccel", "auto", *skip,
+                "-i", str(source),
+                "-vf", "fps=1,scale=360:-2",
+                *encoder,
+                "-c:a", "aac", "-b:a", "64k", "-ac", "1",
+                str(preview_path),
+            ]))
+
+    cached = len(video_items) - len(tasks)
+    if cached:
+        logger.info(f"Video previews: {cached} cached, {len(tasks)} to generate")
+    if not tasks:
+        return
+
+    logger.info(f"Generating {len(tasks)} video previews (CPU x{max_workers})...")
+
+    def _progress(done, total):
+        if done % 20 == 0 or done == total:
+            logger.info(f"  Video previews: {done}/{total}")
+
+    parallel_tasks = [(p, lambda cmd=cmd: run_subprocess(cmd, capture_output=True)) for p, cmd in tasks]
+    run_parallel(parallel_tasks, max_workers, progress_fn=_progress)
+
+    n_ok = sum(1 for p, _ in tasks if p.exists() and p.stat().st_size > 500)
+    logger.info(f"  Video previews done: {n_ok}/{len(tasks)} OK")
 
 
 # ---------------------------------------------------------------------------
