@@ -234,13 +234,24 @@ def _alabel(idx: int) -> str:
 
 
 def _fade_expr(duration: float, fade_in: float, fade_out: float) -> str:
+    """Build video fade + setpts filters."""
     parts = ["setpts=PTS-STARTPTS"]
     if fade_in > 0:
         parts.append(f"fade=t=in:d={fade_in}")
     if fade_out > 0:
         st = max(0, duration - fade_out)
         parts.append(f"fade=t=out:st={st:.3f}:d={fade_out}")
-    return ("," + ",".join(parts)) if parts else ""
+    return "," + ",".join(parts)
+
+
+def _trim_expr(duration: float) -> str:
+    """Trim video to exact duration + reset PTS. Applied AFTER fps filter.
+
+    Skips trim for very short clips (<1s) to avoid producing 0 frames.
+    """
+    if duration < 1.0:
+        return ""
+    return f",trim=duration={duration:.6f},setpts=PTS-STARTPTS"
 
 
 def _photo_filter_chain(
@@ -267,15 +278,15 @@ def _photo_filter_chain(
         )
 
     src_w, src_h = ctx.probe_dimensions(Path(item.source_file))
-    fade = _fade_expr(item.display_duration, fade_in, fade_out)
+    exact_dur = frames / fps
+    fade = _fade_expr(exact_dur, fade_in, fade_out)
+    trim = _trim_expr(exact_dur)
     cg = color_grade(segment.color_temp)
     sharpen = ",unsharp=3:3:0.5:3:3:0.0"
 
     if is_portrait(src_w, src_h):
         portrait_zoom_rate = 0.001 + (0.08 / frames)
-        # Portrait: blurred bg + sharp fg + zoompan
-        # Need to reference [idx:v] instead of [0:v]
-        fc = (
+        return (
             f"[{idx}:v] split [bg{idx}][fg{idx}];"
             f"[bg{idx}] scale=960:-1:force_original_aspect_ratio=increase,crop=960:540,"
             f"gblur=sigma=60,scale={w}:{h},eq=brightness=-0.15:saturation=0.6 [blurred{idx}];"
@@ -284,9 +295,8 @@ def _photo_filter_chain(
             f"[comp{idx}] zoompan=z='1+(1.08-1)*(1-cos(PI*on/{frames}))/2':d={frames}"
             f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
             f":s={w}x{h}:fps={fps}"
-            f"{dt}{fade} [{_vlabel(idx)}]"
+            f"{dt}{fade}{trim} [{_vlabel(idx)}]"
         )
-        return fc
     else:
         direction_map = {
             "ken_burns_in": "in", "ken_burns_out": "out",
@@ -300,16 +310,15 @@ def _photo_filter_chain(
         out_ratio = ow / oh
 
         if abs(src_ratio - out_ratio) / out_ratio < 0.05:
-            return f"[{idx}:v] scale={ow}:{oh},{zp},{cg}{sharpen}{dt}{fade} [{_vlabel(idx)}]"
+            return f"[{idx}:v] scale={ow}:{oh},{zp},{cg}{sharpen}{dt}{fade}{trim} [{_vlabel(idx)}]"
         else:
-            # Blurred pillarbox for non-matching aspect
             return (
                 f"[{idx}:v] split [bg{idx}][fg{idx}];"
                 f"[bg{idx}] scale={ow}:{oh}:force_original_aspect_ratio=increase,"
                 f"crop={ow}:{oh},gblur=sigma=25 [blurred{idx}];"
                 f"[fg{idx}] scale={ow}:{oh}:force_original_aspect_ratio=decrease [sharp{idx}];"
                 f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2 [comp{idx}];"
-                f"[comp{idx}] {zp},{cg}{sharpen}{dt}{fade} [{_vlabel(idx)}]"
+                f"[comp{idx}] {zp},{cg}{sharpen}{dt}{fade}{trim} [{_vlabel(idx)}]"
             )
 
 
@@ -333,22 +342,22 @@ def _video_filter_chain(
     src_w, src_h = ctx.probe_dimensions(Path(item.source_file))
     cg = color_grade(segment.color_temp)
     fade = _fade_expr(output_dur, fade_in, fade_out)
+    trim = _trim_expr(output_dur)
 
     if is_portrait(src_w, src_h):
-        # Portrait video: blurred bg + sharp fg
         return (
             f"[{idx}:v] split [bg{idx}][fg{idx}];"
             f"[bg{idx}] scale={w}:-1:force_original_aspect_ratio=increase,"
             f"crop={w}:{h},gblur=sigma=60,eq=brightness=-0.15:saturation=0.6 [blurred{idx}];"
             f"[fg{idx}] scale=-1:{h} [sharp{idx}];"
             f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2,"
-            f"{cg}{speed_vf}{dt}{fade},fps={fps} [{_vlabel(idx)}]"
+            f"{cg}{speed_vf}{dt}{fade},fps={fps}{trim} [{_vlabel(idx)}]"
         )
     else:
         return (
             f"[{idx}:v] scale={w}:{h}:force_original_aspect_ratio=decrease,"
             f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,"
-            f"{cg}{speed_vf}{dt}{fade},fps={fps} [{_vlabel(idx)}]"
+            f"{cg}{speed_vf}{dt}{fade},fps={fps}{trim} [{_vlabel(idx)}]"
         )
 
 
