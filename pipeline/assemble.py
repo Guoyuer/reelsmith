@@ -303,8 +303,19 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
     if edl.intro_style == "title_card" and edl.title:
         intro_path = clips_dir / "intro_title.mp4"
         intro_dur = edl.intro_duration
+        # Find first photo in EDL for hero-photo background
+        background_photo = None
+        for seg in edl.segments:
+            for item in seg.items:
+                if item.media_type == "photo":
+                    background_photo = item.source_file
+                    break
+            if background_photo:
+                break
         if not intro_path.exists():
-            render_title_card(edl.title, edl.date_range, intro_path, w, h, fps, duration=intro_dur, language=lang, ctx=ctx)
+            render_title_card(edl.title, edl.date_range, intro_path, w, h, fps,
+                              duration=intro_dur, language=lang, ctx=ctx,
+                              background_photo=background_photo)
         all_clips.insert(0, {
             "path": intro_path, "duration": intro_dur,
             "transition": "cut", "transition_duration": 0.0,

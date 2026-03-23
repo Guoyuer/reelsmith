@@ -169,8 +169,13 @@ def render_title_card(
     title: str, subtitle: str, output_path: Path, w: int, h: int, fps: int, *,
     ctx: RenderContext,
     duration: float = 3.0, language: str = "en",
+    background_photo: str | None = None,
 ) -> None:
-    """Render a professional title card with gradient background and animated text."""
+    """Render a professional title card with gradient background and animated text.
+
+    If *background_photo* is provided and the file exists, the gradient is replaced
+    with a heavily blurred, darkened, vignetted version of the photo.
+    """
     safe_title = title.replace("'", "\u2019").replace(":", "\\:")
     font = find_font(language)
     font_arg = f":fontfile='{font}'" if font else ""
@@ -179,11 +184,23 @@ def render_title_card(
     if len(title) > 25:
         title_size = int(title_size * 25 / len(title))
 
-    gradient = (
-        f"color=c=0x0f0c29:s={w}x{h}:d={duration}:r={fps}[bg1];"
-        f"color=c=0x302b63:s={w}x{h//2}:d={duration}:r={fps}[bg2];"
-        f"[bg1][bg2]overlay=0:h/4:format=auto[grad]"
+    # Decide background: hero photo or gradient fallback
+    use_photo_bg = (
+        background_photo is not None and Path(background_photo).exists()
     )
+
+    if use_photo_bg:
+        photo_bg = (
+            f"scale={w}:{h}:force_original_aspect_ratio=increase,"
+            f"crop={w}:{h},gblur=sigma=40,"
+            f"eq=brightness=-0.3:saturation=0.7,vignette=PI/5"
+        )
+    else:
+        gradient = (
+            f"color=c=0x0f0c29:s={w}x{h}:d={duration}:r={fps}[bg1];"
+            f"color=c=0x302b63:s={w}x{h//2}:d={duration}:r={fps}[bg2];"
+            f"[bg1][bg2]overlay=0:h/4:format=auto[grad]"
+        )
 
     title_y = f"(h-text_h)/2-{int(h*0.03)}+{int(h*0.02)}*(1-t/{duration})"
     title_text = (
@@ -215,12 +232,25 @@ def render_title_card(
     fade = f",fade=t=in:d=0.5,fade=t=out:st={duration - 0.8}:d=0.8"
 
     enc = ctx.get_encoder(w, h, fps)
-    cmd = [
-        "ffmpeg", "-y",
-        "-filter_complex",
-        f"{gradient};[grad]{title_text}{separator}{sub_text}{fade}",
-        *enc, "-pix_fmt", "yuv420p",
-        "-an",
-        str(output_path),
-    ]
+
+    if use_photo_bg:
+        cmd = [
+            "ffmpeg", "-y",
+            "-loop", "1", "-i", background_photo,
+            "-t", str(duration),
+            "-filter_complex",
+            f"{photo_bg}[bg];[bg]{title_text}{separator}{sub_text}{fade}",
+            *enc, "-pix_fmt", "yuv420p",
+            "-an",
+            str(output_path),
+        ]
+    else:
+        cmd = [
+            "ffmpeg", "-y",
+            "-filter_complex",
+            f"{gradient};[grad]{title_text}{separator}{sub_text}{fade}",
+            *enc, "-pix_fmt", "yuv420p",
+            "-an",
+            str(output_path),
+        ]
     run_subprocess(cmd, capture_output=True, text=True)
