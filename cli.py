@@ -56,10 +56,10 @@ _ICON_FAILED = "\u274c"  # ❌
 
 
 class _PipelineDisplay:
-    """Terminal progress display for pipeline stages.
+    """Terminal progress display with pinned status bar (rich.live).
 
-    Prints one line per state change (start/done/fail). No ANSI cursor
-    tricks — works reliably on all terminals including Windows Terminal.
+    Status panel stays at the bottom; log output scrolls above it.
+    Falls back to simple line-by-line output when stderr is not a TTY.
     """
 
     def __init__(self, run_name: str, headline: str, stages: list[str]):
@@ -67,31 +67,95 @@ class _PipelineDisplay:
         self._headline = headline
         self._stages = stages
         self._t_start = time.monotonic()
-        self._print(f"\n\U0001f3ac {run_name} \u2014 {headline}\n")
+        self._stage_status: dict[str, tuple[str, str, float]] = {}  # stage → (icon, detail, dur)
+        self._current_stage: str | None = None
+        self._live = None
+
+        for s in stages:
+            self._stage_status[s] = (_ICON_PENDING, "", 0)
+
+        if sys.stderr.isatty():
+            try:
+                from rich.live import Live
+                self._live = Live(self._render_panel(), console=self._get_console(), refresh_per_second=2)
+                self._live.start()
+            except ImportError:
+                pass
+
+        if not self._live:
+            sys.stderr.write(f"\n\U0001f3ac {run_name} \u2014 {headline}\n\n")
+            sys.stderr.flush()
+
+    def _get_console(self):
+        from rich.console import Console
+        return Console(stderr=True)
+
+    def _render_panel(self) -> str:
+        """Build the status panel text."""
+        from rich.text import Text
+        from rich.table import Table
+        from rich.panel import Panel
+
+        elapsed = time.monotonic() - self._t_start
+        table = Table.grid(padding=(0, 2))
+        table.add_column(width=3)
+        table.add_column(width=18)
+        table.add_column()
+
+        for s in self._stages:
+            icon, detail, dur = self._stage_status[s]
+            name = s.replace("_", " ")
+            time_str = f"{dur:.0f}s" if dur > 0 else ""
+            row_detail = f"{detail}  {time_str}".strip() if detail or time_str else ""
+            table.add_row(icon, name, row_detail)
+
+        panel = Panel(
+            table,
+            title=f"\U0001f3ac {self._run_name} \u2014 {self._headline}",
+            subtitle=f"elapsed {elapsed:.0f}s",
+            border_style="blue",
+            width=70,
+        )
+        return panel
 
     def start(self, stage: str) -> None:
-        name = stage.replace("_", " ")
-        self._print(f"  {_ICON_RUNNING} {name}...")
+        self._current_stage = stage
+        self._stage_status[stage] = (_ICON_RUNNING, "", 0)
+        self._refresh()
 
     def update(self, stage: str, detail: str) -> None:
-        pass  # progress logged by tqdm / logger, not the display
+        icon, _, dur = self._stage_status.get(stage, (_ICON_RUNNING, "", 0))
+        self._stage_status[stage] = (icon, detail, dur)
+        self._refresh()
 
     def done(self, stage: str, detail: str, duration: float) -> None:
-        name = stage.replace("_", " ")
         cached = " (cached)" if duration < 0.5 else ""
-        parts = [f"  {_ICON_DONE} {name:<17s}"]
-        if detail:
-            parts.append(detail)
-        parts.append(f"{duration:.0f}s{cached}")
-        self._print("  ".join(parts))
+        self._stage_status[stage] = (_ICON_DONE, f"{detail}{cached}", duration)
+        self._current_stage = None
+        self._refresh()
+        if not self._live:
+            name = stage.replace("_", " ")
+            sys.stderr.write(f"  {_ICON_DONE} {name:<17s}  {detail}  {duration:.0f}s{cached}\n")
+            sys.stderr.flush()
 
     def fail(self, stage: str, error: str) -> None:
-        name = stage.replace("_", " ")
-        self._print(f"  {_ICON_FAILED} {name}: {error[:80]}")
+        self._stage_status[stage] = (_ICON_FAILED, error[:60], 0)
+        self._refresh()
+        if not self._live:
+            name = stage.replace("_", " ")
+            sys.stderr.write(f"  {_ICON_FAILED} {name}: {error[:80]}\n")
+            sys.stderr.flush()
 
-    def _print(self, msg: str) -> None:
-        sys.stderr.write(msg + "\n")
-        sys.stderr.flush()
+    def stop(self) -> None:
+        """Stop the live display (call in finally block)."""
+        if self._live:
+            self._live.update(self._render_panel())
+            self._live.stop()
+            self._live = None
+
+    def _refresh(self) -> None:
+        if self._live:
+            self._live.update(self._render_panel())
 
 
 # ---------------------------------------------------------------------------
@@ -99,16 +163,31 @@ class _PipelineDisplay:
 # ---------------------------------------------------------------------------
 
 
-def _setup_logging(run_name: str) -> logging.Logger:
-    """Configure dual-output logger: terminal + run.log file."""
+def _setup_logging(run_name: str, display: _PipelineDisplay | None = None) -> logging.Logger:
+    """Configure dual-output logger: terminal + run.log file.
+
+    When display has a live panel, uses RichHandler so logs print above it.
+    """
     logger = logging.getLogger("vlog")
     logger.setLevel(logging.DEBUG)
     logger.handlers.clear()
 
-    # Terminal
-    console = logging.StreamHandler(sys.stderr)
-    console.setLevel(logging.INFO)
-    console.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S"))
+    # Terminal — use RichHandler if live display active (prints above panel)
+    if display and display._live:
+        from rich.logging import RichHandler
+        console = RichHandler(
+            console=display._live.console,
+            show_path=False,
+            show_level=False,
+            markup=False,
+            rich_tracebacks=False,
+        )
+        console.setLevel(logging.INFO)
+        console.setFormatter(logging.Formatter("%(message)s"))
+    else:
+        console = logging.StreamHandler(sys.stderr)
+        console.setLevel(logging.INFO)
+        console.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S"))
     logger.addHandler(console)
 
     # File — one log per run, timestamped
@@ -145,16 +224,16 @@ def _progress_cb(logger: logging.Logger, display: _PipelineDisplay, stage: str, 
 
 
 
-def _build_headline(pc: _PipelineContext, stages: list[str]) -> str:
+def _build_headline_from_args(stages: list[str], plan=None) -> str:
     """Build a short headline from plan config for display."""
     parts = []
-    if pc.plan:
-        if pc.plan.target_duration:
-            parts.append(f"{pc.plan.target_duration}s")
-        if pc.plan.style:
-            parts.append(pc.plan.style)
-        if pc.plan.trip_type:
-            parts.append(f"{pc.plan.trip_type} vlog")
+    if plan:
+        if plan.target_duration:
+            parts.append(f"{plan.target_duration}s")
+        if plan.style:
+            parts.append(plan.style)
+        if plan.trip_type:
+            parts.append(f"{plan.trip_type} vlog")
     if not parts:
         parts.append(", ".join(stages))
     return " ".join(parts)
@@ -165,6 +244,7 @@ def _check_interrupted(display: _PipelineDisplay, logger: logging.Logger):
     global _interrupted
     if _interrupted:
         logger.info("Pipeline interrupted by user")
+        display.stop()
         sys.exit(130)
 
 
@@ -391,7 +471,10 @@ def _run_pipeline(run_name: str, *, stages: list[str], fetch=None, prepare=None,
     cfg = Config.load(ws_path)
     cfg.ensure_dirs()
 
-    logger = _setup_logging(run_name)
+    # Create display first (starts live panel), then logging (uses its console)
+    headline = _build_headline_from_args(active, plan)
+    display = _PipelineDisplay(run_name, headline, active)
+    logger = _setup_logging(run_name, display)
 
     pc = _PipelineContext(
         cfg=cfg,
@@ -401,9 +484,6 @@ def _run_pipeline(run_name: str, *, stages: list[str], fetch=None, prepare=None,
         plan=plan,
         assemble=assemble,
     )
-
-    headline = _build_headline(pc, active)
-    display = _PipelineDisplay(run_name, headline, active)
     pc.display = display
     t_start = time.monotonic()
 
@@ -422,6 +502,8 @@ def _run_pipeline(run_name: str, *, stages: list[str], fetch=None, prepare=None,
         display.fail("pipeline", str(e)[:80])
         logger.error(f"Pipeline failed in {total:.0f}s: {e}", exc_info=True)
         raise
+    finally:
+        display.stop()
 
 
 # ---------------------------------------------------------------------------
