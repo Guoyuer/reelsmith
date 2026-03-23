@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from pipeline.config import Config
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment

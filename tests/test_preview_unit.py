@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from PIL import Image
 
 from pipeline.config import Config
-from pipeline.plan._preview import _build_visual_chapter_text, _build_visual_content_blocks, _concat_previews
+from pipeline.plan._preview import _build_visual_content_blocks, _concat_previews
 
 
 class TestConcatPreviews:

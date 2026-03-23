@@ -121,8 +121,8 @@ be videos and at least 50% of those videos should have keep_audio=true.
 
 ## Technical rules
 
-- **DURATION IS MANDATORY**: Sum ALL items' display_duration. It MUST reach target_duration × 1.2
-  (transitions eat ~20% of content). Use code execution to verify the sum before outputting.
+- **DURATION IS MANDATORY**: Sum ALL items' display_duration. It MUST reach target_duration.
+  Use code execution to verify the sum before outputting.
 - display_duration: 2.5-4s per photo, 4-8s for video clips
 - For videos: use the PREVIEW VIDEO to select the best moments.
   Each clip has its item number (e.g. #30) burned into the top-left corner,

@@ -276,10 +276,40 @@ def _render_clips(
 
     t1 = time.monotonic()
 
-    tasks: list[tuple] = []
+    # Pre-compute fade_in/fade_out per item (needs neighbor info, so must be sequential)
+    flat_items: list[tuple] = []  # (seg_idx, item_idx, item, segment, fade_in, fade_out)
     for seg_idx, segment in enumerate(job.edl.segments):
         for item_idx, item in enumerate(segment.items):
-            tasks.append((len(tasks), seg_idx, item_idx, item, segment))
+            flat_items.append((seg_idx, item_idx, item, segment))
+
+    fade_params: list[tuple[float, float]] = []
+    for fi, (seg_idx, item_idx, item, segment) in enumerate(flat_items):
+        fade_in = 0.0
+        fade_out = 0.0
+        is_montage = segment.mode == "montage"
+
+        if not is_montage:
+            # Fade-in: first item of non-first segment
+            if item_idx == 0 and seg_idx > 0:
+                fade_in = segment.segment_transition_duration
+
+            # Fade-out: look at the NEXT item's transition
+            if fi + 1 < len(flat_items):
+                next_seg_idx, next_item_idx, _, next_segment = flat_items[fi + 1]
+                next_is_montage = next_segment.mode == "montage"
+                if not next_is_montage:
+                    if next_item_idx == 0 and next_seg_idx > 0:
+                        fade_out = next_segment.segment_transition_duration
+                    elif next_item_idx > 0:
+                        td = next_segment.transition_duration if next_segment.transition != "cut" else 0.0
+                        fade_out = td
+
+        fade_params.append((fade_in, fade_out))
+
+    tasks: list[tuple] = []
+    for i, (seg_idx, item_idx, item, segment) in enumerate(flat_items):
+        fade_in, fade_out = fade_params[i]
+        tasks.append((len(tasks), seg_idx, item_idx, item, segment, fade_in, fade_out))
 
     total_items = len(tasks)
     clip_results: list[Path | None] = [None] * total_items
@@ -294,7 +324,7 @@ def _render_clips(
         disable=not sys.stdout.isatty(),
     )
 
-    def _do_render(order, seg_idx, item_idx, item, segment):
+    def _do_render(order, seg_idx, item_idx, item, segment, fade_in, fade_out):
         clip_name = f"seg{seg_idx:02d}_item{item_idx:02d}_{job.res_label}.mp4"
         clip_path = job.clips_dir / clip_name
 
@@ -312,6 +342,8 @@ def _render_clips(
                     text_overlay=item.text_overlay,
                     language=job.lang,
                     ctx=job.ctx,
+                    fade_in=fade_in,
+                    fade_out=fade_out,
                 )
             else:
                 render_video(
@@ -321,6 +353,8 @@ def _render_clips(
                     text_overlay=item.text_overlay,
                     language=job.lang,
                     ctx=job.ctx,
+                    fade_in=fade_in,
+                    fade_out=fade_out,
                 )
 
         if not clip_path.exists():
@@ -356,7 +390,7 @@ def _render_clips(
     if report.failed_count + report.skipped_count > 0 and not skip_broken:
         raise RuntimeError(f"Clip rendering issues: {report.summary()}")
 
-    # Build all_clips list with transitions (must be in order)
+    # Build all_clips list (in order) — fades already baked into clips
     all_clips: list[dict] = []
     idx = 0
     for seg_idx, segment in enumerate(job.edl.segments):
@@ -365,40 +399,13 @@ def _render_clips(
             idx += 1
             if clip_path is None:
                 continue
-
-            # Skip zero-length clips (e.g. from failed renders)
             if clip_path.stat().st_size < 1000:
                 logger.info(f"  Skipping zero-length clip: {clip_path.name}")
                 continue
-
-            is_montage = segment.mode == "montage"
-            if is_montage:
-                transition = "cut"
-                td = 0.0
-            elif item_idx == 0 and seg_idx > 0:
-                # Inter-segment transition: from EDL, not hardcoded
-                transition = segment.segment_transition
-                td = segment.segment_transition_duration
-            elif item_idx > 0:
-                transition = segment.transition
-                td = segment.transition_duration if transition != "cut" else 0.0
-            else:
-                transition = "cut"
-                td = 0.0
-
-            # Safety net: photo crossfades cause ghosting. Log when triggered.
-            prev_is_photo = all_clips and all_clips[-1].get("media_type") == "photo"
-            if (item.media_type == "photo" or prev_is_photo) and transition not in ("cut", "fade_black"):
-                logger.info(f"  Safety net: {transition}→fade_black for photo transition " f"({Path(clip_path).name})")
-                transition = "fade_black"
-                td = min(td, 0.4)
-
             all_clips.append(
                 {
                     "path": clip_path,
                     "duration": item.display_duration,
-                    "transition": transition,
-                    "transition_duration": td,
                     "keep_audio": item.keep_audio,
                     "media_type": item.media_type,
                 }
@@ -489,9 +496,8 @@ def _concat_and_mix(job: AssembleJob, all_clips: list[dict], *, t_start: float) 
     concatenate(all_clips, no_music_path, ctx=job.ctx)
     logger.info(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
 
-    # Phase 2b: Build speech audio track using Timeline as single source of truth
-    # Build timeline with MEASURED group durations (fixes speech sync drift)
-    tl = Timeline.build_actual(all_clips, job.output_dir, ctx=job.ctx)
+    # Phase 2b: Build speech audio track using Timeline
+    tl = Timeline.build(all_clips, ctx=job.ctx)
     tl.dump()
 
     speech_audio_path = None

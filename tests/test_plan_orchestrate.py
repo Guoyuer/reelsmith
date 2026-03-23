@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import patch
-
-import pytest
 
 from pipeline.config import Config
 from pipeline.plan import PlanConfig
-
 
 FAKE_EDL_JSON = json.dumps({
     "title": "Test Trip",

@@ -23,6 +23,17 @@ from ._filters import (
 logger = logging.getLogger("vlog.assemble.render")
 
 
+def _fade_filters(duration: float, fade_in: float, fade_out: float) -> str:
+    """Build FFmpeg fade filter string for clip-level fade-in/fade-out to black."""
+    parts = []
+    if fade_in > 0:
+        parts.append(f"fade=t=in:d={fade_in}")
+    if fade_out > 0:
+        st = max(0, duration - fade_out)
+        parts.append(f"fade=t=out:st={st:.3f}:d={fade_out}")
+    return ("," + ",".join(parts)) if parts else ""
+
+
 def render_photo(
     item: EditItem,
     output_path: Path,
@@ -31,6 +42,8 @@ def render_photo(
     color_temp: str = "neutral",
     text_overlay=None,
     language: str = "en",
+    fade_in: float = 0.0,
+    fade_out: float = 0.0,
 ) -> None:
     """Render a photo with Ken Burns effect as a video clip. Text overlay baked in."""
     w, h, fps = ctx.w, ctx.h, ctx.fps
@@ -62,6 +75,7 @@ def render_photo(
     src_w, src_h = ctx.probe_dimensions(source)
     portrait = is_portrait(src_w, src_h)
     enc = ctx.get_encoder()
+    fade = _fade_filters(item.display_duration, fade_in, fade_out)
 
     if portrait:
         portrait_zoom_rate = 0.001 + (0.08 / frames)
@@ -76,7 +90,7 @@ def render_photo(
             "-t",
             str(item.display_duration),
             "-filter_complex",
-            f"{fc}{dt}",
+            f"{fc}{dt}{fade}",
             *enc,
             "-pix_fmt",
             "yuv420p",
@@ -122,7 +136,7 @@ def render_photo(
                 "-t",
                 str(item.display_duration),
                 "-filter_complex",
-                f"{scale_filter}[comp];[comp]{zp},{cg}{sharpen}{dt}",
+                f"{scale_filter}[comp];[comp]{zp},{cg}{sharpen}{dt}{fade}",
             ]
         else:
             cmd = [
@@ -135,7 +149,7 @@ def render_photo(
                 "-t",
                 str(item.display_duration),
                 "-vf",
-                f"{scale_filter},{zp},{cg}{sharpen}{dt}",
+                f"{scale_filter},{zp},{cg}{sharpen}{dt}{fade}",
             ]
         cmd += [
             *enc,
@@ -158,6 +172,8 @@ def render_video(
     color_temp: str = "neutral",
     text_overlay=None,
     language: str = "en",
+    fade_in: float = 0.0,
+    fade_out: float = 0.0,
 ) -> None:
     """Trim and normalize a video clip. Text overlay baked in. Preserves audio if keep_audio."""
     w, h, fps = ctx.w, ctx.h, ctx.fps
@@ -187,12 +203,16 @@ def render_video(
     portrait = is_portrait(src_w, src_h)
     enc = ctx.get_encoder()
 
+    # Output duration after speed adjustment (for fade timing)
+    output_dur = duration / speed if speed else duration
+    fade = _fade_filters(output_dur, fade_in, fade_out)
+
     cg = color_grade(color_temp)
     if portrait:
         fc = portrait_bg_filter(w, h)
         cmd += [
             "-filter_complex",
-            f"{fc},{cg}{speed_vf}{dt}",
+            f"{fc},{cg}{speed_vf}{dt}{fade}",
             *enc,
             "-pix_fmt",
             "yuv420p",
@@ -203,7 +223,7 @@ def render_video(
         cmd += [
             "-vf",
             f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,{cg}{speed_vf}{dt}",
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,{cg}{speed_vf}{dt}{fade}",
             *enc,
             "-pix_fmt",
             "yuv420p",

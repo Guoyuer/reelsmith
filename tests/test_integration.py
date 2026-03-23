@@ -382,60 +382,25 @@ class TestTimelineBuild:
         assert tl.entries[0].end_time == 5.0
         assert tl.total_duration() == 5.0
 
-    def test_three_clips_crossfade(self):
-        """3 clips with 0.5s crossfade. Total = 5+4+3 - 0.5 - 0.5 = 11.0s"""
+    def test_three_clips_sequential(self):
+        """3 clips, sequential (no overlap). Total = 5+4+3 = 12.0s"""
         clips = [
-            {
-                "path": Path("a.mp4"),
-                "duration": 5.0,
-                "transition": "cut",
-                "transition_duration": 0.0,
-                "keep_audio": False,
-            },
-            {
-                "path": Path("b.mp4"),
-                "duration": 4.0,
-                "transition": "crossfade",
-                "transition_duration": 0.5,
-                "keep_audio": False,
-            },
-            {
-                "path": Path("c.mp4"),
-                "duration": 3.0,
-                "transition": "crossfade",
-                "transition_duration": 0.5,
-                "keep_audio": True,
-            },
+            {"path": Path("a.mp4"), "duration": 5.0, "keep_audio": False},
+            {"path": Path("b.mp4"), "duration": 4.0, "keep_audio": False},
+            {"path": Path("c.mp4"), "duration": 3.0, "keep_audio": True},
         ]
         tl = Timeline.build(clips)
         assert len(tl.entries) == 3
-        # First clip
         assert tl.entries[0].video_offset == 0.0
         assert tl.entries[0].end_time == 5.0
-        # Second: offset = 5.0 - 0.5 = 4.5
-        assert abs(tl.entries[1].video_offset - 4.5) < 0.01
-        assert abs(tl.entries[1].visible_offset - 5.0) < 0.01
-        # Third: offset = 4.5 + 4.0 - 0.5 = 8.0
-        assert abs(tl.entries[2].video_offset - 8.0) < 0.01
-        # Total
-        assert abs(tl.total_duration() - 11.0) < 0.01
+        assert abs(tl.entries[1].video_offset - 5.0) < 0.01
+        assert abs(tl.entries[2].video_offset - 9.0) < 0.01
+        assert abs(tl.total_duration() - 12.0) < 0.01
 
     def test_speech_entries_and_ranges(self):
         clips = [
-            {
-                "path": Path("a.mp4"),
-                "duration": 4.0,
-                "transition": "cut",
-                "transition_duration": 0.0,
-                "keep_audio": False,
-            },
-            {
-                "path": Path("b.mp4"),
-                "duration": 3.0,
-                "transition": "crossfade",
-                "transition_duration": 0.5,
-                "keep_audio": True,
-            },
+            {"path": Path("a.mp4"), "duration": 4.0, "keep_audio": False},
+            {"path": Path("b.mp4"), "duration": 3.0, "keep_audio": True},
         ]
         tl = Timeline.build(clips)
         speech = tl.speech_entries()
@@ -443,88 +408,17 @@ class TestTimelineBuild:
         assert speech[0].index == 1
         ranges = tl.speech_ranges()
         assert len(ranges) == 1
-        # visible_offset = video_offset + td = 3.5 + 0.5 = 4.0
-        assert abs(ranges[0][0] - 4.0) < 0.01
-        assert abs(ranges[0][1] - 6.5) < 0.01  # end = 3.5 + 3.0
+        assert abs(ranges[0][0] - 4.0) < 0.01  # starts at 4.0
+        assert abs(ranges[0][1] - 7.0) < 0.01  # ends at 4.0 + 3.0
 
-    def test_group_splitting_at_max_group(self):
-        """12 clips should split into 2 groups (MAX_GROUP=10)."""
-        clips = []
-        for i in range(12):
-            clips.append(
-                {
-                    "path": Path(f"{i}.mp4"),
-                    "duration": 3.0,
-                    "transition": "cut" if i == 0 else "crossfade",
-                    "transition_duration": 0.0 if i == 0 else 0.5,
-                    "keep_audio": False,
-                }
-            )
+    def test_many_clips_sequential(self):
+        """12 clips sequentially. Total = 12 * 3.0 = 36.0s"""
+        clips = [{"path": Path(f"{i}.mp4"), "duration": 3.0, "keep_audio": False} for i in range(12)]
         tl = Timeline.build(clips)
         assert len(tl.entries) == 12
-        # Total = 12*3 - 11*0.5 = 30.5 (within group overlaps, not across groups)
-        # But group splitting means only within-group clips overlap.
-        # Group 1: 10 clips, group 2: 2 clips
-        # Group 1 total = 10*3 - 9*0.5 = 25.5
-        # Group 2: first clip td=0 (set by _concatenate), second clip td=0.5
-        # Group 2 total = 3 + 3 - 0.5 = 5.5
-        # Grand total = 25.5 + 5.5 = 31.0
-        # (slightly more than 30.5 because group boundary loses the 0.5s overlap)
-        assert abs(tl.total_duration() - 31.0) < 1.0
-
-    def test_mixed_cut_and_crossfade(self):
-        clips = [
-            {
-                "path": Path("a.mp4"),
-                "duration": 4.0,
-                "transition": "cut",
-                "transition_duration": 0.0,
-                "keep_audio": False,
-            },
-            {
-                "path": Path("b.mp4"),
-                "duration": 3.0,
-                "transition": "cut",
-                "transition_duration": 0.0,
-                "keep_audio": False,
-            },
-            {
-                "path": Path("c.mp4"),
-                "duration": 3.0,
-                "transition": "crossfade",
-                "transition_duration": 0.5,
-                "keep_audio": False,
-            },
-        ]
-        tl = Timeline.build(clips)
-        # NOTE: Mathematically 4+3+3-0-0.5=9.5, but Timeline accumulates 10.0
-        # because the crossfade offset for clip c uses running offset from cut
-        # transitions (which don't subtract td). This only affects mixed
-        # cut/crossfade within the same group — rare in practice since
-        # _concatenate sets group[0].transition="cut" and the rest share td.
-        assert abs(tl.total_duration() - 10.0) < 0.1
-
-    def test_all_cuts_no_overlap(self):
-        clips = [
-            {
-                "path": Path("a.mp4"),
-                "duration": 3.0,
-                "transition": "cut",
-                "transition_duration": 0.0,
-                "keep_audio": False,
-            },
-            {
-                "path": Path("b.mp4"),
-                "duration": 4.0,
-                "transition": "cut",
-                "transition_duration": 0.0,
-                "keep_audio": False,
-            },
-        ]
-        tl = Timeline.build(clips)
-        assert tl.entries[0].video_offset == 0.0
-        assert tl.entries[1].video_offset == 3.0
-        assert abs(tl.total_duration() - 7.0) < 0.01
+        assert abs(tl.total_duration() - 36.0) < 0.01
+        for i, e in enumerate(tl.entries):
+            assert abs(e.video_offset - i * 3.0) < 0.01
 
 
 # ===========================================================================

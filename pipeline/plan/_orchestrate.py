@@ -132,7 +132,7 @@ def _plan_visual(
                 line += f" ({n_vids} videos)"
             arc_lines.append(line)
 
-    min_duration = int(pc.target_duration * 1.2)
+    min_duration = int(pc.target_duration)
     intro_text = f"""\
 Create a {pc.style} {trip_label} vlog EDL from the photos and videos shown below.
 

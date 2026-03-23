@@ -69,14 +69,13 @@ class TestAllItems:
 
 class TestEstimatedDuration:
     def test_basic_calculation(self, sample_edl: EDL):
-        """estimated_duration = sum(display_durations) - crossfade overlaps.
+        """estimated_duration = sum(display_durations) + intro + outro.
 
-        Segment 1: 4 + 3 + 5 = 12s display, crossfade transitions = 0.8 * 2 = 1.6s
-        Segment 2: 4 + 3.5 + 6 = 13.5s display, 'cut' transition = 0 overlap
-        Total = 25.5 - 1.6 = 23.9s
-        Plus intro (3s) + outro (3s) = 29.9s (default intro/outro)
+        Segment 1: 4 + 3 + 5 = 12s
+        Segment 2: 4 + 3.5 + 6 = 13.5s
+        Total = 25.5 + intro (3s) + outro (3s) = 31.5s
         """
-        assert sample_edl.estimated_duration() == pytest.approx(29.9)
+        assert sample_edl.estimated_duration() == pytest.approx(31.5)
 
     def test_single_item_no_transitions(self):
         """A segment with one item has no transitions to subtract."""

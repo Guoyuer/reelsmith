@@ -50,6 +50,7 @@ class TestGeminiCall:
         with patch.dict("sys.modules", {"google": google_mock, "google.genai": genai, "google.genai.types": types}):
             # Force re-import so the mock is used
             import importlib
+
             import pipeline.plan._gemini as mod
             importlib.reload(mod)
             result = mod._gemini_call(system="sys", user_parts=["hi"], label="test", model="m")
@@ -70,6 +71,7 @@ class TestGeminiCall:
 
         with patch.dict("sys.modules", {"google": google_mock, "google.genai": genai, "google.genai.types": types}):
             import importlib
+
             import pipeline.plan._gemini as mod
             importlib.reload(mod)
             result = mod._gemini_call(system="s", user_parts=["h"], model="m")
@@ -82,6 +84,7 @@ class TestGeminiCall:
 
         with patch.dict("sys.modules", {"google": google_mock, "google.genai": genai, "google.genai.types": types}):
             import importlib
+
             import pipeline.plan._gemini as mod
             importlib.reload(mod)
             result = mod._gemini_call(
@@ -108,6 +111,7 @@ class TestGeminiCall:
 
         with patch.dict("sys.modules", {"google": google_mock, "google.genai": genai, "google.genai.types": types}):
             import importlib
+
             import pipeline.plan._gemini as mod
             importlib.reload(mod)
             result = mod._gemini_call(
@@ -128,6 +132,7 @@ class TestGeminiCall:
 
         with patch.dict("sys.modules", {"google": google_mock, "google.genai": genai, "google.genai.types": types}):
             import importlib
+
             import pipeline.plan._gemini as mod
             importlib.reload(mod)
             mod._gemini_call(system="s", user_parts=["h"])

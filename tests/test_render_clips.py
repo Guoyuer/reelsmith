@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pipeline.assemble._assemble import AssembleJob, _render_clips, _concat_and_mix, RenderReport
+from pipeline.assemble._assemble import AssembleJob, _concat_and_mix, _render_clips
 from pipeline.assemble._encoder import RenderContext
 from pipeline.config import Config
-from pipeline.edl import EDL, EditItem, MusicTrack, Segment
+from pipeline.edl import EDL, EditItem, Segment
 
 
 def _make_job(tmp_path, items=None, music=None, intro="none", outro="none"):

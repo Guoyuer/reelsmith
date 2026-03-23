@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from pipeline.assemble._assemble import AssembleConfig
@@ -11,7 +9,6 @@ from pipeline.assemble._encoder import RenderContext
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment, validate_edl
 from pipeline.fetch import FetchConfig
 from pipeline.plan import PlanConfig
-
 
 # ---------------------------------------------------------------------------
 # AssembleConfig validation

@@ -99,15 +99,11 @@ class EDL(BaseModel):
 
     def estimated_duration(self) -> float:
         total = sum(self._item_output_duration(item) for item in self.all_items())
-        transitions = sum(
-            seg.transition_duration * max(0, len(seg.items) - 1) for seg in self.segments if seg.transition != "cut"
-        )
-        # Add intro/outro time from EDL fields
         if self.intro_style != "none":
             total += self.intro_duration
         if self.outro_style != "none":
             total += self.outro_duration
-        return total - transitions
+        return total
 
 
 # ---------------------------------------------------------------------------
@@ -146,18 +142,6 @@ def load_latest_edl(cfg: Config) -> tuple[EDL, int]:
 # EDL quality validation
 # ---------------------------------------------------------------------------
 
-# EDL transition names → FFmpeg xfade filter names
-XFADE_MAP = {
-    "crossfade": "fade",
-    "fade_black": "fadeblack",
-    "wipe_left": "wipeleft",
-    "dissolve": "fade",
-    "smoothleft": "smoothleft",
-    "smoothright": "smoothright",
-    "circlecrop": "circlecrop",
-    "cut": "fade",  # cuts use minimal xfade as FFmpeg workaround
-    "fadewhite": "fadewhite",
-}
 
 
 def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
@@ -206,8 +190,6 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
             _error(f"{seg_label}: no items")
             continue
 
-        if seg.transition not in XFADE_MAP:
-            _error(f"{seg_label}: invalid transition '{seg.transition}'")
 
         if seg.transition != "cut":
             if seg.transition_duration <= 0 or seg.transition_duration > 3.0:

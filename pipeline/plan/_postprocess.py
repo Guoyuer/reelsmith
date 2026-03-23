@@ -170,7 +170,7 @@ def fill_duration_gap(
 ) -> EDL:
     """If EDL is underfilled, ask Gemini to add items. Returns updated EDL."""
     actual_dur = edl.estimated_duration()
-    min_dur = target_duration * 1.15
+    min_dur = target_duration
 
     if actual_dur >= min_dur:
         return edl

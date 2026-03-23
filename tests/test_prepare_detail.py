@@ -6,8 +6,6 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 class TestPrepareVideoAnalysis:
     """Test _prepare_video and related helpers."""
