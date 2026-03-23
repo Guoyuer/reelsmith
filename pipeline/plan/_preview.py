@@ -158,8 +158,8 @@ def _concat_previews(
         end = seg_offset + dur
         drawtext_parts.append(
             f"drawtext=text='{label}'"
-            f":fontsize=28:fontcolor=yellow"
-            f":box=1:boxcolor=black@0.8:boxborderw=6:x=8:y=6"
+            f":fontsize=36:fontcolor=yellow"
+            f":box=1:boxcolor=black@0.8:boxborderw=8:x=10:y=8"
             f":enable='between(t,{seg_offset:.1f},{end:.1f})'"
         )
     vf = ",".join(drawtext_parts) if drawtext_parts else "null"
