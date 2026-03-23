@@ -196,6 +196,12 @@ def _photo_filter(
     idx: int, item: EditItem, segment: Segment, ctx: RenderContext,
     fade_in: float, fade_out: float, language: str,
 ) -> str:
+    """Photo filter: scale to fill 16:9, then Ken Burns crop + lanczos.
+
+    Simple pipeline: source → scale-to-cover → crop+scale Ken Burns → effects.
+    No blurred-background composite — just crop to fill, same as pro editors.
+    Source resolution preserved until the final lanczos downscale.
+    """
     w, h, fps = ctx.w, ctx.h, ctx.fps
     frames = int(item.display_duration * fps)
 
@@ -211,49 +217,28 @@ def _photo_filter(
     cg = color_grade(segment.color_temp)
     sharpen = ",unsharp=3:3:0.5:3:3:0.0"
 
+    direction_map = {
+        "ken_burns_in": "in", "ken_burns_out": "out",
+        "ken_burns_left": "left", "ken_burns_right": "right", "static": "static",
+    }
+    direction = direction_map.get(item.effect, "in")
+    kb = ken_burns_filter(frames, w, h, fps, direction=direction)
+
+    # Scale source to COVER the 16:9 frame (crop edges, no black bars or blur bg).
+    # Use source-native resolution for zoom headroom — single lanczos downscale.
     src_w, src_h = ctx.probe_dimensions(Path(item.source_file))
-
-    # Composite at SOURCE resolution (not 2x target) for single-step downscale.
-    # Two-step (source→2x→target) loses detail; single-step (source→target) is sharp.
-    # Minimum: target * 1.4 (zoom headroom for 1.3x max zoom + margin).
-    min_h = int(h * 1.4)
-    oh = max(src_h, min_h)
+    min_dim = int(max(w, h) * 1.4)  # zoom headroom for 1.3x max
+    cover_w = max(src_w, min_dim)
+    cover_h = max(src_h, min_dim)
     # Ensure even
-    oh = oh + (oh % 2)
-    ow = int(oh * w / h)
-    ow = ow + (ow % 2)
+    cover_w = cover_w + (cover_w % 2)
+    cover_h = cover_h + (cover_h % 2)
 
-    if is_portrait(src_w, src_h):
-        kb = ken_burns_filter(frames, w, h, fps, direction="in")
-        return (
-            f"[{idx}:v] split [bg{idx}][fg{idx}];"
-            f"[bg{idx}] scale={ow}:-1:force_original_aspect_ratio=increase,crop={ow}:{oh},"
-            f"gblur=sigma=60,eq=brightness=-0.15:saturation=0.6 [blurred{idx}];"
-            f"[fg{idx}] scale=-1:{oh}:flags=lanczos [sharp{idx}];"
-            f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2 [comp{idx}];"
-            f"[comp{idx}] {kb},{cg}{sharpen}{dt}{fade} [v{idx}]"
-        )
-    else:
-        direction_map = {
-            "ken_burns_in": "in", "ken_burns_out": "out",
-            "ken_burns_left": "left", "ken_burns_right": "right", "static": "static",
-        }
-        direction = direction_map.get(item.effect, "in")
-        kb = ken_burns_filter(frames, w, h, fps, direction=direction)
-        src_ratio = src_w / src_h if src_h > 0 else 1.0
-        out_ratio = ow / oh
-
-        if abs(src_ratio - out_ratio) / out_ratio < 0.05:
-            return f"[{idx}:v] scale={ow}:{oh}:flags=lanczos,{kb},{cg}{sharpen}{dt}{fade} [v{idx}]"
-        else:
-            return (
-                f"[{idx}:v] split [bg{idx}][fg{idx}];"
-                f"[bg{idx}] scale={ow}:{oh}:force_original_aspect_ratio=increase,"
-                f"crop={ow}:{oh},gblur=sigma=25 [blurred{idx}];"
-                f"[fg{idx}] scale={ow}:{oh}:force_original_aspect_ratio=decrease:flags=lanczos [sharp{idx}];"
-                f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2 [comp{idx}];"
-                f"[comp{idx}] {kb},{cg}{sharpen}{dt}{fade} [v{idx}]"
-            )
+    return (
+        f"[{idx}:v] scale={cover_w}:{cover_h}:force_original_aspect_ratio=increase,"
+        f"crop={cover_w}:{cover_h},"
+        f"{kb},{cg}{sharpen}{dt}{fade} [v{idx}]"
+    )
 
 
 def _video_filter(
