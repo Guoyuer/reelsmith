@@ -44,11 +44,12 @@ class Segment(BaseModel):
     items: list[EditItem]
     # Intra-segment transition (between items within this segment)
     transition: Literal["crossfade", "cut", "fade_black", "wipe_left",
-                        "dissolve", "smoothleft", "smoothright", "circlecrop"] = "crossfade"
+                        "dissolve", "smoothleft", "smoothright", "circlecrop",
+                        "fadewhite"] = "crossfade"
     transition_duration: float = 0.4  # seconds
     # Inter-segment transition (how this segment starts, from previous segment)
     segment_transition: Literal["fade_black", "crossfade", "wipe_left",
-                                "dissolve", "cut"] = "fade_black"
+                                "dissolve", "cut", "fadewhite"] = "fade_black"
     segment_transition_duration: float = 1.0  # seconds
     mode: Literal["narrative", "montage"] = "narrative"  # montage = quick-cut burst
     color_temp: Literal["warm", "cool", "neutral"] = "neutral"  # Gemini sets per segment
@@ -70,9 +71,9 @@ class EDL(BaseModel):
     music_duck_ratio: float = 0.3  # during speech: music volume *= this (0.0=silent, 1.0=full)
     trip_type: str = "family"  # used by assemble for music generation prompt
     style: str = "upbeat"  # used by assemble for music generation prompt
-    intro_style: Literal["title_card", "highlight_montage", "none"] = "title_card"
+    intro_style: Literal["title_card", "none"] = "title_card"
     intro_duration: float = 3.0  # seconds for intro clip
-    outro_style: Literal["fade_title", "last_hero", "none"] = "fade_title"
+    outro_style: Literal["fade_title", "none"] = "fade_title"
     outro_duration: float = 3.0  # seconds for outro clip
     date_range: str = ""  # e.g. "June 13-16, 2025" for title card
     language: Literal["en", "cn", "both"] = "en"  # text language: en/cn/both
@@ -81,7 +82,10 @@ class EDL(BaseModel):
         return [item for seg in self.segments for item in seg.items]
 
     def estimated_duration(self) -> float:
-        total = sum(item.display_duration for item in self.all_items())
+        total = sum(
+            item.display_duration / item.playback_speed if item.playback_speed else item.display_duration
+            for item in self.all_items()
+        )
         transitions = sum(
             seg.transition_duration * max(0, len(seg.items) - 1)
             for seg in self.segments
@@ -137,6 +141,7 @@ def load_latest_edl(cfg: Config) -> tuple[EDL, int]:
 VALID_TRANSITIONS = {
     "crossfade", "cut", "fade_black", "wipe_left",
     "dissolve", "smoothleft", "smoothright", "circlecrop",
+    "fadewhite",
 }
 
 # EDL transition names → FFmpeg xfade filter names
@@ -149,6 +154,7 @@ XFADE_MAP = {
     "smoothright": "smoothright",
     "circlecrop": "circlecrop",
     "cut": "fade",  # cuts use minimal xfade as FFmpeg workaround
+    "fadewhite": "fadewhite",
 }
 
 VALID_EFFECTS = {

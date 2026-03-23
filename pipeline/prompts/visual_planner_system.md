@@ -65,7 +65,7 @@ be videos and at least 50% of those videos should have keep_audio=true.
    audio=quiet → only keep if you hear speech in the preview.
    audio=normal or loud → strongly consider keep_audio=true.
 
-5. **Rhythm**: Alternate photos (3-5s, Ken Burns) with video clips (5-10s, real motion).
+5. **Rhythm**: Alternate photos (2.5-4s, Ken Burns) with video clips (4-8s, real motion).
    Vary pacing — fast cuts for energy, lingering shots for emotion.
 
 6. **Location diversity**: A trip vlog MUST show the VARIETY of places visited.
@@ -123,7 +123,7 @@ be videos and at least 50% of those videos should have keep_audio=true.
 
 - **DURATION IS MANDATORY**: Sum ALL items' display_duration. It MUST reach target_duration × 1.2
   (transitions eat ~20% of content). Use code execution to verify the sum before outputting.
-- display_duration: 3-5s per photo, 5-10s for video clips
+- display_duration: 2.5-4s per photo, 4-8s for video clips
 - For videos: use the PREVIEW VIDEO to select the best moments.
   Each clip has its item number (e.g. #30) burned into the top-left corner,
   and the metadata shows its preview range (e.g. preview=02:00-02:22).
@@ -139,7 +139,8 @@ be videos and at least 50% of those videos should have keep_audio=true.
   (a jump, a splash, a reaction) — especially effective on ≥48fps source videos.
   Use 1.5 for transitional walking/travel clips. Most clips = 1.0.
 - Transitions: choose per segment — crossfade (default), dissolve, smoothleft, smoothright,
-  circlecrop, fade_black (major scene changes), wipe_left. Vary for visual richness.
+  circlecrop, fade_black (major scene changes), wipe_left, fadewhite (bright outdoor → new scene).
+  Vary for visual richness.
 - mode: "narrative" (default) or "montage" — use montage for 1 energy burst segment max
   (quick 1-2s cuts, no transitions, builds excitement before a calm segment)
 - color_temp: "neutral" (default), "warm" (family/food/indoor), "cool" (night/architecture).
@@ -184,7 +185,7 @@ Think step-by-step, then output valid JSON only:
       "music_mood": "natural language music description for this segment",
       "mode": "narrative|montage",
       "color_temp": "neutral|warm|cool",
-      "segment_transition": "fade_black (default)|crossfade|dissolve|cut",
+      "segment_transition": "fade_black (default)|crossfade|dissolve|cut|fadewhite",
       "segment_transition_duration": 1.0,
       "items": [
         {{
@@ -199,7 +200,7 @@ Think step-by-step, then output valid JSON only:
           "text_overlay": null or {{"text": "string", "position": "bottom", "font_size": 48}}
         }}
       ],
-      "transition": "crossfade|dissolve|smoothleft|smoothright|circlecrop|fade_black|wipe_left",
+      "transition": "crossfade|dissolve|smoothleft|smoothright|circlecrop|fade_black|wipe_left|fadewhite",
       "transition_duration": 0.4
     }}
   ]
