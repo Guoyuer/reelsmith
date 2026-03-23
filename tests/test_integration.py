@@ -68,7 +68,7 @@ def _make_silence_wav(path: Path, duration_s: float = 5.0,
 
 
 def _make_workspace(base: Path) -> Path:
-    for d in ("media", "keyframes", "clips", "output", "analysis_cache"):
+    for d in ("media", "clips", "output", "analysis_cache"):
         (base / d).mkdir(parents=True, exist_ok=True)
     return base
 

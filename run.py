@@ -938,7 +938,6 @@ def workspace(clean, yes):
         ("media", "Source photos & videos", ws / "media"),
         ("music", "Generated music (Lyria cache)", ws / "music"),
         ("preview_clips", "Video preview clips (shared)", ws / "preview_clips"),
-        ("keyframes", "Video keyframe cache", ws / "keyframes"),
         ("analysis_cache", "Analysis cache", ws / "analysis_cache"),
         ("thumbnails", "Photo thumbnails", ws / "thumbnails"),
     ]
@@ -1075,7 +1074,6 @@ def workspace(clean, yes):
     if clean in ("cache", "all"):
         targets += [("analysis_cache", ws / "analysis_cache"),
                     ("thumbnails", ws / "thumbnails"),
-                    ("keyframes", ws / "keyframes"),
                     ("preview_clips", ws / "preview_clips"),
                     ("music", ws / "music")]
     if clean == "all":

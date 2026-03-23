@@ -43,8 +43,7 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 def prepare(cfg: Config, *, family_names: list[str] | None = None,
             force: bool = False, progress_callback=None,
-            tz_hours: int | None = None,
-            **_kwargs) -> dict:
+            tz_hours: int | None = None) -> dict:
     """Prepare all media for Gemini visual planning.
 
     1. Read manifest, detect family, build timeline
