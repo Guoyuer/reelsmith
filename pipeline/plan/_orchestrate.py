@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -209,10 +208,15 @@ Candidates by day/location:"""
 
 def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, int]:
     """Generate an EDL from preprocessed + analysis data using the visual planner."""
-    if not os.getenv("GEMINI_API_KEY", ""):
-        raise RuntimeError(
-            "GEMINI_API_KEY not set. Add it to .env for visual planning. "
-            "Get a key at https://ai.google.dev/gemini-api/docs/api-key"
+    if not cfg.preprocessed_path.exists():
+        raise FileNotFoundError(
+            f"Preprocessed data not found: {cfg.preprocessed_path}\n"
+            "Run the prepare stage first (e.g. vlog prepare -s local -p ./photos)"
+        )
+    if not cfg.analysis_path.exists():
+        raise FileNotFoundError(
+            f"Analysis data not found: {cfg.analysis_path}\n"
+            "Run the prepare stage first (e.g. vlog prepare -s local -p ./photos)"
         )
 
     effective_focus = pc.focus or _default_focus(pc.trip_type)

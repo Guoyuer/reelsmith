@@ -53,6 +53,11 @@ def prepare(cfg: Config, pc: PrepareConfig | None = None, *, progress_callback=N
     if pc is None:
         pc = PrepareConfig()
     cfg.ensure_dirs()
+    if not cfg.manifest_path.exists():
+        raise FileNotFoundError(
+            f"Manifest not found: {cfg.manifest_path}\n"
+            "Run the fetch stage first (e.g. vlog full -s local -p ./photos ...)"
+        )
     manifest = json.loads(cfg.manifest_path.read_text())
 
     # --- Family detection ---

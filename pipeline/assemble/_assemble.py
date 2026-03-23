@@ -161,6 +161,11 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
     version = ac.version or 0
     if version > 0:
         edl_file = cfg.edl_path(version)
+        if not edl_file.exists():
+            raise FileNotFoundError(
+                f"EDL not found: {edl_file}\n"
+                "Run the plan stage first (e.g. vlog plan --duration 180)"
+            )
         edl = EDL.model_validate_json(edl_file.read_text())
     else:
         edl, version = load_latest_edl(cfg)
