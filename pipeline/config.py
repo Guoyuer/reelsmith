@@ -15,7 +15,6 @@ class Config:
     media_dir: Path = Path("./workspace/media")
     cache_dir: Path = Path("./workspace/analysis_cache")
     thumbnails_dir: Path = Path("./workspace/thumbnails")
-    contact_sheets_dir: Path = Path("./workspace/contact_sheets")
     preview_clips_dir: Path = Path("./workspace/preview_clips")
     music_dir: Path = Path("./workspace/music")
 
@@ -62,7 +61,6 @@ class Config:
             media_dir=base / "media",
             cache_dir=base / "analysis_cache",
             thumbnails_dir=base / "thumbnails",
-            contact_sheets_dir=base / "contact_sheets",
             preview_clips_dir=base / "preview_clips",
             music_dir=base / "music",
         )
@@ -75,7 +73,6 @@ class Config:
             self.media_dir,
             self.cache_dir,
             self.thumbnails_dir,
-            self.contact_sheets_dir,
             self.preview_clips_dir,
             self.music_dir,
         ]:

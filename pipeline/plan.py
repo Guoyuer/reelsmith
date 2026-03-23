@@ -1,7 +1,7 @@
 """Stage 3: Generate EDL — select photos/videos and arrange into a narrative.
 
 Uses the visual planner (Gemini 3 Flash): Gemini sees actual photos via
-contact sheets and watches video clips (with audio) to create an EDL.
+individual photo thumbnails and watches video clips (with audio) to create an EDL.
 
 Requires GEMINI_API_KEY in .env.
 """
@@ -178,7 +178,7 @@ def _gemini_call(
             media_bytes_total += len(p.get("data", b""))
 
     # Videos: single mega-preview uploaded via Files API (1 file, not 100+)
-    # Images: inline (contact sheets, ~44MB base64 ~59MB, within 100MB limit)
+    # Images: inline (individual thumbnails, ~44MB base64 ~59MB, within 100MB limit)
     import time as _time
 
     n_uploaded = 0
@@ -323,13 +323,13 @@ def _build_visual_chapter_text(
 
     Returns (text, photo_paths, photo_labels, video_items) where:
     - text: metadata lines with numbered items
-    - photo_paths: ordered list of photo paths for contact sheet
+    - photo_paths: ordered list of photo paths for inline upload
     - photo_labels: matching labels for each photo (e.g. "#01")
     - video_items: list of video analysis dicts for preview clips
     """
     lines = []
     photo_paths = []
-    photo_labels = []  # matching labels for contact sheet (same index as photo_paths)
+    photo_labels = []  # matching labels for photos (same index as photo_paths)
     video_items = []
     idx = start_idx
 
@@ -810,7 +810,7 @@ def _plan_visual(
 ) -> EDL:
     """Single-pass Gemini planning with chain-of-thought.
 
-    Gemini sees contact sheets (12 photos/sheet at 400px) + video clips,
+    Gemini sees individual photo thumbnails (400px) + video clips,
     designs narrative arc + selects items + self-reviews in one call.
     """
     # Trip-level summary

@@ -1,4 +1,4 @@
-"""Image utilities: HEIC conversion, thumbnails, contact sheets."""
+"""Image utilities: HEIC conversion, thumbnails."""
 
 from __future__ import annotations
 
@@ -101,60 +101,3 @@ def generate_thumbnail(
         return None
 
     return out_path
-
-
-def make_contact_sheet(
-    image_paths: list[Path],
-    output_path: Path,
-    cell_size: int = 256,
-    columns: int = 4,
-    labels: list[str] | None = None,
-) -> Path:
-    """Arrange images into a numbered grid contact sheet."""
-    from math import ceil
-
-    from PIL import Image, ImageDraw
-
-    if not image_paths:
-        return output_path
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    labels = labels or [f"#{i + 1:02d}" for i in range(len(image_paths))]
-    rows = ceil(len(image_paths) / columns)
-    sheet = Image.new("RGB", (columns * cell_size, rows * cell_size), (30, 30, 30))
-    draw = ImageDraw.Draw(sheet)
-
-    # Load font once for all labels
-    try:
-        from PIL import ImageFont
-        label_font = ImageFont.truetype("arial.ttf", 20)
-    except (OSError, ImportError):
-        label_font = ImageDraw.getfont()
-
-    for idx, img_path in enumerate(image_paths):
-        row, col = divmod(idx, columns)
-        x, y = col * cell_size, row * cell_size
-
-        try:
-            if img_path.suffix.lower() in {".heic", ".heif"}:
-                img_path = convert_heic(img_path)
-            img = Image.open(img_path)
-            img.thumbnail((cell_size - 4, cell_size - 4))
-            ox = x + (cell_size - img.width) // 2
-            oy = y + (cell_size - img.height) // 2
-            sheet.paste(img, (ox, oy))
-        except Exception as e:
-            import warnings
-            warnings.warn(f"Contact sheet: could not load {img_path}: {e}")
-
-        label = labels[idx] if idx < len(labels) else ""
-        if label:
-            bbox = draw.textbbox((0, 0), label, font=label_font)
-            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            pad = 4
-            draw.rectangle([x, y, x + tw + pad * 2, y + th + pad * 2],
-                           fill=(0, 0, 0, 200))
-            draw.text((x + pad, y + pad), label, fill="yellow", font=label_font)
-
-    sheet.save(output_path, "JPEG", quality=75)
-    return output_path

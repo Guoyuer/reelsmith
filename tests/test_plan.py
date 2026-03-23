@@ -489,7 +489,6 @@ class TestPreGeminiValidation:
                 media_dir=Path(td) / "media",
                 cache_dir=Path(td) / "cache",
                 thumbnails_dir=Path(td) / "thumbs",
-                contact_sheets_dir=Path(td) / "sheets",
                 preview_clips_dir=Path(td) / "previews",
             )
             cfg.ensure_dirs()
@@ -598,7 +597,6 @@ class TestContentBlockValidation:
             media_dir=tmp_path / "media",
             cache_dir=tmp_path / "cache",
             thumbnails_dir=tmp_path / "thumbs",
-            contact_sheets_dir=tmp_path / "sheets",
             preview_clips_dir=tmp_path / "previews",
         )
         cfg.ensure_dirs()

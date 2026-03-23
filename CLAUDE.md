@@ -122,5 +122,4 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - Title card uses first EDL photo as blurred background (fallback: purple gradient)
 - `plan` subcommand only plans + generates music; does NOT render. Run `assemble` separately
 - `full` defaults to 4K60; `assemble` defaults to 1080p30 — different defaults by design
-- `contact_sheets_dir` in config.py is dead code (photos sent individually, not as contact sheets)
 - RenderReport tracks per-clip status (ok/skipped/failed with reason)

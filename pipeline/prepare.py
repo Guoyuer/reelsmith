@@ -3,7 +3,7 @@
 Merges preprocess + analyze into one stage:
 - Family member auto-detection + family_count per item
 - Timeline construction (day → time_block → location)
-- Photo thumbnails (600px, cached — matches contact sheet cell size)
+- Photo thumbnails (600px, cached)
 - EXIF extraction (cached)
 - Video duration probing (cached)
 

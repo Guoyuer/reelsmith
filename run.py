@@ -804,9 +804,6 @@ def _run_detail(run_dir) -> dict:
     info["clips_size"] = clips_size
     info["clips_count"] = clips_count - len(legacy)
 
-    cs_size, _ = _dir_size(run_dir / "contact_sheets")
-    info["contact_sheets_size"] = cs_size
-
     return info
 
 
@@ -828,7 +825,6 @@ def workspace(clean, prune, yes):
         ("media", "Source photos & videos", ws / "media"),
         ("music", "Generated music (Lyria cache)", ws / "music"),
         ("preview_clips", "Video preview clips (shared)", ws / "preview_clips"),
-        ("contact_sheets", "Contact sheets (shared)", ws / "contact_sheets"),
         ("keyframes", "Video keyframe cache", ws / "keyframes"),
         ("analysis_cache", "Analysis cache", ws / "analysis_cache"),
         ("thumbnails", "Photo thumbnails", ws / "thumbnails"),

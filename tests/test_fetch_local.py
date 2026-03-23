@@ -33,7 +33,6 @@ def mock_config(tmp_path: Path):
         media_dir=tmp_path / "workspace" / "media",
         cache_dir=tmp_path / "workspace" / "analysis_cache",
         thumbnails_dir=tmp_path / "workspace" / "thumbnails",
-        contact_sheets_dir=tmp_path / "workspace" / "contact_sheets",
         preview_clips_dir=tmp_path / "workspace" / "preview_clips",
     )
     cfg.ensure_dirs()
