@@ -5,19 +5,22 @@
 Run pipeline via `python run.py` CLI. Stages execute directly in a single Python process — no external services needed. Each stage caches its output; re-running `full` is fast.
 
 ```bash
-# Local folder source (all files, no date filtering)
-python run.py -n singapore full --source workspace/media --duration 180 --lang cn --tz 8
+# Full pipeline from local folder
+python run.py -n singapore full local ./photos --duration 180 --lang cn --tz 8
 
-# NAS source (date range)
-python run.py -n singapore full -f 2025-06-13 -t 2025-06-17 --duration 180
+# Full pipeline from NAS
+python run.py -n singapore full nas -f 2025-06-13 -t 2025-06-17 --duration 180
 
-# Re-plan only (no render — run assemble separately)
+# Prepare only (fetch + analyze)
+python run.py -n singapore prepare local ./photos --tz 8
+
+# Re-plan only (no render)
 python run.py -n singapore plan --duration 180 --lang cn
 
-# Re-render from latest EDL (defaults 1080p30)
+# Render (defaults 1080p30, output: vlog_v1_1080p30.mp4)
 python run.py -n singapore assemble
 
-# Re-render at 4K60
+# Render at 4K60 (output: vlog_v1_2160p60.mp4, reuses 1080p clips won't conflict)
 python run.py -n singapore assemble --width 3840 --height 2160 --fps 60
 ```
 
@@ -97,7 +100,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 
 - Every Gemini API call logs: model, tokens in/out, timing, response preview
 - Every FFmpeg command logged at INFO level and to `output/ffmpeg_commands.log`
-- Use `--force-prepare` to force re-analysis (bypasses cached analysis.json)
+- Use `--force` on `prepare` or `full` to force re-analysis (bypasses cached analysis.json)
 - YouTube chapter markers saved to `output/chapters_v{N}.txt`
 - Post-assemble validation: 6 automated checks (file size, duration, streams, codec, A/V sync, resolution)
 - Live progress display with per-stage status (icons: ○ pending, ⏳ running, ✅ done, ❌ failed)
@@ -120,6 +123,10 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - ffprobe results cached per assemble run via RenderContext (dimensions + duration)
 - Text overlays baked into clips via drawtext filter with drop shadow (no separate encode pass)
 - Title card uses first EDL photo as blurred background (fallback: purple gradient)
-- `plan` subcommand only plans + generates music; does NOT render. Run `assemble` separately
+- `prepare` = fetch + analyze; `plan` = plan + music; `assemble` = render. `full` = all three
+- `full local PATH` / `full nas -f -t` — source type is a subcommand, not a flag
 - `full` defaults to 4K60; `assemble` defaults to 1080p30 — different defaults by design
+- Clips cached per resolution (`seg00_item00_1080p30.mp4`); switching resolution doesn't re-render existing clips
+- Output files include resolution: `vlog_v1_1080p30.mp4` — different resolutions coexist
+- `workspace --clean safe|cache|media|all` — `safe` removes old outputs + intermediates only
 - RenderReport tracks per-clip status (ok/skipped/failed with reason)

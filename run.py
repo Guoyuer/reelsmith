@@ -555,92 +555,205 @@ def cli(ctx: click.Context, run_name: str | None) -> None:
     ctx.obj["run_name"] = run_name
 
 
-@cli.command()
-@click.option("-f", "--from-date", default="", help="Start date (YYYY-MM-DD)")
-@click.option("-t", "--to-date", default="", help="End date (YYYY-MM-DD)")
-@click.option("--source", default="", help="Local folder of photos/videos (alternative to NAS)")
-@click.option("--duration", default=60, type=int, help="Target vlog length in seconds")
-@click.option("--trip-type", default="family",
-              type=click.Choice(["family", "solo", "food", "adventure", "architecture", "general"]))
-@click.option("--style", default="upbeat",
-              type=click.Choice(["upbeat", "cinematic", "reflective", "energetic"]))
-@click.option("--focus", default="", help="What to emphasize (default: derived from trip-type)")
-@click.option("--item-types", default=None,
-              help="Media types: photo,video,live,motion (default: all)")
-@click.option("--music", default="auto",
-              help="auto=Gemini Lyria (default), local=MusicGen, /path/to/file, none=no music")
-@click.option("--width", default=3840, type=int, help="Output width")
-@click.option("--height", default=2160, type=int, help="Output height")
-@click.option("--fps", default=60, type=int, help="Output FPS")
-@click.option("--quality", default=1.0, type=float,
-              help="Bitrate multiplier: 0.5=smaller files, 1.0=YouTube quality (default), 2.0=master quality")
-@click.option("--country", default=None, help="Filter by country")
-@click.option("--district", default=None, help="Filter by district/city")
-@click.option("--force-prepare", is_flag=True, help="Force re-prepare (ignore cached)")
-@click.option("--lang", default="en", type=click.Choice(["en", "cn", "both"]),
-              help="Text language: en=English (default), cn=Chinese, both=bilingual")
-@click.option("--family", default=None,
-              help="Comma-separated family member names")
-@click.option("--timezone", "--tz", "tz_hours", default=None, type=int,
-              help="UTC offset in hours (default: system local, e.g. -5 NYC, 8 SGT)")
-@click.option("--model", default=None, help="Gemini model (default: VLOG_MODEL env or gemini-3-flash-preview)")
-@click.pass_context
-def full(ctx, from_date, to_date, source, duration, trip_type, style, focus,
-         item_types, music, width, height, fps, quality,
-         country, district, force_prepare, family, lang, tz_hours, model):
-    """Run the full pipeline end-to-end."""
-    if not source and (not from_date or not to_date):
-        raise click.UsageError("Either --source (local folder) or -f/-t (date range) is required.")
+# ---------------------------------------------------------------------------
+# Config helpers (shared across subcommands)
+# ---------------------------------------------------------------------------
 
-    type_list = _parse_item_types(item_types) if item_types else None
+def _fetch_cfg_local(source_dir: str) -> dict:
+    return {"force": True, "source_dir": source_dir}
 
-    fetch_cfg: dict = {"force": True}
-    if source:
-        fetch_cfg["source_dir"] = source
-    else:
-        fetch_cfg["from_date"] = from_date
-        fetch_cfg["to_date"] = to_date
+
+def _fetch_cfg_nas(from_date: str, to_date: str, country: str | None = None,
+                   district: str | None = None, item_types: str | None = None) -> dict:
+    cfg: dict = {"force": True, "from_date": from_date, "to_date": to_date}
     if country:
-        fetch_cfg["country"] = country
+        cfg["country"] = country
     if district:
-        fetch_cfg["district"] = district
-    if type_list:
-        fetch_cfg["item_types"] = type_list
+        cfg["district"] = district
+    if item_types:
+        cfg["item_types"] = _parse_item_types(item_types)
+    return cfg
 
-    prepare_cfg: dict = {"force": force_prepare}
-    if family:
-        prepare_cfg["family_names"] = [n.strip() for n in family.split(",")]
+
+def _prepare_cfg(force: bool = False, tz_hours: int | None = None) -> dict:
+    cfg: dict = {"force": force}
     if tz_hours is not None:
-        prepare_cfg["tz_hours"] = tz_hours
+        cfg["tz_hours"] = tz_hours
+    return cfg
 
+
+def _plan_and_music_cfg(style: str, duration: int, focus: str, trip_type: str,
+                        lang: str, model: str | None, music: str,
+                        tz_hours: int | None) -> tuple[dict, dict, list[str]]:
+    """Return (plan_cfg, stage_cfg_extras, extra_stages)."""
     plan_cfg: dict = {
         "style": style, "target_duration": duration,
-        "focus": focus, "trip_type": trip_type,
-        "language": lang,
+        "focus": focus, "trip_type": trip_type, "language": lang,
     }
     if tz_hours is not None:
         plan_cfg["tz_hours"] = tz_hours
     if model:
         plan_cfg["model"] = model
+
     music_backend = "gemini"
+    extra_stages: list[str] = []
+    extras: dict = {}
     if music == "local":
         plan_cfg["music_file"] = "auto"
         music_backend = "local"
+        extra_stages.append("generate_music")
+        extras["generate_music"] = {"music_backend": music_backend}
     elif music == "none":
         pass
     elif music == "auto":
         plan_cfg["music_file"] = "auto"
+        extra_stages.append("generate_music")
+        extras["generate_music"] = {"music_backend": music_backend}
     else:
         plan_cfg["music_file"] = music
+    return plan_cfg, extras, extra_stages
 
+
+# Shared Click options (avoid repeating decorators)
+_tz_option = click.option("--timezone", "--tz", "tz_hours", default=None, type=int,
+                          help="UTC offset in hours (default: system local, e.g. -5 NYC, 8 SGT)")
+_force_option = click.option("--force", is_flag=True, help="Force re-analyze (ignore cached)")
+
+_plan_options = [
+    click.option("--duration", default=60, type=int, help="Target vlog length in seconds"),
+    click.option("--trip-type", default="family",
+                 type=click.Choice(["family", "solo", "food", "adventure", "architecture", "general"])),
+    click.option("--style", default="upbeat",
+                 type=click.Choice(["upbeat", "cinematic", "reflective", "energetic"])),
+    click.option("--focus", default="", help="What to emphasize"),
+    click.option("--lang", default="en", type=click.Choice(["en", "cn", "both"]), help="Text language"),
+    click.option("--model", default=None, help="Gemini model override"),
+    click.option("--music", default="auto",
+                 help="auto=Gemini Lyria (default), local=MusicGen, /path/to/file, none=no music"),
+]
+
+_assemble_options = [
+    click.option("--width", default=3840, type=int, help="Output width (default: 3840)"),
+    click.option("--height", default=2160, type=int, help="Output height (default: 2160)"),
+    click.option("--fps", default=60, type=int, help="Output FPS (default: 60)"),
+    click.option("--quality", default=1.0, type=float,
+                 help="Bitrate multiplier: 0.5=smaller, 1.0=YouTube (default), 2.0=master"),
+]
+
+
+def _apply_options(options):
+    """Decorator to apply a list of click.option decorators."""
+    def wrapper(fn):
+        for opt in reversed(options):
+            fn = opt(fn)
+        return fn
+    return wrapper
+
+
+# ---------------------------------------------------------------------------
+# prepare: fetch + analyze media
+# ---------------------------------------------------------------------------
+
+@cli.group()
+def prepare():
+    """Fetch and analyze media (local folder or NAS)."""
+    pass
+
+
+@prepare.command("local")
+@click.argument("path", type=click.Path(exists=True))
+@_tz_option
+@_force_option
+@click.pass_context
+def prepare_local(ctx, path, tz_hours, force):
+    """Prepare media from a local folder."""
     _run_pipeline(_run_name(ctx), {
-        "fetch": fetch_cfg,
-        "prepare": prepare_cfg,
+        "fetch": _fetch_cfg_local(path),
+        "prepare": _prepare_cfg(force, tz_hours),
+    }, stages=["fetch", "prepare"])
+
+
+@prepare.command("nas")
+@click.option("-f", "--from-date", required=True, help="Start date (YYYY-MM-DD)")
+@click.option("-t", "--to-date", required=True, help="End date (YYYY-MM-DD)")
+@click.option("--country", default=None, help="Filter by country")
+@click.option("--district", default=None, help="Filter by district/city")
+@click.option("--item-types", default=None, help="Media types: photo,video,live,motion")
+@_tz_option
+@_force_option
+@click.pass_context
+def prepare_nas(ctx, from_date, to_date, country, district, item_types,
+                tz_hours, force):
+    """Prepare media from Synology NAS (date range)."""
+    _run_pipeline(_run_name(ctx), {
+        "fetch": _fetch_cfg_nas(from_date, to_date, country, district, item_types),
+        "prepare": _prepare_cfg(force, tz_hours),
+    }, stages=["fetch", "prepare"])
+
+
+# ---------------------------------------------------------------------------
+# full: end-to-end pipeline
+# ---------------------------------------------------------------------------
+
+@cli.group()
+def full():
+    """Run the full pipeline end-to-end."""
+    pass
+
+
+@full.command("local")
+@click.argument("path", type=click.Path(exists=True))
+@_tz_option
+@_force_option
+@_apply_options(_plan_options)
+@_apply_options(_assemble_options)
+@click.pass_context
+def full_local(ctx, path, tz_hours, force,
+               duration, trip_type, style, focus, lang, model, music,
+               width, height, fps, quality):
+    """Full pipeline from a local folder."""
+    plan_cfg, extras, extra_stages = _plan_and_music_cfg(
+        style, duration, focus, trip_type, lang, model, music, tz_hours)
+    stages = ["fetch", "prepare", "plan"] + extra_stages + ["assemble"]
+    cfg = {
+        "fetch": _fetch_cfg_local(path),
+        "prepare": _prepare_cfg(force, tz_hours),
         "plan": plan_cfg,
-        "generate_music": {"music_backend": music_backend},
+        **extras,
         "assemble": {"skip_broken": True, "width": width, "height": height,
                      "fps": fps, "quality": quality},
-    })
+    }
+    _run_pipeline(_run_name(ctx), cfg, stages=stages)
+
+
+@full.command("nas")
+@click.option("-f", "--from-date", required=True, help="Start date (YYYY-MM-DD)")
+@click.option("-t", "--to-date", required=True, help="End date (YYYY-MM-DD)")
+@click.option("--country", default=None, help="Filter by country")
+@click.option("--district", default=None, help="Filter by district/city")
+@click.option("--item-types", default=None, help="Media types: photo,video,live,motion")
+@_tz_option
+@_force_option
+@_apply_options(_plan_options)
+@_apply_options(_assemble_options)
+@click.pass_context
+def full_nas(ctx, from_date, to_date, country, district, item_types,
+             tz_hours, force,
+             duration, trip_type, style, focus, lang, model, music,
+             width, height, fps, quality):
+    """Full pipeline from Synology NAS (date range)."""
+    plan_cfg, extras, extra_stages = _plan_and_music_cfg(
+        style, duration, focus, trip_type, lang, model, music, tz_hours)
+    stages = ["fetch", "prepare", "plan"] + extra_stages + ["assemble"]
+    cfg = {
+        "fetch": _fetch_cfg_nas(from_date, to_date, country, district, item_types),
+        "prepare": _prepare_cfg(force, tz_hours),
+        "plan": plan_cfg,
+        **extras,
+        "assemble": {"skip_broken": True, "width": width, "height": height,
+                     "fps": fps, "quality": quality},
+    }
+    _run_pipeline(_run_name(ctx), cfg, stages=stages)
 
 
 @cli.command()
@@ -790,7 +903,8 @@ def _run_detail(run_dir) -> dict:
     intermediates = (
         list(output_dir.glob("*_nomix.mp4")) +
         list(output_dir.glob("*_speech.wav")) +
-        list(output_dir.glob("concat_list.txt"))
+        list(output_dir.glob("_group_*.mp4")) +
+        list(output_dir.glob("_group_*.txt"))
     ) if output_dir.exists() else []
     info["intermediate_bytes"] = sum(f.stat().st_size for f in intermediates)
     info["intermediate_files"] = intermediates
@@ -808,11 +922,10 @@ def _run_detail(run_dir) -> dict:
 
 
 @cli.command()
-@click.option("--clean", type=click.Choice(["media", "cache", "runs", "all"]),
-              default=None, help="Delete shared data")
-@click.option("--prune", is_flag=True, help="Remove old output versions, intermediates, and legacy clips")
+@click.option("--clean", type=click.Choice(["safe", "cache", "media", "all"]),
+              default=None, help="safe=old outputs+intermediates, cache=analysis/thumbnails, media=source files, all=everything")
 @click.option("-y", "--yes", is_flag=True, help="Skip confirmation")
-def workspace(clean, prune, yes):
+def workspace(clean, yes):
     """Show workspace disk usage with pipeline-aware details."""
     import shutil
 
@@ -924,11 +1037,14 @@ def workspace(clean, prune, yes):
     click.echo(f"\n{'─' * 50}")
     click.echo(f"Total: {_fmt_size(total)}")
     if total_reclaimable:
-        click.echo(f"Reclaimable with --prune: {_fmt_size(total_reclaimable)}")
+        click.echo(f"Reclaimable with --clean safe: {_fmt_size(total_reclaimable)}")
 
-    if prune:
+    if clean is None:
+        return
+
+    if clean == "safe":
         if total_reclaimable == 0:
-            click.echo("\nNothing to prune.")
+            click.echo("\nNothing to clean.")
             return
 
         click.echo(f"\nWill free {_fmt_size(total_reclaimable)}:")
@@ -950,10 +1066,7 @@ def workspace(clean, prune, yes):
         for f in to_delete:
             freed += f.stat().st_size
             f.unlink()
-        click.echo(f"Pruned {len(to_delete)} files, freed {_fmt_size(freed)}.")
-        return
-
-    if clean is None:
+        click.echo(f"Cleaned {len(to_delete)} files, freed {_fmt_size(freed)}.")
         return
 
     targets = []
@@ -963,8 +1076,9 @@ def workspace(clean, prune, yes):
         targets += [("analysis_cache", ws / "analysis_cache"),
                     ("thumbnails", ws / "thumbnails"),
                     ("keyframes", ws / "keyframes"),
+                    ("preview_clips", ws / "preview_clips"),
                     ("music", ws / "music")]
-    if clean in ("runs", "all"):
+    if clean == "all":
         targets.append(("runs", ws / "runs"))
 
     sizes = [(n, p, _dir_size(p)[0]) for n, p in targets if p.exists()]

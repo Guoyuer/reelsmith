@@ -133,13 +133,8 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
     clips_dir = cfg.clips_dir
     output_dir = cfg.output_dir
-    output_path = output_dir / f"vlog_v{version}.mp4"
-
-    # Clean stale clips from previous EDL versions
-    if clips_dir.exists():
-        for old_clip in clips_dir.glob("*.mp4"):
-            old_clip.unlink()
-        _log(f"Cleaned stale clips from {clips_dir}")
+    res_label = f"{h}p{fps}"  # e.g. "1080p30", "2160p60"
+    output_path = output_dir / f"vlog_v{version}_{res_label}.mp4"
 
     lang = edl.language
 
@@ -154,7 +149,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
     try:
         return _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
-                               output_dir, output_path, progress_callback, skip_broken, ctx)
+                               output_dir, output_path, res_label, progress_callback, skip_broken, ctx)
     finally:
         ffmpeg_log.removeHandler(_fh)
         _fh.close()
@@ -162,7 +157,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
 
 
 def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
-                    output_dir, output_path, progress_callback, skip_broken, ctx):
+                    output_dir, output_path, res_label, progress_callback, skip_broken, ctx):
     _log = logger.info
 
     # Beat sync: snap transitions to music beats (before rendering clips)
@@ -196,7 +191,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
                 file=sys.stdout, disable=not sys.stdout.isatty())
 
     def _do_render(order, seg_idx, item_idx, item, segment):
-        clip_name = f"seg{seg_idx:02d}_item{item_idx:02d}.mp4"
+        clip_name = f"seg{seg_idx:02d}_item{item_idx:02d}_{res_label}.mp4"
         clip_path = clips_dir / clip_name
 
         if not clip_path.exists():
@@ -301,7 +296,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
 
     # Phase 1b: Render intro/outro clips
     if edl.intro_style == "title_card" and edl.title:
-        intro_path = clips_dir / "intro_title.mp4"
+        intro_path = clips_dir / f"intro_title_{res_label}.mp4"
         intro_dur = edl.intro_duration
         # Find first photo in EDL for hero-photo background
         background_photo = None
@@ -326,7 +321,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
             all_clips[1]["transition_duration"] = 1.0
 
     if edl.outro_style == "fade_title" and edl.title:
-        outro_path = clips_dir / "outro_title.mp4"
+        outro_path = clips_dir / f"outro_title_{res_label}.mp4"
         outro_dur = edl.outro_duration
         if not outro_path.exists():
             render_title_card(edl.title, "", outro_path, w, h, fps, duration=outro_dur, language=lang, ctx=ctx)
@@ -339,7 +334,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
     # Phase 2: Concatenate with transitions (video only)
     t2 = time.monotonic()
     _log(f"Concatenating {len(all_clips)} clips...")
-    no_music_path = output_dir / f"vlog_v{version}_nomix.mp4"
+    no_music_path = output_dir / f"vlog_v{version}_{res_label}_nomix.mp4"
     concatenate(all_clips, no_music_path, w, h, fps)
     _log(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
 
@@ -357,7 +352,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
         for e in tl.speech_entries():
             speech_clips.append((e.video_offset, e.path))
 
-        speech_audio_path = output_dir / f"vlog_v{version}_speech.wav"
+        speech_audio_path = output_dir / f"vlog_v{version}_{res_label}_speech.wav"
         build_speech_track(speech_clips, video_dur, speech_audio_path)
         _log(f"Speech track: {len(speech_clips)} clips at "
               f"{', '.join(f'{o:.1f}s' for o, _ in speech_clips)}")
@@ -381,7 +376,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
     _log(f"Done: {output_path} ({duration:.1f}s, rendered in {total_time:.0f}s)")
 
     # Generate YouTube chapter markers (using Timeline offsets)
-    chapters_path = output_dir / f"chapters_v{version}.txt"
+    chapters_path = output_dir / f"chapters_v{version}_{res_label}.txt"
     write_chapters(edl, all_clips, chapters_path, timeline=tl)
 
     # Phase 4: Validate output
