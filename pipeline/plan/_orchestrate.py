@@ -38,8 +38,8 @@ logger = logging.getLogger("vlog.plan")
 
 @dataclass
 class PlanConfig:
+    target_duration: int  # required — no default
     style: str = "upbeat"
-    target_duration: int = 60
     focus: str = ""
     trip_type: str = "family"
     language: str = "en"
