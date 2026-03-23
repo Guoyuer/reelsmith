@@ -709,7 +709,7 @@ def full(
             tz_hours=tz_hours,
             force=force,
         ),
-        assemble=AssembleConfig(w=w, h=h, fps=fps, quality=quality, skip_broken=True),
+        assemble=AssembleConfig(w=w, h=h, fps=fps, quality=quality),
         stages=stages,
     )
 
