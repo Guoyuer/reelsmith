@@ -57,10 +57,10 @@ def _build_visual_chapter_text(
 
                 dt = datetime.fromisoformat(taken_iso.replace("Z", "+00:00"))
                 local_dt = dt + timedelta(hours=tz_hours)
-                time_str = local_dt.strftime("%H:%M")
+                time_str = local_dt.strftime("%H:%M:%S")
             except Exception:
                 logger.debug("Could not parse timestamp %s", taken_iso, exc_info=True)
-                time_str = taken_iso[11:16]
+                time_str = taken_iso[11:19]
 
         label = f"#{idx:02d}"
         # Describe who's in the photo
