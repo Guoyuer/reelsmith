@@ -210,8 +210,8 @@ def _run_assemble(edl_dict: dict, run_name: str = "singapore",
     edl_path.write_text(json.dumps(edl_dict, indent=2))
 
     result = subprocess.run(
-        ["python", "run.py", "-n", run_name, "assemble", "--edl", str(edl_path),
-         "--width", str(width), "--height", str(height), "--fps", str(fps)],
+        ["python", "cli.py", "assemble", "-n", run_name, "--edl", str(edl_path),
+         "-r", f"{width}x{height}x{fps}"],
         capture_output=True, text=True, timeout=600,
         cwd=str(Path.cwd()),
     )

@@ -2,29 +2,29 @@
 
 ## Pipeline execution
 
-Run pipeline via `python run.py` CLI. Stages execute directly in a single Python process — no external services needed. Each stage caches its output; re-running `full` is fast.
+Run pipeline via `vlog` CLI. Stages execute directly in a single Python process — no external services needed. Each stage caches its output; re-running `full` is fast.
 
 ```bash
 # Full pipeline from local folder
-python run.py -n singapore full -s local -p ./photos -r 4k60 --duration 180 --lang cn --tz 8
+vlog full -n singapore -s local -p ./photos -r 4k60 --duration 180 --lang cn --tz 8
 
 # Full pipeline from NAS
-python run.py -n singapore full -s nas -f 2025-06-13 -t 2025-06-17 -r 1080p30 --duration 180
+vlog full -n singapore -s nas -f 2025-06-13 -t 2025-06-17 -r 1080p30 --duration 180
 
 # Prepare only (fetch + media processing)
-python run.py -n singapore prepare -s local -p ./photos --tz 8
+vlog prepare -n singapore -s local -p ./photos --tz 8
 
 # Re-plan only (no render)
-python run.py -n singapore plan --duration 180 --lang cn
+vlog plan -n singapore --duration 180 --lang cn
 
 # Render at 1080p30 (output: vlog_v1_1080p30.mp4)
-python run.py -n singapore assemble -r 1080p30
+vlog assemble -n singapore -r 1080p30
 
 # Render at 4K60 (output: vlog_v1_2160p60.mp4, reuses 1080p clips won't conflict)
-python run.py -n singapore assemble -r 4k60
+vlog assemble -n singapore -r 4k60
 
 # Custom resolution
-python run.py -n singapore assemble -r 2560x1440x60
+vlog assemble -n singapore -r 2560x1440x60
 ```
 
 Logs go to terminal AND `workspace/runs/{name}/run_{timestamp}.log`. Run summary in `workspace/runs/{name}/run_status.json`.

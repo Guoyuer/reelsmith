@@ -19,7 +19,7 @@ dependencies = [
 test = ["pytest>=8.0"]
 
 [project.scripts]
-vlog = "run:cli"
+vlog = "cli:cli"
 
 [tool.pytest.ini_options]
 addopts = "-m 'not integration'"
