@@ -393,66 +393,57 @@ def _concat_previews(
 ) -> tuple[list[tuple[int, float, float]], Path]:
     """Concatenate video previews into one mega-preview with burned-in labels.
 
-    Each clip is re-encoded with its #XX label, then concatenated.
-    Re-encoding also fixes 1fps timestamp bugs (concat demuxer -c copy fails).
+    Single FFmpeg call: concat demuxer → drawtext per segment → encode.
 
     Returns (offset_table, output_path).
     """
     import tempfile
     from .media_utils import run_subprocess
 
-    tmp_dir = Path(tempfile.mkdtemp(prefix="mega_"))
-
-    # Step 1: Re-encode each clip with label (parallel-safe, fast at 360p 1fps)
-    logger.info(f"Labeling {len(video_entries)} previews...")
-    labeled_paths = []
-    for i, (item_num, dur, preview_path) in enumerate(video_entries):
-        labeled = tmp_dir / f"labeled_{i:04d}.mp4"
-        label_text = f"\\#{item_num}"
-        run_subprocess([
-            "ffmpeg", "-y", "-i", str(preview_path),
-            "-vf", (f"drawtext=text='{label_text}'"
-                    f":fontsize=28:fontcolor=yellow"
-                    f":box=1:boxcolor=black@0.8:boxborderw=6:x=8:y=6"),
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "40",
-            "-c:a", "aac", "-b:a", "64k", "-ac", "1",
-            str(labeled),
-        ], capture_output=True, timeout=30)
-        labeled_paths.append((labeled, dur))
-        if (i + 1) % 20 == 0 or i + 1 == len(video_entries):
-            logger.info(f"  Labeled: {i + 1}/{len(video_entries)}")
-
-    # Step 2: Concat labeled clips (copy mode is safe after re-encode)
-    list_file = tmp_dir / "concat.txt"
-    with open(list_file, "w") as f:
-        for labeled, dur in labeled_paths:
-            safe = str(labeled.resolve()).replace("\\", "/")
-            f.write(f"file '{safe}'\n")
-            f.write(f"duration {dur}\n")
-
-    logger.info(f"Concatenating into mega-preview...")
-    # Re-encode again (not -c copy) — even labeled clips have 1fps timestamp issues
-    run_subprocess([
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-        "-i", str(list_file),
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "40",
-        "-c:a", "aac", "-b:a", "64k", "-ac", "1",
-        str(output_path),
-    ], capture_output=True, timeout=300)
-
-    # Cleanup temp files
-    import shutil
-    shutil.rmtree(tmp_dir, ignore_errors=True)
-
-    # Build offset table
+    # Build offset table and concat list
     offset = 0.0
     offset_table = []
     for item_num, dur, _ in video_entries:
         offset_table.append((item_num, dur, offset))
         offset += dur
 
+    # Write concat demuxer list
+    tmp_dir = Path(tempfile.mkdtemp(prefix="mega_"))
+    list_file = tmp_dir / "concat.txt"
+    with open(list_file, "w") as f:
+        for _, dur, preview_path in video_entries:
+            safe = str(preview_path.resolve()).replace("\\", "/")
+            f.write(f"file '{safe}'\n")
+            f.write(f"duration {dur}\n")
+
+    # Build drawtext filter: one label per segment using enable='between(t,start,end)'
+    drawtext_parts = []
+    for (item_num, dur, seg_offset) in offset_table:
+        label = f"\\\\\\#{item_num}"
+        end = seg_offset + dur
+        drawtext_parts.append(
+            f"drawtext=text='{label}'"
+            f":fontsize=28:fontcolor=yellow"
+            f":box=1:boxcolor=black@0.8:boxborderw=6:x=8:y=6"
+            f":enable='between(t,{seg_offset:.1f},{end:.1f})'"
+        )
+    vf = ",".join(drawtext_parts) if drawtext_parts else "null"
+
+    logger.info(f"Building mega-preview ({len(video_entries)} videos, {offset:.0f}s)...")
+    run_subprocess([
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+        "-i", str(list_file),
+        "-vf", vf,
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "40",
+        "-c:a", "aac", "-b:a", "64k", "-ac", "1",
+        str(output_path),
+    ], capture_output=True, timeout=600)
+
+    import shutil
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
     size_mb = output_path.stat().st_size / 1024 / 1024 if output_path.exists() else 0
-    logger.info(f"  Mega-preview: {len(video_entries)} videos, {offset:.0f}s total, {size_mb:.1f}MB")
+    logger.info(f"  Mega-preview: {size_mb:.1f}MB")
 
     # Validate duration
     if output_path.exists():
@@ -466,7 +457,6 @@ def _concat_previews(
             raise RuntimeError(
                 f"Mega-preview duration mismatch: expected {offset:.0f}s, got {actual_dur:.0f}s"
             )
-        logger.info(f"  Duration verified: {actual_dur:.0f}s (expected {offset:.0f}s)")
 
     return offset_table, output_path
 
