@@ -6,7 +6,6 @@ audio-video sync. Photos get silence, keep_audio videos contribute speech.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from dataclasses import dataclass
 from pathlib import Path

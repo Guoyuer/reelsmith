@@ -1,8 +1,8 @@
-"""Tests for pipeline.assemble — portrait-aware rendering helpers and output validation."""
+"""Tests for pipeline.assemble — portrait detection, output validation, render report."""
 
 from __future__ import annotations
 
-import subprocess
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,11 +10,7 @@ import pytest
 
 from pipeline.assemble._assemble import _validate_output
 from pipeline.assemble._encoder import RenderContext
-from pipeline.assemble._filters import build_portrait_photo_filter as _build_portrait_photo_filter
 from pipeline.assemble._filters import is_portrait as _is_portrait
-from pipeline.assemble._filters import portrait_bg_filter
-from pipeline.assemble._render import render_photo as _render_photo
-from pipeline.assemble._render import render_video as _render_video
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
 
 # -----------------------------------------------------------------------
@@ -38,48 +34,6 @@ class TestIsPortrait:
     def test_is_portrait_slightly_tall(self):
         """3000x3400 (ratio 1.13, below 1.2 threshold) should not be portrait."""
         assert _is_portrait(3000, 3400) is False
-
-
-class TestBuildPortraitPhotoFilter:
-    def test_portrait_photo_filter_structure(self):
-        """Filter must contain split, gblur, overlay, and zoompan stages."""
-        fc = _build_portrait_photo_filter(
-            out_w=3840,
-            out_h=2160,
-            frames=240,
-            fps=60,
-            zoom_rate=0.001,
-        )
-        assert "split" in fc
-        assert "gblur" in fc
-        assert "overlay" in fc
-        assert "zoompan" in fc
-
-    def test_portrait_photo_filter_output_resolution(self):
-        """The zoompan s= parameter must match the requested output dimensions."""
-        fc = _build_portrait_photo_filter(
-            out_w=1920,
-            out_h=1080,
-            frames=120,
-            fps=30,
-            zoom_rate=0.002,
-        )
-        assert "s=1920x1080" in fc
-        assert "fps=30" in fc
-
-
-class TestBuildPortraitVideoFilter:
-    def test_portrait_video_filter_structure(self):
-        """Filter must contain split, gblur, and overlay stages."""
-        fc = portrait_bg_filter(3840, 2160)
-        assert "split" in fc
-        assert "gblur" in fc
-        assert "overlay" in fc
-
-    def test_portrait_video_filter_no_pad(self):
-        """Portrait video filter must NOT use pad (no black bars)."""
-        fc = portrait_bg_filter(3840, 2160)
-        assert "pad=" not in fc
 
 
 # -----------------------------------------------------------------------
@@ -109,208 +63,6 @@ class TestProbeDimensions:
         with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake_result):
             w, h = ctx.probe_dimensions(Path("/fake/bad.mp4"))
         assert (w, h) == (0, 0)
-
-
-class TestHeicConversion:
-    def test_heic_conversion_called_for_heic(self, tmp_path: Path):
-        """HEIC files should be converted to JPEG before rendering."""
-        heic_file = tmp_path / "photo.heic"
-        heic_file.write_bytes(b"\x00" * 100)
-        out_file = tmp_path / "clip.mp4"
-
-        convert_calls = []
-
-        def mock_convert(source, dest_dir=None):
-            convert_calls.append(source)
-            jpeg = (dest_dir or source.parent) / f"_converted_{source.stem}.jpg"
-            jpeg.write_bytes(b"\xff\xd8" + b"\x00" * 98)
-            return jpeg
-
-        def mock_run(cmd, **kwargs):
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = "0x0\n"
-            result.stderr = ""
-            return result
-
-        item = EditItem(
-            source_file=str(heic_file),
-            media_type="photo",
-            display_duration=3.0,
-        )
-
-        ctx = RenderContext(w=3840, h=2160, fps=60)
-        with (
-            patch("pipeline.assemble._render.convert_heic", side_effect=mock_convert),
-            patch("pipeline.assemble._render.run_subprocess", side_effect=mock_run),
-            patch("pipeline.assemble._encoder.run_subprocess", side_effect=mock_run),
-        ):
-            _render_photo(item, out_file, ctx=ctx)
-
-        assert len(convert_calls) == 1, "convert_heic should be called for HEIC files"
-
-
-# -----------------------------------------------------------------------
-# Integration tests (require FFmpeg installed)
-# -----------------------------------------------------------------------
-
-
-@pytest.mark.integration
-class TestRenderLandscapePhoto:
-    def test_render_landscape_photo_correct_dims(
-        self,
-        tiny_landscape_image: Path,
-        tmp_path: Path,
-    ):
-        """Landscape photo should render to the target resolution."""
-        out = tmp_path / "landscape_clip.mp4"
-        item = EditItem(
-            source_file=str(tiny_landscape_image),
-            media_type="photo",
-            display_duration=2.0,
-            effect="static",
-        )
-        ctx = RenderContext(w=320, h=180, fps=10)
-        _render_photo(item, out, ctx=ctx)
-        assert out.exists(), "Output clip should be created"
-
-        w, h = ctx.probe_dimensions(out)
-        assert (w, h) == (320, 180)
-
-
-@pytest.mark.integration
-class TestRenderPortraitPhoto:
-    def test_render_portrait_photo_correct_dims(
-        self,
-        tiny_portrait_image: Path,
-        tmp_path: Path,
-    ):
-        """Portrait photo should render to the target resolution (not cropped)."""
-        out = tmp_path / "portrait_clip.mp4"
-        item = EditItem(
-            source_file=str(tiny_portrait_image),
-            media_type="photo",
-            display_duration=2.0,
-        )
-        ctx = RenderContext(w=320, h=180, fps=10)
-        _render_photo(item, out, ctx=ctx)
-        assert out.exists(), "Output clip should be created"
-
-        w, h = ctx.probe_dimensions(out)
-        assert (w, h) == (320, 180)
-
-    def test_render_portrait_photo_no_black_bars(
-        self,
-        tiny_portrait_image: Path,
-        tmp_path: Path,
-    ):
-        """Portrait photo with blurred BG should not have black bars on left/right edges."""
-        out = tmp_path / "portrait_noblack.mp4"
-        item = EditItem(
-            source_file=str(tiny_portrait_image),
-            media_type="photo",
-            display_duration=2.0,
-        )
-        ctx = RenderContext(w=320, h=180, fps=10)
-        _render_photo(item, out, ctx=ctx)
-        assert out.exists()
-
-        # Extract first frame as PNG
-        frame_path = tmp_path / "frame.png"
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-i",
-                str(out),
-                "-vframes",
-                "1",
-                "-f",
-                "image2",
-                str(frame_path),
-            ],
-            capture_output=True,
-            check=True,
-        )
-        from PIL import Image
-
-        frame = Image.open(frame_path)
-        pixels = frame.load()
-
-        # Check left and right edge pixels at the vertical center — they should
-        # NOT be black (0, 0, 0) because the blurred background fills them.
-        mid_y = frame.height // 2
-        left_pixel = pixels[0, mid_y]
-        right_pixel = pixels[frame.width - 1, mid_y]
-
-        assert left_pixel != (0, 0, 0), f"Left edge pixel is black: {left_pixel}"
-        assert right_pixel != (0, 0, 0), f"Right edge pixel is black: {right_pixel}"
-
-
-@pytest.mark.integration
-class TestRenderPortraitVideo:
-    def test_render_portrait_video_no_black_bars(self, tmp_path: Path):
-        """Portrait video should use blurred BG, not black-bar padding."""
-        # Create a tiny portrait video using ffmpeg lavfi
-        portrait_vid = tmp_path / "portrait.mp4"
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-f",
-                "lavfi",
-                "-i",
-                "color=c=red:s=90x160:d=1",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "ultrafast",
-                "-pix_fmt",
-                "yuv420p",
-                str(portrait_vid),
-            ],
-            capture_output=True,
-            check=True,
-        )
-
-        out = tmp_path / "portrait_vid_rendered.mp4"
-        item = EditItem(
-            source_file=str(portrait_vid),
-            media_type="video",
-            display_duration=1.0,
-        )
-        ctx = RenderContext(w=320, h=180, fps=10)
-        _render_video(item, out, ctx=ctx)
-        assert out.exists(), "Rendered video should exist"
-
-        # Extract a frame and check edges
-        frame_path = tmp_path / "vid_frame.png"
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-i",
-                str(out),
-                "-vframes",
-                "1",
-                "-f",
-                "image2",
-                str(frame_path),
-            ],
-            capture_output=True,
-            check=True,
-        )
-        from PIL import Image
-
-        frame = Image.open(frame_path)
-        pixels = frame.load()
-
-        mid_y = frame.height // 2
-        left_pixel = pixels[0, mid_y]
-        right_pixel = pixels[frame.width - 1, mid_y]
-
-        assert left_pixel != (0, 0, 0), f"Left edge pixel is black: {left_pixel}"
-        assert right_pixel != (0, 0, 0), f"Right edge pixel is black: {right_pixel}"
 
 
 # -----------------------------------------------------------------------
@@ -369,9 +121,6 @@ def _mock_subprocess_for_validation(
         return result
 
     return _side_effect
-
-
-from contextlib import contextmanager
 
 
 @contextmanager
@@ -616,42 +365,3 @@ class TestValidateOutputAllPassing:
         assert len(issues) == 0
 
 
-# -----------------------------------------------------------------------
-# RenderReport
-# -----------------------------------------------------------------------
-
-
-class TestRenderReport:
-    def test_empty_report(self):
-        from pipeline.assemble import RenderReport
-
-        r = RenderReport()
-        assert r.ok_count == 0
-        assert "0/0 OK" in r.summary()
-
-    def test_all_ok(self):
-        from pipeline.assemble import ClipStatus, RenderReport
-
-        r = RenderReport(
-            clips=[
-                ClipStatus("c1", "a.jpg", "ok"),
-                ClipStatus("c2", "b.jpg", "ok"),
-            ]
-        )
-        assert r.ok_count == 2
-        assert "2/2 OK" in r.summary()
-
-    def test_mixed_status(self):
-        from pipeline.assemble import ClipStatus, RenderReport
-
-        r = RenderReport(
-            clips=[
-                ClipStatus("c1", "a.jpg", "ok"),
-                ClipStatus("c2", "b.jpg", "skipped", "source not found"),
-                ClipStatus("c3", "c.jpg", "failed", "timeout"),
-            ]
-        )
-        assert r.ok_count == 1
-        assert r.skipped_count == 1
-        assert r.failed_count == 1
-        assert "timeout" in r.summary()

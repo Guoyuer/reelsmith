@@ -1,4 +1,4 @@
-"""FFmpeg filter string builders: color grade, text overlay, portrait, fonts, Ken Burns."""
+"""FFmpeg filter string builders: color grade, text overlay, fonts, Ken Burns."""
 
 from __future__ import annotations
 
@@ -6,26 +6,6 @@ import logging
 from pathlib import Path
 
 logger = logging.getLogger("vlog.assemble.filters")
-
-
-def build_portrait_photo_filter(
-    out_w: int,
-    out_h: int,
-    frames: int,
-    fps: int,
-    zoom_rate: float,
-) -> str:
-    """Build FFmpeg filter_complex for portrait photos: blurred BG + sharp FG + gentle Ken Burns."""
-    return (
-        f"[0:v]split[bg][fg];"
-        f"[bg]scale=960:-1:force_original_aspect_ratio=increase,crop=960:540,"
-        f"gblur=sigma=60,scale={out_w}:{out_h},eq=brightness=-0.15:saturation=0.6[blurred];"
-        f"[fg]scale=-1:{out_h}[sharp];"
-        f"[blurred][sharp]overlay=(W-w)/2:(H-h)/2[comp];"
-        f"[comp]zoompan=z='1+(1.08-1)*(1-cos(PI*on/{frames}))/2':d={frames}"
-        f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-        f":s={out_w}x{out_h}:fps={fps}"
-    )
 
 
 _VALID_COLOR_TEMPS = {"neutral", "warm", "cool"}
@@ -97,7 +77,7 @@ def drawtext_filter(
 
 
 # ---------------------------------------------------------------------------
-# Ken Burns & portrait video filters
+# Ken Burns
 # ---------------------------------------------------------------------------
 
 
@@ -140,21 +120,6 @@ def ken_burns_filter(
     return (
         f"crop=w='{cw}':h='{ch}':x='{cx}':y='{cy}':exact=1,"
         f"scale={w}:{h}:flags=lanczos,fps={fps}"
-    )
-
-
-def portrait_bg_filter(w: int, h: int) -> str:
-    """Build the blurred-background + sharp-foreground overlay filter for portrait videos.
-
-    The result is a ``filter_complex`` string suitable for a single-input
-    FFmpeg command (expects ``[0:v]`` as input).
-    """
-    return (
-        f"[0:v]split[bg][fg];"
-        f"[bg]scale={w}:-1:force_original_aspect_ratio=increase,"
-        f"crop={w}:{h},gblur=sigma=60,eq=brightness=-0.15:saturation=0.6[blurred];"
-        f"[fg]scale=-1:{h}[sharp];"
-        f"[blurred][sharp]overlay=(W-w)/2:(H-h)/2"
     )
 
 
