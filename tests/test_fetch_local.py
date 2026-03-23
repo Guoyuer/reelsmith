@@ -16,10 +16,10 @@ from pipeline.fetch._local import (
     fetch_local,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _expected_id(filename: str) -> int:
     """Reproduce the md5-based ID generation from fetch_local."""
@@ -29,6 +29,7 @@ def _expected_id(filename: str) -> int:
 @pytest.fixture
 def mock_config(tmp_path: Path):
     from pipeline.config import Config
+
     cfg = Config(workspace=tmp_path / "workspace")
     cfg.ensure_dirs()
     return cfg
@@ -239,6 +240,7 @@ class TestReverseGeocode:
         """Known Singapore coords → city=Singapore."""
         try:
             import reverse_geocode
+
             loc = reverse_geocode.get((1.2897, 103.8501))
             assert loc["city"] == "Singapore"
             assert loc["country"] == "Singapore"
@@ -248,6 +250,7 @@ class TestReverseGeocode:
     def test_no_gps_no_location(self, mock_config, source_dir):
         """Files without GPS don't get city/country fields."""
         from pipeline.fetch._local import fetch_local
+
         _create_fake_image(source_dir / "no_gps.jpg")
         with patch("pipeline.fetch._local._extract_date", return_value=None):
             with patch("pipeline.fetch._local._extract_gps", return_value=(None, None)):

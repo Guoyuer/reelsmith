@@ -10,12 +10,12 @@ import pytest
 
 from pipeline.assemble._assemble import _validate_output
 from pipeline.assemble._encoder import RenderContext
-from pipeline.assemble._filters import is_portrait as _is_portrait
 from pipeline.assemble._filters import build_portrait_photo_filter as _build_portrait_photo_filter
-from pipeline.assemble._render import render_photo as _render_photo, render_video as _render_video
-from pipeline.edl import EDL, EditItem, MusicTrack, Segment
+from pipeline.assemble._filters import is_portrait as _is_portrait
 from pipeline.assemble._filters import portrait_bg_filter
-
+from pipeline.assemble._render import render_photo as _render_photo
+from pipeline.assemble._render import render_video as _render_video
+from pipeline.edl import EDL, EditItem, MusicTrack, Segment
 
 # -----------------------------------------------------------------------
 # Pure function tests (no FFmpeg needed)
@@ -44,7 +44,11 @@ class TestBuildPortraitPhotoFilter:
     def test_portrait_photo_filter_structure(self):
         """Filter must contain split, gblur, overlay, and zoompan stages."""
         fc = _build_portrait_photo_filter(
-            out_w=3840, out_h=2160, frames=240, fps=60, zoom_rate=0.001,
+            out_w=3840,
+            out_h=2160,
+            frames=240,
+            fps=60,
+            zoom_rate=0.001,
         )
         assert "split" in fc
         assert "gblur" in fc
@@ -54,7 +58,11 @@ class TestBuildPortraitPhotoFilter:
     def test_portrait_photo_filter_output_resolution(self):
         """The zoompan s= parameter must match the requested output dimensions."""
         fc = _build_portrait_photo_filter(
-            out_w=1920, out_h=1080, frames=120, fps=30, zoom_rate=0.002,
+            out_w=1920,
+            out_h=1080,
+            frames=120,
+            fps=30,
+            zoom_rate=0.002,
         )
         assert "s=1920x1080" in fc
         assert "fps=30" in fc
@@ -132,9 +140,11 @@ class TestHeicConversion:
         )
 
         ctx = RenderContext(w=3840, h=2160, fps=60)
-        with patch("pipeline.assemble._render.convert_heic", side_effect=mock_convert), \
-             patch("pipeline.assemble._render.run_subprocess", side_effect=mock_run), \
-             patch("pipeline.assemble._encoder.run_subprocess", side_effect=mock_run):
+        with (
+            patch("pipeline.assemble._render.convert_heic", side_effect=mock_convert),
+            patch("pipeline.assemble._render.run_subprocess", side_effect=mock_run),
+            patch("pipeline.assemble._encoder.run_subprocess", side_effect=mock_run),
+        ):
             _render_photo(item, out_file, ctx=ctx)
 
         assert len(convert_calls) == 1, "convert_heic should be called for HEIC files"
@@ -148,7 +158,9 @@ class TestHeicConversion:
 @pytest.mark.integration
 class TestRenderLandscapePhoto:
     def test_render_landscape_photo_correct_dims(
-        self, tiny_landscape_image: Path, tmp_path: Path,
+        self,
+        tiny_landscape_image: Path,
+        tmp_path: Path,
     ):
         """Landscape photo should render to the target resolution."""
         out = tmp_path / "landscape_clip.mp4"
@@ -169,7 +181,9 @@ class TestRenderLandscapePhoto:
 @pytest.mark.integration
 class TestRenderPortraitPhoto:
     def test_render_portrait_photo_correct_dims(
-        self, tiny_portrait_image: Path, tmp_path: Path,
+        self,
+        tiny_portrait_image: Path,
+        tmp_path: Path,
     ):
         """Portrait photo should render to the target resolution (not cropped)."""
         out = tmp_path / "portrait_clip.mp4"
@@ -186,7 +200,9 @@ class TestRenderPortraitPhoto:
         assert (w, h) == (320, 180)
 
     def test_render_portrait_photo_no_black_bars(
-        self, tiny_portrait_image: Path, tmp_path: Path,
+        self,
+        tiny_portrait_image: Path,
+        tmp_path: Path,
     ):
         """Portrait photo with blurred BG should not have black bars on left/right edges."""
         out = tmp_path / "portrait_noblack.mp4"
@@ -203,11 +219,18 @@ class TestRenderPortraitPhoto:
         frame_path = tmp_path / "frame.png"
         subprocess.run(
             [
-                "ffmpeg", "-y", "-i", str(out),
-                "-vframes", "1", "-f", "image2",
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(out),
+                "-vframes",
+                "1",
+                "-f",
+                "image2",
                 str(frame_path),
             ],
-            capture_output=True, check=True,
+            capture_output=True,
+            check=True,
         )
         from PIL import Image
 
@@ -232,12 +255,22 @@ class TestRenderPortraitVideo:
         portrait_vid = tmp_path / "portrait.mp4"
         subprocess.run(
             [
-                "ffmpeg", "-y",
-                "-f", "lavfi", "-i", "color=c=red:s=90x160:d=1",
-                "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                "ffmpeg",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=red:s=90x160:d=1",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-pix_fmt",
+                "yuv420p",
                 str(portrait_vid),
             ],
-            capture_output=True, check=True,
+            capture_output=True,
+            check=True,
         )
 
         out = tmp_path / "portrait_vid_rendered.mp4"
@@ -254,11 +287,18 @@ class TestRenderPortraitVideo:
         frame_path = tmp_path / "vid_frame.png"
         subprocess.run(
             [
-                "ffmpeg", "-y", "-i", str(out),
-                "-vframes", "1", "-f", "image2",
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(out),
+                "-vframes",
+                "1",
+                "-f",
+                "image2",
                 str(frame_path),
             ],
-            capture_output=True, check=True,
+            capture_output=True,
+            check=True,
         )
         from PIL import Image
 
@@ -288,10 +328,8 @@ def _make_edl(duration: float = 60.0, music_file: str = "") -> EDL:
             Segment(
                 name="Seg1",
                 items=[
-                    EditItem(source_file="a.jpg", media_type="photo",
-                             display_duration=duration / 2),
-                    EditItem(source_file="b.jpg", media_type="photo",
-                             display_duration=duration / 2),
+                    EditItem(source_file="a.jpg", media_type="photo", display_duration=duration / 2),
+                    EditItem(source_file="b.jpg", media_type="photo", display_duration=duration / 2),
                 ],
                 transition="cut",
             ),
@@ -343,9 +381,11 @@ def _patch_validation(**kwargs):
     Yields a fresh RenderContext so validation can probe dimensions/duration.
     """
     mock_fn = _mock_subprocess_for_validation(**kwargs)
-    with patch("pipeline.assemble._assemble.run_subprocess", side_effect=mock_fn), \
-         patch("pipeline.assemble._encoder.run_subprocess", side_effect=mock_fn), \
-         patch("pipeline.media_utils.run_subprocess", side_effect=mock_fn):
+    with (
+        patch("pipeline.assemble._assemble.run_subprocess", side_effect=mock_fn),
+        patch("pipeline.assemble._encoder.run_subprocess", side_effect=mock_fn),
+        patch("pipeline.media_utils.run_subprocess", side_effect=mock_fn),
+    ):
         yield RenderContext()
 
 
@@ -356,8 +396,10 @@ class TestValidateOutputFileChecks:
         """Non-existent output file should produce a file_exists error."""
         edl = _make_edl()
         issues = _validate_output(
-            tmp_path / "nonexistent.mp4", edl,
-            has_speech=False, resolution=(3840, 2160),
+            tmp_path / "nonexistent.mp4",
+            edl,
+            has_speech=False,
+            resolution=(3840, 2160),
         )
         assert len(issues) == 1
         assert issues[0]["level"] == "error"
@@ -567,9 +609,9 @@ class TestValidateOutputAllPassing:
         out = tmp_path / "perfect.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl(duration=60.0)
-        with _patch_validation(streams="hevc,video,58.0\naac,audio,58.0\n",
-                        duration="58.0",
-                        dimensions="3840x2160") as ctx:
+        with _patch_validation(
+            streams="hevc,video,58.0\naac,audio,58.0\n", duration="58.0", dimensions="3840x2160"
+        ) as ctx:
             issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160), ctx=ctx)
         assert len(issues) == 0
 
@@ -582,26 +624,33 @@ class TestValidateOutputAllPassing:
 class TestRenderReport:
     def test_empty_report(self):
         from pipeline.assemble import RenderReport
+
         r = RenderReport()
         assert r.ok_count == 0
         assert "0/0 OK" in r.summary()
 
     def test_all_ok(self):
-        from pipeline.assemble import RenderReport, ClipStatus
-        r = RenderReport(clips=[
-            ClipStatus("c1", "a.jpg", "ok"),
-            ClipStatus("c2", "b.jpg", "ok"),
-        ])
+        from pipeline.assemble import ClipStatus, RenderReport
+
+        r = RenderReport(
+            clips=[
+                ClipStatus("c1", "a.jpg", "ok"),
+                ClipStatus("c2", "b.jpg", "ok"),
+            ]
+        )
         assert r.ok_count == 2
         assert "2/2 OK" in r.summary()
 
     def test_mixed_status(self):
-        from pipeline.assemble import RenderReport, ClipStatus
-        r = RenderReport(clips=[
-            ClipStatus("c1", "a.jpg", "ok"),
-            ClipStatus("c2", "b.jpg", "skipped", "source not found"),
-            ClipStatus("c3", "c.jpg", "failed", "timeout"),
-        ])
+        from pipeline.assemble import ClipStatus, RenderReport
+
+        r = RenderReport(
+            clips=[
+                ClipStatus("c1", "a.jpg", "ok"),
+                ClipStatus("c2", "b.jpg", "skipped", "source not found"),
+                ClipStatus("c3", "c.jpg", "failed", "timeout"),
+            ]
+        )
         assert r.ok_count == 1
         assert r.skipped_count == 1
         assert r.failed_count == 1

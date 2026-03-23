@@ -16,6 +16,7 @@ logger = logging.getLogger("vlog.assemble.encoder")
 # Bitrate & encoder detection
 # ---------------------------------------------------------------------------
 
+
 def target_bitrate(width: int, height: int, fps: int, quality: float = 1.0) -> str:
     """Calculate target video bitrate based on resolution, fps, and quality."""
     pixels = width * height
@@ -36,10 +37,10 @@ def target_bitrate(width: int, height: int, fps: int, quality: float = 1.0) -> s
     return f"{max(base, 1)}M"
 
 
-def detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60,
-                      quality: float = 1.0) -> list[str]:
+def detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60, quality: float = 1.0) -> list[str]:
     """Detect best hardware encoder: prefers HEVC (smaller files, same speed on GPU)."""
     import sys
+
     h264_br = target_bitrate(width, height, fps, quality)
     hevc_br = f"{max(int(int(h264_br.rstrip('M')) * 0.65), 1)}M"
 
@@ -47,8 +48,9 @@ def detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60,
 
     if sys.platform == "darwin":
         try:
-            test = run_subprocess(_test_cmd + ["-c:v", "hevc_videotoolbox", "-f", "null", "-"],
-                                  capture_output=True, text=True)
+            test = run_subprocess(
+                _test_cmd + ["-c:v", "hevc_videotoolbox", "-f", "null", "-"], capture_output=True, text=True
+            )
             if test.returncode == 0:
                 return ["-c:v", "hevc_videotoolbox", "-b:v", hevc_br]
         except (OSError, subprocess.SubprocessError) as e:
@@ -56,23 +58,18 @@ def detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60,
         return ["-c:v", "h264_videotoolbox", "-b:v", h264_br]
 
     try:
-        result = run_subprocess(["ffmpeg", "-hide_banner", "-encoders"],
-                                capture_output=True, text=True)
+        result = run_subprocess(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True)
         encoders = result.stdout or ""
 
         if "hevc_nvenc" in encoders:
-            test = run_subprocess(_test_cmd + ["-c:v", "hevc_nvenc", "-f", "null", "-"],
-                                  capture_output=True, text=True)
+            test = run_subprocess(_test_cmd + ["-c:v", "hevc_nvenc", "-f", "null", "-"], capture_output=True, text=True)
             if test.returncode == 0:
-                return ["-c:v", "hevc_nvenc", "-preset", "p4",
-                        "-rc", "vbr", "-b:v", hevc_br, "-maxrate", hevc_br]
+                return ["-c:v", "hevc_nvenc", "-preset", "p4", "-rc", "vbr", "-b:v", hevc_br, "-maxrate", hevc_br]
 
         if "h264_nvenc" in encoders:
-            test = run_subprocess(_test_cmd + ["-c:v", "h264_nvenc", "-f", "null", "-"],
-                                  capture_output=True, text=True)
+            test = run_subprocess(_test_cmd + ["-c:v", "h264_nvenc", "-f", "null", "-"], capture_output=True, text=True)
             if test.returncode == 0:
-                return ["-c:v", "h264_nvenc", "-preset", "p4",
-                        "-rc", "vbr", "-b:v", h264_br, "-maxrate", h264_br]
+                return ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-b:v", h264_br, "-maxrate", h264_br]
     except (OSError, subprocess.SubprocessError) as e:
         logger.debug("HW encoder probe failed: %s", e)
 
@@ -83,9 +80,11 @@ def detect_hw_encoder(width: int = 3840, height: int = 2160, fps: int = 60,
 # RenderContext — per-run render state, passed explicitly (no globals)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class RenderContext:
     """Per-run render state. Created by assemble(), passed to all render modules."""
+
     w: int = 0
     h: int = 0
     fps: int = 0
@@ -109,10 +108,20 @@ class RenderContext:
         if key in self._dim_cache:
             return self._dim_cache[key]
         result = run_subprocess(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x",
-             str(path)],
-            capture_output=True, text=True,
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "csv=p=0:s=x",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
         )
         try:
             parts = result.stdout.strip().split("x")
@@ -134,9 +143,9 @@ class RenderContext:
         if key in self._dur_cache:
             return self._dur_cache[key]
         result = run_subprocess(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "csv=p=0", str(path)],
-            capture_output=True, text=True,
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+            capture_output=True,
+            text=True,
         )
         try:
             dur = float(result.stdout.strip().split("\n")[0])

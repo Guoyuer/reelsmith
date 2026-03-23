@@ -55,8 +55,10 @@ def parse_and_convert_timestamps(
                         item["end_time"] = round(local_end, 1)
                         item["display_duration"] = round(local_end - local_start, 1)
                         n_converted += 1
-                        logger.info(f"  Preview {ps}-{pe} → trim {item['start_time']}-{item['end_time']}s "
-                             f"({item['display_duration']}s)")
+                        logger.info(
+                            f"  Preview {ps}-{pe} → trim {item['start_time']}-{item['end_time']}s "
+                            f"({item['display_duration']}s)"
+                        )
                         break
                 else:
                     logger.warning(f"preview {ps} not in any clip, keeping as-is")
@@ -105,8 +107,7 @@ def validate_trim_points(edl: EDL, analysis_by_id: dict) -> tuple[int, int]:
         for item in seg.items:
             if item.media_type == "video" and item.start_time is not None:
                 vid_dur = analysis_by_id.get(
-                    next((aid for aid, a in analysis_by_id.items()
-                          if a.get("local_path") == item.source_file), None),
+                    next((aid for aid, a in analysis_by_id.items() if a.get("local_path") == item.source_file), None),
                     {},
                 ).get("video_duration")
                 if vid_dur and vid_dur > 0:
@@ -118,15 +119,19 @@ def validate_trim_points(edl: EDL, analysis_by_id: dict) -> tuple[int, int]:
                         item.end_time = vid_dur
                         changed = True
                     if item.end_time is not None and item.start_time >= item.end_time:
-                        logger.info(f"  Trim removal: {Path(item.source_file).name} "
-                             f"start={item.start_time:.1f} >= end={item.end_time:.1f} "
-                             f"(duration={vid_dur:.1f}s)")
+                        logger.info(
+                            f"  Trim removal: {Path(item.source_file).name} "
+                            f"start={item.start_time:.1f} >= end={item.end_time:.1f} "
+                            f"(duration={vid_dur:.1f}s)"
+                        )
                         trim_removed += 1
                         continue
                     if changed:
-                        logger.info(f"  Trim clamped: {Path(item.source_file).name} "
-                             f"to [{item.start_time:.1f}, {item.end_time}] "
-                             f"(duration={vid_dur:.1f}s)")
+                        logger.info(
+                            f"  Trim clamped: {Path(item.source_file).name} "
+                            f"to [{item.start_time:.1f}, {item.end_time}] "
+                            f"(duration={vid_dur:.1f}s)"
+                        )
                         trim_fixed += 1
             valid_items.append(item)
         seg.items = valid_items
@@ -157,8 +162,11 @@ def deduplicate_items(edl: EDL) -> int:
 
 
 def fill_duration_gap(
-    edl: EDL, target_duration: int, analysis_by_id: dict,
-    system_prompt: str, model: str | None = None,
+    edl: EDL,
+    target_duration: int,
+    analysis_by_id: dict,
+    system_prompt: str,
+    model: str | None = None,
 ) -> EDL:
     """If EDL is underfilled, ask Gemini to add items. Returns updated EDL."""
     actual_dur = edl.estimated_duration()
@@ -185,15 +193,16 @@ def fill_duration_gap(
         f"Your EDL totals {actual_dur:.0f}s of display_duration, but the target "
         f"is {target_duration}s (need ≥{min_dur:.0f}s with transition headroom). "
         f"Add {deficit:.0f}s more content by inserting items into existing segments.\n\n"
-        f"UNUSED CANDIDATES (pick from these):\n"
-        + "\n".join(unused_lines[:100]) + "\n\n"
+        f"UNUSED CANDIDATES (pick from these):\n" + "\n".join(unused_lines[:100]) + "\n\n"
         "Return the COMPLETE updated EDL JSON (all segments, all items — "
         "original + new). Keep the same structure and format."
     )
     model_kwargs = {"model": model} if model else {}
     edl_content2 = _gemini_call(
-        system_prompt, [followup],
-        label="duration fix", **model_kwargs,
+        system_prompt,
+        [followup],
+        label="duration fix",
+        **model_kwargs,
     )
     logger.info(f"=== [Gemini] DURATION FIX RESPONSE ({len(edl_content2)} chars) ===")
     edl_content2 = strip_markdown_fences(edl_content2)
@@ -244,10 +253,11 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
 
     logger.info("=== [Gemini] PARSED EDL ===")
     logger.info(f"  Title: {edl.title}")
-    logger.info(f"  Segments: {len(edl.segments)}, Items: {len(all_items)} "
-         f"({n_photos} photos + {n_videos} videos)")
-    logger.info(f"  Duration: {actual_dur:.0f}s (target: {target_duration}s, "
-         f"{'OK' if actual_dur >= target_duration * 0.8 else 'UNDERFILLED'})")
+    logger.info(f"  Segments: {len(edl.segments)}, Items: {len(all_items)} " f"({n_photos} photos + {n_videos} videos)")
+    logger.info(
+        f"  Duration: {actual_dur:.0f}s (target: {target_duration}s, "
+        f"{'OK' if actual_dur >= target_duration * 0.8 else 'UNDERFILLED'})"
+    )
     logger.info(f"  Speech clips (keep_audio): {n_keep_audio}")
     logger.info(f"  Text overlays: {n_text_overlay}")
     logger.info(f"  Speed ramps: {n_speed_ramp}")
@@ -255,8 +265,10 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
     for si, seg in enumerate(edl.segments):
         seg_dur = sum(i.display_duration for i in seg.items)
         logger.info(f"  --- Segment {si}: {seg.name} ({len(seg.items)} items, {seg_dur:.0f}s) ---")
-        logger.info(f"    Transition: {seg.transition} ({seg.transition_duration}s) | "
-             f"Mode: {seg.mode} | Color: {seg.color_temp}")
+        logger.info(
+            f"    Transition: {seg.transition} ({seg.transition_duration}s) | "
+            f"Mode: {seg.mode} | Color: {seg.color_temp}"
+        )
         logger.info(f"    Music mood: {seg.music_mood[:120]}")
         if seg.narrative_rationale:
             logger.info(f"    Rationale: {seg.narrative_rationale[:150]}")
@@ -270,6 +282,8 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
             if item.text_overlay:
                 flags.append(f'text="{item.text_overlay.text[:30]}"')
             flag_str = f" [{', '.join(flags)}]" if flags else ""
-            logger.info(f"    - {item.media_type:5s} {item.display_duration}s "
-                 f"{item.effect:16s} {Path(item.source_file).name}{trim}{flag_str}")
+            logger.info(
+                f"    - {item.media_type:5s} {item.display_duration}s "
+                f"{item.effect:16s} {Path(item.source_file).name}{trim}{flag_str}"
+            )
     logger.info("=== [Gemini] END PARSED EDL ===")

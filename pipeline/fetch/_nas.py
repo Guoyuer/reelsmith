@@ -23,6 +23,7 @@ class FetchConfig:
     person_ids: list[int] | None = None
     item_types: list[int] | None = None
 
+
 logger = logging.getLogger("vlog.fetch.nas")
 
 

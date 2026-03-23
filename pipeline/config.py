@@ -19,29 +19,49 @@ class Config:
 
     # Shared directories (across all runs)
     @property
-    def media_dir(self) -> Path: return self._base / "media"
+    def media_dir(self) -> Path:
+        return self._base / "media"
+
     @property
-    def cache_dir(self) -> Path: return self._base / "analysis_cache"
+    def cache_dir(self) -> Path:
+        return self._base / "analysis_cache"
+
     @property
-    def thumbnails_dir(self) -> Path: return self._base / "thumbnails"
+    def thumbnails_dir(self) -> Path:
+        return self._base / "thumbnails"
+
     @property
-    def preview_clips_dir(self) -> Path: return self._base / "preview_clips"
+    def preview_clips_dir(self) -> Path:
+        return self._base / "preview_clips"
+
     @property
-    def heic_converted_dir(self) -> Path: return self._base / "heic_converted"
+    def heic_converted_dir(self) -> Path:
+        return self._base / "heic_converted"
+
     @property
-    def music_dir(self) -> Path: return self._base / "music"
+    def music_dir(self) -> Path:
+        return self._base / "music"
 
     # Per-run directories and files
     @property
-    def clips_dir(self) -> Path: return self.workspace / "clips"
+    def clips_dir(self) -> Path:
+        return self.workspace / "clips"
+
     @property
-    def output_dir(self) -> Path: return self.workspace / "output"
+    def output_dir(self) -> Path:
+        return self.workspace / "output"
+
     @property
-    def manifest_path(self) -> Path: return self.workspace / "manifest.json"
+    def manifest_path(self) -> Path:
+        return self.workspace / "manifest.json"
+
     @property
-    def analysis_path(self) -> Path: return self.workspace / "analysis.json"
+    def analysis_path(self) -> Path:
+        return self.workspace / "analysis.json"
+
     @property
-    def preprocessed_path(self) -> Path: return self.workspace / "preprocessed.json"
+    def preprocessed_path(self) -> Path:
+        return self.workspace / "preprocessed.json"
 
     def edl_path(self, version: int) -> Path:
         return self.workspace / f"edl_v{version}.json"
@@ -62,8 +82,13 @@ class Config:
 
     def ensure_dirs(self) -> None:
         for d in [
-            self.clips_dir, self.output_dir,
-            self.media_dir, self.cache_dir, self.thumbnails_dir,
-            self.preview_clips_dir, self.heic_converted_dir, self.music_dir,
+            self.clips_dir,
+            self.output_dir,
+            self.media_dir,
+            self.cache_dir,
+            self.thumbnails_dir,
+            self.preview_clips_dir,
+            self.heic_converted_dir,
+            self.music_dir,
         ]:
             d.mkdir(parents=True, exist_ok=True)

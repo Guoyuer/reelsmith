@@ -23,10 +23,15 @@ from ._filters import (
 logger = logging.getLogger("vlog.assemble.render")
 
 
-def render_photo(item: EditItem, output_path: Path, *,
-                 ctx: RenderContext,
-                 color_temp: str = "neutral",
-                 text_overlay=None, language: str = "en") -> None:
+def render_photo(
+    item: EditItem,
+    output_path: Path,
+    *,
+    ctx: RenderContext,
+    color_temp: str = "neutral",
+    text_overlay=None,
+    language: str = "en",
+) -> None:
     """Render a photo with Ken Burns effect as a video clip. Text overlay baked in."""
     w, h, fps = ctx.w, ctx.h, ctx.fps
     source = Path(item.source_file)
@@ -50,8 +55,9 @@ def render_photo(item: EditItem, output_path: Path, *,
 
     dt = ""
     if text_overlay:
-        dt = "," + drawtext_filter(text_overlay.text, text_overlay.position,
-                                   text_overlay.font_size, item.display_duration, language, out_h=h)
+        dt = "," + drawtext_filter(
+            text_overlay.text, text_overlay.position, text_overlay.font_size, item.display_duration, language, out_h=h
+        )
 
     src_w, src_h = ctx.probe_dimensions(source)
     portrait = is_portrait(src_w, src_h)
@@ -61,17 +67,28 @@ def render_photo(item: EditItem, output_path: Path, *,
         portrait_zoom_rate = 0.001 + (0.08 / frames)
         fc = build_portrait_photo_filter(w, h, frames, fps, portrait_zoom_rate)
         cmd = [
-            "ffmpeg", "-y", "-loop", "1", "-i", str(source),
-            "-t", str(item.display_duration),
-            "-filter_complex", f"{fc}{dt}",
-            *enc, "-pix_fmt", "yuv420p",
+            "ffmpeg",
+            "-y",
+            "-loop",
+            "1",
+            "-i",
+            str(source),
+            "-t",
+            str(item.display_duration),
+            "-filter_complex",
+            f"{fc}{dt}",
+            *enc,
+            "-pix_fmt",
+            "yuv420p",
             "-an",
             str(output_path),
         ]
     else:
         direction_map = {
-            "ken_burns_in": "in", "ken_burns_out": "out",
-            "ken_burns_left": "left", "ken_burns_right": "right",
+            "ken_burns_in": "in",
+            "ken_burns_out": "out",
+            "ken_burns_left": "left",
+            "ken_burns_right": "right",
             "static": "static",
         }
         direction = direction_map.get(item.effect, "in")  # already warned above
@@ -96,18 +113,34 @@ def render_photo(item: EditItem, output_path: Path, *,
         sharpen = ",unsharp=3:3:0.5:3:3:0.0"
         if "[bg]" in scale_filter:
             cmd = [
-                "ffmpeg", "-y", "-loop", "1", "-i", str(source),
-                "-t", str(item.display_duration),
-                "-filter_complex", f"{scale_filter}[comp];[comp]{zp},{cg}{sharpen}{dt}",
+                "ffmpeg",
+                "-y",
+                "-loop",
+                "1",
+                "-i",
+                str(source),
+                "-t",
+                str(item.display_duration),
+                "-filter_complex",
+                f"{scale_filter}[comp];[comp]{zp},{cg}{sharpen}{dt}",
             ]
         else:
             cmd = [
-                "ffmpeg", "-y", "-loop", "1", "-i", str(source),
-                "-t", str(item.display_duration),
-                "-vf", f"{scale_filter},{zp},{cg}{sharpen}{dt}",
+                "ffmpeg",
+                "-y",
+                "-loop",
+                "1",
+                "-i",
+                str(source),
+                "-t",
+                str(item.display_duration),
+                "-vf",
+                f"{scale_filter},{zp},{cg}{sharpen}{dt}",
             ]
         cmd += [
-            *enc, "-pix_fmt", "yuv420p",
+            *enc,
+            "-pix_fmt",
+            "yuv420p",
             "-an",
             str(output_path),
         ]
@@ -117,10 +150,15 @@ def render_photo(item: EditItem, output_path: Path, *,
         raise RuntimeError(f"Photo render failed ({item.source_file}): {result.stderr[-300:]}")
 
 
-def render_video(item: EditItem, output_path: Path, *,
-                 ctx: RenderContext,
-                 color_temp: str = "neutral",
-                 text_overlay=None, language: str = "en") -> None:
+def render_video(
+    item: EditItem,
+    output_path: Path,
+    *,
+    ctx: RenderContext,
+    color_temp: str = "neutral",
+    text_overlay=None,
+    language: str = "en",
+) -> None:
     """Trim and normalize a video clip. Text overlay baked in. Preserves audio if keep_audio."""
     w, h, fps = ctx.w, ctx.h, ctx.fps
     cmd = ["ffmpeg", "-y"]
@@ -141,8 +179,9 @@ def render_video(item: EditItem, output_path: Path, *,
 
     dt = ""
     if text_overlay:
-        dt = "," + drawtext_filter(text_overlay.text, text_overlay.position,
-                                   text_overlay.font_size, item.display_duration, language, out_h=h)
+        dt = "," + drawtext_filter(
+            text_overlay.text, text_overlay.position, text_overlay.font_size, item.display_duration, language, out_h=h
+        )
 
     src_w, src_h = ctx.probe_dimensions(Path(item.source_file))
     portrait = is_portrait(src_w, src_h)
@@ -152,16 +191,24 @@ def render_video(item: EditItem, output_path: Path, *,
     if portrait:
         fc = portrait_bg_filter(w, h)
         cmd += [
-            "-filter_complex", f"{fc},{cg}{speed_vf}{dt}",
-            *enc, "-pix_fmt", "yuv420p",
-            "-r", str(fps),
+            "-filter_complex",
+            f"{fc},{cg}{speed_vf}{dt}",
+            *enc,
+            "-pix_fmt",
+            "yuv420p",
+            "-r",
+            str(fps),
         ]
     else:
         cmd += [
-            "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-                   f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,{cg}{speed_vf}{dt}",
-            *enc, "-pix_fmt", "yuv420p",
-            "-r", str(fps),
+            "-vf",
+            f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,{cg}{speed_vf}{dt}",
+            *enc,
+            "-pix_fmt",
+            "yuv420p",
+            "-r",
+            str(fps),
         ]
     cmd += [*speed_af, *audio_args, str(output_path)]
 
@@ -171,9 +218,13 @@ def render_video(item: EditItem, output_path: Path, *,
 
 
 def render_title_card(
-    title: str, subtitle: str, output_path: Path, *,
+    title: str,
+    subtitle: str,
+    output_path: Path,
+    *,
     ctx: RenderContext,
-    duration: float = 3.0, language: str = "en",
+    duration: float = 3.0,
+    language: str = "en",
     background_photo: str | None = None,
 ) -> None:
     """Render a professional title card with gradient background and animated text.
@@ -191,9 +242,7 @@ def render_title_card(
         title_size = int(title_size * 25 / len(title))
 
     # Decide background: hero photo or gradient fallback
-    use_photo_bg = (
-        background_photo is not None and Path(background_photo).exists()
-    )
+    use_photo_bg = background_photo is not None and Path(background_photo).exists()
 
     if use_photo_bg:
         photo_bg = (
@@ -241,21 +290,31 @@ def render_title_card(
 
     if use_photo_bg:
         cmd = [
-            "ffmpeg", "-y",
-            "-loop", "1", "-i", background_photo,
-            "-t", str(duration),
+            "ffmpeg",
+            "-y",
+            "-loop",
+            "1",
+            "-i",
+            background_photo,
+            "-t",
+            str(duration),
             "-filter_complex",
             f"{photo_bg}[bg];[bg]{title_text}{separator}{sub_text}{fade}",
-            *enc, "-pix_fmt", "yuv420p",
+            *enc,
+            "-pix_fmt",
+            "yuv420p",
             "-an",
             str(output_path),
         ]
     else:
         cmd = [
-            "ffmpeg", "-y",
+            "ffmpeg",
+            "-y",
             "-filter_complex",
             f"{gradient};[grad]{title_text}{separator}{sub_text}{fade}",
-            *enc, "-pix_fmt", "yuv420p",
+            *enc,
+            "-pix_fmt",
+            "yuv420p",
             "-an",
             str(output_path),
         ]

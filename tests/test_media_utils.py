@@ -64,9 +64,11 @@ class TestConvertHeicCallsSips:
                 out_path.write_bytes(b"\xff\xd8" + b"\x00" * 50)
             return result
 
-        with patch("shutil.which", side_effect=lambda x: "/usr/bin/sips" if x == "sips" else None), \
-             patch("pipeline.image_utils.run_subprocess", side_effect=mock_run), \
-             patch.dict("sys.modules", {"pillow_heif": None}):
+        with (
+            patch("shutil.which", side_effect=lambda x: "/usr/bin/sips" if x == "sips" else None),
+            patch("pipeline.image_utils.run_subprocess", side_effect=mock_run),
+            patch.dict("sys.modules", {"pillow_heif": None}),
+        ):
             jpeg = convert_heic(heic_file)
 
         sips_calls = [c for c in calls if c[0] == "sips"]

@@ -19,18 +19,19 @@ logger = logging.getLogger("vlog.assemble.timeline")
 @dataclass
 class TimelineEntry:
     """A single clip's position in the final video."""
-    index: int                  # position in all_clips list
-    path: Path                  # rendered clip file
-    actual_duration: float      # probed duration of the clip file
-    edl_duration: float         # EDL-requested duration
-    transition: str             # "cut", "crossfade", "fade_black", etc.
+
+    index: int  # position in all_clips list
+    path: Path  # rendered clip file
+    actual_duration: float  # probed duration of the clip file
+    edl_duration: float  # EDL-requested duration
+    transition: str  # "cut", "crossfade", "fade_black", etc.
     transition_duration: float  # overlap with previous clip
-    keep_audio: bool            # preserve original audio from this clip
+    keep_audio: bool  # preserve original audio from this clip
 
     # Computed by Timeline.build()
-    video_offset: float = 0.0          # when xfade starts blending this clip in
-    visible_offset: float = 0.0        # when clip is FULLY visible (after transition)
-    end_time: float = 0.0              # when clip ends in the timeline
+    video_offset: float = 0.0  # when xfade starts blending this clip in
+    visible_offset: float = 0.0  # when clip is FULLY visible (after transition)
+    end_time: float = 0.0  # when clip ends in the timeline
 
 
 @dataclass
@@ -43,6 +44,7 @@ class Timeline:
     - music ducking: speech_ranges()
     - chapter markers: chapter_offsets()
     """
+
     entries: list[TimelineEntry] = field(default_factory=list)
     ctx: RenderContext | None = field(default=None, repr=False)
 
@@ -62,22 +64,23 @@ class Timeline:
             if tr == "cut":
                 td = 0.0
 
-            tl.entries.append(TimelineEntry(
-                index=i,
-                path=clip["path"],
-                actual_duration=dur,
-                edl_duration=clip["duration"],
-                transition=tr,
-                transition_duration=td,
-                keep_audio=clip["keep_audio"],
-            ))
+            tl.entries.append(
+                TimelineEntry(
+                    index=i,
+                    path=clip["path"],
+                    actual_duration=dur,
+                    edl_duration=clip["duration"],
+                    transition=tr,
+                    transition_duration=td,
+                    keep_audio=clip["keep_audio"],
+                )
+            )
 
         tl._compute_offsets()
         return tl
 
     @staticmethod
-    def build_actual(all_clips: list[dict], output_dir: Path,
-                     ctx: RenderContext | None = None) -> "Timeline":
+    def build_actual(all_clips: list[dict], output_dir: Path, ctx: RenderContext | None = None) -> "Timeline":
         """Compute timeline using MEASURED group file durations.
 
         After concatenate() renders group files (_group_0.mp4, etc.),
@@ -93,15 +96,17 @@ class Timeline:
             if tr == "cut":
                 td = 0.0
 
-            tl.entries.append(TimelineEntry(
-                index=i,
-                path=clip["path"],
-                actual_duration=dur,
-                edl_duration=clip["duration"],
-                transition=tr,
-                transition_duration=td,
-                keep_audio=clip["keep_audio"],
-            ))
+            tl.entries.append(
+                TimelineEntry(
+                    index=i,
+                    path=clip["path"],
+                    actual_duration=dur,
+                    edl_duration=clip["duration"],
+                    transition=tr,
+                    transition_duration=td,
+                    keep_audio=clip["keep_audio"],
+                )
+            )
 
         tl._compute_offsets_actual(output_dir)
         return tl
@@ -116,17 +121,14 @@ class Timeline:
             self.entries[0].end_time = self.entries[0].actual_duration
             return
 
-        groups = partition_into_groups(
-            len(self.entries), lambda i: self.entries[i].transition
-        )
+        groups = partition_into_groups(len(self.entries), lambda i: self.entries[i].transition)
         global_offset = 0.0
         for group_indices in groups:
             self._compute_group_offsets(group_indices, global_offset)
             group_dur = sum(self.entries[gi].actual_duration for gi in group_indices)
             group_overlap = sum(self.entries[gi].transition_duration for gi in group_indices[1:])
             if group_overlap > group_dur:
-                logger.warning("Group overlap (%.2fs) exceeds duration (%.2fs), clamping",
-                               group_overlap, group_dur)
+                logger.warning("Group overlap (%.2fs) exceeds duration (%.2fs), clamping", group_overlap, group_dur)
                 group_overlap = group_dur
             global_offset = self.entries[group_indices[0]].video_offset + group_dur - group_overlap
 
@@ -140,9 +142,7 @@ class Timeline:
             self.entries[0].end_time = self.entries[0].actual_duration
             return
 
-        groups = partition_into_groups(
-            len(self.entries), lambda i: self.entries[i].transition
-        )
+        groups = partition_into_groups(len(self.entries), lambda i: self.entries[i].transition)
         global_offset = 0.0
         for gi, group_indices in enumerate(groups):
             self._compute_group_offsets(group_indices, global_offset)
@@ -232,15 +232,24 @@ class Timeline:
     def dump(self) -> None:
         """Print the full timeline for debugging."""
         logger.info("=== Timeline ===")
-        logger.info("%3s %8s %8s %8s %5s %12s %4s %3s  clip",
-                    "idx", "v_offset", "visible", "end", "dur", "tr", "td", "ka")
+        logger.info(
+            "%3s %8s %8s %8s %5s %12s %4s %3s  clip", "idx", "v_offset", "visible", "end", "dur", "tr", "td", "ka"
+        )
         logger.info("-" * 80)
         for e in self.entries:
             ka = "YES" if e.keep_audio else "   "
-            logger.info("%3d %8.2f %8.2f %8.2f %5.2f %12s %4.1f %s  %s",
-                        e.index, e.video_offset, e.visible_offset, e.end_time,
-                        e.actual_duration, e.transition, e.transition_duration, ka,
-                        e.path.name)
+            logger.info(
+                "%3d %8.2f %8.2f %8.2f %5.2f %12s %4.1f %s  %s",
+                e.index,
+                e.video_offset,
+                e.visible_offset,
+                e.end_time,
+                e.actual_duration,
+                e.transition,
+                e.transition_duration,
+                ka,
+                e.path.name,
+            )
         logger.info("Total: %.2fs", self.total_duration())
         sr = self.speech_ranges()
         if sr:

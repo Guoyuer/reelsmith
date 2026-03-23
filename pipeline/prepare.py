@@ -36,14 +36,14 @@ class PrepareConfig:
     tz_hours: int | None = None
     family_names: list[str] | None = None
 
+
 # Default timezone: system local (replaces hardcoded SGT)
 _LOCAL_TZ = datetime.now(timezone.utc).astimezone().tzinfo
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
-def prepare(cfg: Config, pc: PrepareConfig | None = None, *,
-            progress_callback=None) -> dict:
+def prepare(cfg: Config, pc: PrepareConfig | None = None, *, progress_callback=None) -> dict:
     """Prepare all media for Gemini visual planning.
 
     1. Read manifest, detect family, build timeline
@@ -93,9 +93,13 @@ def prepare(cfg: Config, pc: PrepareConfig | None = None, *,
     cache_dir = cfg.cache_dir
     results = []
     use_tqdm = hasattr(sys.stderr, "fileno") and sys.stderr.isatty()
-    pbar = tqdm(total=len(manifest), desc="Preparing", unit="item",
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
-                disable=not use_tqdm)
+    pbar = tqdm(
+        total=len(manifest),
+        desc="Preparing",
+        unit="item",
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
+        disable=not use_tqdm,
+    )
 
     for i, item in enumerate(manifest, 1):
         item_id = item["id"]
@@ -166,8 +170,7 @@ def prepare(cfg: Config, pc: PrepareConfig | None = None, *,
     n_photos = sum(1 for r in results if r.get("media_type") == "photo")
     n_videos = len(results) - n_photos
     newly = sum(1 for r in results if r["id"] not in existing)
-    logger.info(f"Prepared: {len(results)} items ({n_photos} photos, {n_videos} videos, "
-                f"{newly} newly analyzed)")
+    logger.info(f"Prepared: {len(results)} items ({n_photos} photos, {n_videos} videos, " f"{newly} newly analyzed)")
 
     # Generate 360p 1fps video previews (cached per video, used by plan stage)
     video_items = [r for r in results if r.get("media_type") == "video"]
@@ -186,11 +189,23 @@ def _has_dense_keyframes(source: Path) -> bool:
     """Check if video has keyframe interval <= 2s (safe for -skip_frame nokey)."""
     try:
         r = run_subprocess(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-read_intervals", "%+10",
-             "-show_entries", "packet=pts_time,flags",
-             "-of", "csv=p=0", str(source)],
-            capture_output=True, text=True, timeout=10,
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-read_intervals",
+                "%+10",
+                "-show_entries",
+                "packet=pts_time,flags",
+                "-of",
+                "csv=p=0",
+                str(source),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         keyframe_times = []
         for line in r.stdout.strip().split("\n"):
@@ -209,8 +224,7 @@ def _has_dense_keyframes(source: Path) -> bool:
         return False
 
 
-def _generate_video_previews(video_items: list[dict], preview_dir: Path,
-                             *, force: bool = False) -> None:
+def _generate_video_previews(video_items: list[dict], preview_dir: Path, *, force: bool = False) -> None:
     """Generate one full-length preview per video (360p 1fps + audio)."""
     from .parallel import run_parallel
 
@@ -249,14 +263,30 @@ def _generate_video_previews(video_items: list[dict], preview_dir: Path,
         preview_path = preview_dir / f"preview_{vid_id}.mp4"
         if not preview_path.exists():
             skip = ["-skip_frame", "nokey"] if _has_dense_keyframes(source) else []
-            tasks.append((preview_path, [
-                "ffmpeg", "-y", "-hwaccel", "auto", *skip,
-                "-i", str(source),
-                "-vf", "fps=1,scale=360:-2",
-                *encoder,
-                "-c:a", "aac", "-b:a", "64k", "-ac", "1",
-                str(preview_path),
-            ]))
+            tasks.append(
+                (
+                    preview_path,
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-hwaccel",
+                        "auto",
+                        *skip,
+                        "-i",
+                        str(source),
+                        "-vf",
+                        "fps=1,scale=360:-2",
+                        *encoder,
+                        "-c:a",
+                        "aac",
+                        "-b:a",
+                        "64k",
+                        "-ac",
+                        "1",
+                        str(preview_path),
+                    ],
+                )
+            )
 
     cached = len(video_items) - len(tasks)
     if cached:
@@ -316,15 +346,16 @@ def _build_timeline(items: list[dict], tz=None) -> list[dict]:
         else:
             block = "evening"
 
-        location = (item.get("district") or item.get("first_level")
-                     or item.get("country") or "unknown")
+        location = item.get("district") or item.get("first_level") or item.get("country") or "unknown"
 
-        days[day_key].append({
-            "item_id": item["id"],
-            "time_block": block,
-            "location": location,
-            "family_count": item.get("family_count", 0),
-        })
+        days[day_key].append(
+            {
+                "item_id": item["id"],
+                "time_block": block,
+                "location": location,
+                "family_count": item.get("family_count", 0),
+            }
+        )
 
     timeline = []
     for day in sorted(days.keys()):
@@ -341,19 +372,23 @@ def _build_timeline(items: list[dict], tz=None) -> list[dict]:
         for (block, location), chapter_items in sorted(
             seen_chapters.items(), key=lambda x: block_order.get(x[0][0], 9)
         ):
-            chapters.append({
-                "time_block": block,
-                "location": location,
-                "item_ids": [i["item_id"] for i in chapter_items],
-            })
+            chapters.append(
+                {
+                    "time_block": block,
+                    "location": location,
+                    "item_ids": [i["item_id"] for i in chapter_items],
+                }
+            )
 
         dt_obj = datetime.strptime(day, "%Y-%m-%d")
-        timeline.append({
-            "date": day,
-            "day_name": dt_obj.strftime("%A"),
-            "chapters": chapters,
-            "total_items": len(day_items),
-        })
+        timeline.append(
+            {
+                "date": day,
+                "day_name": dt_obj.strftime("%A"),
+                "chapters": chapters,
+                "total_items": len(day_items),
+            }
+        )
 
     return timeline
 
@@ -363,12 +398,22 @@ def _prepare_video(entry, item_id, local_path, cache_file, i, total):
     logger.info(f"[{i}/{total}] {entry['filename']} — video metadata...")
 
     probe = run_subprocess(
-        ["ffprobe", "-v", "error",
-         "-select_streams", "v:0",
-         "-show_entries", "stream=width,height,r_frame_rate",
-         "-show_entries", "format=duration",
-         "-of", "json", str(local_path)],
-        capture_output=True, text=True,
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,r_frame_rate",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "json",
+            str(local_path),
+        ],
+        capture_output=True,
+        text=True,
     )
     total_dur = 10.0
     video_width = 0
@@ -412,8 +457,10 @@ def _prepare_video(entry, item_id, local_path, cache_file, i, total):
     cache_file.write_text(json.dumps(cache_entry, indent=2))
 
     res_str = f"{video_width}x{video_height}" if video_width else "?"
-    logger.info(f"[{i}/{total}] {entry['filename']} — {total_dur:.0f}s {res_str} "
-                f"{video_fps}fps {orientation} audio={audio_level}")
+    logger.info(
+        f"[{i}/{total}] {entry['filename']} — {total_dur:.0f}s {res_str} "
+        f"{video_fps}fps {orientation} audio={audio_level}"
+    )
 
 
 def _probe_audio_level(local_path) -> str:
@@ -422,9 +469,22 @@ def _probe_audio_level(local_path) -> str:
     Uses ffmpeg loudnorm filter in measure-only mode on the first 30s.
     """
     probe = run_subprocess(
-        ["ffmpeg", "-hide_banner", "-i", str(local_path),
-         "-t", "30", "-af", "loudnorm=print_format=json", "-f", "null", "-"],
-        capture_output=True, text=True, timeout=30,
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-i",
+            str(local_path),
+            "-t",
+            "30",
+            "-af",
+            "loudnorm=print_format=json",
+            "-f",
+            "null",
+            "-",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     try:
         # loudnorm prints JSON to stderr after processing
@@ -453,6 +513,7 @@ def _read_exif(path) -> dict:
     try:
         from PIL import Image
         from PIL.ExifTags import TAGS
+
         img = Image.open(path)
         exif_data = img._getexif()  # type: ignore[attr-defined]
         if not exif_data:
@@ -461,16 +522,17 @@ def _read_exif(path) -> dict:
         result = {}
         fl = exif.get("FocalLength")
         if fl:
-            result["focal_length"] = float(fl) if not hasattr(fl, 'numerator') else fl.numerator / fl.denominator
+            result["focal_length"] = float(fl) if not hasattr(fl, "numerator") else fl.numerator / fl.denominator
         fn = exif.get("FNumber")
         if fn:
-            result["aperture"] = float(fn) if not hasattr(fn, 'numerator') else fn.numerator / fn.denominator
+            result["aperture"] = float(fn) if not hasattr(fn, "numerator") else fn.numerator / fn.denominator
         iso = exif.get("ISOSpeedRatings")
         if iso:
             result["iso"] = int(iso)
         return result
     except Exception as e:
         import warnings
+
         warnings.warn(f"EXIF read failed for {path}: {e}")
         return {}
 

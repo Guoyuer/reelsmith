@@ -36,29 +36,49 @@ def tiny_portrait_image(tmp_path: Path) -> Path:
 def sample_manifest() -> list[dict]:
     """List of 6 items with mixed types, varied takentimes, person metadata."""
     from datetime import datetime, timezone
+
     base_time = 1700000000  # 2023-11-14 ~14:13 UTC
 
     def _item(id, filename, taken, **kw):
         """Build a manifest item with required fields."""
         iso = datetime.fromtimestamp(taken, tz=timezone.utc).isoformat()
-        return {"id": id, "filename": filename, "item_type": kw.pop("item_type", 0),
-                "takentime": taken, "taken_iso": iso,
-                "local_path": f"/fake/media/{id}_{filename}",
-                "filesize": kw.pop("filesize", 5000000),
-                "metadata": {"persons": kw.pop("persons", [])}, **kw}
+        return {
+            "id": id,
+            "filename": filename,
+            "item_type": kw.pop("item_type", 0),
+            "takentime": taken,
+            "taken_iso": iso,
+            "local_path": f"/fake/media/{id}_{filename}",
+            "filesize": kw.pop("filesize", 5000000),
+            "metadata": {"persons": kw.pop("persons", [])},
+            **kw,
+        }
 
     return [
-        _item(1, "IMG_001.jpg", base_time,
-              district="Marina Bay", country="Singapore", persons=["Alice", "Bob"]),
-        _item(2, "IMG_002.jpg", base_time + 5,
-              district="Marina Bay", country="Singapore", persons=["Alice"], filesize=4000000),
-        _item(3, "VID_003.mp4", base_time + 20, item_type=1,
-              district="Chinatown", country="Singapore", filesize=30000000),
+        _item(1, "IMG_001.jpg", base_time, district="Marina Bay", country="Singapore", persons=["Alice", "Bob"]),
+        _item(
+            2,
+            "IMG_002.jpg",
+            base_time + 5,
+            district="Marina Bay",
+            country="Singapore",
+            persons=["Alice"],
+            filesize=4000000,
+        ),
+        _item(
+            3, "VID_003.mp4", base_time + 20, item_type=1, district="Chinatown", country="Singapore", filesize=30000000
+        ),
         _item(4, "IMG_004.jpg", base_time + 30, filesize=6000000),
         _item(5, "Screenshot_20231114.png", base_time + 40, item_type=3, filesize=1000000),
-        _item(6, "IMG_006.jpg", base_time + 86400,
-              district="Orchard", country="Singapore", persons=["Alice", "Bob", "Charlie"],
-              filesize=7000000),
+        _item(
+            6,
+            "IMG_006.jpg",
+            base_time + 86400,
+            district="Orchard",
+            country="Singapore",
+            persons=["Alice", "Bob", "Charlie"],
+            filesize=7000000,
+        ),
     ]
 
 
@@ -111,8 +131,13 @@ def sample_edl() -> EDL:
                 items=[
                     EditItem(source_file="IMG_001.jpg", media_type="photo", display_duration=4.0),
                     EditItem(source_file="IMG_002.jpg", media_type="photo", display_duration=3.0),
-                    EditItem(source_file="VID_003.mp4", media_type="video", display_duration=5.0,
-                             start_time=0.0, end_time=5.0),
+                    EditItem(
+                        source_file="VID_003.mp4",
+                        media_type="video",
+                        display_duration=5.0,
+                        start_time=0.0,
+                        end_time=5.0,
+                    ),
                 ],
                 transition="crossfade",
                 transition_duration=0.8,
@@ -122,8 +147,13 @@ def sample_edl() -> EDL:
                 items=[
                     EditItem(source_file="IMG_004.jpg", media_type="photo", display_duration=4.0),
                     EditItem(source_file="IMG_005.jpg", media_type="photo", display_duration=3.5),
-                    EditItem(source_file="VID_006.mp4", media_type="video", display_duration=6.0,
-                             start_time=2.0, end_time=8.0),
+                    EditItem(
+                        source_file="VID_006.mp4",
+                        media_type="video",
+                        display_duration=6.0,
+                        start_time=2.0,
+                        end_time=8.0,
+                    ),
                 ],
                 transition="cut",
                 transition_duration=0.5,

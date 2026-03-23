@@ -8,10 +8,9 @@ from datetime import timezone
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from pipeline.config import Config
-from pipeline.prepare import PrepareConfig, _build_timeline, _detect_family, prepare as preprocess
+from pipeline.prepare import PrepareConfig, _build_timeline, _detect_family
+from pipeline.prepare import prepare as preprocess
 
 # Fixed timezone for deterministic tests (UTC)
 _UTC = timezone.utc
@@ -64,8 +63,7 @@ class TestFamilyCount:
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text(json.dumps(items))
 
-        with patch.dict(os.environ, {}, clear=True), \
-             patch("pipeline.config.load_dotenv"):
+        with patch.dict(os.environ, {}, clear=True), patch("pipeline.config.load_dotenv"):
             cfg = Config.load(workspace=str(ws))
         preprocess(cfg, PrepareConfig(family_names=["Alice", "Bob"]))
         # Read the analysis.json to check items
@@ -105,9 +103,7 @@ class TestFamilyCount:
 class TestDetectFamily:
     def test_returns_top_persons(self):
         """Most frequently appearing persons should be detected as family."""
-        items = [
-            _make_item(i, persons=["Alice", "Bob"]) for i in range(20)
-        ] + [_make_item(99, persons=["Stranger"])]
+        items = [_make_item(i, persons=["Alice", "Bob"]) for i in range(20)] + [_make_item(99, persons=["Stranger"])]
         result = _detect_family(items)
         assert "Alice" in result
         assert "Bob" in result
@@ -185,11 +181,10 @@ class TestPreprocessIntegration:
         ws.mkdir(parents=True)
         (ws / "manifest.json").write_text(json.dumps(sample_manifest))
 
-        with patch.dict(os.environ, {}, clear=True), \
-             patch("pipeline.config.load_dotenv"):
+        with patch.dict(os.environ, {}, clear=True), patch("pipeline.config.load_dotenv"):
             cfg = Config.load(workspace=str(ws))
 
-        result = preprocess(cfg, PrepareConfig(family_names=["Alice", "Bob"]))
+        preprocess(cfg, PrepareConfig(family_names=["Alice", "Bob"]))
 
         out_path = ws / "preprocessed.json"
         assert out_path.exists()
@@ -207,6 +202,7 @@ class TestPreprocessIntegration:
 
 def _make_tiny_image(path: Path, size=(160, 90)) -> Path:
     from PIL import Image
+
     path.parent.mkdir(parents=True, exist_ok=True)
     img = Image.new("RGB", size, color=(100, 150, 200))
     img.save(path, "JPEG")
@@ -223,9 +219,13 @@ def _write_manifest(cfg, items: list[dict]) -> None:
 
 def _make_analysis_item(item_id: int, filename: str, local_path: str, **extra) -> dict:
     item = {
-        "id": item_id, "filename": filename, "local_path": local_path,
-        "family_count": 0, "item_type": 0,
-        "taken_iso": "2025-01-01T00:00:00+00:00", "takentime": 1735689600,
+        "id": item_id,
+        "filename": filename,
+        "local_path": local_path,
+        "family_count": 0,
+        "item_type": 0,
+        "taken_iso": "2025-01-01T00:00:00+00:00",
+        "takentime": 1735689600,
         "metadata": {"persons": []},
     }
     item.update(extra)
@@ -245,8 +245,9 @@ class TestAnalysisCaching:
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "101_photo.jpg")
         _write_manifest(cfg, [_make_analysis_item(101, "photo.jpg", str(img))])
-        existing = [{"id": 101, "filename": "photo.jpg", "local_path": str(img),
-                     "vision": {"description": "already analyzed"}}]
+        existing = [
+            {"id": 101, "filename": "photo.jpg", "local_path": str(img), "vision": {"description": "already analyzed"}}
+        ]
         cfg.analysis_path.write_text(json.dumps(existing))
         preprocess(cfg)
         results = json.loads(cfg.analysis_path.read_text())
@@ -281,8 +282,7 @@ class TestAnalysisCaching:
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "201_photo.jpg")
         _write_manifest(cfg, [_make_analysis_item(201, "photo.jpg", str(img))])
-        cache_data = {"thumbnail_path": "/fake/thumb.jpg",
-                      "exif": {"focal_length": 24.0, "aperture": 1.4, "iso": 100}}
+        cache_data = {"thumbnail_path": "/fake/thumb.jpg", "exif": {"focal_length": 24.0, "aperture": 1.4, "iso": 100}}
         (cfg.cache_dir / "201.json").write_text(json.dumps(cache_data))
         preprocess(cfg)
         results = json.loads(cfg.analysis_path.read_text())
@@ -292,10 +292,13 @@ class TestAnalysisCaching:
         cfg = mock_config
         img1 = _make_tiny_image(cfg.media_dir / "109_a.jpg")
         img2 = _make_tiny_image(cfg.media_dir / "110_b.jpg")
-        _write_manifest(cfg, [
-            _make_analysis_item(109, "a.jpg", str(img1), takentime=1700000000),
-            _make_analysis_item(110, "b.jpg", str(img2), takentime=1700000100),
-        ])
+        _write_manifest(
+            cfg,
+            [
+                _make_analysis_item(109, "a.jpg", str(img1), takentime=1700000000),
+                _make_analysis_item(110, "b.jpg", str(img2), takentime=1700000100),
+            ],
+        )
         calls = []
         preprocess(cfg, progress_callback=lambda c, t, n: calls.append((c, t, n)))
         assert len(calls) == 2

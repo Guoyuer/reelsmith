@@ -20,8 +20,12 @@ logger = logging.getLogger("vlog.plan")
 
 
 def _build_visual_chapter_text(
-    chapter: dict, day: dict, analysis_by_id: dict, start_idx: int,
-    *, tz_hours: int = 0,
+    chapter: dict,
+    day: dict,
+    analysis_by_id: dict,
+    start_idx: int,
+    *,
+    tz_hours: int = 0,
 ) -> tuple[str, list[Path], list[str], list[dict]]:
     """Build text metadata for a chapter and collect image paths.
 
@@ -50,6 +54,7 @@ def _build_visual_chapter_text(
         if taken_iso and len(taken_iso) >= 16:
             try:
                 from datetime import datetime, timedelta
+
                 dt = datetime.fromisoformat(taken_iso.replace("Z", "+00:00"))
                 local_dt = dt + timedelta(hours=tz_hours)
                 time_str = local_dt.strftime("%H:%M")
@@ -148,7 +153,7 @@ def _concat_previews(
 
     # Build drawtext filter: one label per segment
     drawtext_parts = []
-    for (item_num, dur, seg_offset) in offset_table:
+    for item_num, dur, seg_offset in offset_table:
         label = f"\\\\\\#{item_num}"
         end = seg_offset + dur
         drawtext_parts.append(
@@ -160,14 +165,35 @@ def _concat_previews(
     vf = ",".join(drawtext_parts) if drawtext_parts else "null"
 
     logger.info(f"Building mega-preview ({len(video_entries)} videos, {offset:.0f}s)...")
-    run_subprocess([
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-        "-i", str(list_file),
-        "-vf", vf,
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "40",
-        "-c:a", "aac", "-b:a", "64k", "-ac", "1",
-        str(output_path),
-    ], capture_output=True, timeout=600)
+    run_subprocess(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(list_file),
+            "-vf",
+            vf,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "40",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "64k",
+            "-ac",
+            "1",
+            str(output_path),
+        ],
+        capture_output=True,
+        timeout=600,
+    )
 
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -177,22 +203,25 @@ def _concat_previews(
     # Validate duration
     if output_path.exists():
         r = run_subprocess(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "csv=p=0", str(output_path)],
-            capture_output=True, text=True, timeout=10,
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(output_path)],
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         actual_dur = float(r.stdout.strip()) if r.stdout.strip() else 0
         if abs(actual_dur - offset) > 5:
-            raise RuntimeError(
-                f"Mega-preview duration mismatch: expected {offset:.0f}s, got {actual_dur:.0f}s"
-            )
+            raise RuntimeError(f"Mega-preview duration mismatch: expected {offset:.0f}s, got {actual_dur:.0f}s")
 
     return offset_table, output_path
 
 
 def _build_visual_content_blocks(
-    preprocessed: dict, analysis_by_id: dict, cfg: Config,
-    *, tz_hours: int = 0, force: bool = False,
+    preprocessed: dict,
+    analysis_by_id: dict,
+    cfg: Config,
+    *,
+    tz_hours: int = 0,
+    force: bool = False,
 ) -> tuple[list, list[tuple[int, float, float]]]:
     """Build multimodal parts: interleaved text + individual photos + mega video preview.
 
@@ -210,7 +239,10 @@ def _build_visual_content_blocks(
     for day in preprocessed["timeline"]:
         for chapter in day["chapters"]:
             text, photo_paths, photo_labels, video_items = _build_visual_chapter_text(
-                chapter, day, analysis_by_id, global_idx,
+                chapter,
+                day,
+                analysis_by_id,
+                global_idx,
                 tz_hours=tz_hours,
             )
             n_items = len(photo_paths) + len(video_items)
@@ -223,13 +255,14 @@ def _build_visual_content_blocks(
             for pi, p in enumerate(photo_paths):
                 thumb = cfg.thumbnails_dir / f"{p.stem}_thumb.jpg"
                 if not thumb.exists():
-                    raise FileNotFoundError(
-                        f"Thumbnail missing for {p.name} — run prepare first")
-                blocks.append({
-                    "type": "image_bytes",
-                    "mime_type": "image/jpeg",
-                    "data": thumb.read_bytes(),
-                })
+                    raise FileNotFoundError(f"Thumbnail missing for {p.name} — run prepare first")
+                blocks.append(
+                    {
+                        "type": "image_bytes",
+                        "mime_type": "image/jpeg",
+                        "data": thumb.read_bytes(),
+                    }
+                )
 
             # Collect video info for concatenated mega-preview
             for vi in video_items:
@@ -257,9 +290,7 @@ def _build_visual_content_blocks(
                 meta_path.unlink()
             logger.info("Force: deleted cached mega-preview")
 
-        cache_key = hashlib.md5(
-            str([(n, p.name, d) for n, d, p in video_entries]).encode()
-        ).hexdigest()
+        cache_key = hashlib.md5(str([(n, p.name, d) for n, d, p in video_entries]).encode()).hexdigest()
 
         cached_meta = None
         if mega_path.exists() and meta_path.exists():
@@ -273,10 +304,14 @@ def _build_visual_content_blocks(
             offset_table = [tuple(e) for e in cached_meta["offset_table"]]
         else:
             offset_table, mega_path = _concat_previews(video_entries, mega_path)
-            meta_path.write_text(json.dumps({
-                "key": cache_key,
-                "offset_table": offset_table,
-            }))
+            meta_path.write_text(
+                json.dumps(
+                    {
+                        "key": cache_key,
+                        "offset_table": offset_table,
+                    }
+                )
+            )
 
         # Build preview timestamp index
         preview_ranges: dict[int, str] = {}
@@ -308,11 +343,13 @@ def _build_visual_content_blocks(
             "exact MM:SS timestamps in THIS preview video where the moment you want "
             "begins and ends. Our code will convert these to the correct trim points."
         )
-        blocks.append({
-            "type": "video_bytes",
-            "mime_type": "video/mp4",
-            "data": mega_path.read_bytes(),
-        })
+        blocks.append(
+            {
+                "type": "video_bytes",
+                "mime_type": "video/mp4",
+                "data": mega_path.read_bytes(),
+            }
+        )
 
     # --- Validate everything before sending to Gemini ---
     n_text_blocks = sum(1 for b in blocks if isinstance(b, str))
@@ -348,13 +385,10 @@ def _build_visual_content_blocks(
                 if not p.exists():
                     missing_files.append(str(p))
     if missing_files:
-        raise RuntimeError(
-            f"{len(missing_files)} source files don't exist: {missing_files[:5]}"
-        )
+        raise RuntimeError(f"{len(missing_files)} source files don't exist: {missing_files[:5]}")
 
     inline_bytes = sum(
-        len(b.get("data", b"")) for b in blocks
-        if isinstance(b, dict) and b.get("type") == "image_bytes"
+        len(b.get("data", b"")) for b in blocks if isinstance(b, dict) and b.get("type") == "image_bytes"
     )
     if inline_bytes > 75 * 1024 * 1024:
         raise RuntimeError(
@@ -362,13 +396,12 @@ def _build_visual_content_blocks(
             f"(100MB base64). Reduce photo count or thumbnail size."
         )
 
-    video_bytes = sum(
-        len(b.get("data", b"")) for b in blocks
-        if isinstance(b, dict) and b.get("type") == "video_bytes"
-    )
+    video_bytes = sum(len(b.get("data", b"")) for b in blocks if isinstance(b, dict) and b.get("type") == "video_bytes")
 
-    logger.info(f"Validation OK: {n_text_blocks} text, {n_images} images ({inline_bytes / 1024 / 1024:.1f}MB), "
-         f"{n_videos} video ({video_bytes / 1024 / 1024:.1f}MB), "
-         f"{len(text_item_nums)} items, {len(video_nums_in_mega)} video labels")
+    logger.info(
+        f"Validation OK: {n_text_blocks} text, {n_images} images ({inline_bytes / 1024 / 1024:.1f}MB), "
+        f"{n_videos} video ({video_bytes / 1024 / 1024:.1f}MB), "
+        f"{len(text_item_nums)} items, {len(video_nums_in_mega)} video labels"
+    )
 
     return blocks, offset_table

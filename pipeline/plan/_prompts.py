@@ -10,7 +10,12 @@ from pathlib import Path
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 TRIP_TYPES = {
-    "family", "solo", "food", "adventure", "architecture", "general",
+    "family",
+    "solo",
+    "food",
+    "adventure",
+    "architecture",
+    "general",
 }
 
 
@@ -50,6 +55,7 @@ def _default_focus(trip_type: str) -> str:
 # Formatting helpers
 # ---------------------------------------------------------------------------
 
+
 def _format_date_range(dates: list[str]) -> str:
     """Format a list of YYYY-MM-DD dates as 'June 13-16, 2025'."""
     try:
@@ -85,6 +91,7 @@ def _timestamp_to_secs(ts: str) -> float:
 # ---------------------------------------------------------------------------
 # System prompt builder
 # ---------------------------------------------------------------------------
+
 
 def _visual_system_prompt(trip_type: str, language: str = "en") -> str:
     """System prompt for visual planner — loaded from pipeline/prompts/ files."""

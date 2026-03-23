@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from pipeline.edl import EDL, EditItem, MusicTrack, Segment, TextOverlay
-
+from pipeline.edl import EDL, EditItem, Segment
 
 # -----------------------------------------------------------------------
 # Pure model tests
@@ -54,8 +53,12 @@ class TestAllItems:
         assert len(items) == 6
         filenames = [item.source_file for item in items]
         assert filenames == [
-            "IMG_001.jpg", "IMG_002.jpg", "VID_003.mp4",
-            "IMG_004.jpg", "IMG_005.jpg", "VID_006.mp4",
+            "IMG_001.jpg",
+            "IMG_002.jpg",
+            "VID_003.mp4",
+            "IMG_004.jpg",
+            "IMG_005.jpg",
+            "VID_006.mp4",
         ]
 
     def test_empty_edl(self):
@@ -113,9 +116,12 @@ class TestJsonRoundtrip:
             title="No Music",
             target_duration=30.0,
             segments=[
-                Segment(name="Seg1", items=[
-                    EditItem(source_file="a.jpg", media_type="photo"),
-                ]),
+                Segment(
+                    name="Seg1",
+                    items=[
+                        EditItem(source_file="a.jpg", media_type="photo"),
+                    ],
+                ),
             ],
         )
         restored = EDL.model_validate_json(edl.model_dump_json())
@@ -129,16 +135,23 @@ class TestJsonRoundtrip:
 
 class TestEDLPersistence:
     def test_save_and_load(self, tmp_path):
-        from pipeline.edl import save_edl, load_latest_edl
         from pipeline.config import Config
+        from pipeline.edl import load_latest_edl, save_edl
 
         cfg = Config(workspace=tmp_path)
         cfg.ensure_dirs()
-        edl = EDL(title="Test", target_duration=30, segments=[
-            Segment(name="S1", items=[
-                EditItem(source_file="a.jpg", media_type="photo"),
-            ]),
-        ])
+        edl = EDL(
+            title="Test",
+            target_duration=30,
+            segments=[
+                Segment(
+                    name="S1",
+                    items=[
+                        EditItem(source_file="a.jpg", media_type="photo"),
+                    ],
+                ),
+            ],
+        )
         save_edl(cfg, edl, version=3)
         assert (tmp_path / "edl_v3.json").exists()
 
@@ -147,8 +160,8 @@ class TestEDLPersistence:
         assert loaded.title == "Test"
 
     def test_find_latest_version(self, tmp_path):
-        from pipeline.edl import find_latest_version
         from pipeline.config import Config
+        from pipeline.edl import find_latest_version
 
         cfg = Config(workspace=tmp_path)
         (tmp_path / "edl_v1.json").write_text("{}")
@@ -157,8 +170,8 @@ class TestEDLPersistence:
         assert find_latest_version(cfg) == 5
 
     def test_no_edl_raises(self, tmp_path):
-        from pipeline.edl import load_latest_edl
         from pipeline.config import Config
+        from pipeline.edl import load_latest_edl
 
         cfg = Config(workspace=tmp_path)
         cfg.ensure_dirs()

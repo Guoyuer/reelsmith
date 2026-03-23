@@ -50,8 +50,12 @@ class PlanConfig:
 
 
 def _plan_visual(
-    cfg: Config, preprocessed: dict, analysis_by_id: dict,
-    pc: PlanConfig, *, progress_callback=None,
+    cfg: Config,
+    preprocessed: dict,
+    analysis_by_id: dict,
+    pc: PlanConfig,
+    *,
+    progress_callback=None,
 ) -> EDL:
     """Single-pass Gemini planning with chain-of-thought.
 
@@ -95,7 +99,8 @@ def _plan_visual(
         tz_hours = preprocessed.get("tz_hours", -(time.timezone // 3600))
 
     content_blocks, preview_offset_table = _build_visual_content_blocks(
-        preprocessed, analysis_by_id, cfg, tz_hours=tz_hours, force=pc.force)
+        preprocessed, analysis_by_id, cfg, tz_hours=tz_hours, force=pc.force
+    )
     n_img = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "image_bytes")
     n_vid_clips = sum(1 for b in content_blocks if isinstance(b, dict) and b.get("type") == "video_bytes")
     n_text = sum(1 for b in content_blocks if isinstance(b, str))
@@ -105,8 +110,7 @@ def _plan_visual(
 
     if n_candidates > 0 and n_text == 0:
         raise RuntimeError(
-            f"Have {n_candidates} candidates but 0 text blocks — "
-            f"analysis_by_id key mismatch (int vs str?)"
+            f"Have {n_candidates} candidates but 0 text blocks — " f"analysis_by_id key mismatch (int vs str?)"
         )
 
     # Build trip structure summary for arc thinking
@@ -117,8 +121,7 @@ def _plan_visual(
             loc = ch["location"]
             block = ch["time_block"]
             count = len(ch.get("item_ids", []))
-            n_vids = sum(1 for iid in ch["item_ids"]
-                         if analysis_by_id.get(str(iid), {}).get("media_type") == "video")
+            n_vids = sum(1 for iid in ch["item_ids"] if analysis_by_id.get(str(iid), {}).get("media_type") == "video")
             line = f"  [{block.upper()}] {loc} — {count} items"
             if n_vids:
                 line += f" ({n_vids} videos)"
@@ -163,8 +166,7 @@ Candidates by day/location:"""
     logger.info(f"Sending {len(visual_parts)} parts to Gemini (single pass)...")
 
     model_kwargs = {"model": pc.model} if pc.model else {}
-    edl_content = _gemini_call(system_prompt, visual_parts,
-                               label="single pass: plan", **model_kwargs)
+    edl_content = _gemini_call(system_prompt, visual_parts, label="single pass: plan", **model_kwargs)
 
     logger.info(f"=== [Gemini] EDL RESPONSE ({len(edl_content)} chars) ===")
     for line in edl_content.split("\n"):
@@ -178,8 +180,7 @@ Candidates by day/location:"""
     fix_hallucinated_paths(edl, cfg.media_dir)
     validate_trim_points(edl, analysis_by_id)
     deduplicate_items(edl)
-    edl = fill_duration_gap(edl, pc.target_duration, analysis_by_id,
-                            system_prompt, model=pc.model)
+    edl = fill_duration_gap(edl, pc.target_duration, analysis_by_id, system_prompt, model=pc.model)
 
     actual_dur = edl.estimated_duration()
     if actual_dur < pc.target_duration * 0.5:
@@ -199,15 +200,20 @@ Candidates by day/location:"""
 # Public entry point
 # ---------------------------------------------------------------------------
 
+
 def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, int]:
     """Generate an EDL from preprocessed + analysis data using the visual planner."""
     if pc.trip_type not in TRIP_TYPES:
         logger.warning(f"Unknown trip_type '{pc.trip_type}', falling back to 'general'")
         pc = PlanConfig(
-            style=pc.style, target_duration=pc.target_duration,
-            focus=pc.focus, trip_type="general",
-            language=pc.language, tz_hours=pc.tz_hours,
-            model=pc.model, music_file=pc.music_file,
+            style=pc.style,
+            target_duration=pc.target_duration,
+            focus=pc.focus,
+            trip_type="general",
+            language=pc.language,
+            tz_hours=pc.tz_hours,
+            model=pc.model,
+            music_file=pc.music_file,
             force=pc.force,
         )
 
@@ -228,14 +234,17 @@ def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, i
     )
     # Use a copy with effective_focus applied so _plan_visual gets the resolved focus
     visual_pc = PlanConfig(
-        style=pc.style, target_duration=pc.target_duration,
-        focus=effective_focus, trip_type=pc.trip_type,
-        language=pc.language, tz_hours=pc.tz_hours,
-        model=pc.model, music_file=pc.music_file,
+        style=pc.style,
+        target_duration=pc.target_duration,
+        focus=effective_focus,
+        trip_type=pc.trip_type,
+        language=pc.language,
+        tz_hours=pc.tz_hours,
+        model=pc.model,
+        music_file=pc.music_file,
         force=pc.force,
     )
-    edl = _plan_visual(cfg, preprocessed, analysis_by_id, visual_pc,
-                        progress_callback=progress_callback)
+    edl = _plan_visual(cfg, preprocessed, analysis_by_id, visual_pc, progress_callback=progress_callback)
 
     # Post-process: force effect="none" on video items
     for seg in edl.segments:
@@ -270,6 +279,8 @@ def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, i
         for f in clips_dir.iterdir():
             f.unlink(missing_ok=True)
 
-    logger.info(f"EDL v{version}: {len(edl.segments)} segments, "
-         f"{len(edl.all_items())} items, ~{edl.estimated_duration():.0f}s")
+    logger.info(
+        f"EDL v{version}: {len(edl.segments)} segments, "
+        f"{len(edl.all_items())} items, ~{edl.estimated_duration():.0f}s"
+    )
     return edl, version

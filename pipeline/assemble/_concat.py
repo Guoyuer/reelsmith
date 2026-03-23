@@ -15,9 +15,7 @@ from ._timeline import Timeline
 logger = logging.getLogger("vlog.assemble.concat")
 
 
-def concatenate(clips: list[dict], output_path: Path, *,
-                ctx: RenderContext | None = None,
-                timeline=None) -> None:
+def concatenate(clips: list[dict], output_path: Path, *, ctx: RenderContext | None = None, timeline=None) -> None:
     """Concatenate clips with transitions (video only). Speech handled separately.
 
     For reliability at high resolutions, splits into segments and xfades
@@ -47,8 +45,14 @@ def concatenate(clips: list[dict], output_path: Path, *,
     tmp_dir = output_path.parent
     for gi, group in enumerate(groups):
         if len(group) == 1:
-            group_files.append({"path": group[0]["path"], "duration": group[0]["duration"],
-                                "transition": "cut", "transition_duration": 0.0})
+            group_files.append(
+                {
+                    "path": group[0]["path"],
+                    "duration": group[0]["duration"],
+                    "transition": "cut",
+                    "transition_duration": 0.0,
+                }
+            )
             logger.info(f"  Group {gi+1}/{len(groups)}: 1 clip (pass-through)")
             continue
 
@@ -65,24 +69,23 @@ def concatenate(clips: list[dict], output_path: Path, *,
 
         if group_path.exists():
             dur = ctx.probe_duration(group_path) or sum(c["duration"] for c in group)
-            group_files.append({"path": group_path, "duration": dur,
-                                "transition": "cut", "transition_duration": 0.0})
+            group_files.append({"path": group_path, "duration": dur, "transition": "cut", "transition_duration": 0.0})
             logger.info(f"  Group {gi+1}/{len(groups)}: done ({dur:.1f}s)")
         else:
             logger.info(f"  Group {gi+1}/{len(groups)}: xfade failed, falling back to demuxer...")
             concat_demuxer(group, group_path)
             if group_path.exists():
                 dur = ctx.probe_duration(group_path) or sum(c["duration"] for c in group)
-                group_files.append({"path": group_path, "duration": dur,
-                                    "transition": "cut", "transition_duration": 0.0})
+                group_files.append(
+                    {"path": group_path, "duration": dur, "transition": "cut", "transition_duration": 0.0}
+                )
 
     if not group_files:
         logger.info("  All groups failed, falling back to full demuxer")
         concat_demuxer(clips, output_path)
         return
 
-    logger.info(f"  group_files: {len(group_files)} entries, "
-         f"total {sum(g['duration'] for g in group_files):.1f}s")
+    logger.info(f"  group_files: {len(group_files)} entries, " f"total {sum(g['duration'] for g in group_files):.1f}s")
     for i, gf in enumerate(group_files):
         logger.info(f"    [{i}] {Path(gf['path']).name} dur={gf['duration']:.1f}s")
 
@@ -93,8 +96,7 @@ def concatenate(clips: list[dict], output_path: Path, *,
         _concat_filter(group_files, output_path, ctx=ctx)
 
 
-def _concat_filter(clips: list[dict], output_path: Path, *,
-                   ctx: RenderContext | None = None) -> None:
+def _concat_filter(clips: list[dict], output_path: Path, *, ctx: RenderContext | None = None) -> None:
     """Join group files using the concat filter (re-encodes, but reliable for HEVC)."""
     inputs = []
     filter_parts = []
@@ -105,12 +107,20 @@ def _concat_filter(clips: list[dict], output_path: Path, *,
     n = len(clips)
     fc = "".join(filter_parts) + f"concat=n={n}:v=1:a=0[v]"
 
-    cmd = ["ffmpeg", "-y"] + inputs + [
-        "-filter_complex", fc,
-        "-map", "[v]",
-        *ctx.get_encoder(), "-pix_fmt", "yuv420p",
-        str(output_path),
-    ]
+    cmd = (
+        ["ffmpeg", "-y"]
+        + inputs
+        + [
+            "-filter_complex",
+            fc,
+            "-map",
+            "[v]",
+            *ctx.get_encoder(),
+            "-pix_fmt",
+            "yuv420p",
+            str(output_path),
+        ]
+    )
     result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         logger.warning("concat filter FAILED (rc=%d): %s", result.returncode, result.stderr[-500:])
@@ -129,11 +139,22 @@ def concat_demuxer(clips: list[dict], output_path: Path) -> None:
             f.write(f"file '{clip['path'].resolve()}'\n")
 
     cmd = [
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-        "-i", str(list_path),
-        "-c:v", "copy", "-c:a", "copy",
-        "-fflags", "+genpts",
-        "-avoid_negative_ts", "make_zero",
+        "ffmpeg",
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(list_path),
+        "-c:v",
+        "copy",
+        "-c:a",
+        "copy",
+        "-fflags",
+        "+genpts",
+        "-avoid_negative_ts",
+        "make_zero",
         str(output_path),
     ]
     result = run_subprocess(cmd, capture_output=True, text=True)
@@ -141,9 +162,7 @@ def concat_demuxer(clips: list[dict], output_path: Path) -> None:
         logger.error("concat_demuxer failed: %s", result.stderr[-500:])
 
 
-def concat_xfade(clips: list[dict], output_path: Path, *,
-                 ctx: RenderContext | None = None,
-                 timeline=None) -> None:
+def concat_xfade(clips: list[dict], output_path: Path, *, ctx: RenderContext | None = None, timeline=None) -> None:
     """Concatenate with xfade transitions (video only). Uses Timeline offsets."""
     if timeline is None:
         timeline = Timeline.build(clips, ctx=ctx)
@@ -167,15 +186,11 @@ def concat_xfade(clips: list[dict], output_path: Path, *,
         offset = round(e.video_offset, 3)  # avoid fp noise like 24.000000000000004
         if td > 0:
             filter_parts.append(
-                f"{in_label}[{i}:v]xfade=transition={xfade_transition}"
-                f":duration={td}:offset={offset}{out_label}"
+                f"{in_label}[{i}:v]xfade=transition={xfade_transition}" f":duration={td}:offset={offset}{out_label}"
             )
         else:
             # Hard cut — use minimal crossfade (0.01 causes FFmpeg filter chain bugs)
-            filter_parts.append(
-                f"{in_label}[{i}:v]xfade=transition=fade"
-                f":duration=0.1:offset={offset}{out_label}"
-            )
+            filter_parts.append(f"{in_label}[{i}:v]xfade=transition=fade" f":duration=0.1:offset={offset}{out_label}")
 
     if not filter_parts:
         concat_demuxer(clips, output_path)
@@ -183,12 +198,20 @@ def concat_xfade(clips: list[dict], output_path: Path, *,
 
     filter_complex = ";".join(filter_parts)
 
-    cmd = ["ffmpeg", "-y"] + inputs + [
-        "-filter_complex", filter_complex,
-        "-map", "[vout]",
-        *ctx.get_encoder(), "-pix_fmt", "yuv420p",
-        str(output_path),
-    ]
+    cmd = (
+        ["ffmpeg", "-y"]
+        + inputs
+        + [
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "[vout]",
+            *ctx.get_encoder(),
+            "-pix_fmt",
+            "yuv420p",
+            str(output_path),
+        ]
+    )
     result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         clip_durs = [f"{ctx.probe_duration(c['path']) or 0:.1f}s" for c in clips]

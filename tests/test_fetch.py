@@ -5,12 +5,9 @@ from __future__ import annotations
 import json
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from pipeline.fetch import FetchConfig, fetch
-
 
 COLLECT_RESPONSE = {
     "items": [
@@ -142,7 +139,7 @@ class TestFetchDownloadsToMediaDir:
         client = FakeClient()
 
         with patch("pipeline.fetch._nas.httpx.Client", return_value=client):
-            manifest = fetch(cfg, FetchConfig())
+            fetch(cfg, FetchConfig())
 
         # Files land in media_dir
         files = list(cfg.media_dir.iterdir())

@@ -9,7 +9,11 @@ logger = logging.getLogger("vlog.assemble.filters")
 
 
 def build_portrait_photo_filter(
-    out_w: int, out_h: int, frames: int, fps: int, zoom_rate: float,
+    out_w: int,
+    out_h: int,
+    frames: int,
+    fps: int,
+    zoom_rate: float,
 ) -> str:
     """Build FFmpeg filter_complex for portrait photos: blurred BG + sharp FG + gentle Ken Burns."""
     return (
@@ -68,9 +72,9 @@ def find_font(language: str = "en") -> str:
     return ""
 
 
-def drawtext_filter(text: str, position: str, font_size: int,
-                    clip_duration: float, language: str = "en",
-                    out_h: int = 0) -> str:
+def drawtext_filter(
+    text: str, position: str, font_size: int, clip_duration: float, language: str = "en", out_h: int = 0
+) -> str:
     """Build a drawtext filter string for text overlay (no leading comma)."""
     y_positions = {"top": "50", "center": "(h-text_h)/2", "bottom": "h-text_h-60"}
     y_expr = y_positions.get(position, y_positions["bottom"])
@@ -96,8 +100,13 @@ def drawtext_filter(text: str, position: str, font_size: int,
 # Ken Burns & portrait video filters
 # ---------------------------------------------------------------------------
 
+
 def zoompan_filter(
-    zoom_rate: float, frames: int, w: int, h: int, fps: int,
+    zoom_rate: float,
+    frames: int,
+    w: int,
+    h: int,
+    fps: int,
     direction: str = "in",
 ) -> str:
     """Build a Ken Burns zoompan filter expression.
@@ -108,10 +117,10 @@ def zoompan_filter(
     tail = f":s={w}x{h}:fps={fps}"
 
     zoom_exprs = {
-        "in":     f"z='1+(1.3-1)*(1-cos(PI*on/{frames}))/2':d={frames}:{center}",
-        "out":    f"z='1.3-(1.3-1)*(1-cos(PI*on/{frames}))/2':d={frames}:{center}",
-        "left":   f"z='1.15':d={frames}:x='(iw-iw/zoom)*(1-cos(PI*on/{frames}))/2':y='ih/2-(ih/zoom/2)'",
-        "right":  f"z='1.15':d={frames}:x='(iw-iw/zoom)*(1-(1-cos(PI*on/{frames}))/2)':y='ih/2-(ih/zoom/2)'",
+        "in": f"z='1+(1.3-1)*(1-cos(PI*on/{frames}))/2':d={frames}:{center}",
+        "out": f"z='1.3-(1.3-1)*(1-cos(PI*on/{frames}))/2':d={frames}:{center}",
+        "left": f"z='1.15':d={frames}:x='(iw-iw/zoom)*(1-cos(PI*on/{frames}))/2':y='ih/2-(ih/zoom/2)'",
+        "right": f"z='1.15':d={frames}:x='(iw-iw/zoom)*(1-(1-cos(PI*on/{frames}))/2)':y='ih/2-(ih/zoom/2)'",
         "static": f"z='1':d={frames}",
     }
     return f"zoompan={zoom_exprs.get(direction, zoom_exprs['in'])}{tail}"

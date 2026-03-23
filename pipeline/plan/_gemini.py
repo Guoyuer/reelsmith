@@ -78,21 +78,27 @@ def _gemini_call(
                     n_uploaded += 1
                 finally:
                     Path(tf_path).unlink(missing_ok=True)
-                parts.append(types.Part(
-                    file_data=types.FileData(file_uri=uploaded.uri, mime_type=mime),
-                ))
+                parts.append(
+                    types.Part(
+                        file_data=types.FileData(file_uri=uploaded.uri, mime_type=mime),
+                    )
+                )
             else:
-                parts.append(types.Part(
-                    inline_data=types.Blob(mime_type=mime, data=p["data"]),
-                ))
+                parts.append(
+                    types.Part(
+                        inline_data=types.Blob(mime_type=mime, data=p["data"]),
+                    )
+                )
         elif isinstance(p, types.Part):
             parts.append(p)
 
     logger.info(f"=== [Gemini] API Call: {label} ===")
     logger.info(f"  Model: {model}")
     logger.info(f"  System prompt: {len(system)} chars")
-    logger.info(f"  Input: {n_text} text parts ({text_chars} chars), "
-         f"{n_media} media files ({media_bytes_total / 1024 / 1024:.1f}MB)")
+    logger.info(
+        f"  Input: {n_text} text parts ({text_chars} chars), "
+        f"{n_media} media files ({media_bytes_total / 1024 / 1024:.1f}MB)"
+    )
     if n_uploaded:
         logger.info(f"  Videos: {n_uploaded} uploaded via Files API")
     logger.info(f"  Images: {n_media - n_uploaded} inline")
@@ -127,13 +133,13 @@ def _gemini_call(
 
     # Log thinking, code execution, and other non-text parts
     if response.candidates:
-        for part in (response.candidates[0].content.parts or []):
-            if getattr(part, 'thought', False) and part.text:
+        for part in response.candidates[0].content.parts or []:
+            if getattr(part, "thought", False) and part.text:
                 logger.info(f"  [Thinking] {part.text[:500]}...")
-            if getattr(part, 'executable_code', None):
+            if getattr(part, "executable_code", None):
                 code = part.executable_code.code or ""
                 logger.info(f"  [Code] {code[:300]}{'...' if len(code) > 300 else ''}")
-            if getattr(part, 'code_execution_result', None):
+            if getattr(part, "code_execution_result", None):
                 result = part.code_execution_result
                 logger.info(f"  [CodeResult] {result.outcome}: {(result.output or '')[:300]}")
 
@@ -149,8 +155,7 @@ def _gemini_call(
     output_tokens = usage.candidates_token_count or 0
     # Gemini 3.1 Flash Lite pricing: $0.075/M input, $0.30/M output
     cost_est = input_tokens * 0.075 / 1_000_000 + output_tokens * 0.30 / 1_000_000
-    logger.info(f"  Response: {input_tokens:,} input tokens, "
-         f"{output_tokens:,} output tokens, {elapsed:.1f}s")
+    logger.info(f"  Response: {input_tokens:,} input tokens, " f"{output_tokens:,} output tokens, {elapsed:.1f}s")
     logger.info(f"  Estimated cost: ${cost_est:.4f}")
     logger.info(f"  Output: {len(content)} chars")
     # Log first 500 chars of response for debugging

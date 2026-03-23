@@ -20,6 +20,7 @@ logger = logging.getLogger("vlog.assemble.audio")
 # BPM estimation & beat sync
 # ---------------------------------------------------------------------------
 
+
 def estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int | None:
     """Estimate BPM from WAV using energy envelope autocorrelation. Stdlib only."""
     try:
@@ -53,7 +54,7 @@ def estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int |
     win = sr // 100
     energy = []
     for i in range(0, len(samples), win):
-        chunk = samples[i:i + win]
+        chunk = samples[i : i + win]
         if chunk:
             energy.append(math.sqrt(sum(s * s for s in chunk) / len(chunk)))
 
@@ -73,8 +74,7 @@ def estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int |
     best_corr = -1.0
 
     for lag in range(min_lag, max_lag):
-        corr = sum((energy[i] - mean_e) * (energy[i + lag] - mean_e)
-                   for i in range(len(energy) - lag))
+        corr = sum((energy[i] - mean_e) * (energy[i + lag] - mean_e) for i in range(len(energy) - lag))
         if corr > best_corr:
             best_corr = corr
             best_lag = lag
@@ -155,8 +155,7 @@ def beat_snap_edl(edl: EDL, music_path: Path) -> int:
 
     if total_transitions > 0:
         pct = int(snapped / total_transitions * 100)
-        logger.info("Beat sync: snapped %d/%d transitions (%d%%) to %d BPM grid",
-                    snapped, total_transitions, pct, bpm)
+        logger.info("Beat sync: snapped %d/%d transitions (%d%%) to %d BPM grid", snapped, total_transitions, pct, bpm)
 
     return snapped
 
@@ -164,6 +163,7 @@ def beat_snap_edl(edl: EDL, music_path: Path) -> int:
 # ---------------------------------------------------------------------------
 # Speech & music
 # ---------------------------------------------------------------------------
+
 
 def build_speech_track(
     speech_clips: list[tuple[float, Path]],
@@ -182,26 +182,40 @@ def build_speech_track(
         filter_parts.append(f"[{i}:a]afade=t=in:d=0.3,afade=t=out:st=99:d=0.3,adelay={delay_ms}|{delay_ms}[a{i}]")
 
     mix_inputs = "".join(f"[a{i}]" for i in range(len(speech_clips)))
-    filter_parts.append(
-        f"{mix_inputs}amix=inputs={len(speech_clips)}"
-        f":duration=longest:dropout_transition=0[out]"
-    )
+    filter_parts.append(f"{mix_inputs}amix=inputs={len(speech_clips)}" f":duration=longest:dropout_transition=0[out]")
 
-    cmd = ["ffmpeg", "-y"] + inputs + [
-        "-filter_complex", ";".join(filter_parts),
-        "-map", "[out]",
-        "-t", str(total_duration),
-        "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2",
-        str(output_path),
-    ]
+    cmd = (
+        ["ffmpeg", "-y"]
+        + inputs
+        + [
+            "-filter_complex",
+            ";".join(filter_parts),
+            "-map",
+            "[out]",
+            "-t",
+            str(total_duration),
+            "-c:a",
+            "pcm_s16le",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            str(output_path),
+        ]
+    )
     run_subprocess(cmd, capture_output=True)
 
 
-def add_music(video_path: Path, music, output_path: Path, *,
-              ctx: RenderContext | None = None,
-              speech_ranges: list[tuple[float, float]] | None = None,
-              speech_audio_path: Path | None = None,
-              duck_ratio: float = 0.3) -> None:
+def add_music(
+    video_path: Path,
+    music,
+    output_path: Path,
+    *,
+    ctx: RenderContext | None = None,
+    speech_ranges: list[tuple[float, float]] | None = None,
+    speech_audio_path: Path | None = None,
+    duck_ratio: float = 0.3,
+) -> None:
     """Mix background music + speech audio into the video."""
     total_dur = ctx.probe_duration(video_path) if ctx else 0.0
     music_dur = ctx.probe_duration(Path(music.file)) if ctx else 0.0
@@ -232,14 +246,27 @@ def add_music(video_path: Path, music, output_path: Path, *,
             f"loudnorm=I=-16:TP=-1.5:LRA=11[a]"
         )
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(video_path),
-            "-i", str(music.file),
-            "-i", str(speech_audio_path),
-            "-filter_complex", audio_filter,
-            "-map", "0:v", "-map", "[a]",
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-i",
+            str(music.file),
+            "-i",
+            str(speech_audio_path),
+            "-filter_complex",
+            audio_filter,
+            "-map",
+            "0:v",
+            "-map",
+            "[a]",
             "-shortest",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
             str(output_path),
         ]
     else:
@@ -250,13 +277,25 @@ def add_music(video_path: Path, music, output_path: Path, *,
             f"loudnorm=I=-16:TP=-1.5:LRA=11[a]"
         )
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(video_path),
-            "-i", str(music.file),
-            "-filter_complex", audio_filter,
-            "-map", "0:v", "-map", "[a]",
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-i",
+            str(music.file),
+            "-filter_complex",
+            audio_filter,
+            "-map",
+            "0:v",
+            "-map",
+            "[a]",
             "-shortest",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
             str(output_path),
         ]
     run_subprocess(cmd, capture_output=True)
@@ -284,19 +323,36 @@ def mix_final_audio(
     has_music = music_track is not None and music_track.file and Path(music_track.file).exists()
 
     if has_music:
-        add_music(video_path, music_track, output_path, ctx=ctx,
-                  speech_ranges=speech_ranges, speech_audio_path=speech_audio_path,
-                  duck_ratio=duck_ratio)
+        add_music(
+            video_path,
+            music_track,
+            output_path,
+            ctx=ctx,
+            speech_ranges=speech_ranges,
+            speech_audio_path=speech_audio_path,
+            duck_ratio=duck_ratio,
+        )
         video_path.unlink(missing_ok=True)
         if speech_audio_path:
             speech_audio_path.unlink(missing_ok=True)
     elif speech_audio_path and speech_audio_path.exists():
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(video_path),
-            "-i", str(speech_audio_path),
-            "-map", "0:v", "-map", "1:a",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-i",
+            str(speech_audio_path),
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
             str(output_path),
         ]
         run_subprocess(cmd, capture_output=True)
@@ -306,8 +362,7 @@ def mix_final_audio(
         shutil.move(str(video_path), str(output_path))
 
 
-def write_chapters(edl: EDL, all_clips: list[dict], out_path: Path,
-                    timeline=None) -> None:
+def write_chapters(edl: EDL, all_clips: list[dict], out_path: Path, timeline=None) -> None:
     """Write YouTube-compatible chapter markers from EDL segments.
 
     Requires a Timeline object (single source of truth for offsets).

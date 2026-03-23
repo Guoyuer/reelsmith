@@ -14,7 +14,6 @@ from pathlib import Path
 logger = logging.getLogger("vlog.music")
 
 
-
 def generate_music(
     trip_type: str,
     style: str,
@@ -24,9 +23,13 @@ def generate_music(
 ) -> Path | None:
     """Generate background music via Gemini Lyria RealTime API."""
     from ._gemini import generate_music_gemini
+
     return generate_music_gemini(
-        trip_type=trip_type, style=style, target_duration=target_duration,
-        cache_dir=cache_dir, mood=mood,
+        trip_type=trip_type,
+        style=style,
+        target_duration=target_duration,
+        cache_dir=cache_dir,
+        mood=mood,
     )
 
 
@@ -49,12 +52,14 @@ def _build_composite_music(
     Returns True on success.
     """
     from ..media_utils import run_subprocess
+
     if not segment_tracks:
         return False
 
     if len(segment_tracks) == 1:
         # Single segment — just copy
         import shutil
+
         shutil.copy(str(segment_tracks[0][1]), str(output_path))
         return True
 
@@ -65,9 +70,21 @@ def _build_composite_music(
         trim_dur = dur + (crossfade if i < len(segment_tracks) - 1 else 0)
         trimmed_path = output_path.parent / f"_seg_music_{i}.wav"
         run_subprocess(
-            ["ffmpeg", "-y", "-i", str(track), "-t", str(trim_dur),
-             "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2",
-             str(trimmed_path)],
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(track),
+                "-t",
+                str(trim_dur),
+                "-c:a",
+                "pcm_s16le",
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+                str(trimmed_path),
+            ],
             capture_output=True,
         )
         if trimmed_path.exists():
@@ -77,6 +94,7 @@ def _build_composite_music(
     if len(trimmed) < 2:
         if trimmed:
             import shutil
+
             shutil.copy(str(trimmed[0]), str(output_path))
             for t in trimmed:
                 t.unlink(missing_ok=True)
@@ -88,16 +106,25 @@ def _build_composite_music(
     for i in range(1, len(trimmed)):
         in_label = "[0:a]" if i == 1 else f"[a{i-1}]"
         out_label = f"[a{i}]" if i < len(trimmed) - 1 else "[out]"
-        filter_parts.append(
-            f"{in_label}[{i}:a]acrossfade=d={crossfade}:c1=tri:c2=tri{out_label}"
-        )
+        filter_parts.append(f"{in_label}[{i}:a]acrossfade=d={crossfade}:c1=tri:c2=tri{out_label}")
 
-    cmd = ["ffmpeg", "-y"] + inputs + [
-        "-filter_complex", ";".join(filter_parts),
-        "-map", "[out]",
-        "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2",
-        str(output_path),
-    ]
+    cmd = (
+        ["ffmpeg", "-y"]
+        + inputs
+        + [
+            "-filter_complex",
+            ";".join(filter_parts),
+            "-map",
+            "[out]",
+            "-c:a",
+            "pcm_s16le",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            str(output_path),
+        ]
+    )
     result = run_subprocess(cmd, capture_output=True, text=True)
 
     # Cleanup trimmed files
@@ -141,13 +168,15 @@ def generate_music_for_edl(cfg, *, progress_callback=None) -> Path | None:
     for i, seg in enumerate(edl.segments):
         seg_dur = int(_segment_duration(seg))
         mood = seg.music_mood or f"{edl.style} travel vlog background music"
-        logger.info("  Segment %d/%d: \"%s\" (%ds)", i+1, len(edl.segments), seg.name, seg_dur)
+        logger.info('  Segment %d/%d: "%s" (%ds)', i + 1, len(edl.segments), seg.name, seg_dur)
         logger.info("    Mood: %s", mood)
 
         track = generate_music(
-            trip_type=edl.trip_type, style=edl.style,
+            trip_type=edl.trip_type,
+            style=edl.style,
             target_duration=seg_dur,
-            cache_dir=music_cache, mood=mood,
+            cache_dir=music_cache,
+            mood=mood,
         )
         if track:
             segment_tracks.append((seg_dur, track))

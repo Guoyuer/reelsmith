@@ -9,10 +9,10 @@ from unittest.mock import patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Unit tests: WAV writer
 # ---------------------------------------------------------------------------
+
 
 class TestWriteWav:
     def test_writes_valid_wav_header(self, tmp_path: Path):
@@ -32,10 +32,10 @@ class TestWriteWav:
         assert data[12:16] == b"fmt "
 
         # fmt chunk fields
-        assert struct.unpack_from("<I", data, 16)[0] == 16      # chunk size
-        assert struct.unpack_from("<H", data, 20)[0] == 1       # PCM format
-        assert struct.unpack_from("<H", data, 22)[0] == 2       # channels
-        assert struct.unpack_from("<I", data, 24)[0] == 48000   # sample rate
+        assert struct.unpack_from("<I", data, 16)[0] == 16  # chunk size
+        assert struct.unpack_from("<H", data, 20)[0] == 1  # PCM format
+        assert struct.unpack_from("<H", data, 22)[0] == 2  # channels
+        assert struct.unpack_from("<I", data, 24)[0] == 48000  # sample rate
 
         # data chunk
         assert data[36:40] == b"data"
@@ -59,8 +59,8 @@ class TestWriteWav:
         _write_wav(path, pcm, sample_rate=44100, channels=1, bits_per_sample=16)
 
         data = path.read_bytes()
-        assert struct.unpack_from("<H", data, 22)[0] == 1       # mono
-        assert struct.unpack_from("<I", data, 24)[0] == 44100   # sample rate
+        assert struct.unpack_from("<H", data, 22)[0] == 1  # mono
+        assert struct.unpack_from("<I", data, 24)[0] == 44100  # sample rate
         byte_rate = struct.unpack_from("<I", data, 28)[0]
         assert byte_rate == 44100 * 1 * 2  # sr * channels * bytes_per_sample
 
@@ -69,18 +69,25 @@ class TestWriteWav:
 # Unit tests: generate_music dispatcher
 # ---------------------------------------------------------------------------
 
+
 class TestGenerateMusic:
     def test_dispatches_to_gemini(self, tmp_path: Path):
         from pipeline.music import generate_music
 
         with patch("pipeline.music._gemini.generate_music_gemini", return_value=tmp_path / "track.wav") as mock:
             result = generate_music(
-                "family", "upbeat", 30, tmp_path,
+                "family",
+                "upbeat",
+                30,
+                tmp_path,
             )
 
         mock.assert_called_once_with(
-            trip_type="family", style="upbeat", target_duration=30,
-            cache_dir=tmp_path, mood="",
+            trip_type="family",
+            style="upbeat",
+            target_duration=30,
+            cache_dir=tmp_path,
+            mood="",
         )
         assert result == tmp_path / "track.wav"
 
@@ -89,19 +96,26 @@ class TestGenerateMusic:
 
         with patch("pipeline.music._gemini.generate_music_gemini", return_value=None) as mock:
             generate_music(
-                "solo", "cinematic", 60, tmp_path,
+                "solo",
+                "cinematic",
+                60,
+                tmp_path,
                 mood="gentle piano",
             )
 
         mock.assert_called_once_with(
-            trip_type="solo", style="cinematic", target_duration=60,
-            cache_dir=tmp_path, mood="gentle piano",
+            trip_type="solo",
+            style="cinematic",
+            target_duration=60,
+            cache_dir=tmp_path,
+            mood="gentle piano",
         )
 
 
 # ---------------------------------------------------------------------------
 # Unit tests: generate_music_gemini (mocked API)
 # ---------------------------------------------------------------------------
+
 
 class TestGenerateMusicGemini:
     def test_returns_none_without_api_key(self, tmp_path: Path, monkeypatch):
@@ -195,7 +209,10 @@ class TestGenerateMusicGemini:
 
         with patch("pipeline.music._gemini._generate_music", _fake_generate):
             generate_music_gemini(
-                "family", "upbeat", 1, tmp_path,
+                "family",
+                "upbeat",
+                1,
+                tmp_path,
                 mood="custom mood prompt",
             )
 
@@ -206,9 +223,11 @@ class TestGenerateMusicGemini:
 # Unit tests: generate_music_for_edl (pipeline-level logic)
 # ---------------------------------------------------------------------------
 
+
 class TestGenerateMusicForEdl:
-    def _make_workspace(self, tmp_path: Path, music_mode: str = "auto",
-                        music_file: str | None = None, music_mood: str = "") -> Path:
+    def _make_workspace(
+        self, tmp_path: Path, music_mode: str = "auto", music_file: str | None = None, music_mood: str = ""
+    ) -> Path:
         """Create workspace with EDL."""
         from pipeline.edl import EDL, EditItem, MusicTrack, Segment
 
@@ -217,12 +236,20 @@ class TestGenerateMusicForEdl:
             (ws / d).mkdir(parents=True)
 
         edl = EDL(
-            title="Test", target_duration=30.0, resolution=(320, 180), fps=24,
-            music_mode=music_mode, trip_type="family", style="upbeat",
-            segments=[Segment(
-                name="test", music_mood=music_mood,
-                items=[EditItem(source_file="test.jpg", media_type="photo", display_duration=10.0)],
-            )],
+            title="Test",
+            target_duration=30.0,
+            resolution=(320, 180),
+            fps=24,
+            music_mode=music_mode,
+            trip_type="family",
+            style="upbeat",
+            segments=[
+                Segment(
+                    name="test",
+                    music_mood=music_mood,
+                    items=[EditItem(source_file="test.jpg", media_type="photo", display_duration=10.0)],
+                )
+            ],
         )
         if music_file:
             edl.music = MusicTrack(file=music_file)
@@ -312,11 +339,13 @@ class TestGenerateMusicForEdl:
 # E2E test: real Gemini API call (requires GEMINI_API_KEY)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.integration
 class TestGenerateMusicGeminiE2E:
     @pytest.fixture(autouse=True)
     def _skip_without_key(self):
         import os
+
         if not os.getenv("GEMINI_API_KEY"):
             pytest.skip("GEMINI_API_KEY not set")
 
@@ -352,14 +381,20 @@ class TestGenerateMusicGeminiE2E:
 
         # First call — generates
         result1 = generate_music_gemini(
-            "general", "upbeat", 5, tmp_path,
+            "general",
+            "upbeat",
+            5,
+            tmp_path,
             mood="gentle piano, calm travel background",
         )
         assert result1 is not None
 
         # Second call — should use cache
         result2 = generate_music_gemini(
-            "general", "upbeat", 5, tmp_path,
+            "general",
+            "upbeat",
+            5,
+            tmp_path,
             mood="gentle piano, calm travel background",
         )
         assert result2 is not None

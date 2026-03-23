@@ -34,7 +34,7 @@ def run_parallel(
 
     try:
         for batch_start in range(0, total, batch_size):
-            batch = tasks[batch_start:batch_start + batch_size]
+            batch = tasks[batch_start : batch_start + batch_size]
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
                 futures = {pool.submit(fn): tid for tid, fn in batch}
                 for future in as_completed(futures):

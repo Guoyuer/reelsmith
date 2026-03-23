@@ -12,6 +12,7 @@ logger = logging.getLogger("vlog.image_utils")
 
 try:
     import pillow_heif
+
     pillow_heif.register_heif_opener()
 except ImportError:
     pass  # HEIC support unavailable; convert_heic will use sips/ImageMagick fallback
@@ -44,8 +45,10 @@ def convert_heic(source: Path, dest_dir: Path | None = None) -> Path:
     # Try 1: pillow-heif + Pillow (cross-platform, pip install pillow-heif)
     try:
         import pillow_heif
+
         pillow_heif.register_heif_opener()
         from PIL import Image
+
         img = Image.open(source)
         img.save(jpeg_path, "JPEG", quality=92)
         if jpeg_path.exists():
@@ -56,8 +59,7 @@ def convert_heic(source: Path, dest_dir: Path | None = None) -> Path:
     # Try 2: macOS sips (no extra deps needed on Mac)
     if shutil.which("sips"):
         run_subprocess(
-            ["sips", "-s", "format", "jpeg",
-             str(source), "--out", str(jpeg_path)],
+            ["sips", "-s", "format", "jpeg", str(source), "--out", str(jpeg_path)],
             capture_output=True,
         )
         if jpeg_path.exists():
@@ -71,8 +73,7 @@ def convert_heic(source: Path, dest_dir: Path | None = None) -> Path:
             return jpeg_path
 
     raise RuntimeError(
-        f"HEIC conversion failed for {source}. "
-        "Install pillow-heif (`pip install pillow-heif`) or ImageMagick."
+        f"HEIC conversion failed for {source}. " "Install pillow-heif (`pip install pillow-heif`) or ImageMagick."
     )
 
 
@@ -98,8 +99,7 @@ def generate_thumbnail(
         img.thumbnail((size, size))
         img.save(out_path, "JPEG", quality=quality)
     except (OSError, RuntimeError) as e:
-        logger.warning(
-            "Thumbnail failed for %s: %s — skipping", source.name, e)
+        logger.warning("Thumbnail failed for %s: %s — skipping", source.name, e)
         return None
 
     return out_path

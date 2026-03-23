@@ -33,9 +33,11 @@ logger = logging.getLogger("vlog.assemble")
 # Render report — structured clip status tracking (replaces bare print/list)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ClipStatus:
     """Status of a single clip render."""
+
     clip_name: str
     source_file: str
     status: Literal["ok", "skipped", "failed"] = "ok"
@@ -45,6 +47,7 @@ class ClipStatus:
 @dataclass
 class RenderReport:
     """Tracks clip rendering outcomes for structured reporting."""
+
     clips: list[ClipStatus] = field(default_factory=list)
 
     @property
@@ -70,14 +73,15 @@ class RenderReport:
         return ", ".join(parts)
 
 
-
 # ---------------------------------------------------------------------------
 # Render configuration — bundles the 12 parameters for _assemble_inner
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class AssembleConfig:
     """CLI-facing input configuration for the assemble stage."""
+
     w: int
     h: int
     fps: int
@@ -90,6 +94,7 @@ class AssembleConfig:
 @dataclass
 class AssembleJob:
     """A single assemble run: what to render (edl) + how (ctx) + where (cfg)."""
+
     cfg: Config
     edl: EDL
     version: int
@@ -132,6 +137,7 @@ class AssembleJob:
 # Main assemble entry point
 # ---------------------------------------------------------------------------
 
+
 def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tuple[Path, list[dict]]:
     """Read latest edl_v{N}.json and render the vlog video.
 
@@ -170,11 +176,12 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
         for issue in edl_errors:
             logger.info(f"  EDL ERROR: {issue['message']}")
         raise ValueError(
-            f"EDL validation failed with {len(edl_errors)} error(s): "
-            + "; ".join(i["message"] for i in edl_errors)
+            f"EDL validation failed with {len(edl_errors)} error(s): " + "; ".join(i["message"] for i in edl_errors)
         )
-    logger.info(f"EDL validation passed ({len(edl.all_items())} items, "
-         f"{len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s)")
+    logger.info(
+        f"EDL validation passed ({len(edl.all_items())} items, "
+        f"{len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s)"
+    )
 
     ctx = RenderContext(w=w, h=h, fps=ac.fps, quality=ac.quality)
 
@@ -196,7 +203,6 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
 
 
 def _assemble_inner(job: AssembleJob, *, progress_callback=None, skip_broken: bool = False):
-
     # Beat sync: snap transitions to music beats (before rendering clips)
     if job.edl.music and Path(job.edl.music.file).exists():
         beat_snap_edl(job.edl, Path(job.edl.music.file))
@@ -228,8 +234,7 @@ def _assemble_inner(job: AssembleJob, *, progress_callback=None, skip_broken: bo
         for issue in errors:
             logger.info(f"  ERROR [{issue['check']}]: {issue['message']}")
         raise RuntimeError(
-            f"Output validation failed with {len(errors)} error(s): "
-            + "; ".join(i["message"] for i in errors)
+            f"Output validation failed with {len(errors)} error(s): " + "; ".join(i["message"] for i in errors)
         )
 
     if not validation_issues:
@@ -242,8 +247,12 @@ def _assemble_inner(job: AssembleJob, *, progress_callback=None, skip_broken: bo
 # Phase 1 + 1b: Parallel clip rendering + intro/outro
 # ---------------------------------------------------------------------------
 
+
 def _render_clips(
-    job: AssembleJob, *, progress_callback=None, skip_broken: bool = False,
+    job: AssembleJob,
+    *,
+    progress_callback=None,
+    skip_broken: bool = False,
 ) -> tuple[list[dict], RenderReport]:
     """Render all EDL items as normalized clips (parallel), plus intro/outro.
 
@@ -271,9 +280,14 @@ def _render_clips(
     clip_results: list[Path | None] = [None] * total_items
     report = RenderReport()
 
-    pbar = tqdm(total=total_items, desc=f"Rendering clips (x{max_workers})", unit="clip",
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
-                file=sys.stdout, disable=not sys.stdout.isatty())
+    pbar = tqdm(
+        total=total_items,
+        desc=f"Rendering clips (x{max_workers})",
+        unit="clip",
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
+        file=sys.stdout,
+        disable=not sys.stdout.isatty(),
+    )
 
     def _do_render(order, seg_idx, item_idx, item, segment):
         clip_name = f"seg{seg_idx:02d}_item{item_idx:02d}_{job.res_label}.mp4"
@@ -286,11 +300,23 @@ def _render_clips(
 
             color_temp = segment.color_temp
             if item.media_type == "photo":
-                render_photo(item, clip_path, color_temp=color_temp,
-                             text_overlay=item.text_overlay, language=job.lang, ctx=job.ctx)
+                render_photo(
+                    item,
+                    clip_path,
+                    color_temp=color_temp,
+                    text_overlay=item.text_overlay,
+                    language=job.lang,
+                    ctx=job.ctx,
+                )
             else:
-                render_video(item, clip_path, color_temp=color_temp,
-                             text_overlay=item.text_overlay, language=job.lang, ctx=job.ctx)
+                render_video(
+                    item,
+                    clip_path,
+                    color_temp=color_temp,
+                    text_overlay=item.text_overlay,
+                    language=job.lang,
+                    ctx=job.ctx,
+                )
 
         if not clip_path.exists():
             return clip_name, item.source_file, None, "render failed"
@@ -302,10 +328,7 @@ def _render_clips(
         if progress_callback:
             progress_callback(done, total, "")
 
-    parallel_tasks = [
-        (t[0], lambda t=t: _do_render(*t))
-        for t in tasks
-    ]
+    parallel_tasks = [(t[0], lambda t=t: _do_render(*t)) for t in tasks]
     results = run_parallel(parallel_tasks, max_workers, progress_fn=_progress)
 
     for order, result in results:
@@ -360,21 +383,21 @@ def _render_clips(
 
             # Safety net: photo crossfades cause ghosting. Log when triggered.
             prev_is_photo = all_clips and all_clips[-1].get("media_type") == "photo"
-            if ((item.media_type == "photo" or prev_is_photo)
-                    and transition not in ("cut", "fade_black")):
-                logger.info(f"  Safety net: {transition}→fade_black for photo transition "
-                     f"({Path(clip_path).name})")
+            if (item.media_type == "photo" or prev_is_photo) and transition not in ("cut", "fade_black"):
+                logger.info(f"  Safety net: {transition}→fade_black for photo transition " f"({Path(clip_path).name})")
                 transition = "fade_black"
                 td = min(td, 0.4)
 
-            all_clips.append({
-                "path": clip_path,
-                "duration": item.display_duration,
-                "transition": transition,
-                "transition_duration": td,
-                "keep_audio": item.keep_audio,
-                "media_type": item.media_type,
-            })
+            all_clips.append(
+                {
+                    "path": clip_path,
+                    "duration": item.display_duration,
+                    "transition": transition,
+                    "transition_duration": td,
+                    "keep_audio": item.keep_audio,
+                    "media_type": item.media_type,
+                }
+            )
 
     if not all_clips:
         raise RuntimeError("No clips rendered — check source files in EDL")
@@ -393,14 +416,26 @@ def _render_clips(
             if background_photo:
                 break
         if not intro_path.exists():
-            render_title_card(job.edl.title, job.edl.date_range, intro_path,
-                              duration=intro_dur, language=job.lang, ctx=job.ctx,
-                              background_photo=background_photo)
-        all_clips.insert(0, {
-            "path": intro_path, "duration": intro_dur,
-            "transition": "cut", "transition_duration": 0.0,
-            "keep_audio": False, "media_type": "video",
-        })
+            render_title_card(
+                job.edl.title,
+                job.edl.date_range,
+                intro_path,
+                duration=intro_dur,
+                language=job.lang,
+                ctx=job.ctx,
+                background_photo=background_photo,
+            )
+        all_clips.insert(
+            0,
+            {
+                "path": intro_path,
+                "duration": intro_dur,
+                "transition": "cut",
+                "transition_duration": 0.0,
+                "keep_audio": False,
+                "media_type": "video",
+            },
+        )
         if len(all_clips) > 1:
             all_clips[1]["transition"] = "fade_black"
             all_clips[1]["transition_duration"] = 1.0
@@ -410,11 +445,16 @@ def _render_clips(
         outro_dur = job.edl.outro_duration
         if not outro_path.exists():
             render_title_card(job.edl.title, "", outro_path, duration=outro_dur, language=job.lang, ctx=job.ctx)
-        all_clips.append({
-            "path": outro_path, "duration": outro_dur,
-            "transition": "fade_black", "transition_duration": 1.0,
-            "keep_audio": False, "media_type": "video",
-        })
+        all_clips.append(
+            {
+                "path": outro_path,
+                "duration": outro_dur,
+                "transition": "fade_black",
+                "transition_duration": 1.0,
+                "keep_audio": False,
+                "media_type": "video",
+            }
+        )
 
     return all_clips, report
 
@@ -422,6 +462,7 @@ def _render_clips(
 # ---------------------------------------------------------------------------
 # Phase 2 + 2b + 3: Concatenation, speech track, music mix
 # ---------------------------------------------------------------------------
+
 
 def _concat_and_mix(job: AssembleJob, all_clips: list[dict], *, t_start: float) -> tuple[list[dict], Path]:
     """Concatenate clips with transitions, build speech track, and mix audio.
@@ -451,8 +492,7 @@ def _concat_and_mix(job: AssembleJob, all_clips: list[dict], *, t_start: float) 
 
         speech_audio_path = job.output_dir / f"vlog_v{job.version}_{job.res_label}_speech.wav"
         build_speech_track(speech_clips, video_dur, speech_audio_path)
-        logger.info(f"Speech track: {len(speech_clips)} clips at "
-              f"{', '.join(f'{o:.1f}s' for o, _ in speech_clips)}")
+        logger.info(f"Speech track: {len(speech_clips)} clips at " f"{', '.join(f'{o:.1f}s' for o, _ in speech_clips)}")
 
     speech_ranges = tl.speech_ranges()
 
@@ -461,12 +501,19 @@ def _concat_and_mix(job: AssembleJob, all_clips: list[dict], *, t_start: float) 
     if job.edl.music and Path(job.edl.music.file).exists():
         music_dur = job.ctx.probe_duration(Path(job.edl.music.file))
         video_dur = job.ctx.probe_duration(no_music_path)
-        logger.info(f"Mixing music: video={video_dur:.1f}s, music={music_dur:.1f}s, "
-              f"volume={job.edl.music.volume}, fade_in={job.edl.music.fade_in}s, fade_out={job.edl.music.fade_out}s")
-    mix_final_audio(no_music_path, job.output_path,
-                    music_track=job.edl.music, speech_audio_path=speech_audio_path,
-                    speech_ranges=speech_ranges, duck_ratio=job.edl.music_duck_ratio,
-                    ctx=job.ctx)
+        logger.info(
+            f"Mixing music: video={video_dur:.1f}s, music={music_dur:.1f}s, "
+            f"volume={job.edl.music.volume}, fade_in={job.edl.music.fade_in}s, fade_out={job.edl.music.fade_out}s"
+        )
+    mix_final_audio(
+        no_music_path,
+        job.output_path,
+        music_track=job.edl.music,
+        speech_audio_path=speech_audio_path,
+        speech_ranges=speech_ranges,
+        duck_ratio=job.edl.music_duck_ratio,
+        ctx=job.ctx,
+    )
     logger.info(f"Phase 3 (audio): {time.monotonic() - t3:.1f}s")
 
     # Generate YouTube chapter markers (using Timeline offsets)
@@ -479,6 +526,7 @@ def _concat_and_mix(job: AssembleJob, all_clips: list[dict], *, t_start: float) 
 # ---------------------------------------------------------------------------
 # Post-assemble output validation
 # ---------------------------------------------------------------------------
+
 
 def _validate_output(
     output_path: Path,
@@ -528,21 +576,32 @@ def _validate_output(
     elif expected_duration > 0:
         ratio = actual_duration / expected_duration
         if ratio < 0.5:
-            _error("duration",
-                   f"Duration {actual_duration:.1f}s is <50% of expected "
-                   f"{expected_duration:.1f}s — possible xfade truncation")
+            _error(
+                "duration",
+                f"Duration {actual_duration:.1f}s is <50% of expected "
+                f"{expected_duration:.1f}s — possible xfade truncation",
+            )
         elif ratio < 0.8:
-            _warn("duration",
-                  f"Duration {actual_duration:.1f}s is <80% of expected "
-                  f"{expected_duration:.1f}s — some content may be missing")
+            _warn(
+                "duration",
+                f"Duration {actual_duration:.1f}s is <80% of expected "
+                f"{expected_duration:.1f}s — some content may be missing",
+            )
 
     # --- 3. Stream validation (single ffprobe for codec + duration) ---
     stream_result = run_subprocess(
-        ["ffprobe", "-v", "error",
-         "-show_entries", "stream=codec_type,codec_name,duration",
-         "-of", "csv=p=0",
-         str(output_path)],
-        capture_output=True, text=True,
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type,codec_name,duration",
+            "-of",
+            "csv=p=0",
+            str(output_path),
+        ],
+        capture_output=True,
+        text=True,
     )
     stream_lines = [ln.strip() for ln in stream_result.stdout.strip().split("\n") if ln.strip()]
     codec_types = []
@@ -578,9 +637,9 @@ def _validate_output(
         video_codec = codec_names.get("video", "")
         expected_codecs = {"hevc", "h264", "h265"}
         if video_codec and video_codec not in expected_codecs:
-            _warn("video_codec",
-                  f"Unexpected video codec '{video_codec}' "
-                  f"(expected one of {sorted(expected_codecs)})")
+            _warn(
+                "video_codec", f"Unexpected video codec '{video_codec}' " f"(expected one of {sorted(expected_codecs)})"
+            )
 
     # --- 5. Audio-video sync spot check ---
     if has_video_stream and has_audio_stream:
@@ -590,10 +649,12 @@ def _validate_output(
             # Audio shorter than video is normal — speech track only
             # covers keep_audio clips. Only warn if audio is LONGER.
             if aud_stream_dur > vid_stream_dur + 5.0:
-                _warn("av_sync",
-                      f"Audio longer than video: "
-                      f"video={vid_stream_dur:.1f}s, audio={aud_stream_dur:.1f}s "
-                      f"— possible sync issue")
+                _warn(
+                    "av_sync",
+                    f"Audio longer than video: "
+                    f"video={vid_stream_dur:.1f}s, audio={aud_stream_dur:.1f}s "
+                    f"— possible sync issue",
+                )
 
     # --- 6. Resolution check ---
     if has_video_stream and ctx is not None:
@@ -602,9 +663,6 @@ def _validate_output(
         exp_w, exp_h = resolution
         if out_w > 0 and out_h > 0:
             if out_w != exp_w or out_h != exp_h:
-                _warn("resolution",
-                      f"Output resolution {out_w}x{out_h} does not match "
-                      f"expected {exp_w}x{exp_h}")
+                _warn("resolution", f"Output resolution {out_w}x{out_h} does not match " f"expected {exp_w}x{exp_h}")
 
     return issues
-

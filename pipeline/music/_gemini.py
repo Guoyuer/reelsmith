@@ -50,6 +50,7 @@ def generate_music_gemini(
 
     # Use mood if provided, otherwise fall back to template
     from ._prompts import get_prompt
+
     prompt = mood if mood else get_prompt(trip_type, style)
 
     logger.info("=== Music Generation (Gemini Lyria RealTime) ===")
@@ -62,9 +63,7 @@ def generate_music_gemini(
         out_path = cache_dir / f"{cache_key}.wav"
         t0 = time.time()
 
-        pcm_data = asyncio.run(
-            _generate_music(api_key, prompt, target_duration)
-        )
+        pcm_data = asyncio.run(_generate_music(api_key, prompt, target_duration))
 
         if not pcm_data:
             logger.warning("No audio data received from Lyria RealTime")
@@ -82,16 +81,20 @@ def generate_music_gemini(
         dur = len(pcm_data) / bytes_per_second
         logger.info("Generated %.1fs of audio in %.1fs via Lyria RealTime", dur, gen_time)
 
-        cache_meta.write_text(json.dumps({
-            "path": str(out_path),
-            "prompt": prompt,
-            "duration": round(dur, 1),
-            "trip_type": trip_type,
-            "style": style,
-            "model": "lyria-realtime-exp",
-            "gen_time_s": round(gen_time, 1),
-            "backend": "gemini",
-        }))
+        cache_meta.write_text(
+            json.dumps(
+                {
+                    "path": str(out_path),
+                    "prompt": prompt,
+                    "duration": round(dur, 1),
+                    "trip_type": trip_type,
+                    "style": style,
+                    "model": "lyria-realtime-exp",
+                    "gen_time_s": round(gen_time, 1),
+                    "backend": "gemini",
+                }
+            )
+        )
 
         logger.info("Music saved: %s (%dKB)", out_path.name, out_path.stat().st_size // 1024)
         return out_path
@@ -102,7 +105,9 @@ def generate_music_gemini(
 
 
 async def _generate_music(
-    api_key: str, prompt: str, duration: int,
+    api_key: str,
+    prompt: str,
+    duration: int,
 ) -> bytes:
     """Stream music from Lyria RealTime and collect PCM chunks."""
     from google import genai
@@ -125,9 +130,7 @@ async def _generate_music(
     async with client.aio.live.music.connect(
         model="models/lyria-realtime-exp",
     ) as session:
-        await session.set_weighted_prompts(
-            prompts=[types.WeightedPrompt(text=prompt, weight=1.0)]
-        )
+        await session.set_weighted_prompts(prompts=[types.WeightedPrompt(text=prompt, weight=1.0)])
         await session.set_music_generation_config(
             config=types.LiveMusicGenerationConfig(
                 guidance=4.0,
@@ -171,8 +174,8 @@ def _write_wav(
         f.write(b"WAVE")
         # fmt chunk
         f.write(b"fmt ")
-        f.write(struct.pack("<I", 16))           # chunk size
-        f.write(struct.pack("<H", 1))            # PCM format
+        f.write(struct.pack("<I", 16))  # chunk size
+        f.write(struct.pack("<H", 1))  # PCM format
         f.write(struct.pack("<H", channels))
         f.write(struct.pack("<I", sample_rate))
         f.write(struct.pack("<I", byte_rate))

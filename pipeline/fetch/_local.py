@@ -85,6 +85,7 @@ def fetch_local(cfg: Config, fc: FetchConfig, *, progress_callback=None) -> list
             entry["longitude"] = lon
             try:
                 import reverse_geocode
+
                 loc = reverse_geocode.get((lat, lon))
                 entry["city"] = loc.get("city", "")
                 entry["country"] = loc.get("country", "")
@@ -109,10 +110,12 @@ def _extract_date(path: Path) -> datetime | None:
         # Use ffprobe to get creation_time from video metadata
         try:
             from ..media_utils import run_subprocess
+
             result = run_subprocess(
-                ["ffprobe", "-v", "error", "-show_entries",
-                 "format_tags=creation_time", "-of", "csv=p=0", str(path)],
-                capture_output=True, text=True, timeout=10,
+                ["ffprobe", "-v", "error", "-show_entries", "format_tags=creation_time", "-of", "csv=p=0", str(path)],
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             date_str = result.stdout.strip()
             if date_str:
@@ -126,6 +129,7 @@ def _extract_date(path: Path) -> datetime | None:
 
     try:
         from PIL import Image
+
         img = Image.open(path)
         exif = img._getexif()  # type: ignore[attr-defined]
         if exif:
@@ -170,6 +174,7 @@ def _extract_gps(path: Path) -> tuple[float | None, float | None]:
 
     try:
         from PIL import Image
+
         img = Image.open(path)
         exif = img._getexif()  # type: ignore[attr-defined]
         if not exif:

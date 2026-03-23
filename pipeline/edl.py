@@ -42,13 +42,20 @@ class Segment(BaseModel):
     music_mood: str = ""  # e.g. "warm acoustic guitar, uplifting" → Lyria per-segment
     items: list[EditItem]
     # Intra-segment transition (between items within this segment)
-    transition: Literal["crossfade", "cut", "fade_black", "wipe_left",
-                        "dissolve", "smoothleft", "smoothright", "circlecrop",
-                        "fadewhite"] = "crossfade"
+    transition: Literal[
+        "crossfade",
+        "cut",
+        "fade_black",
+        "wipe_left",
+        "dissolve",
+        "smoothleft",
+        "smoothright",
+        "circlecrop",
+        "fadewhite",
+    ] = "crossfade"
     transition_duration: float = 0.4  # seconds
     # Inter-segment transition (how this segment starts, from previous segment)
-    segment_transition: Literal["fade_black", "crossfade", "wipe_left",
-                                "dissolve", "cut", "fadewhite"] = "fade_black"
+    segment_transition: Literal["fade_black", "crossfade", "wipe_left", "dissolve", "cut", "fadewhite"] = "fade_black"
     segment_transition_duration: float = 1.0  # seconds
     mode: Literal["narrative", "montage"] = "narrative"  # montage = quick-cut burst
     color_temp: Literal["warm", "cool", "neutral"] = "neutral"  # Gemini sets per segment
@@ -93,9 +100,7 @@ class EDL(BaseModel):
     def estimated_duration(self) -> float:
         total = sum(self._item_output_duration(item) for item in self.all_items())
         transitions = sum(
-            seg.transition_duration * max(0, len(seg.items) - 1)
-            for seg in self.segments
-            if seg.transition != "cut"
+            seg.transition_duration * max(0, len(seg.items) - 1) for seg in self.segments if seg.transition != "cut"
         )
         # Add intro/outro time from EDL fields
         if self.intro_style != "none":
@@ -108,6 +113,7 @@ class EDL(BaseModel):
 # ---------------------------------------------------------------------------
 # EDL persistence helpers
 # ---------------------------------------------------------------------------
+
 
 def find_latest_version(cfg: Config) -> int:
     """Find the latest version number from edl_v*.json files."""
@@ -152,6 +158,7 @@ XFADE_MAP = {
     "cut": "fade",  # cuts use minimal xfade as FFmpeg workaround
     "fadewhite": "fadewhite",
 }
+
 
 def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
     """Validate an EDL for correctness before rendering.
@@ -204,8 +211,7 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
 
         if seg.transition != "cut":
             if seg.transition_duration <= 0 or seg.transition_duration > 3.0:
-                _error(f"{seg_label}: transition_duration {seg.transition_duration}s "
-                       f"out of range (0, 3.0]")
+                _error(f"{seg_label}: transition_duration {seg.transition_duration}s " f"out of range (0, 3.0]")
 
         for ii, item in enumerate(seg.items):
             item_label = f"{seg_label} item[{ii}]"
@@ -246,16 +252,16 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
             # Video-specific checks
             if item.media_type == "video":
                 if item.effect not in ("none", "static"):
-                    _error(f"{item_label}: video should have effect='none', "
-                           f"got '{item.effect}'")
+                    _error(f"{item_label}: video should have effect='none', " f"got '{item.effect}'")
                 if item.start_time is not None and item.end_time is not None:
                     if item.start_time >= item.end_time:
-                        _error(f"{item_label}: start_time ({item.start_time}) "
-                               f">= end_time ({item.end_time})")
+                        _error(f"{item_label}: start_time ({item.start_time}) " f">= end_time ({item.end_time})")
                     trim_dur = item.end_time - item.start_time
                     if abs(trim_dur - item.display_duration) > 0.5 and item.playback_speed == 1.0:
-                        _warn(f"{item_label}: trim duration ({trim_dur:.1f}s) "
-                              f"differs from display_duration ({item.display_duration:.1f}s)")
+                        _warn(
+                            f"{item_label}: trim duration ({trim_dur:.1f}s) "
+                            f"differs from display_duration ({item.display_duration:.1f}s)"
+                        )
                 if item.start_time is not None and item.start_time < 0:
                     _error(f"{item_label}: negative start_time ({item.start_time})")
                 if item.playback_speed <= 0 or item.playback_speed > 4.0:
@@ -272,7 +278,6 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
                 if item.display_duration < 1.5:
                     _warn(f"{item_label}: photo duration very short ({item.display_duration}s)")
 
-
             # Text overlay checks
             if item.text_overlay:
                 if not item.text_overlay.text:
@@ -284,8 +289,9 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
         if seg.transition != "cut" and len(seg.items) > 1:
             min_dur = min(it.display_duration for it in seg.items)
             if seg.transition_duration >= min_dur:
-                _error(f"{seg_label}: transition_duration ({seg.transition_duration}s) "
-                       f">= shortest clip ({min_dur}s)")
+                _error(
+                    f"{seg_label}: transition_duration ({seg.transition_duration}s) " f">= shortest clip ({min_dur}s)"
+                )
 
     # --- Global checks ---
     if total_items == 0:
