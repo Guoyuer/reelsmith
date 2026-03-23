@@ -181,7 +181,9 @@ def _gemini_call(
     if response.candidates:
         for part in response.candidates[0].content.parts or []:
             if getattr(part, "thought", False) and part.text:
-                logger.info(f"  [Thinking] {part.text[:500]}...")
+                logger.info(f"  [Thinking] ({len(part.text)} chars)")
+                for line in part.text.split("\n"):
+                    logger.info(f"  | {line}")
             if getattr(part, "executable_code", None):
                 code = part.executable_code.code or ""
                 logger.info(f"  [Code] {code[:300]}{'...' if len(code) > 300 else ''}")
