@@ -166,7 +166,11 @@ def _gemini_call(
             temperature=0.7,
             media_resolution=types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
             **(
-                {"thinking_config": types.ThinkingConfig(thinking_level=thinking_level)}
+                {
+                    "thinking_config": types.ThinkingConfig(
+                        thinking_level=thinking_level, include_thoughts=True
+                    )
+                }
                 if thinking_level != "OFF"
                 else {}
             ),
