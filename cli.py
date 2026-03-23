@@ -664,8 +664,10 @@ def cli() -> None:
     """Automated vlog pipeline: fetch → prepare → plan → generate_music → assemble.
 
     \b
-    Example:
-      vlog full -n singapore -s local -p ./photos -r 1080p30 --duration 180
+    Examples:
+      vlog full -n trip -s local -p ./photos -r 4k60 --duration 300 --model balanced
+      vlog plan -n trip --duration 300 --model quality --force
+      vlog assemble -n trip -r 1080p30
     """
 
 
@@ -679,7 +681,9 @@ _tz_option = click.option(
     help="UTC offset in hours (default: system local, e.g. -5 NYC, 8 SGT)",
 )
 _force_option = click.option(
-    "--force", is_flag=True, help="Force re-analyze (ignore cached)"
+    "--force",
+    is_flag=True,
+    help="Re-generate all cached data (thumbnails, video previews, EDL)",
 )
 
 _PLANNING_PRESETS = {
@@ -693,7 +697,7 @@ _plan_options = [
         "--duration",
         required=True,
         type=int,
-        help="Target vlog length in seconds (e.g. 60, 180, 300)",
+        help="Target vlog duration in seconds (e.g. 60=1min, 180=3min, 300=5min)",
     ),
     click.option(
         "--trip-type",
@@ -712,13 +716,13 @@ _plan_options = [
     click.option(
         "--focus",
         default="",
-        help="Creative direction (e.g. 'family happiness; exotic street food')",
+        help="Creative focus guiding Gemini's selection (e.g. 'family reunion joy; parents exploring Singapore')",
     ),
     click.option(
         "--lang",
         default="en",
         type=click.Choice(["en", "cn", "both"]),
-        help="Text language for overlays and chapters",
+        help="Text language: en=English, cn=Chinese, both=bilingual (title cards, text overlays, chapters)",
     ),
     click.option(
         "--model",
@@ -729,7 +733,7 @@ _plan_options = [
     click.option(
         "--music",
         default="auto",
-        help="auto=Gemini Lyria (default), /path/to/file, none=no music",
+        help="Music source: auto=AI-generated per segment (default), /path/to/file=custom track, none=no music",
     ),
 ]
 
@@ -892,7 +896,7 @@ def prepare(
     tz_hours,
     force,
 ):
-    """Fetch and prepare media (local folder or NAS)."""
+    """Fetch media and generate thumbnails + video previews (cached, use --force to regenerate)."""
     from pipeline.prepare import PrepareConfig
 
     _run_pipeline(
@@ -982,7 +986,7 @@ def full(
 def plan(
     run_name, duration, trip_type, style, focus, lang, model, music, tz_hours, force
 ):
-    """Re-plan only (uses cached media + analysis). Run assemble separately to render."""
+    """Call Gemini to generate a new EDL (increments version). Requires prepare to have run first."""
     from pipeline.plan import PlanConfig
 
     resolved_model, resolved_thinking = _resolve_planning(model)
@@ -1020,7 +1024,7 @@ def plan(
 )
 @_apply_options(_assemble_options)
 def assemble(run_name, version, resolution, quality):
-    """Re-render the vlog from current or specified EDL version."""
+    """Render video from EDL. Uses latest version unless -v specified."""
     from pipeline.assemble import AssembleConfig
 
     w, h, fps = resolution
