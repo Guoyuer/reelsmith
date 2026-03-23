@@ -174,7 +174,7 @@ Candidates by day/location:"""
         progress_callback(2, 3, "EDL received")
 
     # --- Post-processing pipeline ---
-    edl, _ = parse_and_convert_timestamps(edl_content, preview_offset_table)
+    edl = parse_and_convert_timestamps(edl_content, preview_offset_table)
     fix_hallucinated_paths(edl, cfg.media_dir)
     validate_trim_points(edl, analysis_by_id)
     deduplicate_items(edl)

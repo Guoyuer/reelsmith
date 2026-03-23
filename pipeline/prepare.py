@@ -199,13 +199,13 @@ def _has_dense_keyframes(source: Path) -> bool:
                 try:
                     keyframe_times.append(float(parts[0]))
                 except ValueError:
-                    logger.debug("Could not parse keyframe time in %s", local_path, exc_info=True)
+                    logger.debug("Could not parse keyframe time in %s", source, exc_info=True)
         if len(keyframe_times) < 2:
             return False
         avg_interval = (keyframe_times[-1] - keyframe_times[0]) / (len(keyframe_times) - 1)
         return avg_interval <= 2.0
     except Exception:
-        logger.debug("Could not detect keyframe interval for %s", local_path, exc_info=True)
+        logger.debug("Could not detect keyframe interval for %s", source, exc_info=True)
         return False
 
 
