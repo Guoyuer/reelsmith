@@ -434,6 +434,8 @@ def _render_clips(
                 ctx=job.ctx,
                 background_photo=background_photo,
             )
+        if not intro_path.exists():
+            raise RuntimeError(f"Intro title card render failed: {intro_path}")
         all_clips.insert(
             0,
             {
@@ -454,6 +456,8 @@ def _render_clips(
         outro_dur = job.edl.outro_duration
         if not outro_path.exists():
             render_title_card(job.edl.title, "", outro_path, duration=outro_dur, language=job.lang, ctx=job.ctx)
+        if not outro_path.exists():
+            raise RuntimeError(f"Outro title card render failed: {outro_path}")
         all_clips.append(
             {
                 "path": outro_path,

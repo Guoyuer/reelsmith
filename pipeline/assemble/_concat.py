@@ -79,11 +79,15 @@ def concatenate(clips: list[dict], output_path: Path, *, ctx: RenderContext | No
                 group_files.append(
                     {"path": group_path, "duration": dur, "transition": "cut", "transition_duration": 0.0}
                 )
+            else:
+                clip_names = [Path(c["path"]).name for c in group]
+                raise RuntimeError(
+                    f"Concat group {gi+1} failed (xfade + demuxer fallback). "
+                    f"Clips: {clip_names}"
+                )
 
     if not group_files:
-        logger.info("  All groups failed, falling back to full demuxer")
-        concat_demuxer(clips, output_path)
-        return
+        raise RuntimeError("All concat groups failed — no output produced")
 
     logger.info(f"  group_files: {len(group_files)} entries, " f"total {sum(g['duration'] for g in group_files):.1f}s")
     for i, gf in enumerate(group_files):

@@ -203,7 +203,9 @@ def build_speech_track(
             str(output_path),
         ]
     )
-    run_subprocess(cmd, capture_output=True)
+    result = run_subprocess(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"Speech track build failed: {result.stderr[-300:]}")
 
 
 def add_music(
@@ -298,7 +300,9 @@ def add_music(
             "192k",
             str(output_path),
         ]
-    run_subprocess(cmd, capture_output=True)
+    result = run_subprocess(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"Music mixing failed: {result.stderr[-300:]}")
 
 
 def mix_final_audio(
@@ -355,7 +359,9 @@ def mix_final_audio(
             "192k",
             str(output_path),
         ]
-        run_subprocess(cmd, capture_output=True)
+        result = run_subprocess(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Final audio mix failed: {result.stderr[-300:]}")
         video_path.unlink(missing_ok=True)
         speech_audio_path.unlink(missing_ok=True)
     else:
