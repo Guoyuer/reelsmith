@@ -563,7 +563,7 @@ _assemble_options = [
     ),
     click.option(
         "--bitrate", "quality", default=1.0, type=float,
-        help="Bitrate multiplier: 0.5=smaller, 1.0=YouTube (default), 2.0=master",
+        help="Bitrate multiplier (4K60 HEVC): 0.5=21Mbps, 1.0=43Mbps YouTube (default), 1.5=65Mbps, 2.0=87Mbps master",
     ),
 ]
 
