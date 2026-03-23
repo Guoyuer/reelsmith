@@ -118,6 +118,14 @@ def validate_trim_points(edl: EDL, analysis_by_id: dict) -> tuple[int, int]:
                     if item.end_time is not None and item.end_time > vid_dur:
                         item.end_time = vid_dur
                         changed = True
+                    # Ensure minimum 2s trim after clamping
+                    if item.end_time is not None and item.end_time - item.start_time < 2.0:
+                        # Try widening: move start earlier, then end later
+                        needed = 2.0 - (item.end_time - item.start_time)
+                        item.start_time = max(0, item.start_time - needed)
+                        if item.end_time - item.start_time < 2.0:
+                            item.end_time = min(item.start_time + 2.0, vid_dur)
+                        changed = True
                     if item.end_time is not None and item.start_time >= item.end_time:
                         logger.info(
                             f"  Trim removal: {Path(item.source_file).name} "
