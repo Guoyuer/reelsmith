@@ -212,16 +212,24 @@ def _photo_filter(
     sharpen = ",unsharp=3:3:0.5:3:3:0.0"
 
     src_w, src_h = ctx.probe_dimensions(Path(item.source_file))
-    ow, oh = w * 2, h * 2
-    kb = ken_burns_filter(frames, w, h, fps, direction="in")
+
+    # Composite at SOURCE resolution (not 2x target) for single-step downscale.
+    # Two-step (source→2x→target) loses detail; single-step (source→target) is sharp.
+    # Minimum: target * 1.4 (zoom headroom for 1.3x max zoom + margin).
+    min_h = int(h * 1.4)
+    oh = max(src_h, min_h)
+    # Ensure even
+    oh = oh + (oh % 2)
+    ow = int(oh * w / h)
+    ow = ow + (ow % 2)
 
     if is_portrait(src_w, src_h):
-        # Portrait: blurred bg at target res, sharp fg centered, crop+scale Ken Burns
+        kb = ken_burns_filter(frames, w, h, fps, direction="in")
         return (
             f"[{idx}:v] split [bg{idx}][fg{idx}];"
             f"[bg{idx}] scale={ow}:-1:force_original_aspect_ratio=increase,crop={ow}:{oh},"
             f"gblur=sigma=60,eq=brightness=-0.15:saturation=0.6 [blurred{idx}];"
-            f"[fg{idx}] scale=-1:{oh} [sharp{idx}];"
+            f"[fg{idx}] scale=-1:{oh}:flags=lanczos [sharp{idx}];"
             f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2 [comp{idx}];"
             f"[comp{idx}] {kb},{cg}{sharpen}{dt}{fade} [v{idx}]"
         )
@@ -236,13 +244,13 @@ def _photo_filter(
         out_ratio = ow / oh
 
         if abs(src_ratio - out_ratio) / out_ratio < 0.05:
-            return f"[{idx}:v] scale={ow}:{oh},{kb},{cg}{sharpen}{dt}{fade} [v{idx}]"
+            return f"[{idx}:v] scale={ow}:{oh}:flags=lanczos,{kb},{cg}{sharpen}{dt}{fade} [v{idx}]"
         else:
             return (
                 f"[{idx}:v] split [bg{idx}][fg{idx}];"
                 f"[bg{idx}] scale={ow}:{oh}:force_original_aspect_ratio=increase,"
                 f"crop={ow}:{oh},gblur=sigma=25 [blurred{idx}];"
-                f"[fg{idx}] scale={ow}:{oh}:force_original_aspect_ratio=decrease [sharp{idx}];"
+                f"[fg{idx}] scale={ow}:{oh}:force_original_aspect_ratio=decrease:flags=lanczos [sharp{idx}];"
                 f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2 [comp{idx}];"
                 f"[comp{idx}] {kb},{cg}{sharpen}{dt}{fade} [v{idx}]"
             )
