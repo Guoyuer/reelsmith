@@ -21,6 +21,7 @@ def _gemini_call(
     label: str = "",
     model: str = "",
     thinking_level: str = "HIGH",
+    progress_callback=None,
 ) -> str:
     """Make a Gemini API call with multimodal content. Returns response text.
 
@@ -47,7 +48,8 @@ def _gemini_call(
         client.models.get(model=model_id)
     except Exception:
         available = sorted(
-            m.name.removeprefix("models/") for m in client.models.list()
+            m.name.removeprefix("models/")
+            for m in client.models.list()
             if "flash" in m.name or "pro" in m.name
         )
         raise RuntimeError(
@@ -57,7 +59,9 @@ def _gemini_call(
     # Validate thinking_level
     valid_thinking = ("OFF", "MINIMAL", "LOW", "MEDIUM", "HIGH")
     if thinking_level not in valid_thinking:
-        raise ValueError(f"Invalid thinking_level '{thinking_level}'. Must be one of: {', '.join(valid_thinking)}")
+        raise ValueError(
+            f"Invalid thinking_level '{thinking_level}'. Must be one of: {', '.join(valid_thinking)}"
+        )
 
     # First pass: calculate total media size to decide inline vs Files API
     n_text = 0
@@ -68,7 +72,11 @@ def _gemini_call(
         if isinstance(p, str):
             n_text += 1
             text_chars += len(p)
-        elif isinstance(p, dict) and p.get("type") in ("image_bytes", "audio_bytes", "video_bytes"):
+        elif isinstance(p, dict) and p.get("type") in (
+            "image_bytes",
+            "audio_bytes",
+            "video_bytes",
+        ):
             n_media += 1
             media_bytes_total += len(p.get("data", b""))
 
@@ -79,7 +87,11 @@ def _gemini_call(
     for p in user_parts:
         if isinstance(p, str):
             parts.append(types.Part(text=p))
-        elif isinstance(p, dict) and p.get("type") in ("image_bytes", "audio_bytes", "video_bytes"):
+        elif isinstance(p, dict) and p.get("type") in (
+            "image_bytes",
+            "audio_bytes",
+            "video_bytes",
+        ):
             is_video = p.get("type") == "video_bytes"
             mime = p.get("mime_type", "image/jpeg")
 
@@ -89,7 +101,10 @@ def _gemini_call(
                     tf.write(p["data"])
                     tf_path = tf.name
                 try:
-                    logger.info(f"  Uploading video ({len(p['data']) / 1024 / 1024:.1f}MB) to Files API...")
+                    size_mb = len(p["data"]) / 1024 / 1024
+                    logger.info(f"  Uploading video ({size_mb:.1f}MB) to Files API...")
+                    if progress_callback:
+                        progress_callback(0, 0, f"uploading video ({size_mb:.0f}MB)...")
                     uploaded = client.files.upload(file=tf_path)
                     while uploaded.state.name != "ACTIVE":
                         time.sleep(2)
@@ -134,8 +149,12 @@ def _gemini_call(
         elif isinstance(p, dict):
             ptype = p.get("type", "?")
             size_kb = len(p.get("data", b"")) // 1024
-            logger.info(f"  [media #{i}] {ptype} {p.get('mime_type', '?')} ({size_kb}KB)")
+            logger.info(
+                f"  [media #{i}] {ptype} {p.get('mime_type', '?')} ({size_kb}KB)"
+            )
 
+    if progress_callback:
+        progress_callback(0, 0, "request sent, waiting for gemini...")
     t0 = time.monotonic()
 
     response = client.models.generate_content(
@@ -146,12 +165,17 @@ def _gemini_call(
             max_output_tokens=32000,
             temperature=0.7,
             media_resolution=types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
-            **({"thinking_config": types.ThinkingConfig(thinking_level=thinking_level)}
-               if thinking_level != "OFF" else {}),
+            **(
+                {"thinking_config": types.ThinkingConfig(thinking_level=thinking_level)}
+                if thinking_level != "OFF"
+                else {}
+            ),
         ),
     )
 
     elapsed = time.monotonic() - t0
+    if progress_callback:
+        progress_callback(0, 0, f"response received ({elapsed:.0f}s)")
 
     # Log thinking, code execution, and other non-text parts
     if response.candidates:
@@ -163,21 +187,30 @@ def _gemini_call(
                 logger.info(f"  [Code] {code[:300]}{'...' if len(code) > 300 else ''}")
             if getattr(part, "code_execution_result", None):
                 result = part.code_execution_result
-                logger.info(f"  [CodeResult] {result.outcome}: {(result.output or '')[:300]}")
+                logger.info(
+                    f"  [CodeResult] {result.outcome}: {(result.output or '')[:300]}"
+                )
 
     content = response.text or ""
     # Log finish reason if response is empty or blocked
     if not content and response.candidates:
         c = response.candidates[0]
-        logger.warning(f"Empty response. finish_reason={c.finish_reason}, safety={c.safety_ratings}")
+        logger.warning(
+            f"Empty response. finish_reason={c.finish_reason}, safety={c.safety_ratings}"
+        )
     elif not content:
-        logger.warning(f"Empty response with no candidates. prompt_feedback={response.prompt_feedback}")
+        logger.warning(
+            f"Empty response with no candidates. prompt_feedback={response.prompt_feedback}"
+        )
     usage = response.usage_metadata
     input_tokens = usage.prompt_token_count or 0
     output_tokens = usage.candidates_token_count or 0
     # Gemini 3.1 Flash Lite pricing: $0.075/M input, $0.30/M output
     cost_est = input_tokens * 0.075 / 1_000_000 + output_tokens * 0.30 / 1_000_000
-    logger.info(f"  Response: {input_tokens:,} input tokens, " f"{output_tokens:,} output tokens, {elapsed:.1f}s")
+    logger.info(
+        f"  Response: {input_tokens:,} input tokens, "
+        f"{output_tokens:,} output tokens, {elapsed:.1f}s"
+    )
     logger.info(f"  Estimated cost: ${cost_est:.4f}")
     logger.info(f"  Output: {len(content)} chars")
     # Log first 500 chars of response for debugging

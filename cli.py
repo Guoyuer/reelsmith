@@ -623,11 +623,26 @@ def _run_pipeline(
 # CLI
 # ---------------------------------------------------------------------------
 
+
+class _RequiredPrefixOption(click.Option):
+    """Show [required] at the start of help text instead of the end."""
+
+    def get_help_record(self, ctx):
+        record = super().get_help_record(ctx)
+        if record and self.required:
+            name, help_text = record
+            help_text = help_text.removesuffix("  [required]")
+            help_text = f"[required] {help_text}"
+            return name, help_text
+        return record
+
+
 _name_option = click.option(
     "-n",
     "--name",
     "run_name",
     required=True,
+    cls=_RequiredPrefixOption,
     help="Run name (subdirectory under workspace/runs/)",
 )
 
@@ -696,6 +711,7 @@ _plan_options = [
     click.option(
         "--duration",
         required=True,
+        cls=_RequiredPrefixOption,
         type=int,
         help="Target vlog duration in seconds (e.g. 60=1min, 180=3min, 300=5min)",
     ),
@@ -727,6 +743,7 @@ _plan_options = [
     click.option(
         "--model",
         required=True,
+        cls=_RequiredPrefixOption,
         help="fast (3.1-flash-lite:low ~$0.01) | balanced (3-flash:high ~$0.05) "
         "| quality (3-pro:high ~$0.50) | model:thinking",
     ),
@@ -786,6 +803,7 @@ _assemble_options = [
         "--resolution",
         "-r",
         required=True,
+        cls=_RequiredPrefixOption,
         callback=_parse_resolution,
         expose_value=True,
         is_eager=False,
@@ -821,6 +839,7 @@ _source_options = [
         "--source",
         "-s",
         required=True,
+        cls=_RequiredPrefixOption,
         type=click.Choice(["local", "nas"]),
         help="Media source: local folder or Synology NAS",
     ),

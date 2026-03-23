@@ -128,7 +128,7 @@ def _plan_visual(
         f"Visual content: {n_text} text blocks, {n_img} photos, {n_vid_clips} video file(s)"
     )
     if progress_callback:
-        progress_callback(0, 0, "uploading...")
+        progress_callback(0, 0, f"uploading {n_img} photos + {n_vid_clips} video...")
 
     if n_candidates > 0 and n_text == 0:
         raise RuntimeError(
@@ -192,16 +192,17 @@ Candidates by day/location:"""
     system_prompt = _visual_system_prompt(pc.trip_type, language=pc.language)
     logger.info(f"Sending {len(visual_parts)} parts to Gemini (single pass)...")
 
-    if progress_callback:
-        progress_callback(0, 0, "waiting for gemini...")
-
     model_kwargs: dict = {}
     if pc.model:
         model_kwargs["model"] = pc.model
     if pc.thinking_level:
         model_kwargs["thinking_level"] = pc.thinking_level
     edl_content = _gemini_call(
-        system_prompt, visual_parts, label="single pass: plan", **model_kwargs
+        system_prompt,
+        visual_parts,
+        label="single pass: plan",
+        progress_callback=progress_callback,
+        **model_kwargs,
     )
 
     logger.info(f"=== [Gemini] EDL RESPONSE ({len(edl_content)} chars) ===")
@@ -223,6 +224,7 @@ Candidates by day/location:"""
         system_prompt,
         model=pc.model,
         thinking_level=pc.thinking_level,
+        progress_callback=progress_callback,
     )
 
     # Re-resolve paths (fill_duration_gap may return a new EDL with bare filenames)
