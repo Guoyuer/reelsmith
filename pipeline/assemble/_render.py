@@ -24,14 +24,18 @@ logger = logging.getLogger("vlog.assemble.render")
 
 
 def _fade_filters(duration: float, fade_in: float, fade_out: float) -> str:
-    """Build FFmpeg fade filter string for clip-level fade-in/fade-out to black."""
-    parts = []
+    """Build FFmpeg fade + timestamp reset filter string.
+
+    setpts=PTS-STARTPTS ensures each clip starts at PTS=0, preventing
+    timestamp gaps when concat demuxer stitches clips together.
+    """
+    parts = ["setpts=PTS-STARTPTS"]
     if fade_in > 0:
         parts.append(f"fade=t=in:d={fade_in}")
     if fade_out > 0:
         st = max(0, duration - fade_out)
         parts.append(f"fade=t=out:st={st:.3f}:d={fade_out}")
-    return ("," + ",".join(parts)) if parts else ""
+    return "," + ",".join(parts)
 
 
 def render_photo(

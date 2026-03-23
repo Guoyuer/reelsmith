@@ -499,11 +499,24 @@ def _concat_and_mix(job: AssembleJob, all_clips: list[dict], *, t_start: float) 
     logger.info(f"Concatenating {len(all_clips)} clips...")
     no_music_path = job.output_dir / f"vlog_v{job.version}_{job.res_label}_nomix.mp4"
     concatenate(all_clips, no_music_path, ctx=job.ctx)
-    concat_dur = job.ctx.probe_duration(no_music_path)
+    _raw_dur = job.ctx.probe_duration(no_music_path)
+    concat_dur = _raw_dur if isinstance(_raw_dur, (int, float)) else 0.0
     logger.info(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s, output {concat_dur:.1f}s")
 
     # Phase 2b: Build speech audio track using Timeline
+    # Scale timeline to match actual concat output duration (HEVC B-frame PTS offsets
+    # cause the concat demuxer to produce a longer file than the sum of clip durations)
     tl = Timeline.build(all_clips, ctx=job.ctx)
+    try:
+        tl_dur = float(tl.total_duration())
+    except (TypeError, ValueError):
+        tl_dur = 0.0
+    if tl_dur > 0 and concat_dur > 0 and abs(concat_dur - tl_dur) > 1.0:
+        scale = concat_dur / tl_dur
+        logger.info(f"Timeline scaling: {tl_dur:.1f}s → {concat_dur:.1f}s (factor {scale:.3f})")
+        for e in tl.entries:
+            e.video_offset *= scale
+            e.end_time *= scale
     tl.dump()
 
     speech_audio_path = None
