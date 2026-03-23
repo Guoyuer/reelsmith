@@ -139,7 +139,7 @@ def ken_burns_filter(
 
     return (
         f"crop=w='{cw}':h='{ch}':x='{cx}':y='{cy}':exact=1,"
-        f"scale={w}:{h}:flags=lanczos"
+        f"scale={w}:{h}:flags=lanczos,fps={fps}"
     )
 
 

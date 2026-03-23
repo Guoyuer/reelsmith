@@ -146,14 +146,18 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
     if has_music:
         nomix_path = output_dir / f"vlog_v{version}_{res_label}_nomix.mp4"
 
-    # MPEG-TS concat: byte-level concatenation preserves PTS correctly
-    # (MP4 concat demuxer fails with HEVC B-frame PTS offsets)
-    concat_input = "concat:" + "|".join(
-        str(f.resolve()).replace("\\", "/") for f in segment_files
-    )
+    # Concat demuxer with TS files.  TS has inline timestamps so the demuxer
+    # adjusts PTS/DTS correctly across segments (unlike MP4 concat which fails
+    # with HEVC B-frames, and unlike TS byte-concat which creates DTS collisions).
+    list_path = output_dir / f"_concat_{res_label}.txt"
+    with open(list_path, "w") as f:
+        for seg_file in segment_files:
+            safe = str(seg_file.resolve()).replace("\\", "/")
+            f.write(f"file '{safe}'\n")
+
     cmd = [
-        "ffmpeg", "-y",
-        "-i", concat_input,
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+        "-i", str(list_path),
         "-c:v", "copy", "-c:a", "copy",
         str(nomix_path),
     ]
