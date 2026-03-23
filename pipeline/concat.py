@@ -23,7 +23,6 @@ def concatenate(clips: list[dict], output_path: Path,
     For reliability at high resolutions, splits into segments and xfades
     within each segment, then concats segments via demuxer.
     """
-    _log = logger.info
 
     if len(clips) == 1:
         shutil.copy(str(clips[0]["path"]), str(output_path))
@@ -38,10 +37,10 @@ def concatenate(clips: list[dict], output_path: Path,
     idx_groups = partition_into_groups(len(clips), lambda i: clips[i].get("transition"))
     groups = [[clips[i] for i in g] for g in idx_groups]
 
-    _log(f"  Concat strategy: {len(groups)} groups ({', '.join(f'{len(g)} clips' for g in groups)})")
+    logger.info(f"  Concat strategy: {len(groups)} groups ({', '.join(f'{len(g)} clips' for g in groups)})")
 
     if len(groups) == 1 and len(clips) <= 15:
-        _log(f"  Single xfade ({len(clips)} clips)...")
+        logger.info(f"  Single xfade ({len(clips)} clips)...")
         concat_xfade(clips, output_path, w, h, fps, timeline=timeline)
         return
 
@@ -51,7 +50,7 @@ def concatenate(clips: list[dict], output_path: Path,
         if len(group) == 1:
             group_files.append({"path": group[0]["path"], "duration": group[0]["duration"],
                                 "transition": "cut", "transition_duration": 0.0})
-            _log(f"  Group {gi+1}/{len(groups)}: 1 clip (pass-through)")
+            logger.info(f"  Group {gi+1}/{len(groups)}: 1 clip (pass-through)")
             continue
 
         group_path = tmp_dir / f"_group_{gi}.mp4"
@@ -59,19 +58,19 @@ def concatenate(clips: list[dict], output_path: Path,
         # If group has any cut transitions (beyond first), use demuxer to avoid xfade chain bugs
         has_internal_cuts = any(c.get("transition") == "cut" for c in group[1:])
         if has_internal_cuts or len(group) > 15:
-            _log(f"  Group {gi+1}/{len(groups)}: demuxer {len(group)} clips (has cuts)...")
+            logger.info(f"  Group {gi+1}/{len(groups)}: demuxer {len(group)} clips (has cuts)...")
             concat_demuxer(group, group_path, w, h, fps)
         else:
-            _log(f"  Group {gi+1}/{len(groups)}: xfade {len(group)} clips...")
+            logger.info(f"  Group {gi+1}/{len(groups)}: xfade {len(group)} clips...")
             concat_xfade(group, group_path, w, h, fps)
 
         if group_path.exists():
             dur = probe_duration(group_path) or sum(c["duration"] for c in group)
             group_files.append({"path": group_path, "duration": dur,
                                 "transition": "cut", "transition_duration": 0.0})
-            _log(f"  Group {gi+1}/{len(groups)}: done ({dur:.1f}s)")
+            logger.info(f"  Group {gi+1}/{len(groups)}: done ({dur:.1f}s)")
         else:
-            _log(f"  Group {gi+1}/{len(groups)}: xfade failed, falling back to demuxer...")
+            logger.info(f"  Group {gi+1}/{len(groups)}: xfade failed, falling back to demuxer...")
             concat_demuxer(group, group_path, w, h, fps)
             if group_path.exists():
                 dur = probe_duration(group_path) or sum(c["duration"] for c in group)
@@ -79,19 +78,19 @@ def concatenate(clips: list[dict], output_path: Path,
                                     "transition": "cut", "transition_duration": 0.0})
 
     if not group_files:
-        _log("  All groups failed, falling back to full demuxer")
+        logger.info("  All groups failed, falling back to full demuxer")
         concat_demuxer(clips, output_path, w, h, fps)
         return
 
-    _log(f"  group_files: {len(group_files)} entries, "
+    logger.info(f"  group_files: {len(group_files)} entries, "
          f"total {sum(g['duration'] for g in group_files):.1f}s")
     for i, gf in enumerate(group_files):
-        _log(f"    [{i}] {Path(gf['path']).name} dur={gf['duration']:.1f}s")
+        logger.info(f"    [{i}] {Path(gf['path']).name} dur={gf['duration']:.1f}s")
 
     if len(group_files) == 1:
         shutil.move(str(group_files[0]["path"]), str(output_path))
     else:
-        _log(f"  Joining {len(group_files)} groups via concat filter...")
+        logger.info(f"  Joining {len(group_files)} groups via concat filter...")
         _concat_filter(group_files, output_path, w, h, fps)
 
 

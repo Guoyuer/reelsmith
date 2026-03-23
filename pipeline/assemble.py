@@ -94,7 +94,6 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     Returns (output_path, validation_issues) where validation_issues is a list
     of dicts with keys: level ("error"/"warning"), check, message.
     """
-    _log = logger.info
     cfg.ensure_dirs()
 
     # Validate render parameters
@@ -120,15 +119,15 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     edl_warnings = [i for i in edl_issues if i["level"] == "warning"]
     if edl_warnings:
         for issue in edl_warnings:
-            _log(f"  EDL WARNING: {issue['message']}")
+            logger.info(f"  EDL WARNING: {issue['message']}")
     if edl_errors:
         for issue in edl_errors:
-            _log(f"  EDL ERROR: {issue['message']}")
+            logger.info(f"  EDL ERROR: {issue['message']}")
         raise ValueError(
             f"EDL validation failed with {len(edl_errors)} error(s): "
             + "; ".join(i["message"] for i in edl_errors)
         )
-    _log(f"EDL validation passed ({len(edl.all_items())} items, "
+    logger.info(f"EDL validation passed ({len(edl.all_items())} items, "
          f"{len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s)")
 
     clips_dir = cfg.clips_dir
@@ -153,12 +152,11 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     finally:
         ffmpeg_log.removeHandler(_fh)
         _fh.close()
-        _log(f"FFmpeg commands logged to: {log_path}")
+        logger.info(f"FFmpeg commands logged to: {log_path}")
 
 
 def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
                     output_dir, output_path, res_label, progress_callback, skip_broken, ctx):
-    _log = logger.info
 
     # Beat sync: snap transitions to music beats (before rendering clips)
     if edl.music and Path(edl.music.file).exists():
@@ -238,7 +236,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
 
     pbar.close()
     t_clips = time.monotonic() - t1
-    _log(f"Phase 1 (clips): {t_clips:.1f}s ({max_workers} workers, {report.summary()})")
+    logger.info(f"Phase 1 (clips): {t_clips:.1f}s ({max_workers} workers, {report.summary()})")
 
     if report.failed_count + report.skipped_count > 0 and not skip_broken:
         raise RuntimeError(f"Clip rendering issues: {report.summary()}")
@@ -255,7 +253,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
 
             # Skip zero-length clips (e.g. from failed renders)
             if clip_path.stat().st_size < 1000:
-                _log(f"  Skipping zero-length clip: {clip_path.name}")
+                logger.info(f"  Skipping zero-length clip: {clip_path.name}")
                 continue
 
             is_montage = segment.mode == "montage"
@@ -277,7 +275,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
             prev_is_photo = all_clips and all_clips[-1].get("media_type") == "photo"
             if ((item.media_type == "photo" or prev_is_photo)
                     and transition not in ("cut", "fade_black")):
-                _log(f"  Safety net: {transition}→fade_black for photo transition "
+                logger.info(f"  Safety net: {transition}→fade_black for photo transition "
                      f"({Path(clip_path).name})")
                 transition = "fade_black"
                 td = min(td, 0.4)
@@ -333,10 +331,10 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
 
     # Phase 2: Concatenate with transitions (video only)
     t2 = time.monotonic()
-    _log(f"Concatenating {len(all_clips)} clips...")
+    logger.info(f"Concatenating {len(all_clips)} clips...")
     no_music_path = output_dir / f"vlog_v{version}_{res_label}_nomix.mp4"
     concatenate(all_clips, no_music_path, w, h, fps)
-    _log(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
+    logger.info(f"Phase 2 (concat): {time.monotonic() - t2:.1f}s")
 
     # Phase 2b: Build speech audio track using Timeline as single source of truth
     # Build timeline with MEASURED group durations (fixes speech sync drift)
@@ -354,7 +352,7 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
 
         speech_audio_path = output_dir / f"vlog_v{version}_{res_label}_speech.wav"
         build_speech_track(speech_clips, video_dur, speech_audio_path)
-        _log(f"Speech track: {len(speech_clips)} clips at "
+        logger.info(f"Speech track: {len(speech_clips)} clips at "
               f"{', '.join(f'{o:.1f}s' for o, _ in speech_clips)}")
 
     speech_ranges = tl.speech_ranges()
@@ -364,16 +362,16 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
     if edl.music and Path(edl.music.file).exists():
         music_dur = probe_duration(Path(edl.music.file))
         video_dur = probe_duration(no_music_path)
-        _log(f"Mixing music: video={video_dur:.1f}s, music={music_dur:.1f}s, "
+        logger.info(f"Mixing music: video={video_dur:.1f}s, music={music_dur:.1f}s, "
               f"volume={edl.music.volume}, fade_in={edl.music.fade_in}s, fade_out={edl.music.fade_out}s")
     mix_final_audio(no_music_path, output_path,
                     music_track=edl.music, speech_audio_path=speech_audio_path,
                     speech_ranges=speech_ranges, duck_ratio=edl.music_duck_ratio)
-    _log(f"Phase 3 (audio): {time.monotonic() - t3:.1f}s")
+    logger.info(f"Phase 3 (audio): {time.monotonic() - t3:.1f}s")
 
     duration = probe_duration(output_path)
     total_time = time.monotonic() - t1
-    _log(f"Done: {output_path} ({duration:.1f}s, rendered in {total_time:.0f}s)")
+    logger.info(f"Done: {output_path} ({duration:.1f}s, rendered in {total_time:.0f}s)")
 
     # Generate YouTube chapter markers (using Timeline offsets)
     chapters_path = output_dir / f"chapters_v{version}_{res_label}.txt"
@@ -386,20 +384,20 @@ def _assemble_inner(cfg, edl, version, w, h, fps, lang, clips_dir,
     warnings = [i for i in validation_issues if i["level"] == "warning"]
 
     if warnings:
-        _log(f"Validation: {len(warnings)} warning(s)")
+        logger.info(f"Validation: {len(warnings)} warning(s)")
         for issue in warnings:
-            _log(f"  WARNING [{issue['check']}]: {issue['message']}")
+            logger.info(f"  WARNING [{issue['check']}]: {issue['message']}")
     if errors:
-        _log(f"Validation: {len(errors)} error(s)")
+        logger.info(f"Validation: {len(errors)} error(s)")
         for issue in errors:
-            _log(f"  ERROR [{issue['check']}]: {issue['message']}")
+            logger.info(f"  ERROR [{issue['check']}]: {issue['message']}")
         raise RuntimeError(
             f"Output validation failed with {len(errors)} error(s): "
             + "; ".join(i["message"] for i in errors)
         )
 
     if not validation_issues:
-        _log("Validation: all checks passed")
+        logger.info("Validation: all checks passed")
 
     return output_path, validation_issues
 
