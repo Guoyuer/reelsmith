@@ -17,13 +17,18 @@ class TestRenderContext:
         assert "test" not in ctx2._dim_cache
 
     def test_probe_dimensions_caches(self):
+        import json
+
         ctx = RenderContext(w=1920, h=1080, fps=30)
         fake = MagicMock()
-        fake.stdout = "1920x1080\n"
+        fake.stdout = json.dumps({"streams": [{"width": 1920, "height": 1080}]})
         with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
             dims = ctx.probe_dimensions(Path("/fake/video.mp4"))
         assert dims == (1920, 1080)
-        with patch("pipeline.assemble._encoder.run_subprocess", side_effect=RuntimeError("should not be called")):
+        with patch(
+            "pipeline.assemble._encoder.run_subprocess",
+            side_effect=RuntimeError("should not be called"),
+        ):
             dims2 = ctx.probe_dimensions(Path("/fake/video.mp4"))
         assert dims2 == (1920, 1080)
 
@@ -34,7 +39,10 @@ class TestRenderContext:
         with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
             dur = ctx.probe_duration(Path("/fake/video.mp4"))
         assert dur == 123.45
-        with patch("pipeline.assemble._encoder.run_subprocess", side_effect=RuntimeError("should not be called")):
+        with patch(
+            "pipeline.assemble._encoder.run_subprocess",
+            side_effect=RuntimeError("should not be called"),
+        ):
             dur2 = ctx.probe_duration(Path("/fake/video.mp4"))
         assert dur2 == 123.45
 

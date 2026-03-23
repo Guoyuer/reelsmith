@@ -12,7 +12,7 @@ import signal
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -76,36 +76,44 @@ class _PipelineDisplay:
         self._tick = 0
 
         for s in stages:
-            self._stage_data[s] = {"state": "pending", "detail": "", "current": 0, "total": 0, "dur": 0}
+            self._stage_data[s] = {
+                "state": "pending",
+                "label": "",
+                "current": 0,
+                "total": 0,
+                "dur": 0,
+            }
 
         if sys.stderr.isatty():
             try:
                 from rich.live import Live
-                self._live = Live(self._render_panel(), console=self._get_console(), refresh_per_second=4)
+
+                self._live = Live(
+                    self._render_panel(),
+                    console=self._get_console(),
+                    refresh_per_second=4,
+                )
                 self._live.start()
             except ImportError:
                 pass
 
-        if not self._live:
-            sys.stderr.write(f"\n\U0001f3ac {run_name} \u2014 {headline}\n\n")
-            sys.stderr.flush()
-
     def _get_console(self):
         from rich.console import Console
+
         return Console(stderr=True)
 
     def _render_panel(self):
-        from rich.table import Table
         from rich.panel import Panel
+        from rich.table import Table
         from rich.text import Text
 
         self._tick += 1
         elapsed = time.monotonic() - self._t_start
 
         table = Table.grid(padding=(0, 1))
-        table.add_column(width=2)   # icon
+        table.add_column(width=2)  # icon
         table.add_column(width=16)  # stage name
-        table.add_column()          # detail + progress
+        table.add_column()  # detail + progress
 
         for s in self._stages:
             d = self._stage_data[s]
@@ -149,29 +157,30 @@ class _PipelineDisplay:
         from rich.text import Text
 
         cur, total = d["current"], d["total"]
-        detail = d["detail"]
+        label = d.get("label", "")
 
         if total > 0:
             pct = cur / total
             bar_w = 20
             filled = int(pct * bar_w)
             bar = "\u2588" * filled + "\u2591" * (bar_w - filled)
-            elapsed = time.monotonic() - self._t_start
-            return Text(f"{bar} {cur}/{total} {pct:.0%}  {detail}", style="cyan")
-        elif detail:
-            return Text(detail, style="cyan")
+            parts = [f"{bar} {cur}/{total} {pct:.0%}"]
+            if label:
+                parts.append(label)
+            return Text("  ".join(parts), style="cyan")
+        elif label:
+            return Text(label, style="cyan")
         return Text("", style="cyan")
 
     def start(self, stage: str) -> None:
         self._current_stage = stage
-        self._stage_data[stage].update(state="running", detail="", current=0, total=0)
+        self._stage_data[stage].update(state="running", label="", current=0, total=0)
         self._refresh()
 
     def update(self, stage: str, detail: str) -> None:
         d = self._stage_data.get(stage)
         if not d:
             return
-        d["detail"] = detail
         # Parse "42/125" format for progress bar
         if "/" in detail:
             try:
@@ -180,25 +189,21 @@ class _PipelineDisplay:
                 d["total"] = int(parts[1])
             except (ValueError, IndexError):
                 pass
+        else:
+            d["label"] = detail
         self._refresh()
 
     def done(self, stage: str, detail: str, duration: float) -> None:
         cached = " (cached)" if duration < 0.5 else ""
-        self._stage_data[stage].update(state="done", detail=f"{detail}{cached}", dur=duration)
+        self._stage_data[stage].update(
+            state="done", detail=f"{detail}{cached}", dur=duration
+        )
         self._current_stage = None
         self._refresh()
-        if not self._live:
-            name = stage.replace("_", " ")
-            sys.stderr.write(f"  {_ICON_DONE} {name:<17s}  {detail}  {duration:.0f}s{cached}\n")
-            sys.stderr.flush()
 
     def fail(self, stage: str, error: str) -> None:
         self._stage_data[stage].update(state="failed", detail=error[:60])
         self._refresh()
-        if not self._live:
-            name = stage.replace("_", " ")
-            sys.stderr.write(f"  {_ICON_FAILED} {name}: {error[:80]}\n")
-            sys.stderr.flush()
 
     def stop(self) -> None:
         """Stop the live display (call in finally block)."""
@@ -217,7 +222,9 @@ class _PipelineDisplay:
 # ---------------------------------------------------------------------------
 
 
-def _setup_logging(run_name: str, display: _PipelineDisplay | None = None) -> logging.Logger:
+def _setup_logging(
+    run_name: str, display: _PipelineDisplay | None = None
+) -> logging.Logger:
     """Configure dual-output logger: terminal + run.log file.
 
     When display has a live panel, uses RichHandler so logs print above it.
@@ -229,6 +236,7 @@ def _setup_logging(run_name: str, display: _PipelineDisplay | None = None) -> lo
     # Terminal — use RichHandler if live display active (prints above panel)
     if display and display._live:
         from rich.logging import RichHandler
+
         console = RichHandler(
             console=display._live.console,
             show_path=False,
@@ -241,7 +249,9 @@ def _setup_logging(run_name: str, display: _PipelineDisplay | None = None) -> lo
     else:
         console = logging.StreamHandler(sys.stderr)
         console.setLevel(logging.INFO)
-        console.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S"))
+        console.setFormatter(
+            logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S")
+        )
     logger.addHandler(console)
 
     # File — one log per run, timestamped
@@ -259,23 +269,27 @@ def _setup_logging(run_name: str, display: _PipelineDisplay | None = None) -> lo
     return logger
 
 
-def _progress_cb(logger: logging.Logger, display: _PipelineDisplay, stage: str, t0: float):
+def _progress_cb(
+    logger: logging.Logger, display: _PipelineDisplay, stage: str, t0: float
+):
     """Create a progress callback that logs to file and updates display."""
 
     def cb(current: int, total: int, name: str) -> None:
         if total == 0:
             return
-        # Update display with progress + current item name
         display.update(stage, f"{current}/{total}")
+        if name:
+            display.update(stage, name)
         # Log at ~10% intervals to file
         if current % max(total // 10, 1) == 0 or current == total:
             elapsed = time.monotonic() - t0
             eta = (elapsed / current * (total - current) / 60) if current else 0
             pct = current / total * 100
-            logger.info(f"{stage}: {current}/{total} ({pct:.0f}%) ETA {eta:.1f}min \u2014 {name}")
+            logger.info(
+                f"{stage}: {current}/{total} ({pct:.0f}%) ETA {eta:.1f}min \u2014 {name}"
+            )
 
     return cb
-
 
 
 def _build_headline_from_args(stages: list[str], plan=None) -> str:
@@ -372,14 +386,18 @@ def _run_prepare(pc: _PipelineContext):
         n_analysis = len(json.loads(analysis_path.read_text()))
         if n_analysis < n_manifest:
             incomplete = True
-            pc.log(f"Prepare incomplete ({n_analysis}/{n_manifest} items) \u2014 resuming")
+            pc.log(
+                f"Prepare incomplete ({n_analysis}/{n_manifest} items) \u2014 resuming"
+            )
 
     if not prep.force and not stale and not incomplete and analysis_path.exists():
         results = json.loads(analysis_path.read_text())
         n_photos = sum(1 for r in results if r.get("media_type") == "photo")
         n_videos = len(results) - n_photos
         dur = time.monotonic() - t0
-        pc.log(f"Prepare: {len(results)} items ({n_photos} photos, {n_videos} videos) \u2014 cached")
+        pc.log(
+            f"Prepare: {len(results)} items ({n_photos} photos, {n_videos} videos) \u2014 cached"
+        )
         pc.display.done("prepare", f"{n_photos} photos, {n_videos} videos", dur)
     else:
         from pipeline.prepare import prepare
@@ -409,7 +427,11 @@ def _run_plan(pc: _PipelineContext):
 
     from pipeline.plan import plan as do_plan
 
-    edl, version = do_plan(pc.cfg, pc.plan, progress_callback=_progress_cb(pc.logger, pc.display, "plan", t0))
+    edl, version = do_plan(
+        pc.cfg,
+        pc.plan,
+        progress_callback=_progress_cb(pc.logger, pc.display, "plan", t0),
+    )
 
     all_items = edl.all_items()
     n_videos = sum(1 for i in all_items if i.media_type == "video")
@@ -420,7 +442,9 @@ def _run_plan(pc: _PipelineContext):
     vid_pct = int(vid_time / total_time * 100) if total_time > 0 else 0
 
     dur = time.monotonic() - t0
-    plan_detail = f"v{version}: {n_photos}p+{n_videos}v, " f"~{edl.estimated_duration():.0f}s"
+    plan_detail = (
+        f"v{version}: {n_photos}p+{n_videos}v, " f"~{edl.estimated_duration():.0f}s"
+    )
     pc.display.done("plan", plan_detail, dur)
 
     pc.log(
@@ -432,7 +456,6 @@ def _run_plan(pc: _PipelineContext):
         pc.log(f"  Speech preserved: {n_keep_audio} clips")
     for seg in edl.segments:
         pc.log(f"  {seg.name}: {len(seg.items)} items, transition={seg.transition}")
-
 
 
 def _run_generate_music(pc: _PipelineContext):
@@ -500,8 +523,9 @@ def _run_assemble(pc: _PipelineContext):
 
     for issue in issues:
         level = issue.get("level", "warning")
-        pc.log(f"  [{level.upper()}] {issue.get('check', '')}: {issue.get('message', '')}")
-
+        pc.log(
+            f"  [{level.upper()}] {issue.get('check', '')}: {issue.get('message', '')}"
+        )
 
 
 _STAGE_RUNNERS = {
@@ -513,7 +537,15 @@ _STAGE_RUNNERS = {
 }
 
 
-def _run_pipeline(run_name: str, *, stages: list[str], fetch=None, prepare=None, plan=None, assemble=None):
+def _run_pipeline(
+    run_name: str,
+    *,
+    stages: list[str],
+    fetch=None,
+    prepare=None,
+    plan=None,
+    assemble=None,
+):
     """Execute pipeline stages directly in this process."""
     global _interrupted
     _interrupted = False
@@ -565,7 +597,11 @@ def _run_pipeline(run_name: str, *, stages: list[str], fetch=None, prepare=None,
 # ---------------------------------------------------------------------------
 
 _name_option = click.option(
-    "-n", "--name", "run_name", required=True, help="Run name (subdirectory under workspace/runs/)"
+    "-n",
+    "--name",
+    "run_name",
+    required=True,
+    help="Run name (subdirectory under workspace/runs/)",
 )
 
 
@@ -615,7 +651,9 @@ _tz_option = click.option(
     type=int,
     help="UTC offset in hours (default: system local, e.g. -5 NYC, 8 SGT)",
 )
-_force_option = click.option("--force", is_flag=True, help="Force re-analyze (ignore cached)")
+_force_option = click.option(
+    "--force", is_flag=True, help="Force re-analyze (ignore cached)"
+)
 
 _PLANNING_PRESETS = {
     "fast": ("gemini-3.1-flash-lite-preview", "LOW"),
@@ -624,11 +662,18 @@ _PLANNING_PRESETS = {
 }
 
 _plan_options = [
-    click.option("--duration", required=True, type=int, help="Target vlog length in seconds (e.g. 60, 180, 300)"),
+    click.option(
+        "--duration",
+        required=True,
+        type=int,
+        help="Target vlog length in seconds (e.g. 60, 180, 300)",
+    ),
     click.option(
         "--trip-type",
         default="family",
-        type=click.Choice(["family", "solo", "food", "adventure", "architecture", "general"]),
+        type=click.Choice(
+            ["family", "solo", "food", "adventure", "architecture", "general"]
+        ),
         help="Narrative style: family=close-ups+laughter, solo=landscapes+wonder, food=dishes+markets, etc.",
     ),
     click.option(
@@ -637,13 +682,28 @@ _plan_options = [
         type=click.Choice(["upbeat", "cinematic", "reflective", "energetic"]),
         help="Pacing and mood: upbeat=lively, cinematic=dramatic, reflective=calm, energetic=fast-cut",
     ),
-    click.option("--focus", default="", help="Creative direction (e.g. 'family happiness; exotic street food')"),
-    click.option("--lang", default="en", type=click.Choice(["en", "cn", "both"]), help="Text language for overlays and chapters"),
     click.option(
-        "--model", required=True,
-        help="fast (3.1-flash-lite:low ~$0.01) | balanced (3-flash:high ~$0.05) | quality (3-pro:high ~$0.50) | model:thinking",
+        "--focus",
+        default="",
+        help="Creative direction (e.g. 'family happiness; exotic street food')",
     ),
-    click.option("--music", default="auto", help="auto=Gemini Lyria (default), /path/to/file, none=no music"),
+    click.option(
+        "--lang",
+        default="en",
+        type=click.Choice(["en", "cn", "both"]),
+        help="Text language for overlays and chapters",
+    ),
+    click.option(
+        "--model",
+        required=True,
+        help="fast (3.1-flash-lite:low ~$0.01) | balanced (3-flash:high ~$0.05) "
+        "| quality (3-pro:high ~$0.50) | model:thinking",
+    ),
+    click.option(
+        "--music",
+        default="auto",
+        help="auto=Gemini Lyria (default), /path/to/file, none=no music",
+    ),
 ]
 
 
@@ -658,6 +718,7 @@ def _resolve_planning(planning: str) -> tuple[str, str]:
         model, thinking = planning.rsplit(":", 1)
         return model, thinking.upper()
     return planning, "HIGH"
+
 
 _RESOLUTION_PRESETS = {
     "4k60": (3840, 2160, 60),
@@ -684,7 +745,9 @@ def _parse_resolution(ctx, param, value: str) -> tuple[int, int, int]:
         except ValueError:
             pass
     presets = ", ".join(_RESOLUTION_PRESETS)
-    raise click.BadParameter(f"Unknown resolution '{value}'. Use a preset ({presets}) or WxHxFPS (e.g. 1920x1080x30)")
+    raise click.BadParameter(
+        f"Unknown resolution '{value}'. Use a preset ({presets}) or WxHxFPS (e.g. 1920x1080x30)"
+    )
 
 
 _assemble_options = [
@@ -698,7 +761,10 @@ _assemble_options = [
         help="Resolution preset (4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30) or WxHxFPS",
     ),
     click.option(
-        "--bitrate", "quality", default=1.0, type=float,
+        "--bitrate",
+        "quality",
+        default=1.0,
+        type=float,
         help="Bitrate multiplier (4K60 HEVC): 0.5=21Mbps, 1.0=43Mbps YouTube (default), 1.5=65Mbps, 2.0=87Mbps master",
     ),
 ]
@@ -734,15 +800,29 @@ _source_options = [
         type=click.Path(exists=True),
         help="Local folder path (required when --source local)",
     ),
-    click.option("-f", "--from-date", default=None, help="NAS start date YYYY-MM-DD (required when --source nas)"),
-    click.option("-t", "--to-date", default=None, help="NAS end date YYYY-MM-DD (required when --source nas)"),
+    click.option(
+        "-f",
+        "--from-date",
+        default=None,
+        help="NAS start date YYYY-MM-DD (required when --source nas)",
+    ),
+    click.option(
+        "-t",
+        "--to-date",
+        default=None,
+        help="NAS end date YYYY-MM-DD (required when --source nas)",
+    ),
     click.option("--country", default=None, help="NAS filter: country"),
     click.option("--district", default=None, help="NAS filter: district/city"),
-    click.option("--item-types", default=None, help="NAS filter: photo,video,live,motion"),
+    click.option(
+        "--item-types", default=None, help="NAS filter: photo,video,live,motion"
+    ),
 ]
 
 
-def _build_fetch_config(source, path, from_date, to_date, country, district, item_types):
+def _build_fetch_config(
+    source, path, from_date, to_date, country, district, item_types
+):
     """Build FetchConfig from CLI source options with validation."""
     from pipeline.fetch import FetchConfig
 
@@ -751,7 +831,9 @@ def _build_fetch_config(source, path, from_date, to_date, country, district, ite
             raise click.UsageError("--path is required when --source is local")
         return FetchConfig(source_dir=path)
     if not from_date or not to_date:
-        raise click.UsageError("--from-date and --to-date are required when --source is nas")
+        raise click.UsageError(
+            "--from-date and --to-date are required when --source is nas"
+        )
     return FetchConfig(
         from_date=from_date,
         to_date=to_date,
@@ -771,13 +853,26 @@ def _build_fetch_config(source, path, from_date, to_date, country, district, ite
 @_apply_options(_source_options)
 @_tz_option
 @_force_option
-def prepare(run_name, source, path, from_date, to_date, country, district, item_types, tz_hours, force):
+def prepare(
+    run_name,
+    source,
+    path,
+    from_date,
+    to_date,
+    country,
+    district,
+    item_types,
+    tz_hours,
+    force,
+):
     """Fetch and prepare media (local folder or NAS)."""
     from pipeline.prepare import PrepareConfig
 
     _run_pipeline(
         run_name,
-        fetch=_build_fetch_config(source, path, from_date, to_date, country, district, item_types),
+        fetch=_build_fetch_config(
+            source, path, from_date, to_date, country, district, item_types
+        ),
         prepare=PrepareConfig(force=force, tz_hours=tz_hours),
         stages=["fetch", "prepare"],
     )
@@ -831,7 +926,9 @@ def full(
 
     _run_pipeline(
         run_name,
-        fetch=_build_fetch_config(source, path, from_date, to_date, country, district, item_types),
+        fetch=_build_fetch_config(
+            source, path, from_date, to_date, country, district, item_types
+        ),
         prepare=PrepareConfig(force=force, tz_hours=tz_hours),
         plan=PlanConfig(
             style=style,
@@ -855,7 +952,9 @@ def full(
 @_apply_options(_plan_options)
 @_tz_option
 @_force_option
-def plan(run_name, duration, trip_type, style, focus, lang, model, music, tz_hours, force):
+def plan(
+    run_name, duration, trip_type, style, focus, lang, model, music, tz_hours, force
+):
     """Re-plan only (uses cached media + analysis). Run assemble separately to render."""
     from pipeline.plan import PlanConfig
 
@@ -886,7 +985,13 @@ def plan(run_name, duration, trip_type, style, focus, lang, model, music, tz_hou
 @cli.command()
 @_name_option
 @click.option("-v", "--version", default=None, type=int, help="EDL version to render")
-@click.option("--edl", "edl_path", default=None, type=click.Path(exists=True), help="EDL JSON path (overrides version)")
+@click.option(
+    "--edl",
+    "edl_path",
+    default=None,
+    type=click.Path(exists=True),
+    help="EDL JSON path (overrides version)",
+)
 @_apply_options(_assemble_options)
 def assemble(run_name, version, edl_path, resolution, quality):
     """Re-render the vlog from current or specified EDL version."""
@@ -895,7 +1000,9 @@ def assemble(run_name, version, edl_path, resolution, quality):
     w, h, fps = resolution
     _run_pipeline(
         run_name,
-        assemble=AssembleConfig(w=w, h=h, fps=fps, quality=quality, version=version, edl_path=edl_path),
+        assemble=AssembleConfig(
+            w=w, h=h, fps=fps, quality=quality, version=version, edl_path=edl_path
+        ),
         stages=["assemble"],
     )
 
@@ -963,15 +1070,27 @@ def _run_detail(run_dir) -> dict:
             info["items"] = sum(len(s.get("items", [])) for s in segs)
             info["target_duration"] = data.get("target_duration", 0)
             info["language"] = data.get("language", "en")
-            info["n_videos"] = sum(1 for s in segs for i in s.get("items", []) if i.get("media_type") == "video")
-            info["n_keep_audio"] = sum(1 for s in segs for i in s.get("items", []) if i.get("keep_audio"))
+            info["n_videos"] = sum(
+                1
+                for s in segs
+                for i in s.get("items", [])
+                if i.get("media_type") == "video"
+            )
+            info["n_keep_audio"] = sum(
+                1 for s in segs for i in s.get("items", []) if i.get("keep_audio")
+            )
         except Exception:
             pass
 
     output_dir = run_dir / "output"
     outputs = sorted(output_dir.glob("vlog_v*.mp4")) if output_dir.exists() else []
-    info["outputs"] = [{"path": o, "version": int(o.stem.split("_v")[1]), "size": o.stat().st_size} for o in outputs]
-    info["old_output_bytes"] = sum(o["size"] for o in info["outputs"][:-1]) if len(info["outputs"]) > 1 else 0
+    info["outputs"] = [
+        {"path": o, "version": int(o.stem.split("_v")[1]), "size": o.stat().st_size}
+        for o in outputs
+    ]
+    info["old_output_bytes"] = (
+        sum(o["size"] for o in info["outputs"][:-1]) if len(info["outputs"]) > 1 else 0
+    )
 
     intermediates = (
         (
@@ -1032,7 +1151,9 @@ def workspace(clean, yes):
     total += media_size
     if media_size > 0:
         n_photos = n_videos = 0
-        for mf in (ws / "runs").rglob("manifest.json") if (ws / "runs").exists() else []:
+        for mf in (
+            (ws / "runs").rglob("manifest.json") if (ws / "runs").exists() else []
+        ):
             try:
                 manifest = json.loads(mf.read_text())
                 for item in manifest:
@@ -1075,7 +1196,9 @@ def workspace(clean, yes):
         click.echo(f"  {r['name']} ({_fmt_size(r['size'])}, {age})")
 
         if "edl_latest" in r:
-            edl_parts = [f"v{r['edl_latest']}: {r['segments']} segments, {r['items']} items"]
+            edl_parts = [
+                f"v{r['edl_latest']}: {r['segments']} segments, {r['items']} items"
+            ]
             if r.get("n_videos"):
                 edl_parts.append(f"{r['n_videos']} videos")
             if r.get("n_keep_audio"):
@@ -1101,7 +1224,9 @@ def workspace(clean, yes):
             click.echo("    Output: (none)")
 
         if r["clips_count"] > 0:
-            click.echo(f"    Clips: {r['clips_count']} cached ({_fmt_size(r['clips_size'])})")
+            click.echo(
+                f"    Clips: {r['clips_count']} cached ({_fmt_size(r['clips_size'])})"
+            )
 
         reclaim_parts = []
         if r["old_output_bytes"]:
@@ -1109,9 +1234,13 @@ def workspace(clean, yes):
         if r["intermediate_bytes"]:
             reclaim_parts.append(f"{_fmt_size(r['intermediate_bytes'])} intermediates")
         if r["legacy_txt_bytes"]:
-            reclaim_parts.append(f"{_fmt_size(r['legacy_txt_bytes'])} legacy _txt clips")
+            reclaim_parts.append(
+                f"{_fmt_size(r['legacy_txt_bytes'])} legacy _txt clips"
+            )
         if reclaim_parts:
-            r_total = r["old_output_bytes"] + r["intermediate_bytes"] + r["legacy_txt_bytes"]
+            r_total = (
+                r["old_output_bytes"] + r["intermediate_bytes"] + r["legacy_txt_bytes"]
+            )
             total_reclaimable += r_total
             click.echo(f"    Prune: {', '.join(reclaim_parts)}")
 
@@ -1137,7 +1266,9 @@ def workspace(clean, yes):
             files += r["intermediate_files"]
             files += r["legacy_txt_files"]
             if files:
-                click.echo(f"  {r['name']}: {len(files)} files ({_fmt_size(sum(f.stat().st_size for f in files))})")
+                click.echo(
+                    f"  {r['name']}: {len(files)} files ({_fmt_size(sum(f.stat().st_size for f in files))})"
+                )
                 to_delete += files
 
         if not yes:

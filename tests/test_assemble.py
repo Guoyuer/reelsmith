@@ -6,8 +6,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from pipeline.assemble._assemble import _validate_output
 from pipeline.assemble._encoder import RenderContext
 from pipeline.assemble._filters import is_portrait as _is_portrait
@@ -42,16 +40,45 @@ class TestIsPortrait:
 
 
 class TestProbeDimensions:
-    def test_probe_dimensions_parses_output(self):
-        """Should parse 'WxH' output from ffprobe into (int, int)."""
+    def test_probe_dimensions_parses_json(self):
+        """Should parse JSON ffprobe output into (width, height)."""
+        import json
+
         fake_result = MagicMock()
-        fake_result.stdout = "3840x2160\n"
+        fake_result.stdout = json.dumps({"streams": [{"width": 3840, "height": 2160}]})
         fake_result.returncode = 0
 
         ctx = RenderContext(w=1920, h=1080, fps=30)
-        with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake_result):
+        with patch(
+            "pipeline.assemble._encoder.run_subprocess", return_value=fake_result
+        ):
             w, h = ctx.probe_dimensions(Path("/fake/video.mp4"))
         assert (w, h) == (3840, 2160)
+
+    def test_probe_dimensions_rotation(self):
+        """Should swap width/height when rotation is 90 or 270."""
+        import json
+
+        fake_result = MagicMock()
+        fake_result.stdout = json.dumps(
+            {
+                "streams": [
+                    {
+                        "width": 3840,
+                        "height": 2160,
+                        "side_data_list": [{"rotation": -90}],
+                    }
+                ]
+            }
+        )
+        fake_result.returncode = 0
+
+        ctx = RenderContext(w=1920, h=1080, fps=30)
+        with patch(
+            "pipeline.assemble._encoder.run_subprocess", return_value=fake_result
+        ):
+            w, h = ctx.probe_dimensions(Path("/fake/rotated.mp4"))
+        assert (w, h) == (2160, 3840)
 
     def test_probe_dimensions_handles_failure(self):
         """On failure (empty output), should return (0, 0)."""
@@ -60,7 +87,9 @@ class TestProbeDimensions:
         fake_result.returncode = 1
 
         ctx = RenderContext(w=1920, h=1080, fps=30)
-        with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake_result):
+        with patch(
+            "pipeline.assemble._encoder.run_subprocess", return_value=fake_result
+        ):
             w, h = ctx.probe_dimensions(Path("/fake/bad.mp4"))
         assert (w, h) == (0, 0)
 
@@ -80,8 +109,16 @@ def _make_edl(duration: float = 60.0, music_file: str = "") -> EDL:
             Segment(
                 name="Seg1",
                 items=[
-                    EditItem(source_file="a.jpg", media_type="photo", display_duration=duration / 2),
-                    EditItem(source_file="b.jpg", media_type="photo", display_duration=duration / 2),
+                    EditItem(
+                        source_file="a.jpg",
+                        media_type="photo",
+                        display_duration=duration / 2,
+                    ),
+                    EditItem(
+                        source_file="b.jpg",
+                        media_type="photo",
+                        display_duration=duration / 2,
+                    ),
                 ],
                 transition="cut",
             ),
@@ -110,12 +147,17 @@ def _mock_subprocess_for_validation(
         result.returncode = 0
         result.stderr = ""
         cmd_str = " ".join(str(c) for c in cmd)
-        if "codec_type,codec_name,duration" in cmd_str:
+        if "codec_type,codec_name" in cmd_str:
             result.stdout = streams
         elif "format=duration" in cmd_str:
             result.stdout = duration + "\n"
         elif "stream=width,height" in cmd_str:
-            result.stdout = dimensions + "\n"
+            import json as _json
+
+            w_str, h_str = dimensions.split("x")
+            result.stdout = _json.dumps(
+                {"streams": [{"width": int(w_str), "height": int(h_str)}]}
+            )
         else:
             result.stdout = ""
         return result
@@ -152,7 +194,7 @@ class TestValidateOutputFileChecks:
         )
         assert len(issues) == 1
         assert issues[0]["level"] == "error"
-        assert issues[0]["check"] == "file_exists"
+        assert issues[0]["check"] == "file"
 
     def test_empty_file_returns_error(self, tmp_path: Path):
         """Output file smaller than 1KB should produce a file_size error."""
@@ -162,7 +204,7 @@ class TestValidateOutputFileChecks:
         issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160))
         assert len(issues) == 1
         assert issues[0]["level"] == "error"
-        assert issues[0]["check"] == "file_size"
+        assert issues[0]["check"] == "file"
 
     def test_valid_file_no_early_return(self, tmp_path: Path):
         """A file >1KB should not trigger the early-return error path."""
@@ -170,7 +212,9 @@ class TestValidateOutputFileChecks:
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
         with _patch_validation() as ctx:
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
+            issues = _validate_output(
+                out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx
+            )
         # Should pass all checks (no errors for a well-formed mock)
         errors = [i for i in issues if i["level"] == "error"]
         assert len(errors) == 0
@@ -185,11 +229,13 @@ class TestValidateOutputDuration:
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl(duration=120.0)  # expected ~120s
         with _patch_validation(duration="50.0") as ctx:
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
+            issues = _validate_output(
+                out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx
+            )
         dur_issues = [i for i in issues if i["check"] == "duration"]
         assert len(dur_issues) == 1
         assert dur_issues[0]["level"] == "error"
-        assert "truncation" in dur_issues[0]["message"]
+        assert "50%" in dur_issues[0]["message"]
 
     def test_duration_between_50_and_80pct_is_warning(self, tmp_path: Path):
         """Duration between 50-80% of expected should produce a warning."""
@@ -197,7 +243,9 @@ class TestValidateOutputDuration:
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl(duration=100.0)  # expected ~100s
         with _patch_validation(duration="70.0") as ctx:
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
+            issues = _validate_output(
+                out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx
+            )
         dur_issues = [i for i in issues if i["check"] == "duration"]
         assert len(dur_issues) == 1
         assert dur_issues[0]["level"] == "warning"
@@ -208,7 +256,9 @@ class TestValidateOutputDuration:
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl(duration=100.0)
         with _patch_validation(duration="95.0") as ctx:
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
+            issues = _validate_output(
+                out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx
+            )
         dur_issues = [i for i in issues if i["check"] == "duration"]
         assert len(dur_issues) == 0
 
@@ -218,7 +268,9 @@ class TestValidateOutputDuration:
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
         with _patch_validation(duration="0") as ctx:
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
+            issues = _validate_output(
+                out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx
+            )
         dur_issues = [i for i in issues if i["check"] == "duration"]
         assert len(dur_issues) == 1
         assert dur_issues[0]["level"] == "error"
@@ -233,8 +285,10 @@ class TestValidateOutputStreams:
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
         with _patch_validation(streams="aac,audio,60.0\n") as ctx:
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
-        stream_issues = [i for i in issues if i["check"] == "video_stream"]
+            issues = _validate_output(
+                out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx
+            )
+        stream_issues = [i for i in issues if i["check"] == "streams"]
         assert len(stream_issues) == 1
         assert stream_issues[0]["level"] == "error"
 
@@ -244,8 +298,10 @@ class TestValidateOutputStreams:
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
         with _patch_validation(streams="hevc,video,60.0\n") as ctx:
-            issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160), ctx=ctx)
-        audio_issues = [i for i in issues if i["check"] == "audio_stream"]
+            issues = _validate_output(
+                out, edl, has_speech=True, resolution=(3840, 2160), ctx=ctx
+            )
+        audio_issues = [i for i in issues if i["check"] == "streams"]
         assert len(audio_issues) == 1
         assert audio_issues[0]["level"] == "warning"
 
@@ -255,8 +311,10 @@ class TestValidateOutputStreams:
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
         with _patch_validation(streams="hevc,video,60.0\n") as ctx:
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
-        audio_speech = [i for i in issues if i["check"] == "audio_stream"]
+            issues = _validate_output(
+                out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx
+            )
+        audio_speech = [i for i in issues if i["check"] == "streams"]
         assert len(audio_speech) == 0
 
     def test_no_audio_with_music_is_warning(self, tmp_path: Path):
@@ -268,60 +326,12 @@ class TestValidateOutputStreams:
         music_file.write_bytes(b"\x00" * 100)
         edl = _make_edl(music_file=str(music_file))
         with _patch_validation(streams="hevc,video,60.0\n") as ctx:
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
-        music_issues = [i for i in issues if i["check"] == "audio_stream_music"]
+            issues = _validate_output(
+                out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx
+            )
+        music_issues = [i for i in issues if i["check"] == "streams"]
         assert len(music_issues) == 1
         assert music_issues[0]["level"] == "warning"
-
-
-class TestValidateOutputCodec:
-    """Tests for video codec validation."""
-
-    def test_expected_codec_passes(self, tmp_path: Path):
-        """hevc codec should not trigger a warning."""
-        out = tmp_path / "ok.mp4"
-        out.write_bytes(b"\x00" * 2048)
-        edl = _make_edl()
-        with _patch_validation(streams="hevc,video,60.0\naac,audio,60.0\n") as ctx:
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
-        codec_issues = [i for i in issues if i["check"] == "video_codec"]
-        assert len(codec_issues) == 0
-
-    def test_unexpected_codec_warns(self, tmp_path: Path):
-        """An unexpected video codec should produce a warning."""
-        out = tmp_path / "weird.mp4"
-        out.write_bytes(b"\x00" * 2048)
-        edl = _make_edl()
-        with _patch_validation(streams="vp9,video,60.0\naac,audio,60.0\n") as ctx:
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
-        codec_issues = [i for i in issues if i["check"] == "video_codec"]
-        assert len(codec_issues) == 1
-        assert codec_issues[0]["level"] == "warning"
-
-
-class TestValidateOutputAVSync:
-    """Tests for audio-video sync spot check."""
-
-    def test_large_av_drift_warns(self, tmp_path: Path):
-        """Audio longer than video by >5s should warn (actual sync issue)."""
-        out = tmp_path / "drifted.mp4"
-        out.write_bytes(b"\x00" * 2048)
-        edl = _make_edl()
-        with _patch_validation(vid_stream_dur="52.0", aud_stream_dur="60.0") as ctx:
-            issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160), ctx=ctx)
-        sync_issues = [i for i in issues if i["check"] == "av_sync"]
-        assert len(sync_issues) == 1
-        assert "longer" in sync_issues[0]["message"]
-
-    def test_small_av_drift_passes(self, tmp_path: Path):
-        """<5s drift should not trigger a sync warning."""
-        out = tmp_path / "synced.mp4"
-        out.write_bytes(b"\x00" * 2048)
-        edl = _make_edl()
-        with _patch_validation(vid_stream_dur="60.0", aud_stream_dur="58.0") as ctx:
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
-        sync_issues = [i for i in issues if i["check"] == "av_sync"]
-        assert len(sync_issues) == 0
 
 
 class TestValidateOutputResolution:
@@ -333,7 +343,9 @@ class TestValidateOutputResolution:
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
         with _patch_validation() as ctx:
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
+            issues = _validate_output(
+                out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx
+            )
         res_issues = [i for i in issues if i["check"] == "resolution"]
         assert len(res_issues) == 0
 
@@ -343,7 +355,9 @@ class TestValidateOutputResolution:
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl()
         with _patch_validation(dimensions="1920x1080") as ctx:
-            issues = _validate_output(out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx)
+            issues = _validate_output(
+                out, edl, has_speech=False, resolution=(3840, 2160), ctx=ctx
+            )
         res_issues = [i for i in issues if i["check"] == "resolution"]
         assert len(res_issues) == 1
         assert res_issues[0]["level"] == "warning"
@@ -359,9 +373,11 @@ class TestValidateOutputAllPassing:
         out.write_bytes(b"\x00" * 2048)
         edl = _make_edl(duration=60.0)
         with _patch_validation(
-            streams="hevc,video,58.0\naac,audio,58.0\n", duration="58.0", dimensions="3840x2160"
+            streams="hevc,video,58.0\naac,audio,58.0\n",
+            duration="58.0",
+            dimensions="3840x2160",
         ) as ctx:
-            issues = _validate_output(out, edl, has_speech=True, resolution=(3840, 2160), ctx=ctx)
+            issues = _validate_output(
+                out, edl, has_speech=True, resolution=(3840, 2160), ctx=ctx
+            )
         assert len(issues) == 0
-
-

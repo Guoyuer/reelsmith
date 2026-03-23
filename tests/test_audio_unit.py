@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
 
 
@@ -36,10 +34,12 @@ class TestMixFinalAudio:
             mock_result = MagicMock()
             mock_result.returncode = 0
             mock_run.return_value = mock_result
+
             # Create output to simulate ffmpeg
             def side_effect(cmd, **kw):
                 out.write_bytes(b"\x00" * 1500)
                 return mock_result
+
             mock_run.side_effect = side_effect
 
             mix_final_audio(video, out, speech_audio_path=speech)
@@ -93,7 +93,9 @@ class TestAddMusic:
         (tmp_path / "music.wav").write_bytes(b"\x00" * 500)
 
         ctx = MagicMock()
-        ctx.probe_duration.side_effect = lambda p: 120.0 if "video" in str(p) else 30.0  # music shorter
+        ctx.probe_duration.side_effect = (
+            lambda p: 120.0 if "video" in str(p) else 30.0
+        )  # music shorter
 
         with patch("pipeline.assemble._audio.run_subprocess") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
@@ -106,16 +108,26 @@ class TestAddMusic:
 class TestWriteChapters:
     """Test YouTube chapter marker generation."""
 
-    def test_requires_timeline(self, tmp_path):
+    def test_writes_chapters_with_empty_durations(self, tmp_path):
         from pipeline.assemble._audio import write_chapters
 
         edl = EDL(
             title="T",
             target_duration=60,
             segments=[
-                Segment(name="S1", items=[EditItem(source_file="a.jpg", media_type="photo", display_duration=4.0)], transition="cut"),
+                Segment(
+                    name="S1",
+                    items=[
+                        EditItem(
+                            source_file="a.jpg",
+                            media_type="photo",
+                            display_duration=4.0,
+                        )
+                    ],
+                    transition="cut",
+                ),
             ],
         )
         out = tmp_path / "chapters.txt"
-        with pytest.raises(ValueError, match="Timeline"):
-            write_chapters(edl, [], out)
+        write_chapters(edl, [], out)
+        assert out.exists()

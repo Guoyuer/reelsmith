@@ -15,13 +15,10 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-
-from tqdm import tqdm
 
 from .config import Config
 from .image_utils import generate_thumbnail
@@ -43,7 +40,9 @@ _LOCAL_TZ = datetime.now(timezone.utc).astimezone().tzinfo
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
-def prepare(cfg: Config, pc: PrepareConfig | None = None, *, progress_callback=None) -> dict:
+def prepare(
+    cfg: Config, pc: PrepareConfig | None = None, *, progress_callback=None
+) -> dict:
     """Prepare all media for Gemini visual planning.
 
     1. Read manifest, detect family, build timeline
@@ -85,7 +84,9 @@ def prepare(cfg: Config, pc: PrepareConfig | None = None, *, progress_callback=N
     }
     pp_path = cfg.preprocessed_path
     pp_path.write_text(json.dumps(preprocessed, indent=2))
-    logger.info(f"Timeline: {len(timeline)} days, {sum(len(d['chapters']) for d in timeline)} chapters")
+    logger.info(
+        f"Timeline: {len(timeline)} days, {sum(len(d['chapters']) for d in timeline)} chapters"
+    )
 
     # --- Analyze: thumbnails, EXIF, video duration ---
     analysis_path = cfg.analysis_path
@@ -97,22 +98,14 @@ def prepare(cfg: Config, pc: PrepareConfig | None = None, *, progress_callback=N
 
     cache_dir = cfg.cache_dir
     results = []
-    # Disable tqdm when progress_callback is provided (rich live panel handles display)
-    use_tqdm = not progress_callback and hasattr(sys.stderr, "fileno") and sys.stderr.isatty()
-    pbar = tqdm(
-        total=len(manifest),
-        desc="Preparing",
-        unit="item",
-        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
-        disable=not use_tqdm,
-    )
 
     for i, item in enumerate(manifest, 1):
         item_id = item["id"]
+        if progress_callback:
+            progress_callback(i, len(manifest), item["filename"])
 
         if item_id in existing:
             results.append(existing[item_id])
-            pbar.update(1)
             continue
 
         local_path_str = item["local_path"]
@@ -136,7 +129,6 @@ def prepare(cfg: Config, pc: PrepareConfig | None = None, *, progress_callback=N
 
         if not local_path.exists():
             results.append(entry)
-            pbar.update(1)
             continue
 
         cache_file = cache_dir / f"{item_id}.json"
@@ -146,7 +138,9 @@ def prepare(cfg: Config, pc: PrepareConfig | None = None, *, progress_callback=N
                 cached = json.loads(cache_file.read_text())
                 # Re-probe videos missing new metadata fields (dimensions, audio level)
                 if is_video and "audio_level" not in cached:
-                    logger.info(f"[{i}/{len(manifest)}] {entry['filename']} — upgrading cached video metadata")
+                    logger.info(
+                        f"[{i}/{len(manifest)}] {entry['filename']} — upgrading cached video metadata"
+                    )
                 else:
                     entry.update(cached)
                     cache_hit = True
@@ -154,7 +148,6 @@ def prepare(cfg: Config, pc: PrepareConfig | None = None, *, progress_callback=N
                 logger.warning(f"Corrupt cache for item {item_id}, re-analyzing: {e}")
         if cache_hit:
             results.append(entry)
-            pbar.update(1)
             continue
 
         if is_video:
@@ -163,25 +156,29 @@ def prepare(cfg: Config, pc: PrepareConfig | None = None, *, progress_callback=N
             _prepare_photo(entry, item_id, local_path, cfg, cache_file)
 
         results.append(entry)
-        pbar.update(1)
-        if progress_callback:
-            progress_callback(i, len(manifest), item["filename"])
 
         if i % 20 == 0:
             analysis_path.write_text(json.dumps(results, indent=2))
 
-    pbar.close()
     analysis_path.write_text(json.dumps(results, indent=2))
 
     n_photos = sum(1 for r in results if r.get("media_type") == "photo")
     n_videos = len(results) - n_photos
     newly = sum(1 for r in results if r["id"] not in existing)
-    logger.info(f"Prepared: {len(results)} items ({n_photos} photos, {n_videos} videos, " f"{newly} newly analyzed)")
+    logger.info(
+        f"Prepared: {len(results)} items ({n_photos} photos, {n_videos} videos, "
+        f"{newly} newly analyzed)"
+    )
 
-    # Generate 360p 1fps video previews (cached per video, used by plan stage)
+    # Generate video previews (cached per video, used by plan stage)
     video_items = [r for r in results if r.get("media_type") == "video"]
     if video_items:
-        _generate_video_previews(video_items, cfg.preview_clips_dir, force=pc.force)
+        _generate_video_previews(
+            video_items,
+            cfg.preview_clips_dir,
+            force=pc.force,
+            progress_callback=progress_callback,
+        )
 
     return preprocessed
 
@@ -220,17 +217,27 @@ def _has_dense_keyframes(source: Path) -> bool:
                 try:
                     keyframe_times.append(float(parts[0]))
                 except ValueError:
-                    logger.debug("Could not parse keyframe time in %s", source, exc_info=True)
+                    logger.debug(
+                        "Could not parse keyframe time in %s", source, exc_info=True
+                    )
         if len(keyframe_times) < 2:
             return False
-        avg_interval = (keyframe_times[-1] - keyframe_times[0]) / (len(keyframe_times) - 1)
+        avg_interval = (keyframe_times[-1] - keyframe_times[0]) / (
+            len(keyframe_times) - 1
+        )
         return avg_interval <= 2.0
     except Exception:
         logger.debug("Could not detect keyframe interval for %s", source, exc_info=True)
         return False
 
 
-def _generate_video_previews(video_items: list[dict], preview_dir: Path, *, force: bool = False) -> None:
+def _generate_video_previews(
+    video_items: list[dict],
+    preview_dir: Path,
+    *,
+    force: bool = False,
+    progress_callback=None,
+) -> None:
     """Generate one full-length preview per video (480p 1fps + audio)."""
     from .parallel import run_parallel
 
@@ -303,10 +310,15 @@ def _generate_video_previews(video_items: list[dict], preview_dir: Path, *, forc
     logger.info(f"Generating {len(tasks)} video previews (CPU x{max_workers})...")
 
     def _progress(done, total):
+        if progress_callback:
+            progress_callback(done, total, "video previews")
         if done % 20 == 0 or done == total:
             logger.info(f"  Video previews: {done}/{total}")
 
-    parallel_tasks = [(p, lambda cmd=cmd: run_subprocess(cmd, capture_output=True)) for p, cmd in tasks]
+    parallel_tasks = [
+        (p, lambda cmd=cmd: run_subprocess(cmd, capture_output=True))
+        for p, cmd in tasks
+    ]
     run_parallel(parallel_tasks, max_workers, progress_fn=_progress)
 
     n_ok = sum(1 for p, _ in tasks if p.exists() and p.stat().st_size > 500)
@@ -352,7 +364,12 @@ def _build_timeline(items: list[dict], tz=None) -> list[dict]:
         else:
             block = "evening"
 
-        location = item.get("district") or item.get("first_level") or item.get("country") or "unknown"
+        location = (
+            item.get("district")
+            or item.get("first_level")
+            or item.get("country")
+            or "unknown"
+        )
 
         days[day_key].append(
             {
@@ -528,10 +545,18 @@ def _read_exif(path) -> dict:
         result = {}
         fl = exif.get("FocalLength")
         if fl:
-            result["focal_length"] = float(fl) if not hasattr(fl, "numerator") else fl.numerator / fl.denominator
+            result["focal_length"] = (
+                float(fl)
+                if not hasattr(fl, "numerator")
+                else fl.numerator / fl.denominator
+            )
         fn = exif.get("FNumber")
         if fn:
-            result["aperture"] = float(fn) if not hasattr(fn, "numerator") else fn.numerator / fn.denominator
+            result["aperture"] = (
+                float(fn)
+                if not hasattr(fn, "numerator")
+                else fn.numerator / fn.denominator
+            )
         iso = exif.get("ISOSpeedRatings")
         if iso:
             result["iso"] = int(iso)

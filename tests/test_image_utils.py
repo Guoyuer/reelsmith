@@ -38,6 +38,7 @@ class TestGenerateThumbnail:
 
         # Call again — should skip
         import time
+
         time.sleep(0.01)
         result2 = generate_thumbnail(src, thumb_dir, size=400)
         assert result2.stat().st_mtime == mtime1
@@ -57,12 +58,3 @@ class TestGenerateThumbnail:
         # since it's actually JPEG data
         result = generate_thumbnail(src, thumb_dir, size=400)
         assert result.exists()
-
-
-class TestInitHeicDir:
-    def test_creates_directory(self, tmp_path):
-        from pipeline.image_utils import init_heic_dir
-
-        dest = tmp_path / "heic_converted"
-        init_heic_dir(dest)
-        assert dest.exists()

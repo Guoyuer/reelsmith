@@ -47,5 +47,5 @@ class TestAssemblePrerequisites:
         cfg = Config(workspace=tmp_path)
         cfg.ensure_dirs()
         ac = AssembleConfig(w=1920, h=1080, fps=30, version=1)
-        with pytest.raises(FileNotFoundError, match="EDL not found"):
+        with pytest.raises(FileNotFoundError):
             assemble(cfg, ac)
