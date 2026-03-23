@@ -416,7 +416,11 @@ def _render_clips(
         for seg in job.edl.segments:
             for item in seg.items:
                 if item.media_type == "photo":
-                    background_photo = item.source_file
+                    bg_path = Path(item.source_file)
+                    if bg_path.suffix.lower() in {".heic", ".heif"}:
+                        from ..image_utils import convert_heic
+                        bg_path = convert_heic(bg_path)
+                    background_photo = str(bg_path)
                     break
             if background_photo:
                 break
