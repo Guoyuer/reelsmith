@@ -210,21 +210,17 @@ def _write_status(ws: Path, status: dict) -> None:
     (ws / "run_status.json").write_text(json.dumps(status, indent=2, default=str))
 
 
-def _build_headline(stage_configs: dict, stages: list[str]) -> str:
+def _build_headline(pc: _PipelineContext, stages: list[str]) -> str:
     """Build a short headline from plan config for display."""
-    plan_cfg = stage_configs.get("plan", {})
     parts = []
-    dur = plan_cfg.get("target_duration")
-    if dur:
-        parts.append(f"{dur}s")
-    style = plan_cfg.get("style")
-    if style:
-        parts.append(style)
-    trip = plan_cfg.get("trip_type")
-    if trip:
-        parts.append(f"{trip} vlog")
+    if pc.plan:
+        if pc.plan.target_duration:
+            parts.append(f"{pc.plan.target_duration}s")
+        if pc.plan.style:
+            parts.append(pc.plan.style)
+        if pc.plan.trip_type:
+            parts.append(f"{pc.plan.trip_type} vlog")
     if not parts:
-        # Fallback: describe which stages are running
         parts.append(", ".join(stages))
     return " ".join(parts)
 
@@ -240,67 +236,48 @@ def _check_interrupted(display: _PipelineDisplay, status: dict, ws: Path, logger
         sys.exit(130)
 
 
-def _log_config(log_fn, stage: str, actual: dict, defaults: dict) -> None:
-    """Log stage config with explicit/default markers.
-
-    Prints each parameter showing whether it was explicitly set or fell back
-    to its default value.
-    """
-    parts = []
-    for key, default in defaults.items():
-        if key in actual:
-            parts.append(f"{key}={actual[key]}")
-        else:
-            parts.append(f"{key}={default} (default)")
-    # Also log any keys in actual that aren't in defaults
-    for key in actual:
-        if key not in defaults:
-            parts.append(f"{key}={actual[key]}")
-    log_fn(f"[{stage}] {', '.join(parts)}")
-
 
 @dataclass
 class _PipelineContext:
     cfg: object      # Config
-    ws: Path
-    stage_configs: dict
     display: object  # _PipelineDisplay
     status: dict
-    log: object      # logger.info callable
     logger: object   # logging.Logger
+    # Typed stage configs (None = stage not active)
+    fetch: object = None      # FetchConfig | None
+    prepare: object = None    # PrepareConfig | None
+    plan: object = None       # PlanConfig | None
+    assemble: object = None   # AssembleConfig | None
+
+    @property
+    def ws(self) -> Path:
+        return Path(self.cfg.workspace)
+
+    def log(self, msg: str) -> None:
+        self.logger.info(msg)
 
 
 def _run_fetch(pc: _PipelineContext):
     """Execute the fetch stage."""
     _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
     pc.display.start("fetch")
-    fc = pc.stage_configs.get("fetch", {})
-    _log_config(pc.log, "fetch", fc, {
-        "source_dir": "NAS", "from_date": "", "to_date": "",
-        "country": None, "district": None, "item_types": None,
-    })
     t0 = time.monotonic()
-    manifest_path = pc.ws / "manifest.json"
+    manifest_path = pc.cfg.manifest_path
 
-    if not fc.get("force") and manifest_path.exists():
+    if manifest_path.exists():
         items = json.loads(manifest_path.read_text())
         dur = time.monotonic() - t0
         pc.log(f"Fetch: {len(items)} items (cached)")
         pc.display.done("fetch", f"{len(items)} items", dur)
         pc.status["stages"]["fetch"] = {"status": "cached", "items": len(items)}
     else:
-        if fc.get("source_dir"):
+        fc = pc.fetch
+        if fc.source_dir:
             from pipeline.fetch import fetch_local
-            items = fetch_local(pc.cfg, source_dir=fc["source_dir"])
+            items = fetch_local(pc.cfg, fc)
         else:
             from pipeline.fetch import fetch
-            items = fetch(
-                pc.cfg, from_date=fc.get("from_date", ""),
-                to_date=fc.get("to_date", ""),
-                country=fc.get("country"), first_level=fc.get("first_level"),
-                district=fc.get("district"), person_ids=fc.get("person_ids"),
-                item_types=fc.get("item_types"),
-            )
+            items = fetch(pc.cfg, fc)
         dur = time.monotonic() - t0
         pc.log(f"Fetch: {len(items)} items in {dur:.0f}s")
         pc.display.done("fetch", f"{len(items)} items", dur)
@@ -311,20 +288,17 @@ def _run_prepare(pc: _PipelineContext):
     """Execute the prepare stage."""
     _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
     pc.display.start("prepare")
-    prep_cfg = pc.stage_configs.get("prepare", {})
-    _log_config(pc.log, "prepare", prep_cfg, {
-        "force": False, "family_names": None, "tz_hours": None,
-    })
     t0 = time.monotonic()
-    analysis_path = pc.ws / "analysis.json"
-    manifest_path = pc.ws / "manifest.json"
+    analysis_path = pc.cfg.analysis_path
+    manifest_path = pc.cfg.manifest_path
+    prep = pc.prepare
 
     stale = (manifest_path.exists() and analysis_path.exists()
              and manifest_path.stat().st_mtime > analysis_path.stat().st_mtime)
     if stale:
         pc.log("Manifest is newer \u2014 re-preparing")
 
-    if not prep_cfg.get("force") and not stale and analysis_path.exists():
+    if not prep.force and not stale and analysis_path.exists():
         results = json.loads(analysis_path.read_text())
         n_photos = sum(1 for r in results if r.get("media_type") == "photo")
         n_videos = len(results) - n_photos
@@ -335,14 +309,11 @@ def _run_prepare(pc: _PipelineContext):
     else:
         from pipeline.prepare import prepare
         result = prepare(
-            pc.cfg, family_names=prep_cfg.get("family_names"),
-            force=prep_cfg.get("force", False),
+            pc.cfg, prep,
             progress_callback=_progress_cb(pc.logger, pc.display, "prepare", t0),
-            tz_hours=prep_cfg.get("tz_hours"),
         )
         dur = time.monotonic() - t0
         pc.log(f"Prepare: done in {dur:.0f}s")
-        # Read back results to get counts for display
         if analysis_path.exists():
             results = json.loads(analysis_path.read_text())
             n_photos = sum(1 for r in results if r.get("media_type") == "photo")
@@ -357,26 +328,10 @@ def _run_plan(pc: _PipelineContext):
     """Execute the plan stage."""
     _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
     pc.display.start("plan")
-    plan_cfg = pc.stage_configs.get("plan", {})
-    _log_config(pc.log, "plan", plan_cfg, {
-        "style": "upbeat", "target_duration": 180, "trip_type": "family",
-        "language": "en", "focus": "", "music_file": None,
-        "tz_hours": None, "model": None,
-    })
     t0 = time.monotonic()
 
     from pipeline.plan import plan as do_plan
-    edl, version = do_plan(
-        pc.cfg,
-        style=plan_cfg.get("style", "upbeat"),
-        target_duration=plan_cfg.get("target_duration", 180),
-        focus=plan_cfg.get("focus", ""),
-        trip_type=plan_cfg.get("trip_type", "family"),
-        music_file=plan_cfg.get("music_file") or None,
-        language=plan_cfg.get("language", "en"),
-        tz_hours=plan_cfg.get("tz_hours"),
-        model=plan_cfg.get("model"),
-    )
+    edl, version = do_plan(pc.cfg, pc.plan)
 
     all_items = edl.all_items()
     n_videos = sum(1 for i in all_items if i.media_type == "video")
@@ -411,7 +366,6 @@ def _run_generate_music(pc: _PipelineContext):
     """Execute the generate_music stage."""
     _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
     pc.display.start("generate_music")
-    _log_config(pc.log, "generate_music", {}, {})
     t0 = time.monotonic()
 
     from pipeline.music import generate_music_for_edl
@@ -432,44 +386,31 @@ def _run_assemble(pc: _PipelineContext):
     """Execute the assemble stage."""
     _check_interrupted(pc.display, pc.status, pc.ws, pc.logger)
     pc.display.start("assemble")
-    ac = pc.stage_configs.get("assemble", {})
-    for key in ("width", "height", "fps"):
-        if key not in ac:
-            raise click.UsageError(f"Missing assemble config: {key} (use --resolution / -r)")
-    _log_config(pc.log, "assemble", ac, {
-        "version": 0, "edl_path": None,
-        "width": None, "height": None, "fps": None, "quality": 1.0,
-        "skip_broken": False,
-    })
     t0 = time.monotonic()
+    ac = pc.assemble
 
     from pipeline.assemble import assemble as do_assemble
     from pipeline.edl import find_latest_version
 
-    edl_path = ac.get("edl_path")
-    if edl_path:
+    # Handle edl_path: copy external EDL as new version
+    if ac.edl_path:
         import shutil
         version = find_latest_version(pc.cfg) + 1
         dest = pc.cfg.edl_path(version)
-        shutil.copy(edl_path, dest)
-        pc.log(f"Using EDL from {edl_path} as v{version}")
-    else:
-        version = ac.get("version", 0)
-        if version <= 0:
-            version = find_latest_version(pc.cfg)
+        shutil.copy(ac.edl_path, dest)
+        pc.log(f"Using EDL from {ac.edl_path} as v{version}")
+        # Update config with resolved version
+        from dataclasses import replace
+        ac = replace(ac, version=version, edl_path=None)
+    elif not ac.version:
+        from dataclasses import replace
+        ac = replace(ac, version=find_latest_version(pc.cfg))
 
-    width = ac["width"]
-    height = ac["height"]
-    fps = ac["fps"]
-    pc.log(f"Render: {width}x{height} {fps}fps (EDL v{version})")
+    pc.log(f"Render: {ac.w}x{ac.h} {ac.fps}fps (EDL v{ac.version})")
 
     out, issues = do_assemble(
-        pc.cfg, version=version,
-        resolution=(width, height),
-        fps=fps,
+        pc.cfg, ac,
         progress_callback=_progress_cb(pc.logger, pc.display, "assemble", t0),
-        skip_broken=ac.get("skip_broken", False),
-        quality=ac.get("quality", 1.0),
     )
 
     dur = time.monotonic() - t0
@@ -496,36 +437,36 @@ _STAGE_RUNNERS = {
 }
 
 
-def _run_pipeline(run_name: str, stage_configs: dict, *, stages: list[str] | None = None):
+def _run_pipeline(run_name: str, *, stages: list[str],
+                   fetch=None, prepare=None, plan=None, assemble=None):
     """Execute pipeline stages directly in this process."""
     global _interrupted
     _interrupted = False
 
     from pipeline.config import Config
 
-    active = stages or STAGES
+    active = stages
     ws_path = Config.run_workspace(run_name=run_name)
     cfg = Config.load(ws_path)
     cfg.ensure_dirs()
 
     logger = _setup_logging(run_name)
-    ws = Path(ws_path)
-    log = logger.info
-
-    headline = _build_headline(stage_configs, active)
-    display = _PipelineDisplay(run_name, headline, active)
 
     status: dict = {
         "run_name": run_name,
         "started_at": datetime.now(timezone.utc).isoformat(),
         "stages": {},
     }
-    t_start = time.monotonic()
 
     pc = _PipelineContext(
-        cfg=cfg, ws=ws, stage_configs=stage_configs,
-        display=display, status=status, log=log, logger=logger,
+        cfg=cfg, status=status, logger=logger,
+        fetch=fetch, prepare=prepare, plan=plan, assemble=assemble,
     )
+
+    headline = _build_headline(pc, active)
+    display = _PipelineDisplay(run_name, headline, active)
+    pc.display = display
+    t_start = time.monotonic()
 
     try:
         for stage in active:
@@ -599,57 +540,8 @@ def cli() -> None:
     """
 
 
-# ---------------------------------------------------------------------------
-# Config helpers (shared across subcommands)
-# ---------------------------------------------------------------------------
-
-def _fetch_cfg_local(source_dir: str) -> dict:
-    return {"force": True, "source_dir": source_dir}
 
 
-def _fetch_cfg_nas(from_date: str, to_date: str, country: str | None = None,
-                   district: str | None = None, item_types: str | None = None) -> dict:
-    cfg: dict = {"force": True, "from_date": from_date, "to_date": to_date}
-    if country:
-        cfg["country"] = country
-    if district:
-        cfg["district"] = district
-    if item_types:
-        cfg["item_types"] = _parse_item_types(item_types)
-    return cfg
-
-
-def _prepare_cfg(force: bool = False, tz_hours: int | None = None) -> dict:
-    cfg: dict = {"force": force}
-    if tz_hours is not None:
-        cfg["tz_hours"] = tz_hours
-    return cfg
-
-
-def _plan_and_music_cfg(style: str, duration: int, focus: str, trip_type: str,
-                        lang: str, model: str | None, music: str,
-                        tz_hours: int | None) -> tuple[dict, dict, list[str]]:
-    """Return (plan_cfg, stage_cfg_extras, extra_stages)."""
-    plan_cfg: dict = {
-        "style": style, "target_duration": duration,
-        "focus": focus, "trip_type": trip_type, "language": lang,
-    }
-    if tz_hours is not None:
-        plan_cfg["tz_hours"] = tz_hours
-    if model:
-        plan_cfg["model"] = model
-
-    extra_stages: list[str] = []
-    extras: dict = {}
-    if music == "none":
-        pass
-    elif music == "auto":
-        plan_cfg["music_file"] = "auto"
-        extra_stages.append("generate_music")
-        extras["generate_music"] = {}
-    else:
-        plan_cfg["music_file"] = music
-    return plan_cfg, extras, extra_stages
 
 
 # Shared Click options (avoid repeating decorators)
@@ -733,22 +625,20 @@ _source_options = [
 ]
 
 
-def _validate_source(source, path, from_date, to_date):
-    """Validate source-specific required options."""
+def _build_fetch_config(source, path, from_date, to_date, country, district, item_types):
+    """Build FetchConfig from CLI source options with validation."""
+    from pipeline.fetch import FetchConfig
     if source == "local":
         if not path:
             raise click.UsageError("--path is required when --source is local")
-    else:
-        if not from_date or not to_date:
-            raise click.UsageError("--from-date and --to-date are required when --source is nas")
-
-
-def _fetch_cfg_from_source(source, path, from_date, to_date, country, district, item_types):
-    """Build fetch config from source options."""
-    _validate_source(source, path, from_date, to_date)
-    if source == "local":
-        return _fetch_cfg_local(path)
-    return _fetch_cfg_nas(from_date, to_date, country, district, item_types)
+        return FetchConfig(source_dir=path)
+    if not from_date or not to_date:
+        raise click.UsageError("--from-date and --to-date are required when --source is nas")
+    return FetchConfig(
+        from_date=from_date, to_date=to_date,
+        country=country, district=district,
+        item_types=_parse_item_types(item_types) if item_types else None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -763,11 +653,12 @@ def _fetch_cfg_from_source(source, path, from_date, to_date, country, district, 
 def prepare(run_name, source, path, from_date, to_date, country, district, item_types,
             tz_hours, force):
     """Fetch and prepare media (local folder or NAS)."""
-    fetch_cfg = _fetch_cfg_from_source(source, path, from_date, to_date, country, district, item_types)
-    _run_pipeline(run_name, {
-        "fetch": fetch_cfg,
-        "prepare": _prepare_cfg(force, tz_hours),
-    }, stages=["fetch", "prepare"])
+    from pipeline.prepare import PrepareConfig
+    _run_pipeline(run_name,
+        fetch=_build_fetch_config(source, path, from_date, to_date, country, district, item_types),
+        prepare=PrepareConfig(force=force, tz_hours=tz_hours),
+        stages=["fetch", "prepare"],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -786,20 +677,26 @@ def full(run_name, source, path, from_date, to_date, country, district, item_typ
          duration, trip_type, style, focus, lang, model, music,
          resolution, quality):
     """Run the full pipeline end-to-end."""
-    fetch_cfg = _fetch_cfg_from_source(source, path, from_date, to_date, country, district, item_types)
+    from pipeline.plan import PlanConfig
+    from pipeline.prepare import PrepareConfig
+    from pipeline.assemble import AssembleConfig
+
     w, h, fps = resolution
-    plan_cfg, extras, extra_stages = _plan_and_music_cfg(
-        style, duration, focus, trip_type, lang, model, music, tz_hours)
-    stages = ["fetch", "prepare", "plan"] + extra_stages + ["assemble"]
-    cfg = {
-        "fetch": fetch_cfg,
-        "prepare": _prepare_cfg(force, tz_hours),
-        "plan": plan_cfg,
-        **extras,
-        "assemble": {"skip_broken": True, "width": w, "height": h,
-                     "fps": fps, "quality": quality},
-    }
-    _run_pipeline(run_name, cfg, stages=stages)
+    stages = ["fetch", "prepare", "plan"]
+    music_file = None if music == "none" else music
+    if music != "none":
+        stages.append("generate_music")
+    stages.append("assemble")
+
+    _run_pipeline(run_name,
+        fetch=_build_fetch_config(source, path, from_date, to_date, country, district, item_types),
+        prepare=PrepareConfig(force=force, tz_hours=tz_hours),
+        plan=PlanConfig(style=style, target_duration=duration, focus=focus,
+                        trip_type=trip_type, language=lang, model=model,
+                        music_file=music_file, tz_hours=tz_hours),
+        assemble=AssembleConfig(w=w, h=h, fps=fps, quality=quality, skip_broken=True),
+        stages=stages,
+    )
 
 
 @cli.command()
@@ -809,10 +706,19 @@ def full(run_name, source, path, from_date, to_date, country, district, item_typ
 def plan(run_name, duration, trip_type, style, focus, lang, model,
          music, tz_hours):
     """Re-plan only (uses cached media + analysis). Run assemble separately to render."""
-    plan_cfg, extras, extra_stages = _plan_and_music_cfg(
-        style, duration, focus, trip_type, lang, model, music, tz_hours)
-    stages = ["plan"] + extra_stages
-    _run_pipeline(run_name, {"plan": plan_cfg, **extras}, stages=stages)
+    from pipeline.plan import PlanConfig
+
+    music_file = None if music == "none" else music
+    stages = ["plan"]
+    if music != "none":
+        stages.append("generate_music")
+
+    _run_pipeline(run_name,
+        plan=PlanConfig(style=style, target_duration=duration, focus=focus,
+                        trip_type=trip_type, language=lang, model=model,
+                        music_file=music_file, tz_hours=tz_hours),
+        stages=stages,
+    )
 
 
 @cli.command()
@@ -822,13 +728,13 @@ def plan(run_name, duration, trip_type, style, focus, lang, model,
 @_apply_options(_assemble_options)
 def assemble(run_name, version, edl_path, resolution, quality):
     """Re-render the vlog from current or specified EDL version."""
+    from pipeline.assemble import AssembleConfig
     w, h, fps = resolution
-    ac: dict = {"width": w, "height": h, "fps": fps, "quality": quality}
-    if version is not None:
-        ac["version"] = version
-    if edl_path is not None:
-        ac["edl_path"] = edl_path
-    _run_pipeline(run_name, {"assemble": ac}, stages=["assemble"])
+    _run_pipeline(run_name,
+        assemble=AssembleConfig(w=w, h=h, fps=fps, quality=quality,
+                                version=version, edl_path=edl_path),
+        stages=["assemble"],
+    )
 
 
 # ---------------------------------------------------------------------------

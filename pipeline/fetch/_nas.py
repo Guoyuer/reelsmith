@@ -4,46 +4,49 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
 
 from ..config import Config
 
+
+@dataclass
+class FetchConfig:
+    source_dir: str | None = None
+    from_date: str | None = None
+    to_date: str | None = None
+    country: str | None = None
+    first_level: str | None = None
+    district: str | None = None
+    person_ids: list[int] | None = None
+    item_types: list[int] | None = None
+
 logger = logging.getLogger("vlog.fetch")
 
 
-def fetch(
-    cfg: Config,
-    *,
-    from_date: str | None = None,
-    to_date: str | None = None,
-    country: str | None = None,
-    first_level: str | None = None,
-    district: str | None = None,
-    person_ids: list[int] | None = None,
-    item_types: list[int] | None = None,
-) -> list[dict]:
+def fetch(cfg: Config, fc: FetchConfig) -> list[dict]:
     """Query the Synology Photos API, download all matching items, and build a manifest."""
     cfg.ensure_dirs()
     raw_dir = cfg.media_dir
 
     # Build collect request
     body: dict = {}
-    if from_date:
-        body["from_date"] = from_date
-    if to_date:
-        body["to_date"] = to_date
-    if country:
-        body["country"] = country
-    if first_level:
-        body["first_level"] = first_level
-    if district:
-        body["district"] = district
-    if person_ids:
-        body["person_ids"] = person_ids
-    if item_types:
-        body["item_types"] = item_types
+    if fc.from_date:
+        body["from_date"] = fc.from_date
+    if fc.to_date:
+        body["to_date"] = fc.to_date
+    if fc.country:
+        body["country"] = fc.country
+    if fc.first_level:
+        body["first_level"] = fc.first_level
+    if fc.district:
+        body["district"] = fc.district
+    if fc.person_ids:
+        body["person_ids"] = fc.person_ids
+    if fc.item_types:
+        body["item_types"] = fc.item_types
 
     # Load previous manifest for metadata cache (avoids re-fetching /api/meta per item)
     manifest_path = cfg.manifest_path

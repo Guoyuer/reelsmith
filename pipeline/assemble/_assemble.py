@@ -81,6 +81,18 @@ class RenderReport:
 # ---------------------------------------------------------------------------
 
 @dataclass
+class AssembleConfig:
+    """CLI-facing input configuration for the assemble stage."""
+    w: int
+    h: int
+    fps: int
+    quality: float = 1.0
+    version: int | None = None
+    edl_path: str | None = None
+    skip_broken: bool = False
+
+
+@dataclass
 class AssembleJob:
     """A single assemble run: what to render (edl) + how (ctx) + where (cfg)."""
     cfg: Config
@@ -125,9 +137,7 @@ class AssembleJob:
 # Main assemble entry point
 # ---------------------------------------------------------------------------
 
-def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_broken: bool = False,
-             resolution: tuple[int, int], fps: int,
-             quality: float = 1.0) -> tuple[Path, list[dict]]:
+def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tuple[Path, list[dict]]:
     """Read latest edl_v{N}.json and render the vlog video.
 
     Returns (output_path, validation_issues) where validation_issues is a list
@@ -137,19 +147,20 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     init_heic_dir(cfg.heic_converted_dir)
 
     # Validate render parameters
-    w, h = resolution
+    w, h = ac.w, ac.h
     if w <= 0 or h <= 0:
         raise ValueError(f"Invalid resolution: {w}x{h}")
     if w % 2 != 0 or h % 2 != 0:
         raise ValueError(f"Resolution must be even: {w}x{h}")
-    if fps <= 0 or fps > 120:
-        raise ValueError(f"Invalid fps: {fps}")
-    if quality <= 0 or quality > 5:
-        raise ValueError(f"Invalid quality: {quality}")
+    if ac.fps <= 0 or ac.fps > 120:
+        raise ValueError(f"Invalid fps: {ac.fps}")
+    if ac.quality <= 0 or ac.quality > 5:
+        raise ValueError(f"Invalid quality: {ac.quality}")
 
+    version = ac.version or 0
     if version > 0:
-        edl_path = cfg.edl_path(version)
-        edl = EDL.model_validate_json(edl_path.read_text())
+        edl_file = cfg.edl_path(version)
+        edl = EDL.model_validate_json(edl_file.read_text())
     else:
         edl, version = load_latest_edl(cfg)
 
@@ -170,7 +181,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     logger.info(f"EDL validation passed ({len(edl.all_items())} items, "
          f"{len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s)")
 
-    ctx = init_context(w=w, h=h, fps=fps, quality=quality)
+    ctx = init_context(w=w, h=h, fps=ac.fps, quality=ac.quality)
 
     job = AssembleJob(cfg=cfg, edl=edl, version=version, ctx=ctx)
 
@@ -182,7 +193,7 @@ def assemble(cfg: Config, *, version: int = 1, progress_callback=None, skip_brok
     ffmpeg_log.addHandler(_fh)
 
     try:
-        return _assemble_inner(job, progress_callback=progress_callback, skip_broken=skip_broken)
+        return _assemble_inner(job, progress_callback=progress_callback, skip_broken=ac.skip_broken)
     finally:
         ffmpeg_log.removeHandler(_fh)
         _fh.close()

@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..config import Config
+from ._nas import FetchConfig
 
 logger = logging.getLogger("vlog.fetch_local")
 
@@ -22,11 +23,7 @@ PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
-def fetch_local(
-    cfg: Config,
-    *,
-    source_dir: str,
-) -> list[dict]:
+def fetch_local(cfg: Config, fc: FetchConfig) -> list[dict]:
     """Scan a local folder for photos/videos and build a manifest.
 
     Uses all media files found — no date filtering.
@@ -34,7 +31,7 @@ def fetch_local(
     Points directly to source files (no copying or linking).
     """
     cfg.ensure_dirs()
-    source = Path(source_dir)
+    source = Path(fc.source_dir)
     if not source.is_dir():
         raise FileNotFoundError(f"Source directory not found: {source}")
 

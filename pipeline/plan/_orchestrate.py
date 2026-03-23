@@ -45,6 +45,7 @@ class PlanConfig:
     language: str = "en"
     tz_hours: int | None = None
     model: str | None = None
+    music_file: str | None = None
 
 
 def _plan_visual(
@@ -191,22 +192,16 @@ Candidates by day/location:"""
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def plan(
-    cfg: Config,
-    *,
-    style: str = "upbeat",
-    target_duration: int = 180,
-    focus: str = "",
-    trip_type: str = "family",
-    music_file: str | None = None,
-    language: str = "en",
-    tz_hours: int | None = None,
-    model: str | None = None,
-) -> tuple[EDL, int]:
+def plan(cfg: Config, pc: PlanConfig) -> tuple[EDL, int]:
     """Generate an EDL from preprocessed + analysis data using the visual planner."""
-    if trip_type not in TRIP_TYPES:
-        logger.warning(f"Unknown trip_type '{trip_type}', falling back to 'general'")
-        trip_type = "general"
+    if pc.trip_type not in TRIP_TYPES:
+        logger.warning(f"Unknown trip_type '{pc.trip_type}', falling back to 'general'")
+        pc = PlanConfig(
+            style=pc.style, target_duration=pc.target_duration,
+            focus=pc.focus, trip_type="general",
+            language=pc.language, tz_hours=pc.tz_hours,
+            model=pc.model, music_file=pc.music_file,
+        )
 
     if not os.getenv("GEMINI_API_KEY", ""):
         raise RuntimeError(
@@ -214,18 +209,20 @@ def plan(
             "Get a key at https://ai.google.dev/gemini-api/docs/api-key"
         )
 
-    effective_focus = focus or _default_focus(trip_type)
+    effective_focus = pc.focus or _default_focus(pc.trip_type)
     preprocessed = json.loads(cfg.preprocessed_path.read_text())
     analysis_items = json.loads(cfg.analysis_path.read_text())
     analysis_by_id: dict[str, dict] = {str(a["id"]): a for a in analysis_items}
 
-    logger.info(f"Planning via Gemini with visual input (target {target_duration}s, style={style}, trip_type={trip_type}, lang={language})...")
-    plan_config = PlanConfig(
-        style=style, target_duration=target_duration,
-        focus=effective_focus, trip_type=trip_type,
-        language=language, tz_hours=tz_hours, model=model,
+    logger.info(f"Planning via Gemini with visual input (target {pc.target_duration}s, style={pc.style}, trip_type={pc.trip_type}, lang={pc.language})...")
+    # Use a copy with effective_focus applied so _plan_visual gets the resolved focus
+    visual_pc = PlanConfig(
+        style=pc.style, target_duration=pc.target_duration,
+        focus=effective_focus, trip_type=pc.trip_type,
+        language=pc.language, tz_hours=pc.tz_hours,
+        model=pc.model, music_file=pc.music_file,
     )
-    edl = _plan_visual(cfg, preprocessed, analysis_by_id, plan_config)
+    edl = _plan_visual(cfg, preprocessed, analysis_by_id, visual_pc)
 
     # Post-process: force effect="none" on video items
     for seg in edl.segments:
@@ -234,9 +231,9 @@ def plan(
                 item.effect = "none"
 
     # Set metadata on the EDL
-    edl.trip_type = trip_type
-    edl.style = style
-    edl.language = language
+    edl.trip_type = pc.trip_type
+    edl.style = pc.style
+    edl.language = pc.language
     edl.intro_style = edl.intro_style or "title_card"
     edl.outro_style = edl.outro_style or "fade_title"
     if not edl.date_range:
@@ -244,11 +241,11 @@ def plan(
         edl.date_range = _format_date_range(all_dates) if all_dates else ""
 
     # Store music intent
-    if music_file and music_file != "auto" and Path(music_file).exists():
-        logger.info(f"Attaching music file: {music_file}")
-        edl.music = MusicTrack(file=music_file)
+    if pc.music_file and pc.music_file != "auto" and Path(pc.music_file).exists():
+        logger.info(f"Attaching music file: {pc.music_file}")
+        edl.music = MusicTrack(file=pc.music_file)
         edl.music_mode = "file"
-    elif music_file == "auto":
+    elif pc.music_file == "auto":
         edl.music_mode = "auto"
         logger.info("Music mode: auto (will generate in generate_music step)")
 

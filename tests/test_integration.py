@@ -404,7 +404,7 @@ class TestFullPhotoRender:
     """End-to-end: photos → assemble → verify output."""
 
     def test_three_photo_vlog(self, tmp_path):
-        from pipeline.assemble import assemble
+        from pipeline.assemble import assemble, AssembleConfig
         from pipeline.config import Config
 
         _make_workspace(tmp_path)
@@ -433,9 +433,8 @@ class TestFullPhotoRender:
         (tmp_path / "edl_v1.json").write_text(edl.model_dump_json(indent=2))
 
         cfg = Config.load(str(tmp_path))
-        output_path, issues = assemble(
-            cfg, version=1, resolution=(320, 180), fps=24, quality=0.5,
-        )
+        ac = AssembleConfig(w=320, h=180, fps=24, quality=0.5, version=1)
+        output_path, issues = assemble(cfg, ac)
 
         assert output_path.exists()
         assert output_path.stat().st_size > 1000
@@ -461,7 +460,7 @@ class TestFullPhotoRender:
                 continue
 
     def test_single_photo_no_transition(self, tmp_path):
-        from pipeline.assemble import assemble
+        from pipeline.assemble import assemble, AssembleConfig
         from pipeline.config import Config
 
         _make_workspace(tmp_path)
@@ -481,7 +480,8 @@ class TestFullPhotoRender:
         (tmp_path / "edl_v1.json").write_text(edl.model_dump_json(indent=2))
 
         cfg = Config.load(str(tmp_path))
-        output_path, issues = assemble(cfg, version=1, resolution=(320, 180), fps=24)
+        ac = AssembleConfig(w=320, h=180, fps=24, version=1)
+        output_path, issues = assemble(cfg, ac)
 
         assert output_path.exists()
         errors = [i for i in issues if i["level"] == "error"]
@@ -493,7 +493,7 @@ class TestPhotoVideoMixRender:
     """Photos + video with keep_audio → verify speech audio is preserved."""
 
     def test_video_with_keep_audio(self, tmp_path):
-        from pipeline.assemble import assemble
+        from pipeline.assemble import assemble, AssembleConfig
         from pipeline.config import Config
 
         _make_workspace(tmp_path)
@@ -519,9 +519,8 @@ class TestPhotoVideoMixRender:
         (tmp_path / "edl_v1.json").write_text(edl.model_dump_json(indent=2))
 
         cfg = Config.load(str(tmp_path))
-        output_path, issues = assemble(
-            cfg, version=1, resolution=(320, 180), fps=24, quality=0.5,
-        )
+        ac = AssembleConfig(w=320, h=180, fps=24, quality=0.5, version=1)
+        output_path, issues = assemble(cfg, ac)
 
         assert output_path.exists()
         errors = [i for i in issues if i["level"] == "error"]
