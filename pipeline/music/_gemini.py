@@ -17,7 +17,7 @@ import struct
 import time
 from pathlib import Path
 
-logger = logging.getLogger("vlog.music_gemini")
+logger = logging.getLogger("vlog.music.gemini")
 
 
 def generate_music_gemini(

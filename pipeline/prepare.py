@@ -172,7 +172,7 @@ def prepare(cfg: Config, pc: PrepareConfig | None = None, *,
     # Generate 360p 1fps video previews (cached per video, used by plan stage)
     video_items = [r for r in results if r.get("media_type") == "video"]
     if video_items:
-        _generate_video_previews(video_items, cfg.preview_clips_dir)
+        _generate_video_previews(video_items, cfg.preview_clips_dir, force=pc.force)
 
     return preprocessed
 
@@ -199,21 +199,36 @@ def _has_dense_keyframes(source: Path) -> bool:
                 try:
                     keyframe_times.append(float(parts[0]))
                 except ValueError:
-                    pass
+                    logger.debug("Could not parse keyframe time in %s", local_path, exc_info=True)
         if len(keyframe_times) < 2:
             return False
         avg_interval = (keyframe_times[-1] - keyframe_times[0]) / (len(keyframe_times) - 1)
         return avg_interval <= 2.0
     except Exception:
+        logger.debug("Could not detect keyframe interval for %s", local_path, exc_info=True)
         return False
 
 
-def _generate_video_previews(video_items: list[dict], preview_dir: Path) -> None:
+def _generate_video_previews(video_items: list[dict], preview_dir: Path,
+                             *, force: bool = False) -> None:
     """Generate one full-length preview per video (360p 1fps + audio)."""
     from .parallel import run_parallel
 
     encoder = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "40"]
     max_workers = max(4, (os.cpu_count() or 4) // 2)
+
+    # When force=True, delete all existing previews so they get regenerated
+    if force:
+        deleted = 0
+        for old in preview_dir.glob("preview_*.mp4"):
+            old.unlink()
+            deleted += 1
+        # Also delete mega-preview cache
+        for meta_file in preview_dir.glob("_mega_preview.*"):
+            meta_file.unlink()
+            deleted += 1
+        if deleted:
+            logger.info(f"Force: deleted {deleted} cached preview files")
 
     # Clean orphaned previews
     current_ids = {str(vi["id"]) for vi in video_items}
@@ -429,7 +444,7 @@ def _probe_audio_level(local_path) -> str:
             else:
                 return "loud"
     except (ValueError, json.JSONDecodeError, KeyError):
-        pass
+        logger.debug("Could not parse audio loudness for %s", local_path, exc_info=True)
     return "unknown"
 
 

@@ -12,7 +12,7 @@ from ._encoder import RenderContext
 from ._grouping import partition_into_groups
 from ._timeline import Timeline
 
-logger = logging.getLogger("vlog.concat")
+logger = logging.getLogger("vlog.assemble.concat")
 
 
 def concatenate(clips: list[dict], output_path: Path, *,

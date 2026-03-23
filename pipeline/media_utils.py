@@ -15,7 +15,7 @@ if sys.platform == "win32":
         os.environ["PATH"] = _winget_links + os.pathsep + os.environ.get("PATH", "")
 
 
-_ffmpeg_logger = logging.getLogger("pipeline.ffmpeg")
+_ffmpeg_logger = logging.getLogger("vlog.ffmpeg")
 
 
 def run_subprocess(cmd: list[str], timeout: int = 300, **kwargs) -> subprocess.CompletedProcess:

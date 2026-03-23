@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ..media_utils import run_subprocess
 
-logger = logging.getLogger("vlog.encoder")
+logger = logging.getLogger("vlog.assemble.encoder")
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +118,7 @@ class RenderContext:
             parts = result.stdout.strip().split("x")
             dims = int(parts[0]), int(parts[1])
         except (ValueError, IndexError):
+            logger.debug("Could not probe dimensions for %s", path, exc_info=True)
             dims = 0, 0
         self._dim_cache[key] = dims
         return dims
@@ -140,6 +141,7 @@ class RenderContext:
         try:
             dur = float(result.stdout.strip().split("\n")[0])
         except (ValueError, IndexError):
+            logger.debug("Could not probe duration for %s", path, exc_info=True)
             dur = 0.0
         self._dur_cache[key] = dur
         return dur

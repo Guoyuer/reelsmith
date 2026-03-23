@@ -20,7 +20,7 @@ from ._filters import (
     zoompan_filter,
 )
 
-logger = logging.getLogger("vlog.render")
+logger = logging.getLogger("vlog.assemble.render")
 
 
 def render_photo(item: EditItem, output_path: Path, *,

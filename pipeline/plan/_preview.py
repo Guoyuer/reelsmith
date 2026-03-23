@@ -54,6 +54,7 @@ def _build_visual_chapter_text(
                 local_dt = dt + timedelta(hours=tz_hours)
                 time_str = local_dt.strftime("%H:%M")
             except Exception:
+                logger.debug("Could not parse timestamp %s", taken_iso, exc_info=True)
                 time_str = taken_iso[11:16]
 
         label = f"#{idx:02d}"
@@ -191,7 +192,7 @@ def _concat_previews(
 
 def _build_visual_content_blocks(
     preprocessed: dict, analysis_by_id: dict, cfg: Config,
-    *, tz_hours: int = 0,
+    *, tz_hours: int = 0, force: bool = False,
 ) -> tuple[list, list[tuple[int, float, float]]]:
     """Build multimodal parts: interleaved text + individual photos + mega video preview.
 
@@ -249,6 +250,13 @@ def _build_visual_content_blocks(
         mega_path = preview_dir / "_mega_preview.mp4"
         meta_path = preview_dir / "_mega_preview.json"
 
+        if force:
+            if mega_path.exists():
+                mega_path.unlink()
+            if meta_path.exists():
+                meta_path.unlink()
+            logger.info("Force: deleted cached mega-preview")
+
         cache_key = hashlib.md5(
             str([(n, p.name, d) for n, d, p in video_entries]).encode()
         ).hexdigest()
@@ -258,7 +266,7 @@ def _build_visual_content_blocks(
             try:
                 cached_meta = json.loads(meta_path.read_text())
             except (json.JSONDecodeError, OSError):
-                pass
+                logger.debug("Could not read mega-preview cache %s", meta_path, exc_info=True)
 
         if cached_meta and cached_meta.get("key") == cache_key:
             logger.info(f"Mega-preview cached ({len(video_entries)} videos)")
