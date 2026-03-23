@@ -93,16 +93,17 @@ videos should have keep_audio=true.
    Night chapter → nighttime content only. Garden chapter → garden content only.
    Never dump unrelated leftovers into a chapter just to fill duration.
 
-10. **Repetition control**: Max 2 food/meal scenes in the entire vlog. Max 2 similar
-    landscape/building shots from the same location. If you've already shown a place,
-    move on — the viewer got it.
+10. **Location diversity**: Max 3 items from any single location/scene in the ENTIRE vlog.
+    The viewer gets the idea after 2-3 clips — more feels repetitive. If you have 10 videos
+    from the same waterfall, pick the 2-3 BEST and move on. Spread items across ALL the
+    places visited, not just the most photogenic one.
+    Max 2 food/meal scenes total. Max 2 similar landscape/building shots.
 
 11. **Visual dedup**: Photos/videos showing the same scene from similar angles are duplicates.
-    LOOK at the actual images — if two photos show the same subject, same framing, same people
-    in the same pose, they are duplicates. Pick only the ONE best from each group:
-    - For photos: choose the best composition and facial expression (genuine laugh > polite smile > eyes closed)
-    - For videos: choose the one with the best action, audio, or framing
-    - A segment with 5+ visually similar photos is almost always wrong — vary your selection
+    LOOK at the actual images — if two items show the same subject/framing, pick ONE.
+    - For photos: best composition and expression (genuine laugh > polite smile > eyes closed)
+    - For videos: best action, audio, or framing
+    - A segment with 5+ items from the same place is almost always wrong
 
 12. **Text overlays**: Evocative, not descriptive. Keep rare (3-5 per vlog max).
     BAD: "Day 1 - Marina Bay", "Gardens by the Bay", "Dinner time"
