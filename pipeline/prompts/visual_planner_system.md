@@ -22,8 +22,8 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
   Judge the VISUAL content — composition, emotion, lighting, quality.
 - **Video preview**: One concatenated video with ALL video clips. Each clip has its
   item number (#XX) burned into the top-left corner. Match these to the text metadata.
-  Watch and listen — judge motion quality, framing, and audio content. If you hear
-  family speech, laughter, or reactions — that video is especially valuable.
+  Watch and judge — motion quality, framing, visual content. Audio is a bonus, not
+  the primary selection criterion.
 - **Metadata per item**: who's in the photo, location, local time of day.
   For videos, metadata also includes: resolution, orientation (portrait videos get
   pillarboxed — prefer landscape), fps (≥48fps = slow-mo source, good for playback_speed=0.5),
@@ -58,13 +58,11 @@ videos should have keep_audio=true.
    a slideshow. At least 40% of items MUST be videos. If your EDL has fewer, replace
    some photos with nearby video clips.
 
-4. **keep_audio is critical**: Set keep_audio=true on EVERY video where you hear meaningful
-   sound — family conversation, laughter, reactions, ambient atmosphere (waves, birds,
-   crowd cheering). A vlog without audio feels lifeless. When in doubt, keep the audio.
-   Aim for at least 50% of video clips to have keep_audio=true.
-   Use the audio level metadata: audio=silent → always keep_audio=false.
-   audio=quiet → only keep if you hear speech in the preview.
-   audio=normal or loud → strongly consider keep_audio=true.
+4. **keep_audio**: Set keep_audio=true on videos with clear speech or meaningful sound.
+   audio=silent → keep_audio=false. audio=quiet → false unless clear speech.
+   audio=normal/loud → true if the content is worth hearing.
+   **Select videos primarily for visual quality, not audio.** A beautiful silent clip
+   beats a mediocre clip with speech.
 
 5. **Rhythm**: Alternate photos (2.5-4s, Ken Burns) with video clips (4-8s, real motion).
    Vary pacing — fast cuts for energy, lingering shots for emotion.
