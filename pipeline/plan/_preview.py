@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 
 from ..config import Config
-from ..media_utils import run_subprocess
+from ..media_utils import probe_duration, run_subprocess
 from ._prompts import _secs_to_timestamp
 
 logger = logging.getLogger("vlog.plan")
@@ -202,13 +202,7 @@ def _concat_previews(
 
     # Validate duration
     if output_path.exists():
-        r = run_subprocess(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(output_path)],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        actual_dur = float(r.stdout.strip()) if r.stdout.strip() else 0
+        actual_dur = probe_duration(output_path)
         if abs(actual_dur - offset) > 5:
             raise RuntimeError(f"Mega-preview duration mismatch: expected {offset:.0f}s, got {actual_dur:.0f}s")
 
