@@ -195,6 +195,7 @@ def fill_duration_gap(
     analysis_by_id: dict,
     system_prompt: str,
     model: str | None = None,
+    thinking_level: str = "HIGH",
 ) -> EDL:
     """If EDL is underfilled, ask Gemini to add items. Returns updated EDL."""
     actual_dur = edl.estimated_duration()
@@ -225,7 +226,10 @@ def fill_duration_gap(
         "Return the COMPLETE updated EDL JSON (all segments, all items — "
         "original + new). Keep the same structure and format."
     )
-    model_kwargs = {"model": model} if model else {}
+    model_kwargs: dict = {}
+    if model:
+        model_kwargs["model"] = model
+    model_kwargs["thinking_level"] = thinking_level
     edl_content2 = _gemini_call(
         system_prompt,
         [followup],

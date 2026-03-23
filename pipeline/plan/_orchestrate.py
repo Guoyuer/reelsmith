@@ -44,6 +44,7 @@ class PlanConfig:
     language: str = "en"
     tz_hours: int | None = None
     model: str | None = None
+    thinking_level: str = "HIGH"  # OFF, LOW, HIGH
     music_file: str | None = None
     force: bool = False
 
@@ -170,7 +171,11 @@ Candidates by day/location:"""
     system_prompt = _visual_system_prompt(pc.trip_type, language=pc.language)
     logger.info(f"Sending {len(visual_parts)} parts to Gemini (single pass)...")
 
-    model_kwargs = {"model": pc.model} if pc.model else {}
+    model_kwargs: dict = {}
+    if pc.model:
+        model_kwargs["model"] = pc.model
+    if pc.thinking_level:
+        model_kwargs["thinking_level"] = pc.thinking_level
     edl_content = _gemini_call(system_prompt, visual_parts, label="single pass: plan", **model_kwargs)
 
     logger.info(f"=== [Gemini] EDL RESPONSE ({len(edl_content)} chars) ===")
@@ -185,7 +190,8 @@ Candidates by day/location:"""
     fix_hallucinated_paths(edl, cfg.media_dir)
     validate_trim_points(edl, analysis_by_id)
     deduplicate_items(edl)
-    edl = fill_duration_gap(edl, pc.target_duration, analysis_by_id, system_prompt, model=pc.model)
+    edl = fill_duration_gap(edl, pc.target_duration, analysis_by_id, system_prompt,
+                            model=pc.model, thinking_level=pc.thinking_level)
 
     actual_dur = edl.estimated_duration()
     if actual_dur < pc.target_duration * 0.5:
@@ -226,7 +232,8 @@ def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, i
 
     logger.info(
         f"Planning via Gemini (target {pc.target_duration}s, "
-        f"style={pc.style}, trip_type={pc.trip_type}, lang={pc.language})..."
+        f"style={pc.style}, trip_type={pc.trip_type}, lang={pc.language}, "
+        f"model={pc.model}, thinking={pc.thinking_level})..."
     )
     # Use a copy with effective_focus applied so _plan_visual gets the resolved focus
     visual_pc = PlanConfig(
@@ -237,6 +244,7 @@ def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, i
         language=pc.language,
         tz_hours=pc.tz_hours,
         model=pc.model,
+        thinking_level=pc.thinking_level,
         music_file=pc.music_file,
         force=pc.force,
     )

@@ -481,6 +481,12 @@ _tz_option = click.option(
 )
 _force_option = click.option("--force", is_flag=True, help="Force re-analyze (ignore cached)")
 
+_PLANNING_PRESETS = {
+    "fast": ("gemini-3.1-flash-lite-preview", "LOW"),
+    "balanced": ("gemini-3-flash-preview", "HIGH"),
+    "quality": ("gemini-3-pro-preview", "HIGH"),
+}
+
 _plan_options = [
     click.option("--duration", required=True, type=int, help="Target vlog length in seconds (e.g. 60, 180, 300)"),
     click.option(
@@ -497,9 +503,25 @@ _plan_options = [
     ),
     click.option("--focus", default="", help="Creative direction (e.g. 'family happiness; exotic street food')"),
     click.option("--lang", default="en", type=click.Choice(["en", "cn", "both"]), help="Text language for overlays and chapters"),
-    click.option("--model", default=None, help="Gemini model override (default: gemini-3-flash-preview)"),
+    click.option(
+        "--planning", default="balanced",
+        help="Planning quality: fast (~$0.01), balanced (~$0.05, default), quality (~$0.50), or raw model ID",
+    ),
+    click.option("--model", default=None, hidden=True, help="Gemini model override (power user)"),
     click.option("--music", default="auto", help="auto=Gemini Lyria (default), /path/to/file, none=no music"),
 ]
+
+
+def _resolve_planning(planning: str, model_override: str | None) -> tuple[str, str]:
+    """Resolve planning preset + overrides into (model, thinking_level)."""
+    if planning in _PLANNING_PRESETS:
+        model, thinking = _PLANNING_PRESETS[planning]
+    else:
+        # Treat as raw model ID
+        model, thinking = planning, "HIGH"
+    if model_override:
+        model = model_override
+    return model, thinking
 
 _RESOLUTION_PRESETS = {
     "4k60": (3840, 2160, 60),
@@ -540,7 +562,8 @@ _assemble_options = [
         help="Resolution preset (4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30) or WxHxFPS",
     ),
     click.option(
-        "--quality", default=1.0, type=float, help="Bitrate multiplier: 0.5=smaller, 1.0=YouTube (default), 2.0=master"
+        "--visual-quality", "quality", default=1.0, type=float,
+        help="Visual quality (bitrate multiplier): 0.5=smaller, 1.0=YouTube (default), 2.0=master",
     ),
 ]
 
@@ -652,6 +675,7 @@ def full(
     style,
     focus,
     lang,
+    planning,
     model,
     music,
     resolution,
@@ -662,6 +686,7 @@ def full(
     from pipeline.plan import PlanConfig
     from pipeline.prepare import PrepareConfig
 
+    resolved_model, resolved_thinking = _resolve_planning(planning, model)
     w, h, fps = resolution
     stages = ["fetch", "prepare", "plan"]
     music_file = None if music == "none" else music
@@ -679,7 +704,8 @@ def full(
             focus=focus,
             trip_type=trip_type,
             language=lang,
-            model=model,
+            model=resolved_model,
+            thinking_level=resolved_thinking,
             music_file=music_file,
             tz_hours=tz_hours,
             force=force,
@@ -694,10 +720,11 @@ def full(
 @_apply_options(_plan_options)
 @_tz_option
 @_force_option
-def plan(run_name, duration, trip_type, style, focus, lang, model, music, tz_hours, force):
+def plan(run_name, duration, trip_type, style, focus, lang, planning, model, music, tz_hours, force):
     """Re-plan only (uses cached media + analysis). Run assemble separately to render."""
     from pipeline.plan import PlanConfig
 
+    resolved_model, resolved_thinking = _resolve_planning(planning, model)
     music_file = None if music == "none" else music
     stages = ["plan"]
     if music != "none":
@@ -711,7 +738,8 @@ def plan(run_name, duration, trip_type, style, focus, lang, model, music, tz_hou
             focus=focus,
             trip_type=trip_type,
             language=lang,
-            model=model,
+            model=resolved_model,
+            thinking_level=resolved_thinking,
             music_file=music_file,
             tz_hours=tz_hours,
             force=force,

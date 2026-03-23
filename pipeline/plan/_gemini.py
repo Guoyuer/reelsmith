@@ -20,10 +20,12 @@ def _gemini_call(
     user_parts: list,
     label: str = "",
     model: str = "",
+    thinking_level: str = "HIGH",
 ) -> str:
     """Make a Gemini API call with multimodal content. Returns response text.
 
     *user_parts*: list of strings and/or Part objects (text + images).
+    *thinking_level*: OFF, LOW, or HIGH.
     """
     from google import genai
     from google.genai import types
@@ -126,7 +128,8 @@ def _gemini_call(
             max_output_tokens=32000,
             temperature=0.7,
             media_resolution=types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
-            thinking_config=types.ThinkingConfig(thinking_level="HIGH"),
+            **({"thinking_config": types.ThinkingConfig(thinking_level=thinking_level)}
+               if thinking_level != "OFF" else {}),
         ),
     )
 
