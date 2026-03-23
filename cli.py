@@ -505,7 +505,7 @@ _plan_options = [
     click.option("--lang", default="en", type=click.Choice(["en", "cn", "both"]), help="Text language for overlays and chapters"),
     click.option(
         "--model", required=True,
-        help="fast (flash-lite:low ~$0.01) | balanced (flash:high ~$0.05) | quality (pro:high ~$0.50) | model:thinking",
+        help="fast (3.1-flash-lite:low ~$0.01) | balanced (3-flash:high ~$0.05) | quality (3-pro:high ~$0.50) | model:thinking",
     ),
     click.option("--music", default="auto", help="auto=Gemini Lyria (default), /path/to/file, none=no music"),
 ]
