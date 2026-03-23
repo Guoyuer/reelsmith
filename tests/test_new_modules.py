@@ -240,15 +240,14 @@ class TestPromptLoading:
 
     def test_missing_prompt_file_raises(self, tmp_path):
         from pipeline.plan import _load_json
+        import pipeline.plan._prompts as prompts_mod
         with pytest.raises(FileNotFoundError):
-            # Temporarily override _PROMPTS_DIR to a nonexistent path
-            import pipeline.plan as plan_mod
-            orig = plan_mod._PROMPTS_DIR
+            orig = prompts_mod._PROMPTS_DIR
             try:
-                plan_mod._PROMPTS_DIR = tmp_path / "nonexistent"
+                prompts_mod._PROMPTS_DIR = tmp_path / "nonexistent"
                 _load_json("anything.json")
             finally:
-                plan_mod._PROMPTS_DIR = orig
+                prompts_mod._PROMPTS_DIR = orig
 
 
 

@@ -343,14 +343,8 @@ python -m pytest tests/                           # all tests (255 tests)
 
 ## Key design decisions
 
-- **Single-process CLI** — no external services needed. `pip install -e .` gives a `vlog` command. Each stage caches its output; re-running is fast.
-- **Prepare does all heavy work** — thumbnails, video metadata, audio levels, and 360p previews all generated in prepare. Plan only reads cached files + calls Gemini. Assemble only renders from original sources.
-- **Modular assemble** — split into encoder, filters, render, concat, audio, grouping, parallel modules. assemble.py is pure orchestration.
-- **RenderContext** — per-run state object (encoder detection + ffprobe cache) replaces scattered globals.
-- **Externalized prompts** — Gemini prompts live in `pipeline/prompts/` as .md/.json files, editable without code changes.
-- **Gemini fault tolerance** — fuzzy path matching, trim point clamping, deduplication, duration validation with optional follow-up call.
-- **Post-assemble validation** — 6 automated checks catch issues before manual review.
-- **Shared parallel runner** — `parallel.run_parallel()` with batching and interrupt handling, used by both prepare and assemble.
-- **Content-aware rendering** — cosine-eased Ken Burns for photos, portrait mode (blurred + darkened background), speed ramps, 8 transition types, color grading with per-segment temperature, drop shadow text overlays, hero-photo title cards.
-- **Resolution-tagged caching** — clips and outputs tagged per resolution (`seg00_item00_1080p30.mp4`, `vlog_v1_1080p30.mp4`). Switching resolution doesn't re-render existing clips; different resolutions coexist.
-- **Mega-preview caching** — labeled+concatenated video preview cached with hash key. Re-running plan with different style/focus skips FFmpeg entirely when the same videos are in the same order.
+- **Gemini sees real media, not metadata** — photos sent as actual images (not descriptions), videos sent as watchable previews with audio. Gemini judges visually and aurally, producing far better selections than text-only approaches.
+- **Prepare once, iterate fast** — all heavy processing (thumbnails, video probing, previews) happens in `prepare`. Changing style/focus/duration only re-runs `plan` (a single Gemini API call) without re-processing media.
+- **No external services** — single Python process, no Dagster/Celery/Redis. `pip install -e .` and go.
+- **Externalized creative control** — prompts, narrative rules, and language directives are editable .md/.json files, not buried in code. Trip type personality is a JSON blob, not a code branch.
+- **Resolution as a cache dimension** — clips tagged by resolution (`seg00_item00_1080p30.mp4`). Preview at 1080p30, then render 4k60 without re-encoding the 1080p clips. Both outputs coexist.
