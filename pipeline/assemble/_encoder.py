@@ -112,6 +112,13 @@ class RenderContext:
         return self._encoder_cache[key]
 
     def probe_dimensions(self, path: Path) -> tuple[int, int]:
+        """Return (width, height) accounting for rotation metadata.
+
+        FFmpeg auto-rotates during decode, so a 3840x2160 video with
+        rotation=-90 actually produces 2160x3840 frames.  We must
+        return the *display* dimensions so is_portrait() and scale
+        filters work correctly.
+        """
         key = str(path)
         if key in self._dim_cache:
             return self._dim_cache[key]
@@ -124,17 +131,28 @@ class RenderContext:
                 "v:0",
                 "-show_entries",
                 "stream=width,height",
+                "-show_entries",
+                "stream_side_data=rotation",
                 "-of",
-                "csv=p=0:s=x",
+                "json",
                 str(path),
             ],
             capture_output=True,
             text=True,
         )
         try:
-            parts = result.stdout.strip().split("x")
-            dims = int(parts[0]), int(parts[1])
-        except (ValueError, IndexError):
+            import json
+            data = json.loads(result.stdout)
+            stream = data["streams"][0]
+            w, h = int(stream["width"]), int(stream["height"])
+            # Check rotation in side_data
+            for sd in stream.get("side_data_list", []):
+                rot = abs(int(sd.get("rotation", 0)))
+                if rot in (90, 270):
+                    w, h = h, w
+                    break
+            dims = w, h
+        except (ValueError, IndexError, KeyError):
             logger.debug("Could not probe dimensions for %s", path, exc_info=True)
             dims = 0, 0
         self._dim_cache[key] = dims
