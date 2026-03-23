@@ -2,15 +2,15 @@
 
 ## Completed
 
-- **Merge preprocess + analyze → prepare** — single prepare stage (5 assets instead of 6)
+- **Merge preprocess + analyze → prepare** — single prepare stage (5 stages instead of 6)
 - **A8. Split monolithic assemble.py** — encoder.py, filters.py, render.py, concat.py, audio.py
-- **A5. Integration tests** — 200 tests covering BPM, beat sync, Timeline, xfade, speech, music, e2e render
+- **A5. Integration tests** — 255 tests covering BPM, beat sync, Timeline, xfade, speech, music, e2e render
 - **A2. Remove global state** — RenderContext dataclass replaces 4 scattered globals
 - **A6. Consistent error handling** — ClipStatus/RenderReport with per-clip status tracking
 - **A4. Config pass-through** — render settings (quality) stored in EDL, read by assemble
 - ~~**A1. FFmpeg filter abstraction**~~ — Added then removed. FilterGraph wrapped raw strings in objects without catching real bugs. Deleted.
 - **A3. Shared parallel utility** — parallel.run_parallel() replaces duplicate ThreadPoolExecutor patterns
-- **Issue #2. Gemini fault tolerance** — auto-retry, fuzzy path matching, duration check
+- **Issue #2. Gemini fault tolerance** — fuzzy path matching, trim point clamping, deduplication, duration check
 - **Issue #5. Post-assemble validation** — 6 automated checks (file, duration, streams, codec, sync, resolution)
 - **Issue #7. Externalize prompts** — pipeline/prompts/ with .md/.json files
 - **Remove tier concept** — replaced with family_count, "unknown" label for missing data
