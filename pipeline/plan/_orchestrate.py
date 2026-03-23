@@ -48,6 +48,12 @@ class PlanConfig:
     music_file: str | None = None
     force: bool = False
 
+    def __post_init__(self) -> None:
+        if self.target_duration <= 0:
+            raise ValueError(f"target_duration must be positive: {self.target_duration}")
+        if self.trip_type not in TRIP_TYPES:
+            raise ValueError(f"Unknown trip_type '{self.trip_type}'. Valid: {TRIP_TYPES}")
+
 
 def _plan_visual(
     cfg: Config,
@@ -203,20 +209,6 @@ Candidates by day/location:"""
 
 def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, int]:
     """Generate an EDL from preprocessed + analysis data using the visual planner."""
-    if pc.trip_type not in TRIP_TYPES:
-        logger.warning(f"Unknown trip_type '{pc.trip_type}', falling back to 'general'")
-        pc = PlanConfig(
-            style=pc.style,
-            target_duration=pc.target_duration,
-            focus=pc.focus,
-            trip_type="general",
-            language=pc.language,
-            tz_hours=pc.tz_hours,
-            model=pc.model,
-            music_file=pc.music_file,
-            force=pc.force,
-        )
-
     if not os.getenv("GEMINI_API_KEY", ""):
         raise RuntimeError(
             "GEMINI_API_KEY not set. Add it to .env for visual planning. "

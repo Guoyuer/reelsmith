@@ -139,7 +139,7 @@ class TestFetchDownloadsToMediaDir:
         client = FakeClient()
 
         with patch("pipeline.fetch._nas.httpx.Client", return_value=client):
-            fetch(cfg, FetchConfig())
+            fetch(cfg, FetchConfig(from_date="2025-01-01", to_date="2025-01-07"))
 
         # Files land in media_dir
         files = list(cfg.media_dir.iterdir())
@@ -160,7 +160,7 @@ class TestFetchSkipsCached:
 
         client = FakeClient()
         with patch("pipeline.fetch._nas.httpx.Client", return_value=client):
-            fetch(cfg, FetchConfig())
+            fetch(cfg, FetchConfig(from_date="2025-01-01", to_date="2025-01-07"))
 
         # Only item 11 should have a stream call
         stream_calls = [(m, u) for m, u, _ in client.calls if m == "STREAM"]
@@ -176,7 +176,7 @@ class TestFetchLivePhotoDownloadsVideo:
         client = FakeClient(collect_response=LIVE_PHOTO_RESPONSE)
 
         with patch("pipeline.fetch._nas.httpx.Client", return_value=client):
-            manifest = fetch(cfg, FetchConfig())
+            manifest = fetch(cfg, FetchConfig(from_date="2025-01-01", to_date="2025-01-07"))
 
         # Should have two STREAM calls: one for the photo, one for the video
         stream_calls = [(m, u, p) for m, u, p in client.calls if m == "STREAM"]
@@ -197,7 +197,7 @@ class TestFetchWritesManifest:
         client = FakeClient()
 
         with patch("pipeline.fetch._nas.httpx.Client", return_value=client):
-            fetch(cfg, FetchConfig())
+            fetch(cfg, FetchConfig(from_date="2025-01-01", to_date="2025-01-07"))
 
         manifest_path = cfg.manifest_path
         assert manifest_path.exists()
@@ -212,7 +212,7 @@ class TestFetchManifestHasLocalPath:
         client = FakeClient()
 
         with patch("pipeline.fetch._nas.httpx.Client", return_value=client):
-            manifest = fetch(cfg, FetchConfig())
+            manifest = fetch(cfg, FetchConfig(from_date="2025-01-01", to_date="2025-01-07"))
 
         for entry in manifest:
             assert "local_path" in entry
@@ -227,7 +227,7 @@ class TestFetchHandlesMetaFailure:
         client = FakeClient(meta_status=500)
 
         with patch("pipeline.fetch._nas.httpx.Client", return_value=client):
-            manifest = fetch(cfg, FetchConfig())
+            manifest = fetch(cfg, FetchConfig(from_date="2025-01-01", to_date="2025-01-07"))
 
         # metadata should be empty dict for all entries
         for entry in manifest:

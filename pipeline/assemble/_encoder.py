@@ -90,6 +90,14 @@ class RenderContext:
     fps: int
     quality: float = 1.0
     _encoder_cache: dict[tuple, list[str]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.w <= 0 or self.h <= 0:
+            raise ValueError(f"Invalid resolution: {self.w}x{self.h}")
+        if self.w % 2 != 0 or self.h % 2 != 0:
+            raise ValueError(f"Resolution must be even: {self.w}x{self.h}")
+        if self.fps <= 0 or self.fps > 120:
+            raise ValueError(f"Invalid fps: {self.fps}")
     _dim_cache: dict[str, tuple[int, int]] = field(default_factory=dict)
     _dur_cache: dict[str, float] = field(default_factory=dict)
 

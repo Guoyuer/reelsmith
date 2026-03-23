@@ -90,6 +90,16 @@ class AssembleConfig:
     edl_path: str | None = None
     skip_broken: bool = False
 
+    def __post_init__(self) -> None:
+        if self.w <= 0 or self.h <= 0:
+            raise ValueError(f"Invalid resolution: {self.w}x{self.h}")
+        if self.w % 2 != 0 or self.h % 2 != 0:
+            raise ValueError(f"Resolution must be even: {self.w}x{self.h}")
+        if self.fps <= 0 or self.fps > 120:
+            raise ValueError(f"Invalid fps: {self.fps}")
+        if self.quality <= 0 or self.quality > 5:
+            raise ValueError(f"Invalid quality: {self.quality}")
+
 
 @dataclass
 class AssembleJob:
@@ -147,17 +157,7 @@ def assemble(cfg: Config, ac: AssembleConfig, *, progress_callback=None) -> tupl
     cfg.ensure_dirs()
     init_heic_dir(cfg.heic_converted_dir)
 
-    # Validate render parameters
     w, h = ac.w, ac.h
-    if w <= 0 or h <= 0:
-        raise ValueError(f"Invalid resolution: {w}x{h}")
-    if w % 2 != 0 or h % 2 != 0:
-        raise ValueError(f"Resolution must be even: {w}x{h}")
-    if ac.fps <= 0 or ac.fps > 120:
-        raise ValueError(f"Invalid fps: {ac.fps}")
-    if ac.quality <= 0 or ac.quality > 5:
-        raise ValueError(f"Invalid quality: {ac.quality}")
-
     version = ac.version or 0
     if version > 0:
         edl_file = cfg.edl_path(version)

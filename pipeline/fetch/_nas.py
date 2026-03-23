@@ -23,6 +23,10 @@ class FetchConfig:
     person_ids: list[int] | None = None
     item_types: list[int] | None = None
 
+    def __post_init__(self) -> None:
+        if not self.source_dir and not (self.from_date and self.to_date):
+            raise ValueError("FetchConfig requires either source_dir (local) or from_date+to_date (NAS)")
+
 
 logger = logging.getLogger("vlog.fetch.nas")
 
