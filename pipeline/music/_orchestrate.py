@@ -198,7 +198,7 @@ def generate_music_for_edl(cfg, *, progress_callback=None) -> Path | None:
         else:
             logger.warning("    FAILED — segment will be silent")
         if progress_callback:
-            progress_callback(i + 1, len(edl.segments), seg.name)
+            progress_callback(0, 0, f"{seg.name} ({i + 1}/{len(edl.segments)})")
 
     if not segment_tracks:
         logger.warning("No music generated for any segment")
