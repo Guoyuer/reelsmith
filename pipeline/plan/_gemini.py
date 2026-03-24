@@ -185,7 +185,25 @@ def _gemini_call(
             if getattr(part, "thought", False) and part.text:
                 logger.info(f"  [Thinking] {len(part.text)} chars")
                 for line in part.text.split("\n"):
-                    logger.debug(f"  💭 {line}")
+                    logger.debug(f"  \U0001f4ad {line}")
+                # Rich Markdown to terminal
+                try:
+                    import sys
+
+                    if sys.stderr.isatty():
+                        from rich.console import Console
+                        from rich.markdown import Markdown
+                        from rich.panel import Panel
+
+                        Console(stderr=True).print(
+                            Panel(
+                                Markdown(part.text),
+                                title="\U0001f4ad Thinking",
+                                border_style="dim",
+                            )
+                        )
+                except ImportError:
+                    pass
             if getattr(part, "executable_code", None):
                 ec = part.executable_code  # type: ignore[union-attr]
                 code = ec.code or "" if ec else ""
@@ -228,6 +246,46 @@ def _gemini_call(
     )
     logger.info(f"  Output: {len(content)} chars")
     logger.info(f"=== [Gemini] End {label} ===")
+
+    # Rich cost breakdown table to terminal
+    try:
+        import sys
+
+        if sys.stderr.isatty():
+            from rich.console import Console
+            from rich.table import Table
+
+            t = Table(
+                title=f"Gemini API \u2014 {label}",
+                border_style="dim",
+                title_style="bold",
+            )
+            t.add_column("", style="dim")
+            t.add_column("Tokens", justify="right")
+            t.add_column("Rate", justify="right")
+            t.add_column("Cost", justify="right")
+            t.add_row(
+                "Input",
+                f"{input_tokens:,}",
+                f"${in_rate}/M",
+                f"${input_tokens * in_rate / 1e6:.3f}",
+            )
+            t.add_row(
+                "Output",
+                f"{output_tokens:,}",
+                f"${out_rate}/M",
+                f"${output_tokens * out_rate / 1e6:.3f}",
+            )
+            t.add_section()
+            t.add_row(
+                "[bold]Total",
+                f"[bold]{input_tokens + output_tokens:,}",
+                f"[dim]{elapsed:.0f}s",
+                f"[bold]${cost_est:.3f}",
+            )
+            Console(stderr=True).print(t)
+    except ImportError:
+        pass
 
     # Report cost via callback metadata
     if progress_callback:

@@ -201,6 +201,36 @@ def prepare(
             progress_callback(i, len(uncached_videos), "video probe")
         _prepare_video(entry, item_id, local_path, cache_file, i, len(uncached_videos))
 
+    # Rich video probe summary table
+    try:
+        import sys
+
+        if sys.stderr.isatty() and uncached_videos:
+            from rich.console import Console
+            from rich.table import Table
+
+            t = Table(
+                title=f"Video Probe ({len(uncached_videos)} new)",
+                border_style="dim",
+                show_lines=False,
+            )
+            t.add_column("File", max_width=35)
+            t.add_column("Duration", justify="right")
+            t.add_column("Resolution")
+            t.add_column("FPS", justify="right")
+            for entry, _, _, _ in uncached_videos[:20]:
+                t.add_row(
+                    entry["filename"][:35],
+                    f"{entry.get('video_duration', 0):.0f}s",
+                    f"{entry.get('video_width', '?')}x{entry.get('video_height', '?')}",
+                    f"{entry.get('video_fps', '?')}",
+                )
+            if len(uncached_videos) > 20:
+                t.add_row(f"... +{len(uncached_videos) - 20} more", "", "", "")
+            Console(stderr=True).print(t)
+    except ImportError:
+        pass
+
     n_photos = sum(
         1
         for item in manifest
