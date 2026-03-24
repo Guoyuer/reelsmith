@@ -416,55 +416,23 @@ def _run_prepare(pc: _PipelineContext):
     _check_interrupted(pc.display, pc.logger)
     pc.display.start("prepare")
     t0 = time.monotonic()
-    analysis_path = pc.cfg.analysis_path
-    manifest_path = pc.cfg.manifest_path
-    prep = pc.prepare
 
-    stale = (
-        manifest_path.exists()
-        and analysis_path.exists()
-        and manifest_path.stat().st_mtime > analysis_path.stat().st_mtime
+    from pipeline.prepare import load_analysis, prepare
+
+    prepare(
+        pc.cfg,
+        pc.prepare,
+        progress_callback=_progress_cb(pc.logger, pc.display, "prepare", t0),
     )
-    if stale:
-        pc.log("Manifest is newer \u2014 re-preparing")
+    dur = time.monotonic() - t0
 
-    # Check for incomplete prepare (e.g. interrupted mid-run)
-    incomplete = False
-    if not stale and analysis_path.exists() and manifest_path.exists():
-        n_manifest = len(json.loads(manifest_path.read_text()))
-        n_analysis = len(json.loads(analysis_path.read_text()))
-        if n_analysis < n_manifest:
-            incomplete = True
-            pc.log(
-                f"Prepare incomplete ({n_analysis}/{n_manifest} items) \u2014 resuming"
-            )
-
-    if not prep.force and not stale and not incomplete and analysis_path.exists():
-        results = json.loads(analysis_path.read_text())
-        n_photos = sum(1 for r in results if r.get("media_type") == "photo")
-        n_videos = len(results) - n_photos
-        dur = time.monotonic() - t0
-        pc.log(
-            f"Prepare: {len(results)} items ({n_photos} photos, {n_videos} videos) \u2014 cached"
-        )
-        pc.display.done("prepare", f"{n_photos} photos, {n_videos} videos", dur)
-    else:
-        from pipeline.prepare import prepare
-
-        prepare(
-            pc.cfg,
-            prep,
-            progress_callback=_progress_cb(pc.logger, pc.display, "prepare", t0),
-        )
-        dur = time.monotonic() - t0
-        pc.log(f"Prepare: done in {dur:.0f}s")
-        if analysis_path.exists():
-            results = json.loads(analysis_path.read_text())
-            n_photos = sum(1 for r in results if r.get("media_type") == "photo")
-            n_videos = len(results) - n_photos
-            pc.display.done("prepare", f"{n_photos} photos, {n_videos} videos", dur)
-        else:
-            pc.display.done("prepare", "done", dur)
+    results = load_analysis(pc.cfg)
+    n_photos = sum(1 for r in results if r.get("media_type") == "photo")
+    n_videos = len(results) - n_photos
+    pc.log(
+        f"Prepare: {len(results)} items ({n_photos} photos, {n_videos} videos) in {dur:.0f}s"
+    )
+    pc.display.done("prepare", f"{n_photos} photos, {n_videos} videos", dur)
 
 
 def _run_plan(pc: _PipelineContext):

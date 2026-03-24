@@ -13,7 +13,6 @@ from click.testing import CliRunner
 
 from cli import _PLANNING_PRESETS, _RESOLUTION_PRESETS, _resolve_planning, cli
 
-
 # ---------------------------------------------------------------------------
 # _resolve_planning unit tests
 # ---------------------------------------------------------------------------
@@ -101,19 +100,27 @@ class TestFullCommandWiring:
         """Run 'full' command with minimal required args, capturing the _run_pipeline call."""
         base_args = [
             "full",
-            "-n", "test-run",
-            "-s", "local",
-            "-p", ".",
-            "--duration", "60",
-            "--model", "balanced",
-            "-r", "1080p30",
+            "-n",
+            "test-run",
+            "-s",
+            "local",
+            "-p",
+            ".",
+            "--duration",
+            "60",
+            "--model",
+            "balanced",
+            "-r",
+            "1080p30",
         ]
         if extra_args:
             base_args.extend(extra_args)
 
         captured = {}
 
-        def mock_pipeline(run_name, *, stages, fetch=None, prepare=None, plan=None, assemble=None):
+        def mock_pipeline(
+            run_name, *, stages, fetch=None, prepare=None, plan=None, assemble=None
+        ):
             captured["run_name"] = run_name
             captured["stages"] = stages
             captured["fetch"] = fetch
@@ -147,13 +154,21 @@ class TestFullCommandWiring:
         assert c["plan"].thinking_level == "MEDIUM"
 
     def test_plan_config_fields(self, runner):
-        c = self._run_full(runner, [
-            "--trip-type", "solo",
-            "--style", "cinematic",
-            "--focus", "temples",
-            "--lang", "cn",
-            "--duration", "180",
-        ])
+        c = self._run_full(
+            runner,
+            [
+                "--trip-type",
+                "solo",
+                "--style",
+                "cinematic",
+                "--focus",
+                "temples",
+                "--lang",
+                "cn",
+                "--duration",
+                "180",
+            ],
+        )
         assert c["plan"].trip_type == "solo"
         assert c["plan"].style == "cinematic"
         assert c["plan"].focus == "temples"
@@ -216,9 +231,19 @@ class TestPlanCommandWiring:
             captured["stages"] = stages
 
         with patch("cli._run_pipeline", side_effect=mock_pipeline):
-            result = runner.invoke(cli, [
-                "plan", "-n", "test", "--duration", "120", "--model", "fast",
-            ], catch_exceptions=False)
+            result = runner.invoke(
+                cli,
+                [
+                    "plan",
+                    "-n",
+                    "test",
+                    "--duration",
+                    "120",
+                    "--model",
+                    "fast",
+                ],
+                catch_exceptions=False,
+            )
         assert result.exit_code == 0, result.output
         assert captured["plan"].model == "gemini-3.1-flash-lite-preview"
         assert captured["plan"].thinking_level == "LOW"
@@ -244,9 +269,17 @@ class TestAssembleCommandWiring:
             captured.update(kwargs)
 
         with patch("cli._run_pipeline", side_effect=mock_pipeline):
-            result = runner.invoke(cli, [
-                "assemble", "-n", "test", "-r", "720p30",
-            ], catch_exceptions=False)
+            result = runner.invoke(
+                cli,
+                [
+                    "assemble",
+                    "-n",
+                    "test",
+                    "-r",
+                    "720p30",
+                ],
+                catch_exceptions=False,
+            )
         assert result.exit_code == 0, result.output
         assert captured["assemble"].w == 1280
         assert captured["assemble"].h == 720
@@ -260,9 +293,19 @@ class TestAssembleCommandWiring:
             captured.update(kwargs)
 
         with patch("cli._run_pipeline", side_effect=mock_pipeline):
-            result = runner.invoke(cli, [
-                "assemble", "-n", "test", "-r", "4k60", "--bitrate", "1.5",
-            ], catch_exceptions=False)
+            result = runner.invoke(
+                cli,
+                [
+                    "assemble",
+                    "-n",
+                    "test",
+                    "-r",
+                    "4k60",
+                    "--bitrate",
+                    "1.5",
+                ],
+                catch_exceptions=False,
+            )
         assert result.exit_code == 0, result.output
         assert captured["assemble"].quality == 1.5
 
@@ -278,29 +321,156 @@ class TestRequiredParams:
         return CliRunner()
 
     def test_full_missing_name(self, runner):
-        result = runner.invoke(cli, ["full", "-s", "local", "-p", ".", "--duration", "60", "--model", "fast", "-r", "720p30"])
+        result = runner.invoke(
+            cli,
+            [
+                "full",
+                "-s",
+                "local",
+                "-p",
+                ".",
+                "--duration",
+                "60",
+                "--model",
+                "fast",
+                "-r",
+                "720p30",
+            ],
+        )
         assert result.exit_code != 0
 
     def test_full_missing_source(self, runner):
-        result = runner.invoke(cli, ["full", "-n", "t", "--duration", "60", "--model", "fast", "-r", "720p30"])
+        result = runner.invoke(
+            cli,
+            ["full", "-n", "t", "--duration", "60", "--model", "fast", "-r", "720p30"],
+        )
         assert result.exit_code != 0
 
     def test_full_missing_duration(self, runner):
-        result = runner.invoke(cli, ["full", "-n", "t", "-s", "local", "-p", ".", "--model", "fast", "-r", "720p30"])
+        result = runner.invoke(
+            cli,
+            [
+                "full",
+                "-n",
+                "t",
+                "-s",
+                "local",
+                "-p",
+                ".",
+                "--model",
+                "fast",
+                "-r",
+                "720p30",
+            ],
+        )
         assert result.exit_code != 0
 
     def test_full_missing_model(self, runner):
-        result = runner.invoke(cli, ["full", "-n", "t", "-s", "local", "-p", ".", "--duration", "60", "-r", "720p30"])
+        result = runner.invoke(
+            cli,
+            [
+                "full",
+                "-n",
+                "t",
+                "-s",
+                "local",
+                "-p",
+                ".",
+                "--duration",
+                "60",
+                "-r",
+                "720p30",
+            ],
+        )
         assert result.exit_code != 0
 
     def test_full_missing_resolution(self, runner):
-        result = runner.invoke(cli, ["full", "-n", "t", "-s", "local", "-p", ".", "--duration", "60", "--model", "fast"])
+        result = runner.invoke(
+            cli,
+            [
+                "full",
+                "-n",
+                "t",
+                "-s",
+                "local",
+                "-p",
+                ".",
+                "--duration",
+                "60",
+                "--model",
+                "fast",
+            ],
+        )
         assert result.exit_code != 0
 
     def test_full_local_missing_path(self, runner):
         """--source local without --path should fail."""
         with patch("cli._run_pipeline"):
-            result = runner.invoke(cli, [
-                "full", "-n", "t", "-s", "local", "--duration", "60", "--model", "fast", "-r", "720p30",
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "full",
+                    "-n",
+                    "t",
+                    "-s",
+                    "local",
+                    "--duration",
+                    "60",
+                    "--model",
+                    "fast",
+                    "-r",
+                    "720p30",
+                ],
+            )
         assert result.exit_code != 0
+
+
+class TestRunPrepareNoAnalysisPath:
+    """Verify _run_prepare doesn't use removed Config.analysis_path."""
+
+    def test_cached_prepare_uses_load_analysis(self, tmp_path):
+        """_run_prepare should use load_analysis(), not cfg.analysis_path."""
+        from unittest.mock import MagicMock
+
+        from pipeline.config import Config
+        from pipeline.prepare import PrepareConfig
+
+        cfg = Config(workspace=tmp_path)
+        cfg.ensure_dirs()
+
+        # Config must NOT have analysis_path
+        assert not hasattr(cfg, "analysis_path"), "Config still has analysis_path"
+
+        # Create manifest + per-item cache so prepare can detect cached state
+        import json
+
+        manifest = [
+            {
+                "id": 1,
+                "filename": "p.jpg",
+                "local_path": str(tmp_path / "p.jpg"),
+                "metadata": {"persons": []},
+                "taken_iso": "2025-01-01T00:00:00",
+                "takentime": 1700000000,
+            }
+        ]
+        cfg.manifest_path.write_text(json.dumps(manifest))
+        cfg.cache_dir.mkdir(parents=True, exist_ok=True)
+        (cfg.cache_dir / "1.json").write_text(json.dumps({"thumbnail_path": "/t.jpg"}))
+        cfg.preprocessed_path.write_text(
+            json.dumps({"family_names": [], "timeline": []})
+        )
+
+        # Build a minimal _PipelineContext
+        from cli import _PipelineDisplay, _run_prepare
+
+        display = MagicMock(spec=_PipelineDisplay)
+        pc = MagicMock()
+        pc.cfg = cfg
+        pc.prepare = PrepareConfig()
+        pc.display = display
+        pc.logger = MagicMock()
+        pc.log = MagicMock()
+
+        # Should not raise AttributeError
+        _run_prepare(pc)
