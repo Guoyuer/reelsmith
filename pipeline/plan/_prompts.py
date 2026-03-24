@@ -79,12 +79,12 @@ def _secs_to_timestamp(secs: float) -> str:
 
 
 def _timestamp_to_secs(ts: str) -> float:
-    """Parse MM:SS or H:MM:SS timestamp to seconds."""
+    """Parse MM:SS or H:MM:SS timestamp to seconds (supports fractional seconds)."""
     parts = ts.strip().split(":")
     if len(parts) == 2:
-        return int(parts[0]) * 60 + int(parts[1])
+        return int(parts[0]) * 60 + float(parts[1])
     elif len(parts) == 3:
-        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
     return 0.0
 
 
