@@ -278,9 +278,10 @@ def _setup_logging(
         console = RichHandler(
             console=display._live.console,
             show_path=False,
-            show_level=False,
+            show_level=True,
             markup=False,
-            rich_tracebacks=False,
+            rich_tracebacks=True,
+            log_time_format="%H:%M:%S",
         )
         console.setLevel(logging.INFO)
         console.setFormatter(logging.Formatter("%(message)s"))
