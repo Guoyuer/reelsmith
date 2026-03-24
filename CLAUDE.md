@@ -131,7 +131,7 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 - Music overlay: `amix=inputs=2:duration=first:weights=3 1`
   - **STATIC ducking** — music is at ~25% volume for the ENTIRE keep_audio clip, not dynamically per-word
   - This means tight trim windows = less music suppression = better pacing
-  - music_duck_ratio in EDL controls the weight balance
+  - `music_duck_ratio` field exists in EDL but is NOT used — weights are hardcoded
 
 **Phase 3: Beat sync** (`_audio.py`)
 - Aligns transitions to music beats (autocorrelation BPM detection)
@@ -160,7 +160,7 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 | plan | effect field (videos) | _orchestrate.py | Force-overwritten to "none" — prompt should not ask for video effects |
 | plan | display_duration | postprocess | Auto-corrected from trim+speed — Gemini's value is advisory |
 | plan | music_mood | generate_music | Sent directly to Lyria as text prompt |
-| plan | music_duck_ratio | assemble amix | Controls static weight balance in amix filter |
+| plan | music_duck_ratio | assemble amix | EDL field exists but NOT used by renderer — amix weights are hardcoded `3 1` |
 | assemble | segment .ts files | concat | Demuxer concat, no re-encode |
 | assemble | has_speech flag | beat sync | Segments with speech skip beat alignment |
 
@@ -174,8 +174,7 @@ Rendering modules (primarily assemble, `parallel.py` also used by plan):
 | `encoder.py` | RenderContext, GPU encoder detection, bitrate calculation, ffprobe caching |
 | `filters.py` | Color grade, text overlay (drawtext), portrait photo filter, font detection |
 | `render.py` | render_photo, render_video, render_title_card |
-| `grouping.py` | Group splitting (MAX_GROUP=10) for xfade reliability |
-| `concat.py` | Xfade concatenation, demuxer fallback |
+| `_graph.py` | FFmpeg filter graph builder: per-item video/audio chains, concat |
 | `audio.py` | BPM estimation, beat sync, speech track, music mixing, chapter markers |
 | `parallel.py` | Shared batched ThreadPoolExecutor runner (used by plan.py and assemble.py) |
 
@@ -194,7 +193,7 @@ deduplication, duration check with optional follow-up Gemini call to fill gaps.
 
 | Input | What Gemini does |
 |-------|-----------------|
-| Individual photos (400px thumbnails, inline) + 1 concatenated video preview (360p 1fps with #XX labels, Files API) + per-item metadata | Design narrative arc → select items → assign music_mood/keep_audio/playback_speed/transitions/color_temp → self-review |
+| Individual photos (400px thumbnails, inline) + 1 concatenated video preview (480p 1fps with audio, #XX labels, Files API) + per-item metadata | Design narrative arc → select items → assign music_mood/keep_audio/playback_speed/transitions/color_temp → self-review |
 
 Model: `gemini-3-flash-preview` (default, override via `VLOG_MODEL` env var or `--model` flag).
 
@@ -203,7 +202,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 ## What Gemini controls (e2e)
 
 - **Photo/video selection** — Gemini sees actual photos (400px thumbnails inline), judges visually
-- **Video clips with audio** — Gemini watches 1 concatenated 360p 1fps preview (all videos stitched together with offset table), judges motion/framing/speech
+- **Video clips with audio** — Gemini watches 1 concatenated 480p 1fps preview with audio (all videos stitched together with offset table), judges motion/framing/speech
 - **keep_audio** — Gemini sets `keep_audio=true` on videos where it hears meaningful speech/laughter
 - **Chapter structure** — narrative chapters by story beat, not location/time buckets
 - **Video trim points** — `start_time`/`end_time` for selecting best moments from video clips
@@ -211,7 +210,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - **Music mood** — per-segment descriptions fed to Lyria RealTime prompt
 - **Text overlays** — evocative titles, not just "Day 1 - Marina Bay"
 - **Pacing** — display_duration per item, effect choices
-- **Transitions** — 8 xfade types (crossfade, dissolve, smoothleft, smoothright, circlecrop, fade_black, wipe_left, fadewhite); separate intra-segment and inter-segment transition fields
+- **Transitions** — transition type field stored in EDL but renderer uses opacity fades only; **transition_duration** is the actual creative lever (controls fade length)
 - **Montage mode** — segment `mode: "montage"` for quick-cut energy bursts
 - **Color temperature** — per-segment `color_temp` (warm/cool/neutral)
 
@@ -223,7 +222,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - **Thumbnail/keyframe generation** — Pillow resize, FFmpeg extraction
 - **Codec** — HEVC (hevc_nvenc/hevc_videotoolbox) on GPU, H.264 (libx264) on CPU; auto-detected
 - **Bitrate** — HEVC at 65% of H.264 YouTube rates with `--quality` multiplier
-- **Audio ducking** — STATIC: `amix=weights=3 1` drops music to ~25% for the ENTIRE keep_audio clip (not dynamic per-word). `music_duck_ratio` in EDL controls weight balance. Tight trims = less music suppression.
+- **Audio ducking** — STATIC: `amix=weights=3 1` drops music to ~25% for the ENTIRE keep_audio clip (not dynamic per-word). `music_duck_ratio` field exists in EDL but is NOT read by renderer. Tight trims = less music suppression.
 - **Color grading** — subtle contrast/saturation boost, temperature shift per segment
 - **YouTube chapter markers** — timestamps from EDL segment boundaries
 - **Text overlays** — baked into clips during render (single FFmpeg pass, no separate overlay step)
@@ -239,7 +238,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 
 ## Key gotchas
 
-- Photos sent to Gemini as individual 400px thumbnails inline. Videos as 1 concatenated mega-preview via Files API. Inline base64 limit is 100MB (~75MB raw).
+- Photos sent to Gemini as individual 400px thumbnails inline. Videos as 1 concatenated 480p 1fps mega-preview with audio via Files API. Inline base64 limit is 100MB (~75MB raw).
 - Preview generation uses `-hwaccel auto`; `-skip_frame nokey` (~22x speedup) only when keyframe interval ≤2s, otherwise full decode
 - Photo thumbnails cached in `workspace/thumbnails/`, video analysis cached in `workspace/analysis_cache/`
 - Preview clips cached in `workspace/preview_clips/` — orphaned files from old runs auto-cleaned

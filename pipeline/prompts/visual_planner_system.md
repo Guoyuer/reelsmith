@@ -153,15 +153,14 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
 - playback_speed: 1.0 = normal (default). Use 0.5 SPARINGLY for dramatic slow-mo moments
   (a jump, a splash, a reaction) — especially effective on ≥48fps source videos.
   Use 1.5 for transitional walking/travel clips. Most clips = 1.0.
-- Transitions — two fields:
-  **Intra-segment** (transition field) — between items WITHIN a chapter:
-  crossfade (video↔video), dissolve (slow/emotional), fade_black (photo↔photo REQUIRED,
-  also time jumps), smoothleft/smoothright (travel energy), circlecrop (1x max, playful),
-  wipe_left (similar compositions), fadewhite (from bright scenes).
-  **Inter-segment** (segment_transition field) — how each chapter OPENS:
-  fade_black (default, scene changes), dissolve (same emotional thread), fadewhite
-  (bright/morning), cut (montage/shock only).
-  Vary both across the vlog — don't repeat the same transition everywhere.
+- Transitions — two fields controlling fade-in/fade-out opacity between clips:
+  **transition** + **transition_duration** (intra-segment): controls fades between items
+  WITHIN a chapter. Set transition_duration (0.3-0.8s) to control how long the crossfade
+  lasts. Use "cut" with duration 0 for hard cuts (no fade).
+  **segment_transition** + **segment_transition_duration** (inter-segment): controls how
+  each chapter OPENS (fade from previous chapter). Use longer durations (0.8-1.5s) for
+  major scene changes, shorter (0.3-0.5s) for continuity.
+  The renderer applies opacity fades — transition_duration is the creative lever.
 - mode: "narrative" (default) or "montage" — use montage for 1 energy burst segment max.
   Montage = rapid 1-2s cuts with transition="cut" and transition_duration ≤ 0.2s.
   Place before a calm narrative segment for contrast. Aim for 3-6 items per segment.
@@ -183,19 +182,16 @@ Portrait photos get dark blurred sidebars (pillarbox). A subtle sharpening pass 
 keep_audio=true → original audio at full volume. keep_audio=false → completely silent.
 If you want ambient sound from a video, you MUST set keep_audio=true.
 
-**Transitions**: crossfade = opacity blend (looks good for video↔video, but causes visible
-ghosting between two photos — always use fade_black for photo↔photo pairs).
-As a safety net, photo↔photo crossfades are auto-converted to fade_black by the renderer.
-segment_transition controls how each chapter begins (transition from previous chapter).
+**Transitions**: All transitions are rendered as opacity fades (fade-out on clip A,
+fade-in on clip B). transition_duration controls the blend length — longer = smoother.
+Use "cut" with duration 0 for hard cuts (no blend).
 
 **Audio**: Background music generated per-segment from your music_mood. During the ENTIRE
-duration of a keep_audio clip, music volume drops to music_duck_ratio (default 0.3 = 30%).
-This is a static drop for the whole clip, not dynamic per-word — so **tight trims matter**:
-a 6s trim around speech means 6s of quieter music, then full music resumes. A sloppy 15s
-trim means 15s of suppressed music and worse pacing. Trim keep_audio clips as tightly as
-possible around the speech/reaction moment.
-Set music_duck_ratio lower (e.g. 0.15) for intimate dialogue, higher (e.g. 0.5) if the
-speech is loud. Non-keep_audio clips get music at full volume.
+duration of a keep_audio clip, music volume is reduced to ~25% (static mix, not dynamic
+per-word). This means **tight trims matter**: a 6s trim around speech means 6s of quieter
+music, then full music resumes. A sloppy 15s trim means 15s of suppressed music and worse
+pacing. Trim keep_audio clips as tightly as possible around the speech/reaction moment.
+Non-keep_audio clips get music at full volume.
 
 **Text**: font_size is scaled relative to output resolution. White text with dark border.
 
@@ -213,7 +209,6 @@ Think step-by-step, then output valid JSON only.
   "target_duration": 120,
   "intro_duration": 3.0,
   "outro_duration": 3.0,
-  "music_duck_ratio": 0.3,
   "segments": [
     {{
       "name": "The Road Up",
@@ -267,7 +262,7 @@ Think step-by-step, then output valid JSON only.
       "music_mood": "swelling strings with warm piano, triumphant but intimate, golden hour glow",
       "mode": "narrative",
       "color_temp": "warm",
-      "segment_transition": "dissolve",
+      "segment_transition": "fade_black",
       "segment_transition_duration": 1.2,
       "items": [
         {{
@@ -306,7 +301,6 @@ Think step-by-step, then output valid JSON only.
   "target_duration": <seconds>,
   "intro_duration": 3.0 (1-8s, how long the title card lingers),
   "outro_duration": 3.0 (1-8s, how long the closing card lingers),
-  "music_duck_ratio": 0.3 (0.0-1.0, during speech music volume *= this; lower=quieter music behind dialogue),
   "segments": [
     {{
       "name": "Chapter Name",
@@ -314,8 +308,8 @@ Think step-by-step, then output valid JSON only.
       "music_mood": "natural language music description for this segment",
       "mode": "narrative|montage",
       "color_temp": "neutral|warm|cool",
-      "segment_transition": "fade_black (default)|crossfade|dissolve|cut|fadewhite",
-      "segment_transition_duration": 1.0,
+      "segment_transition": "fade_black|crossfade|dissolve|cut|fadewhite",
+      "segment_transition_duration": 0.8-1.5 (opacity fade length between chapters),
       "items": [
         {{
           "source_file": "<exact filename from file= in metadata>",
@@ -330,7 +324,7 @@ Think step-by-step, then output valid JSON only.
         }}
       ],
       "transition": "crossfade|dissolve|smoothleft|smoothright|circlecrop|fade_black|wipe_left|fadewhite",
-      "transition_duration": 0.4
+      "transition_duration": 0.3-0.8 (opacity fade length between items; 0 for hard cut)
     }}
   ]
 }}
