@@ -28,6 +28,5 @@ Thumbs.db
 .pids/
 .tmp_dagster_home_*/
 
-# Claude Code — ignore all except CLAUDE.md
-.claude/*
-!.claude/CLAUDE.md
+# Claude Code
+.claude/
