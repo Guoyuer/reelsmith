@@ -386,8 +386,6 @@ def _generate_video_previews(
     def _progress(done, total):
         if progress_callback:
             progress_callback(done, total, "videos")
-        if done % 20 == 0 or done == total:
-            logger.info(f"  Video previews: {done}/{total}")
 
     def _run_preview(cmd, path=None):
         result = run_subprocess(cmd, capture_output=True, text=True)
