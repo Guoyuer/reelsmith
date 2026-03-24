@@ -158,6 +158,11 @@ All candidates:"""
     deduplicate_items(edl)
 
     actual_dur = edl.estimated_duration()
+    if actual_dur < pc.target_duration * 0.5:
+        raise RuntimeError(
+            f"EDL is {actual_dur:.0f}s, target is {pc.target_duration}s — "
+            f"less than 50% filled. Check Gemini output and post-processing logs."
+        )
     if actual_dur < pc.target_duration:
         logger.warning(
             f"EDL is {actual_dur:.0f}s, target is {pc.target_duration}s — underfilled"
