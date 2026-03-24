@@ -1,5 +1,25 @@
 # Claude Code Notes
 
+## Environment
+
+When installing Python packages, always use the project's virtual environment (e.g., `source venv/bin/activate` or `.venv/Scripts/activate` on Windows), never install to system Python.
+
+## Code Style / General Rules
+
+When making changes, do NOT abbreviate, shorten, or simplify user-provided content (commands, flag names, text strings) unless explicitly asked. Preserve original wording exactly.
+
+## Platform Compatibility
+
+This project targets both Mac and Windows. Always consider cross-platform compatibility: use `os.path` or `pathlib`, handle both Unix and Windows venv paths, and test PATH handling for both platforms.
+
+## Testing
+
+After refactoring or removing code, always run the full test suite (`pytest`) before committing. Removing defensive patterns like `.get()` has previously exposed hidden bugs requiring fixture updates across multiple test files.
+
+## Workflow Rules
+
+When making excessive or multi-file changes, pause and confirm scope with the user before proceeding. Do not restructure formats, add credentials, or change architectural approaches without asking first.
+
 ## ⚠️ End-to-end thinking required
 
 **All code and all prompts MUST be aligned.** End-to-end means every prompt claim matches
