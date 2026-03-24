@@ -73,12 +73,20 @@ def parse_and_convert_timestamps(
                         local_end = min(local_start + window, dur)
                         local_start = max(0, local_end - window)
                     # Guard: minimum 2s clip
-                    if local_end - local_start < 2.0:
+                    original_span = local_end - local_start
+                    if original_span < 2.0:
                         mid = (local_start + local_end) / 2
                         half = max(window, 5.0) / 2
                         local_start = max(0, mid - half)
                         local_end = min(local_start + max(window, 5.0), dur)
                         local_start = max(0, local_end - max(window, 5.0))
+                        widened = local_end - local_start
+                        if widened - original_span > 2.0:
+                            logger.warning(
+                                f"  Min-2s guard widened clip #{matched[0]} "
+                                f"from {original_span:.1f}s to {widened:.1f}s "
+                                f"(Gemini trim may have been off)"
+                            )
                     item["start_time"] = round(local_start, 1)
                     item["end_time"] = round(local_end, 1)
                     item["display_duration"] = round(local_end - local_start, 1)
@@ -137,7 +145,13 @@ def fix_hallucinated_paths(edl: EDL, media_dir: Path) -> int:
                 ]
             if candidates:
                 item.source_file = str(candidates[0])
-                logger.info(f"  Fixed path: {name} → {candidates[0].name}")
+                if len(candidates) > 1:
+                    logger.warning(
+                        f"  Fuzzy path: {name} matched {len(candidates)} candidates: "
+                        f"{[c.name for c in candidates[:5]]} — using first"
+                    )
+                else:
+                    logger.info(f"  Fixed path: {name} → {candidates[0].name}")
                 valid_items.append(item)
             else:
                 logger.info(f"  Removed item with missing source: {name}")
