@@ -213,9 +213,20 @@ def _gemini_call(
     usage = response.usage_metadata
     input_tokens = (usage.prompt_token_count or 0) if usage else 0
     output_tokens = (usage.candidates_token_count or 0) if usage else 0
+
+    # Per-model pricing (USD per million tokens, paid tier)
+    _PRICING = {
+        "gemini-3.1-flash-lite-preview": (0.25, 1.50),
+        "gemini-3-flash-preview": (0.50, 3.00),
+        "gemini-3.1-pro-preview": (2.00, 12.00),
+        "gemini-3-pro-preview": (2.00, 12.00),
+    }
+    in_rate, out_rate = _PRICING.get(model, (0.50, 3.00))
+    cost_est = input_tokens * in_rate / 1_000_000 + output_tokens * out_rate / 1_000_000
+
     logger.info(
         f"  Response: {input_tokens:,} input tokens, "
-        f"{output_tokens:,} output tokens, {elapsed:.1f}s"
+        f"{output_tokens:,} output tokens, {elapsed:.1f}s, ~${cost_est:.2f}"
     )
     logger.info(f"  Output: {len(content)} chars")
     logger.info(f"=== [Gemini] End {label} ===")
