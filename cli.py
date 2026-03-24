@@ -691,7 +691,7 @@ _plan_options = [
         required=True,
         cls=_RequiredPrefixOption,
         type=int,
-        help="Target vlog duration in seconds (e.g. 60=1min, 180=3min, 300=5min)",
+        help="Target duration in seconds (60=1min, 180=3min, 300=5min)",
     ),
     click.option(
         "--trip-type",
@@ -789,14 +789,28 @@ _assemble_options = [
         callback=_parse_resolution,
         expose_value=True,
         is_eager=False,
-        help="Resolution preset (4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30) or WxHxFPS",
+        help="Preset or WxHxFPS.\n\n"
+        "\b\n"
+        "  4k60     3840x2160  60fps\n"
+        "  4k30     3840x2160  30fps\n"
+        "  2k60     2560x1440  60fps\n"
+        "  2k30     2560x1440  30fps\n"
+        "  1080p60  1920x1080  60fps\n"
+        "  1080p30  1920x1080  30fps\n"
+        "  720p30   1280x720   30fps\n"
+        "  custom   1920x1080x30",
     ),
     click.option(
         "--bitrate",
         "quality",
         default=1.0,
         type=float,
-        help="Bitrate multiplier (4K60 HEVC): 0.5=21Mbps, 1.0=43Mbps (default), 1.5=65Mbps, 2.0=87Mbps",
+        help="Bitrate quality multiplier (default: 1.0).\n\n"
+        "\b\n"
+        "  0.5  low     ~21 Mbps at 4K60\n"
+        "  1.0  default ~43 Mbps at 4K60\n"
+        "  1.5  high    ~65 Mbps at 4K60\n"
+        "  2.0  max     ~87 Mbps at 4K60",
     ),
 ]
 
