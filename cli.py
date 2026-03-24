@@ -592,7 +592,7 @@ def _run_pipeline(
         total = round(time.monotonic() - t_start, 1)
         display.fail("pipeline", str(e)[:80])
         logger.error(f"Pipeline failed in {total:.0f}s: {e}", exc_info=True)
-        raise
+        sys.exit(1)
     finally:
         display.stop()
 
