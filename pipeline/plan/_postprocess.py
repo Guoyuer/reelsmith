@@ -33,10 +33,6 @@ def parse_and_convert_timestamps(
         raw["music"] = None
 
     # Convert preview_start/preview_end (MM:SS) → start_time/end_time (seconds)
-    # Build item_num → offset lookup from the table
-    offset_by_num: dict[int, tuple[float, float]] = {
-        num: (dur, offset) for num, dur, offset in preview_offset_table
-    }
     n_converted = 0
     for seg in raw.get("segments", []):
         for item in seg.get("items", []):
