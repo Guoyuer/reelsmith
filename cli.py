@@ -162,38 +162,41 @@ class _PipelineDisplay:
         return panel
 
     def _build_progress(self, d: dict):
-        """Build progress text with mini bar for a running stage."""
+        """Build progress text with Rich ProgressBar for a running stage."""
+        from rich.progress_bar import ProgressBar
+        from rich.table import Table as InlineTable
         from rich.text import Text
 
         cur, total = d["current"], d["total"]
         label = d.get("label", "")
 
         if total > 0:
-            pct = cur / total
-            bar_w = 20
-            filled = int(pct * bar_w)
-            bar = "\u2588" * filled + "\u2591" * (bar_w - filled)
-            parts = [f"{bar} {cur}/{total} {pct:.0%}"]
-            if label:
-                parts.append(label)
-            return Text("  ".join(parts), style="cyan")
+            row = InlineTable.grid(padding=(0, 1))
+            row.add_column(width=20)
+            row.add_column(width=12)
+            row.add_column()
+            bar = ProgressBar(total=total, completed=cur, width=20, complete_style="cyan", finished_style="green")
+            row.add_row(bar, Text(f"{cur}/{total} {cur/total:.0%}", style="cyan"), Text(label, style="dim"))
+            return row
         elif label:
             return Text(label, style="cyan")
         return Text("", style="cyan")
 
     def _build_sub_progress(self, name: str, sub: dict):
-        """Build a sub-stage progress line."""
+        """Build a sub-stage progress line with Rich ProgressBar."""
+        from rich.progress_bar import ProgressBar
+        from rich.table import Table as InlineTable
         from rich.text import Text
 
         cur, total = sub["current"], sub["total"]
         if total > 0:
-            pct = cur / total
-            bar_w = 16
-            filled = int(pct * bar_w)
-            bar = "\u2588" * filled + "\u2591" * (bar_w - filled)
-            return Text(
-                f"  {name:<14s} {bar} {cur}/{total} {pct:.0%}", style="dim cyan"
-            )
+            row = InlineTable.grid(padding=(0, 1))
+            row.add_column(width=14)
+            row.add_column(width=16)
+            row.add_column()
+            bar = ProgressBar(total=total, completed=cur, width=16, complete_style="bar.complete", finished_style="green")
+            row.add_row(Text(name, style="dim cyan"), bar, Text(f"{cur}/{total} {cur/total:.0%}", style="dim cyan"))
+            return row
         return Text(f"  {name}", style="dim cyan")
 
     def start(self, stage: str) -> None:
@@ -249,6 +252,48 @@ class _PipelineDisplay:
             self._live.update(self._render_panel())
             self._live.stop()
             self._live = None
+
+    def print_summary(self) -> None:
+        """Print a summary table after pipeline completes."""
+        from rich.console import Console
+        from rich.table import Table
+
+        table = Table(
+            title=f"\U0001f3ac {self._run_name} \u2014 summary",
+            border_style="dim",
+            title_style="bold",
+        )
+        table.add_column("Stage", style="bold")
+        table.add_column("Status", justify="center")
+        table.add_column("Duration", justify="right")
+        table.add_column("Detail")
+
+        total_dur = 0.0
+        for s in self._stages:
+            d = self._stage_data[s]
+            name = s.replace("_", " ")
+            state = d["state"]
+            dur = d.get("dur", 0)
+            detail = d.get("detail", "")
+
+            if state == "done":
+                icon = "[green]\u2713[/green]"
+                dur_str = f"{dur:.0f}s" if dur >= 0.5 else "cached"
+                total_dur += dur
+            elif state == "failed":
+                icon = "[red]\u2717[/red]"
+                dur_str = ""
+            else:
+                icon = "[dim]\u2014[/dim]"
+                dur_str = ""
+                detail = "skipped"
+
+            table.add_row(name, icon, dur_str, detail)
+
+        table.add_section()
+        table.add_row("[bold]total", "", f"[bold]{total_dur:.0f}s", "")
+
+        Console(stderr=True).print(table)
 
     def _refresh(self) -> None:
         if self._live:
@@ -597,6 +642,7 @@ def _run_pipeline(
         sys.exit(1)
     finally:
         display.stop()
+        display.print_summary()
 
 
 # ---------------------------------------------------------------------------

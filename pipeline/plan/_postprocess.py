@@ -324,3 +324,52 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
                 f"{item.effect:16s} {Path(item.source_file).name}{trim}{flag_str}"
             )
     logger.info("=== [Gemini] END PARSED EDL ===")
+
+    # Rich tree display to terminal
+    try:
+        import sys
+
+        from rich.console import Console
+        from rich.tree import Tree
+
+        status = (
+            "[green]OK[/green]"
+            if actual_dur >= target_duration * 0.8
+            else "[red]UNDERFILLED[/red]"
+        )
+        tree = Tree(
+            f"[bold]{edl.title}[/bold]  {actual_dur:.0f}s/{target_duration}s {status}"
+        )
+        for seg in edl.segments:
+            seg_dur = sum(i.display_duration for i in seg.items)
+            branch = tree.add(
+                f"[bold cyan]{seg.name}[/bold cyan]  "
+                f"[dim]{len(seg.items)} items, {seg_dur:.0f}s, {seg.color_temp}[/dim]"
+            )
+            for item in seg.items:
+                name = Path(item.source_file).name
+                flags = []
+                if item.keep_audio:
+                    flags.append("[yellow]speech[/yellow]")
+                if item.playback_speed != 1.0:
+                    flags.append(f"[magenta]{item.playback_speed}x[/magenta]")
+                if item.text_overlay:
+                    flags.append(f'[italic]"{item.text_overlay.text[:20]}"[/italic]')
+                flag_str = " " + " ".join(flags) if flags else ""
+                if item.media_type == "video":
+                    trim = (
+                        f" [{item.start_time:.0f}-{item.end_time:.0f}s]"
+                        if item.start_time is not None
+                        else ""
+                    )
+                    branch.add(
+                        f"[blue]\U0001f3ac {item.display_duration}s[/blue] {name}{trim}{flag_str}"
+                    )
+                else:
+                    branch.add(
+                        f"[green]\U0001f4f7 {item.display_duration}s[/green] {name}{flag_str}"
+                    )
+        if sys.stderr.isatty():
+            Console(stderr=True).print(tree)
+    except ImportError:
+        pass
