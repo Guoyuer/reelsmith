@@ -148,7 +148,6 @@ def _plan_visual(
                 line += f" ({n_vids} videos)"
             arc_lines.append(line)
 
-    min_duration = int(pc.target_duration)
     intro_text = f"""\
 Create a {pc.style} {trip_label} vlog EDL from the photos and videos shown below.
 
@@ -158,9 +157,8 @@ Create a {pc.style} {trip_label} vlog EDL from the photos and videos shown below
 decision, and every text overlay should serve this focus. When choosing between two
 items of similar quality, pick the one that better supports this focus.
 
-DURATION: The vlog MUST be {pc.target_duration}s. Select ~{n_items} items.
-Sum of display_duration MUST reach {min_duration}s (transitions eat ~20%).
-Photos = 3-5s, videos = 5-10s. {n_items} items × ~4s avg = {pc.target_duration}s.
+DURATION: Sum of ALL display_duration MUST equal {pc.target_duration}s (±10%).
+Photos = 3-4s each, videos = 6-8s each. Select ~{n_items} items to fill {pc.target_duration}s.
 
 Trip structure:
 {"".join(arc_lines)}
@@ -170,7 +168,7 @@ Trip structure:
 2. Select items: scan every photo and video clip. Pick the best for each chapter.
 3. Self-review checklist (fix any issues before outputting):
    - [ ] Does the vlog serve the focus "{pc.focus}"?
-   - [ ] Sum of display_duration >= {min_duration}s?
+   - [ ] Sum of display_duration = {pc.target_duration}s (±10%)?
    - [ ] At least 40% video items? At least 50% of videos have keep_audio=true?
    - [ ] No audio=silent videos with keep_audio=true?
    - [ ] Items spread across all days/locations (not clustered)?

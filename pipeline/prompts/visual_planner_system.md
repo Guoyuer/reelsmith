@@ -122,10 +122,10 @@ videos should have keep_audio=true.
 
 ## Technical rules
 
-- **DURATION IS MANDATORY AND NON-NEGOTIABLE**: The sum of ALL display_duration values
-  MUST be between 100% and 120% of target_duration. Not 80%, not 90% — at least 100%.
-  **USE CODE EXECUTION** to compute the sum before outputting. If the sum is below
-  target_duration, go back and add more items or extend video trims until it reaches 100%.
+- **DURATION IS MANDATORY**: The sum of ALL display_duration values MUST be between
+  100% and 120% of target_duration. Not 80%, not 90% — at LEAST 100%.
+  Before outputting the JSON, mentally add up every display_duration. If the total
+  is below target_duration, extend video trims or add more items until it reaches 100%.
   This is the #1 hard requirement — an underfilled EDL is a failure.
 - display_duration: 3-4s per photo, **6-8s per video** (not 4s — videos need time to breathe).
   **MINIMUM 2s for ANY item.** Clips under 2s are too short.
@@ -141,9 +141,8 @@ videos should have keep_audio=true.
   in the preview video where the moment you want begins and ends.
   Example: to select the part of clip #30 from 02:05 to 02:12 in the preview,
   set preview_start="02:05", preview_end="02:12", display_duration=7.0.
-  IMPORTANT: if you hear speech/dialogue, make sure the trim includes the COMPLETE
-  conversation — don't cut mid-sentence. End at least 1s after the last word.
-  If someone says "come say hi" and another person responds, include BOTH.
+  IMPORTANT: never cut mid-speech. If you hear dialogue, extend the trim to include
+  the complete conversation with 1s padding after the last word.
 - effect: ken_burns_in/out/left/right for photos, "none" for video clips
 - playback_speed: 1.0 = normal (default). Use 0.5 SPARINGLY for dramatic slow-mo moments
   (a jump, a splash, a reaction) — especially effective on ≥48fps source videos.
