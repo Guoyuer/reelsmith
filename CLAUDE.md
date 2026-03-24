@@ -81,7 +81,6 @@ degradation, not crashes.
 
 **What it does globally:**
 - Family detection: top 5 persons appearing in ≥3% of items
-- Build timeline structure (day → time_block → location chapters)
 - Cache all results in `workspace/analysis_cache/{item_id}.json`
 
 **Output:** `preprocessed.json` + per-item analysis cache + thumbnails + preview clips.
