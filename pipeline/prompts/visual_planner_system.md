@@ -71,11 +71,16 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
    REJECT shaking, camera pointing at ground/sky, too dark, static nothing, duplicates.
    PREFER landscape over portrait (portrait gets pillarboxed with blurred bars).
 
-5. **keep_audio** (labeling, NOT selection):
-   **Select videos for VISUAL quality only.** A beautiful silent clip beats a mediocre
-   clip with speech — never pick a worse video just because it has audio.
-   AFTER selecting, label each video: listen to the preview audio and set keep_audio=true
-   if you hear clear speech, laughter, or meaningful ambient sound. Silent/wind-only → false.
+5. **Speech & keep_audio** — speech is a POSITIVE signal for both selection and trimming:
+   - **Selection**: Between two visually similar videos, prefer the one with interesting
+     speech (a funny comment, a child's reaction, genuine laughter). But a beautiful silent
+     clip still beats a mediocre clip with speech — visual quality comes first.
+   - **Trimming**: If you hear an interesting line of dialogue or laughter at a specific
+     moment in the preview, trim AROUND THAT MOMENT — the speech IS the content. Include
+     1s padding before and after the speech. This is often more valuable than trimming to
+     the most visually dynamic moment.
+   - **Labeling**: Set keep_audio=true on any video where your trim window contains clear
+     speech, laughter, or meaningful ambient sound. Silent or wind-noise-only → false.
 
 6. **Location diversity**: Max 3 items from any single location/scene in the ENTIRE vlog.
    Spread items across ALL days and locations — the viewer gets the idea after 2-3 clips.
@@ -119,22 +124,27 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
 - display_duration: 3-4s per photo, **6-8s per video** (not 4s — videos need time to breathe).
   **MINIMUM 2s for ANY item.** Clips under 2s are too short.
   **For videos with trim points: display_duration MUST equal (preview_end - preview_start) / playback_speed.**
-  Select generous trim windows (6-10s) — don't micro-trim to 1-2s.
+  For visual moments, select generous trim windows (6-10s). For speech clips, trim
+  tightly around the dialogue (speech duration + 1s padding each side, minimum 4s).
   Example: trim 02:05-02:12 (7s) at speed 1.0 → display_duration=7.0.
   Example: trim 02:05-02:15 (10s) at speed 1.0 → display_duration=10.0.
   Do NOT set display_duration independently from trim points.
-- For videos: WATCH the PREVIEW VIDEO to select the best moments.
+- For videos: WATCH and LISTEN to the PREVIEW VIDEO to select the best moments.
   Each clip has its item number (e.g. #30) burned into the top-left corner,
   and the metadata shows its preview range (e.g. preview=02:00-02:22).
   Set preview_start and preview_end to the MM:SS (or H:MM:SS for >1hr) timestamps
   in the preview video where the moment you want begins and ends.
-  IMPORTANT: Do NOT just use the start of each clip's preview range. Watch the
-  entire clip and find the most visually compelling 6-10 second moment. For clips
-  longer than 20s, the best moment is almost never the first few seconds.
-  Example: clip #30 runs from 02:00 to 02:22. After watching, you determine the
-  best action happens at 02:08-02:16. Set preview_start="02:08", preview_end="02:16".
-  IMPORTANT: never cut mid-speech. If you hear dialogue, extend the trim to include
-  the complete conversation with 1s padding after the last word.
+  **Two reasons to pick a trim window** (either is sufficient):
+  (a) **Visual peak** — the most compelling action, framing, or reaction.
+  (b) **Speech/audio peak** — an interesting line, a laugh, a child's exclamation.
+      If you hear something worth keeping, trim AROUND the speech with 1s padding
+      before/after. The speech IS the reason to include this clip.
+  For clips longer than 20s, the best moment is almost never the first few seconds.
+  Do NOT just use the start of each clip's preview range — scan the whole clip.
+  Example (visual): clip #30 runs 02:00-02:22, best action at 02:08-02:16.
+  Example (speech): clip #30 runs 02:00-02:22, someone says something funny at
+  02:14-02:18 → set preview_start="02:13", preview_end="02:19" (1s padding).
+  NEVER cut mid-speech — always include the complete utterance.
 - effect (PHOTOS ONLY — omit or set "none" for videos, the renderer ignores it):
   **ken_burns_in** (reveals, close-ups), **ken_burns_out** (departures, end of chapter),
   **ken_burns_left/right** (wide landscapes, match visual flow direction),
@@ -178,10 +188,14 @@ ghosting between two photos — always use fade_black for photo↔photo pairs).
 As a safety net, photo↔photo crossfades are auto-converted to fade_black by the renderer.
 segment_transition controls how each chapter begins (transition from previous chapter).
 
-**Audio**: Background music generated per-segment from your music_mood. During keep_audio
-clips, music volume drops by music_duck_ratio (default 0.3 = 30% of normal). Set
-music_duck_ratio lower (e.g. 0.15) for intimate dialogue, higher (e.g. 0.5) if the
-speech is loud and you want music still present. Non-keep_audio clips get music only.
+**Audio**: Background music generated per-segment from your music_mood. During the ENTIRE
+duration of a keep_audio clip, music volume drops to music_duck_ratio (default 0.3 = 30%).
+This is a static drop for the whole clip, not dynamic per-word — so **tight trims matter**:
+a 6s trim around speech means 6s of quieter music, then full music resumes. A sloppy 15s
+trim means 15s of suppressed music and worse pacing. Trim keep_audio clips as tightly as
+possible around the speech/reaction moment.
+Set music_duck_ratio lower (e.g. 0.15) for intimate dialogue, higher (e.g. 0.5) if the
+speech is loud. Non-keep_audio clips get music at full volume.
 
 **Text**: font_size is scaled relative to output resolution. White text with dark border.
 
