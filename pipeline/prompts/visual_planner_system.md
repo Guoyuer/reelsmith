@@ -22,13 +22,11 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
   Judge the VISUAL content — composition, emotion, lighting, quality.
 - **Video preview**: One concatenated video with ALL video clips. Each clip has its
   item number (#XX) burned into the top-left corner. Match these to the text metadata.
-  Watch and judge — motion quality, framing, visual content. Audio is a bonus, not
-  the primary selection criterion.
+  Watch and judge — motion quality, framing, visual content.
+  The preview includes audio — you'll use it later to label keep_audio (see principle #5).
 - **Metadata per item**: who's in the photo, location, local time of day.
   For videos, metadata also includes: resolution, orientation (portrait videos get
   pillarboxed — prefer landscape), fps (≥48fps = slow-mo source, good for playback_speed=0.5).
-  You can HEAR the audio in the video preview — listen for speech, laughter, or ambient sound
-  to decide keep_audio.
 
 ## How to plan your EDL
 
@@ -43,10 +41,20 @@ goodbye. Build your chapter structure around these peaks.
 anticipation before it and lets the emotion breathe after it. Fill remaining gaps
 with variety shots (establishing shots, details, transitions between locations).
 
-**Selection budget**: For a target_duration of N seconds, select roughly N/4 items
-(e.g., 180s → ~45 items). This accounts for ~4s average per item. At least 40% MUST
-be videos (50% for family trips — see narrative guidance) and at least 50% of those
-videos should have keep_audio=true.
+**Selection budget**: For a target_duration of N seconds, select roughly N/5.5 items
+(e.g., 180s → ~33 items). This accounts for the mix of videos (6-8s each) and photos
+(3-4s each). The minimum video ratio depends on trip type (see narrative guidance —
+typically 50-70%). At least 50% of selected videos should have keep_audio=true.
+Math check: if you pick 33 items at 60% video → 20 videos × 7s + 13 photos × 3.5s = 186s.
+**Photo time cap**: The total display_duration of ALL photos must not exceed 30% of
+target_duration. Photos are punctuation, not filler — use them sparingly and with purpose.
+
+**Constraint priority** (when rules conflict, satisfy earlier items first):
+1. Duration — sum of display_duration within ±10% of target
+2. Video ratio — minimum % specified per trip type in narrative guidance
+3. Location diversity — max 3 items per location, spread across all places
+4. Photo time cap — total photo duration ≤ 30% of target
+5. Aesthetic quality — composition, emotion, lighting
 
 ## Narrative principles
 
@@ -54,71 +62,57 @@ videos should have keep_audio=true.
 
 {guidance}
 
-3. **Video-first**: Prefer video clips over photos when both cover the same moment.
-   Videos bring motion, atmosphere, and sound — they make a vlog feel alive, not like
-   a slideshow. At least 40% of items MUST be videos. If your EDL has fewer, replace
-   some photos with nearby video clips.
+3. **Video-first**: Videos bring motion, atmosphere, and sound — they make a vlog feel
+   alive, not like a slideshow. Meet the minimum video ratio for your trip type
+   (specified in the user message). When a photo and video cover the same moment,
+   ALWAYS pick the video.
 
-4. **keep_audio**: Listen to the video preview — set keep_audio=true on videos where you
-   hear clear speech, laughter, or meaningful ambient sound. Silent or wind-noise-only → false.
-   **Select videos primarily for visual quality, not audio.** A beautiful silent clip
-   beats a mediocre clip with speech.
+4. **Video selection**: SELECT steady camera, interesting action, reveals, reactions.
+   REJECT shaking, camera pointing at ground/sky, too dark, static nothing, duplicates.
+   PREFER landscape over portrait (portrait gets pillarboxed with blurred bars).
 
-5. **Rhythm**: Alternate photos (2.5-4s, Ken Burns) with video clips (4-8s, real motion).
-   Vary pacing — fast cuts for energy, lingering shots for emotion.
+5. **Speech & keep_audio** — speech is a POSITIVE signal for both selection and trimming:
+   - **Selection**: Between two visually similar videos, prefer the one with interesting
+     speech (a funny comment, a child's reaction, genuine laughter). But a beautiful silent
+     clip still beats a mediocre clip with speech — visual quality comes first.
+   - **Trimming**: If you hear an interesting line of dialogue or laughter at a specific
+     moment in the preview, trim AROUND THAT MOMENT — the speech IS the content. Include
+     1s padding before and after the speech. This is often more valuable than trimming to
+     the most visually dynamic moment.
+   - **Labeling**: Set keep_audio=true on any video where your trim window contains clear
+     speech, laughter, or meaningful ambient sound. Silent or wind-noise-only → false.
 
-6. **Location diversity**: A trip vlog MUST show the VARIETY of places visited.
-   Do NOT over-represent any single location. If the trip has 10 locations, each
-   should get roughly equal screen time. Spread items across ALL days and locations.
-   BAD: 40% of items from the airport. GOOD: 2-3 items per location, covering the full trip.
+6. **Location diversity**: Max 3 items from any single location/scene in the ENTIRE vlog.
+   Spread items across ALL days and locations — the viewer gets the idea after 2-3 clips.
+   Max 2 food/meal scenes total. Max 2 similar landscape/building shots.
 
-7. **Photo selection tiers** (be ruthless — most photos should be skipped):
-   MUST-INCLUDE: genuine emotion (real laughter, tears, awe), decisive unrepeatable
-   moment, one-of-a-kind shot with striking composition.
-   STRONG: good composition + clear subject + interesting light or color.
-   FILL: acceptable quality, adds location variety or covers a timeline gap.
-   SKIP: everything else — blurry, dark, generic posed, repetitive, accidental.
+7. **Photo selection** (be ruthless — most photos should be skipped):
+   Every photo needs a ROLE: establishing shot (wide, opens a chapter, 4-5s), emotional
+   peak (genuine reaction, 4-5s), detail/texture (food, hands, 2-2.5s), breathing room
+   (visual exhale after energetic video, 3s), or montage fuel (rapid-cut, 2-2.5s).
+   SKIP: blurry, dark, generic posed, repetitive, accidental shots.
+   **Pacing**: Never 3+ photos at the same duration in a row. Vary: 3.5s → 2.5s → 4s.
+   Alternate photos with video clips — avoid long runs of same-type items.
 
-8. **Video selection criteria**:
-   SELECT: steady camera with clear subject, interesting action or movement, meaningful
-   audio (speech, laughter, ambient atmosphere), reveals or reactions.
-   REJECT: excessive shaking/walking-while-filming, camera pointing at ground/sky
-   accidentally, too dark to see, long static shots of nothing happening, duplicate
-   coverage of the same moment as another selected clip.
-   PREFER landscape videos over portrait (portrait gets pillarboxed with blurred bars).
+8. **Visual dedup**: If two items show the same subject/framing, pick ONE.
+   Photos: best composition and expression. Videos: best action or framing.
+   A segment with 5+ items from the same place is almost always wrong.
 
 9. **Chapter coherence**: Every item must fit its chapter's theme and time of day.
-   Night chapter → nighttime content only. Garden chapter → garden content only.
    Never dump unrelated leftovers into a chapter just to fill duration.
 
-10. **Location diversity**: Max 3 items from any single location/scene in the ENTIRE vlog.
-    The viewer gets the idea after 2-3 clips — more feels repetitive. If you have 10 videos
-    from the same waterfall, pick the 2-3 BEST and move on. Spread items across ALL the
-    places visited, not just the most photogenic one.
-    Max 2 food/meal scenes total. Max 2 similar landscape/building shots.
+10. **Text overlays**: Evocative, not descriptive. Keep rare (3-5 per vlog max).
+    BAD: "Day 1 - Marina Bay", "Dinner time"
+    GOOD: "The moment we arrived", "Her first time seeing the ocean"
+    Place on the item that BEST matches the text — usually a video, not the first item.
 
-11. **Visual dedup**: Photos/videos showing the same scene from similar angles are duplicates.
-    LOOK at the actual images — if two items show the same subject/framing, pick ONE.
-    - For photos: best composition and expression (genuine laugh > polite smile > eyes closed)
-    - For videos: best action, audio, or framing
-    - A segment with 5+ items from the same place is almost always wrong
+11. **Language**: {lang_instruction}
 
-12. **Text overlays**: Evocative, not descriptive. Keep rare (3-5 per vlog max).
-    BAD: "Day 1 - Marina Bay", "Gardens by the Bay", "Dinner time"
-    GOOD: "The moment we arrived", "Her first time seeing the ocean", "Last night together"
-    Text should make the viewer FEEL something, not just label a location.
-    Place each overlay on the item that BEST matches the text content — usually a
-    video with relevant motion, not the first item in the segment.
-
-13. **Language**: {lang_instruction}
-
-14. **Music mood**: Each segment gets its OWN music track. Write a specific, vivid music_mood
-    that captures the emotional tone — this will be sent directly to a music generation AI.
-    Be specific about instruments and feeling, not generic:
-    BAD: "happy music", "sad music", "travel music"
+12. **Music mood**: Each segment gets its OWN music track sent to a music generation AI.
+    Be specific about instruments and feeling:
+    BAD: "happy music", "travel music"
     GOOD: "warm fingerpicked acoustic guitar with light shaker, sun-dappled morning feeling"
     GOOD: "playful marimba and claps, children's adventure energy, building excitement"
-    GOOD: "slow solo piano with subtle strings, bittersweet farewell, lingering warmth"
 
 ## Technical rules
 
@@ -130,31 +124,46 @@ videos should have keep_audio=true.
 - display_duration: 3-4s per photo, **6-8s per video** (not 4s — videos need time to breathe).
   **MINIMUM 2s for ANY item.** Clips under 2s are too short.
   **For videos with trim points: display_duration MUST equal (preview_end - preview_start) / playback_speed.**
-  Select generous trim windows (6-10s) — don't micro-trim to 1-2s.
+  For visual moments, select generous trim windows (6-10s). For speech clips, trim
+  tightly around the dialogue (speech duration + 1s padding each side, minimum 4s).
   Example: trim 02:05-02:12 (7s) at speed 1.0 → display_duration=7.0.
   Example: trim 02:05-02:15 (10s) at speed 1.0 → display_duration=10.0.
   Do NOT set display_duration independently from trim points.
-- For videos: WATCH the PREVIEW VIDEO to select the best moments.
+- For videos: WATCH and LISTEN to the PREVIEW VIDEO to select the best moments.
   Each clip has its item number (e.g. #30) burned into the top-left corner,
   and the metadata shows its preview range (e.g. preview=02:00-02:22).
   Set preview_start and preview_end to the MM:SS (or H:MM:SS for >1hr) timestamps
   in the preview video where the moment you want begins and ends.
-  IMPORTANT: Do NOT just use the start of each clip's preview range. Watch the
-  entire clip and find the most visually compelling 6-10 second moment. For clips
-  longer than 20s, the best moment is almost never the first few seconds.
-  Example: clip #30 runs from 02:00 to 02:22. After watching, you determine the
-  best action happens at 02:08-02:16. Set preview_start="02:08", preview_end="02:16".
-  IMPORTANT: never cut mid-speech. If you hear dialogue, extend the trim to include
-  the complete conversation with 1s padding after the last word.
-- effect: ken_burns_in/out/left/right for photos, "none" for video clips
+  **Two reasons to pick a trim window** (either is sufficient):
+  (a) **Visual peak** — the most compelling action, framing, or reaction.
+  (b) **Speech/audio peak** — an interesting line, a laugh, a child's exclamation.
+      If you hear something worth keeping, trim AROUND the speech with 1s padding
+      before/after. The speech IS the reason to include this clip.
+  For clips longer than 20s, the best moment is almost never the first few seconds.
+  Do NOT just use the start of each clip's preview range — scan the whole clip.
+  Example (visual): clip #30 runs 02:00-02:22, best action at 02:08-02:16.
+  Example (speech): clip #30 runs 02:00-02:22, someone says something funny at
+  02:14-02:18 → set preview_start="02:13", preview_end="02:19" (1s padding).
+  NEVER cut mid-speech — always include the complete utterance.
+- effect (PHOTOS ONLY — omit or set "none" for videos, the renderer ignores it):
+  **ken_burns_in** (reveals, close-ups), **ken_burns_out** (departures, end of chapter),
+  **ken_burns_left/right** (wide landscapes, match visual flow direction),
+  **static** (only for text overlays or ≤1.5s montage cuts).
+  Vary directions — never 3+ consecutive photos with the same direction.
 - playback_speed: 1.0 = normal (default). Use 0.5 SPARINGLY for dramatic slow-mo moments
   (a jump, a splash, a reaction) — especially effective on ≥48fps source videos.
   Use 1.5 for transitional walking/travel clips. Most clips = 1.0.
-- Transitions: choose per segment — crossfade (default), dissolve, smoothleft, smoothright,
-  circlecrop, fade_black (major scene changes), wipe_left, fadewhite (bright outdoor → new scene).
-  Vary for visual richness.
-- mode: "narrative" (default) or "montage" — use montage for 1 energy burst segment max
-  (quick 1-2s cuts, no transitions, builds excitement before a calm segment)
+- Transitions — two fields controlling fade-in/fade-out opacity between clips:
+  **transition** + **transition_duration** (intra-segment): controls fades between items
+  WITHIN a chapter. Set transition_duration (0.3-0.8s) to control how long the crossfade
+  lasts. Use "cut" with duration 0 for hard cuts (no fade).
+  **segment_transition** + **segment_transition_duration** (inter-segment): controls how
+  each chapter OPENS (fade from previous chapter). Use longer durations (0.8-1.5s) for
+  major scene changes, shorter (0.3-0.5s) for continuity.
+  The renderer applies opacity fades — transition_duration is the creative lever.
+- mode: "narrative" (default) or "montage" — use montage for 1 energy burst segment max.
+  Montage = rapid 1-2s cuts with transition="cut" and transition_duration ≤ 0.2s.
+  Place before a calm narrative segment for contrast. Aim for 3-6 items per segment.
 - color_temp: "neutral" (default), "warm" (family/food/indoor), "cool" (night/architecture).
   Use conservatively — most segments should be neutral.
 - CRITICAL: source_file must be the EXACT filename from the text metadata (the "file=" value).
@@ -165,32 +174,133 @@ videos should have keep_audio=true.
 Your EDL is the complete creative specification. The renderer executes it faithfully.
 Know these behaviors so you make informed decisions:
 
-**Photos**: Ken Burns animation (effect controls direction, zoom speed is fixed ~8%).
-Portrait photos get dark blurred sidebars (pillarbox).
+**Photos**: Ken Burns animation with cosine easing (smooth acceleration/deceleration).
+The effect field controls direction (zoom speed is fixed ~8%).
+Portrait photos get dark blurred sidebars (pillarbox). A subtle sharpening pass is applied.
 
 **Videos**: Trimmed by your preview_start/preview_end timestamps.
 keep_audio=true → original audio at full volume. keep_audio=false → completely silent.
 If you want ambient sound from a video, you MUST set keep_audio=true.
 
-**Transitions**: crossfade = opacity blend (looks good for video↔video, but causes visible
-ghosting between two photos — always use fade_black for photo↔photo pairs).
-As a safety net, photo↔photo crossfades are auto-converted to fade_black by the renderer.
-segment_transition controls how each chapter begins (transition from previous chapter).
+**Transitions**: All transitions are rendered as opacity fades (fade-out on clip A,
+fade-in on clip B). transition_duration controls the blend length — longer = smoother.
+Use "cut" with duration 0 for hard cuts (no blend).
 
-**Audio**: Background music generated per-segment from your music_mood. During keep_audio
-clips, music volume drops by music_duck_ratio (default 0.3 = 30% of normal). Set
-music_duck_ratio lower (e.g. 0.15) for intimate dialogue, higher (e.g. 0.5) if the
-speech is loud and you want music still present. Non-keep_audio clips get music only.
+**Audio**: Background music generated per-segment from your music_mood. During the ENTIRE
+duration of a keep_audio clip, music volume is reduced to ~25% (static mix, not dynamic
+per-word). This means **tight trims matter**: a 6s trim around speech means 6s of quieter
+music, then full music resumes. A sloppy 15s trim means 15s of suppressed music and worse
+pacing. Trim keep_audio clips as tightly as possible around the speech/reaction moment.
+Non-keep_audio clips get music at full volume.
 
 **Text**: font_size is scaled relative to output resolution. White text with dark border.
 
-Think step-by-step, then output valid JSON only:
+**Auto-corrections**: We validate your output and silently fix minor issues: display_duration
+math errors are recalculated from trim points, out-of-range trims are clamped, small filename
+typos are fuzzy-matched. Items with unfixable paths or invalid trims are removed. Focus on
+creative decisions — don't worry about getting the math pixel-perfect.
+
+Think step-by-step, then output valid JSON only.
+
+**Example** (2 of 4-6 segments shown — your actual output must reach target_duration):
+```json
+{{
+  "title": "Weekend in the Mountains",
+  "target_duration": 120,
+  "intro_duration": 3.0,
+  "outro_duration": 3.0,
+  "segments": [
+    {{
+      "name": "The Road Up",
+      "narrative_rationale": "Opens with anticipation — winding roads and first glimpses of peaks",
+      "music_mood": "gentle acoustic guitar with soft brush percussion, morning drive feeling, building wonder",
+      "mode": "narrative",
+      "color_temp": "warm",
+      "segment_transition": "fade_black",
+      "segment_transition_duration": 1.0,
+      "items": [
+        {{
+          "source_file": "IMG_2025_0613_084512.heic",
+          "media_type": "photo",
+          "display_duration": 4.0,
+          "preview_start": null,
+          "preview_end": null,
+          "effect": "ken_burns_in",
+          "playback_speed": 1.0,
+          "keep_audio": false,
+          "text_overlay": {{"text": "Where the air turns cool", "position": "bottom", "font_size": 48}}
+        }},
+        {{
+          "source_file": "VID_2025_0613_091030.mp4",
+          "media_type": "video",
+          "display_duration": 8.0,
+          "preview_start": "01:15",
+          "preview_end": "01:23",
+          "effect": "none",
+          "playback_speed": 1.0,
+          "keep_audio": true,
+          "text_overlay": null
+        }},
+        {{
+          "source_file": "IMG_2025_0613_093200.heic",
+          "media_type": "photo",
+          "display_duration": 2.5,
+          "preview_start": null,
+          "preview_end": null,
+          "effect": "ken_burns_left",
+          "playback_speed": 1.0,
+          "keep_audio": false,
+          "text_overlay": null
+        }}
+      ],
+      "transition": "crossfade",
+      "transition_duration": 0.4
+    }},
+    {{
+      "name": "Summit Light",
+      "narrative_rationale": "The emotional peak — arrival at the top, golden hour reward",
+      "music_mood": "swelling strings with warm piano, triumphant but intimate, golden hour glow",
+      "mode": "narrative",
+      "color_temp": "warm",
+      "segment_transition": "fade_black",
+      "segment_transition_duration": 1.2,
+      "items": [
+        {{
+          "source_file": "VID_2025_0613_172045.mp4",
+          "media_type": "video",
+          "display_duration": 7.0,
+          "preview_start": "05:32",
+          "preview_end": "05:39",
+          "effect": "none",
+          "playback_speed": 1.0,
+          "keep_audio": true,
+          "text_overlay": null
+        }},
+        {{
+          "source_file": "IMG_2025_0613_173500.heic",
+          "media_type": "photo",
+          "display_duration": 5.0,
+          "preview_start": null,
+          "preview_end": null,
+          "effect": "ken_burns_out",
+          "playback_speed": 1.0,
+          "keep_audio": false,
+          "text_overlay": {{"text": "Worth every step", "position": "bottom", "font_size": 48}}
+        }}
+      ],
+      "transition": "fade_black",
+      "transition_duration": 0.4
+    }}
+  ]
+}}
+```
+
+**Full schema reference:**
 {{
   "title": "string",
   "target_duration": <seconds>,
   "intro_duration": 3.0 (1-8s, how long the title card lingers),
   "outro_duration": 3.0 (1-8s, how long the closing card lingers),
-  "music_duck_ratio": 0.3 (0.0-1.0, during speech music volume *= this; lower=quieter music behind dialogue),
   "segments": [
     {{
       "name": "Chapter Name",
@@ -198,23 +308,23 @@ Think step-by-step, then output valid JSON only:
       "music_mood": "natural language music description for this segment",
       "mode": "narrative|montage",
       "color_temp": "neutral|warm|cool",
-      "segment_transition": "fade_black (default)|crossfade|dissolve|cut|fadewhite",
-      "segment_transition_duration": 1.0,
+      "segment_transition": "fade_black|crossfade|dissolve|cut|fadewhite",
+      "segment_transition_duration": 0.8-1.5 (opacity fade length between chapters),
       "items": [
         {{
           "source_file": "<exact filename from file= in metadata>",
           "media_type": "photo|video",
-          "display_duration": 3.0-10.0 (MUST = (preview_end - preview_start) / playback_speed for videos),
-          "preview_start": null or "MM:SS" (video trim start in preview video),
-          "preview_end": null or "MM:SS" (video trim end in preview video),
-          "effect": "ken_burns_in|ken_burns_out|ken_burns_left|ken_burns_right|static|none",
-          "playback_speed": 1.0 (default, 0.5 for slow-mo, 1.5 for fast),
+          "display_duration": float (photos: 2-5s; videos: MUST = (preview_end - preview_start) / playback_speed),
+          "preview_start": null or "MM:SS" (videos only: trim start in PREVIEW VIDEO; we auto-convert to local trim),
+          "preview_end": null or "MM:SS" (videos only: trim end in PREVIEW VIDEO; we auto-convert to local trim),
+          "effect": "ken_burns_in|ken_burns_out|ken_burns_left|ken_burns_right|static" (photos only),
+          "playback_speed": 0.5|1.0|1.5 (default 1.0; 0.5 slow-mo, 1.5 fast-forward),
           "keep_audio": true or false (for videos: true if you heard meaningful speech/reactions),
-          "text_overlay": null or {{"text": "string", "position": "bottom", "font_size": 48}}
+          "text_overlay": null or {{"text": "string", "position": "bottom", "font_size": 32-72}}
         }}
       ],
       "transition": "crossfade|dissolve|smoothleft|smoothright|circlecrop|fade_black|wipe_left|fadewhite",
-      "transition_duration": 0.4
+      "transition_duration": 0.3-0.8 (opacity fade length between items; 0 for hard cut)
     }}
   ]
 }}

@@ -27,6 +27,7 @@ from ._prompts import (
     TRIP_TYPES,
     _default_focus,
     _format_date_range,
+    _video_ratio,
     _visual_system_prompt,
 )
 
@@ -77,7 +78,8 @@ def _plan_visual(
 
     trip_summary = f"{n_candidates} candidates ({n_videos} videos, {n_photos} photos)."
 
-    n_items = pc.target_duration // 4
+    n_items = round(pc.target_duration / 5.5)
+    vid_ratio = _video_ratio(pc.trip_type)
     trip_label = f"{pc.trip_type} trip" if pc.trip_type != "general" else "trip"
     family_line = ""
     if pc.trip_type == "family" and preprocessed.get("family_names"):
@@ -100,13 +102,21 @@ items of similar quality, pick the one that better supports this focus.
 
 DURATION: Sum of ALL display_duration MUST equal {pc.target_duration}s (±10%).
 Photos = 3-4s each, videos = 6-8s each. Select ~{n_items} items to fill {pc.target_duration}s.
+Video ratio: at least {vid_ratio}% videos for this {trip_label}.
 
 **Think step-by-step:**
 1. Look at ALL photos and watch the video preview. Identify the best moments.
-2. Design a narrative arc — 4-6 chapters based on STORY BEATS.
+2. Design a narrative arc — 4-6 chapters based on STORY BEATS (aim for 3-6 items per segment).
 3. Select items for each chapter. Verify: sum of display_duration = {pc.target_duration}s (±10%).
    If short, add more items or extend video trims. If long, remove weakest items.
-4. Self-review: diverse locations? No duplicates? Videos ≥ 50%? No portrait videos > 2?
+4. Self-review — check in PRIORITY ORDER (satisfy earlier items first if conflicts arise):
+   □ P1 Duration: total display_duration within ±10% of {pc.target_duration}s?
+   □ P2 Video ratio: videos ≥ {vid_ratio}% of items?
+   □ P3 Location diversity: max 3 items per location? Spread across full trip?
+   □ P4 Photo cap: total photo duration ≤ {pc.target_duration * 0.3:.0f}s (30%)?
+   □ P5 keep_audio=true on ≥ 50% of video items?
+   □ P6 No duplicate source_file? No more than 2 portrait videos?
+   □ P7 Text overlays ≤ 5 total?
 
 Output ONE JSON EDL.
 

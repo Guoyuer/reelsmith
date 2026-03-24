@@ -51,6 +51,13 @@ def _default_focus(trip_type: str) -> str:
     return defaults.get(trip_type, defaults.get("general", "highlights and memorable moments"))
 
 
+def _video_ratio(trip_type: str) -> int:
+    """Minimum video percentage for a trip type (e.g. 70 for family)."""
+    data = _load_narrative_guidance()
+    ratios = data.get("_video_ratios", {})
+    return ratios.get(trip_type, ratios.get("general", 60))
+
+
 # ---------------------------------------------------------------------------
 # Formatting helpers
 # ---------------------------------------------------------------------------
