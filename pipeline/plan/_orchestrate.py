@@ -70,11 +70,12 @@ def _plan_visual(
     Gemini sees individual photo thumbnails (400px) + video clips,
     designs narrative arc + selects items + self-reviews in one call.
     """
-    # Summary
-    n_candidates = len(analysis_by_id)
-    n_videos = sum(1 for a in analysis_by_id.values() if a.get("media_type") == "video")
-    n_photos = n_candidates - n_videos
+    content_blocks, preview_offset_table, n_photos, n_videos = (
+        _build_visual_content_blocks(preprocessed, analysis_by_id, cfg, force=pc.force)
+    )
+    n_candidates = n_photos + n_videos
 
+    # Summary
     trip_summary = f"{n_candidates} candidates ({n_videos} videos, {n_photos} photos)."
 
     n_items = round(pc.target_duration / 5.5)
@@ -84,11 +85,8 @@ def _plan_visual(
     if pc.trip_type == "family" and preprocessed.get("family_names"):
         family_line = f"\nFamily: {', '.join(preprocessed['family_names'])}"
 
-    content_blocks, preview_offset_table = _build_visual_content_blocks(
-        preprocessed, analysis_by_id, cfg, force=pc.force
-    )
     if progress_callback:
-        progress_callback(0, 0, "uploading to Gemini...")
+        progress_callback(0, 0, f"{n_photos} photos, {n_videos} videos → Gemini")
 
     intro_text = f"""\
 Create a {pc.style} {trip_label} vlog EDL from the photos and videos shown below.

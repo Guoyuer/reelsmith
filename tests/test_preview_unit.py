@@ -82,7 +82,9 @@ class TestBuildVisualContentBlocks:
             }
         }
 
-        blocks, offset_table = _build_visual_content_blocks(preprocessed, analysis, cfg)
+        blocks, offset_table, _, _ = _build_visual_content_blocks(
+            preprocessed, analysis, cfg
+        )
 
         texts = [b for b in blocks if isinstance(b, str)]
         images = [
@@ -158,7 +160,7 @@ class TestBuildVisualContentBlocks:
 
         with patch("pipeline.plan._preview._concat_previews") as mock_concat:
             mock_concat.return_value = ([(2, 30.0, 0.0)], preview)
-            blocks, offset_table = _build_visual_content_blocks(
+            blocks, offset_table, _, _ = _build_visual_content_blocks(
                 preprocessed, analysis, cfg
             )
 

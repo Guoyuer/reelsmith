@@ -418,7 +418,7 @@ class TestContentBlockValidation:
             }
         }
 
-        blocks, _ = _build_visual_content_blocks(preprocessed, analysis, cfg)
+        blocks, _, _, _ = _build_visual_content_blocks(preprocessed, analysis, cfg)
 
         texts = [b for b in blocks if isinstance(b, str)]
         assert len(texts) >= 1

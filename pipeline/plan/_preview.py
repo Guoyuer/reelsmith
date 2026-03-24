@@ -196,7 +196,6 @@ def _build_item_text(idx: int, a: dict) -> tuple[str, Path | None]:
     return " ".join(parts), photo_path
 
 
-
 def _concat_previews(
     video_entries: list[tuple[int, float, Path]],
     output_path: Path,
@@ -286,7 +285,6 @@ def _concat_previews(
             )
 
     return offset_table, output_path
-
 
 
 def _collect_items(
@@ -396,7 +394,7 @@ def _build_visual_content_blocks(
     Items are sent as a flat numbered list.
     Gemini sees all photos/videos and decides the narrative structure.
 
-    Returns (blocks, offset_table).
+    Returns (blocks, offset_table, n_photos, n_videos).
     """
     blocks: list = []
     preview_dir = cfg.preview_clips_dir
@@ -508,4 +506,4 @@ def _build_visual_content_blocks(
             f"(100MB base64). Reduce photo count or thumbnail size."
         )
 
-    return blocks, offset_table
+    return blocks, offset_table, n_photos, n_videos
