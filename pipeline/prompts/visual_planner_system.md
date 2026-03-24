@@ -26,7 +26,7 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
   The preview includes audio — you'll use it later to label keep_audio (see principle #5).
 - **Metadata per item**: who's in the photo, location.
   For videos, metadata also includes: duration, resolution, orientation (portrait videos get
-  pillarboxed — prefer landscape), fps (≥48fps = slow-mo source, good for playback_speed=0.5).
+  blurred background fill — prefer landscape), fps (≥48fps = slow-mo source, good for playback_speed=0.5).
 
 ## How to plan your EDL
 
@@ -69,7 +69,7 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
 
 4. **Video selection**: SELECT steady camera, interesting action, reveals, reactions.
    REJECT shaking, camera pointing at ground/sky, too dark, static nothing, duplicates.
-   PREFER landscape over portrait (portrait gets pillarboxed with blurred bars).
+   PREFER landscape over portrait (portrait gets blurred background fill, not as clean).
 
 5. **Speech & keep_audio** — speech is a POSITIVE signal for both selection and trimming:
    - **Selection**: Between two visually similar videos, prefer the one with interesting
@@ -121,7 +121,7 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
   Before outputting the JSON, mentally add up every display_duration. If the total
   is below target_duration, extend video trims or add more items until it reaches 100%.
   This is the #1 hard requirement — an underfilled EDL is a failure.
-- display_duration: 3-4s per photo, **6-8s per video** (not 4s — videos need time to breathe).
+- display_duration: 2-5s per photo (typically 3-4s; detail/montage can be 2-2.5s), **6-8s per video**.
   **MINIMUM 2s for ANY item.** Clips under 2s are too short.
   **For videos with trim points: display_duration MUST equal (preview_end - preview_start) / playback_speed.**
   For visual moments, select generous trim windows (6-10s). For speech clips, trim
@@ -159,7 +159,7 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
   **segment_transition_duration** (inter-segment, 0.8-1.5s): fade length between chapters.
   Longer = smoother scene change, shorter = continuity.
 - mode: "narrative" (default) or "montage" — use montage for 1 energy burst segment max.
-  Montage = rapid 1-2s cuts with transition="cut" and transition_duration ≤ 0.2s.
+  Montage = rapid 2-3s cuts with transition="cut" and transition_duration ≤ 0.2s.
   Place before a calm narrative segment for contrast. Aim for 3-6 items per segment.
 - color_temp: "neutral" (default), "warm" (family/food/indoor), "cool" (night/architecture).
   Use conservatively — most segments should be neutral.
@@ -171,9 +171,9 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
 Your EDL is the complete creative specification. The renderer executes it faithfully.
 Know these behaviors so you make informed decisions:
 
-**Photos**: Ken Burns animation with cosine easing (smooth acceleration/deceleration).
-The effect field controls direction (max zoom is ~30%).
-Portrait photos get dark blurred sidebars (pillarbox). A subtle sharpening pass is applied.
+**Photos**: All photos are composited over a blurred, darkened copy of themselves — this
+fills any aspect ratio gaps with a stylized background instead of black bars. Ken Burns
+animation with cosine easing (max zoom ~30%). A subtle sharpening pass is applied.
 
 **Videos**: Trimmed by your preview_start/preview_end timestamps.
 keep_audio=true → original audio at full volume. keep_audio=false → completely silent.
@@ -316,7 +316,7 @@ Think step-by-step, then output valid JSON only.
           "effect": "ken_burns_in|ken_burns_out|ken_burns_left|ken_burns_right|static" (photos only),
           "playback_speed": 0.5|1.0|1.5 (default 1.0; 0.5 slow-mo, 1.5 fast-forward),
           "keep_audio": true or false (for videos: true if you heard meaningful speech/reactions),
-          "text_overlay": null or {{"text": "string", "position": "bottom", "font_size": 32-72}}
+          "text_overlay": null or {{"text": "string", "position": "bottom|center|top", "font_size": 32-72}}
         }}
       ],
       "transition": "crossfade|cut",
