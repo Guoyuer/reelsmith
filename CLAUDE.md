@@ -2,6 +2,9 @@
 
 ## ⚠️ End-to-end thinking required
 
+**All code and all prompts MUST be aligned.** End-to-end means every prompt claim matches
+actual code behavior, and every code behavior is accurately described in the prompt.
+
 **Any behavior change MUST be evaluated across the full pipeline (prepare → plan → assemble).**
 Stages are tightly coupled through data contracts — a change in one stage can silently break
 or degrade another. Before modifying any stage:
@@ -10,6 +13,8 @@ or degrade another. Before modifying any stage:
 2. Check if the prompt tells Gemini something that the renderer handles differently
 3. Check if postprocessing silently overrides what Gemini outputs
 4. Never optimize a single stage in isolation — verify the end-to-end effect
+5. When changing code, update the prompt if it describes the changed behavior
+6. When changing prompts, verify the code actually implements what the prompt claims
 
 Examples of past bugs caused by local-only thinking:
 - Prompt said "pick ~45 items" but math produced 252s for a 180s target (budget formula didn't account for video/photo duration mix)
