@@ -31,7 +31,7 @@ class TestResolvePlanning:
 
     def test_preset_quality(self):
         model, thinking = _resolve_planning("quality")
-        assert model == "gemini-3-pro-preview"
+        assert model == "gemini-3.1-pro-preview"
         assert thinking == "HIGH"
 
     def test_raw_model_defaults_to_high(self):
@@ -140,7 +140,7 @@ class TestFullCommandWiring:
 
     def test_plan_config_quality_preset(self, runner):
         c = self._run_full(runner, ["--model", "quality"])
-        assert c["plan"].model == "gemini-3-pro-preview"
+        assert c["plan"].model == "gemini-3.1-pro-preview"
         assert c["plan"].thinking_level == "HIGH"
 
     def test_plan_config_fast_preset(self, runner):

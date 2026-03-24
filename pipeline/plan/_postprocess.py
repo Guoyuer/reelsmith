@@ -41,26 +41,38 @@ def parse_and_convert_timestamps(
             if ps and pe and preview_offset_table:
                 ps_secs = _timestamp_to_secs(ps)
                 pe_secs = _timestamp_to_secs(pe)
-                # Find which clip preview_start belongs to
-                for _, dur, offset in preview_offset_table:
-                    if offset <= ps_secs < offset + dur:
-                        local_start = ps_secs - offset
-                        local_end = min(pe_secs - offset, dur)
-                        # Guard: minimum 2s clip
-                        if local_end - local_start < 2.0:
-                            local_start = max(0, local_start - 1)
-                            local_end = min(
-                                local_start + max(pe_secs - ps_secs, 5.0), dur
-                            )
-                        item["start_time"] = round(local_start, 1)
-                        item["end_time"] = round(local_end, 1)
-                        item["display_duration"] = round(local_end - local_start, 1)
-                        n_converted += 1
-                        logger.info(
-                            f"  Preview {ps}-{pe} → trim {item['start_time']}-{item['end_time']}s "
-                            f"({item['display_duration']}s)"
-                        )
-                        break
+                window = pe_secs - ps_secs
+                # Find the clip with most overlap with the preview window
+                best_clip = None
+                best_overlap = 0.0
+                for item_num, dur, offset in preview_offset_table:
+                    clip_start = offset
+                    clip_end = offset + dur
+                    overlap_start = max(ps_secs, clip_start)
+                    overlap_end = min(pe_secs, clip_end)
+                    overlap = max(0, overlap_end - overlap_start)
+                    if overlap > best_overlap:
+                        best_overlap = overlap
+                        best_clip = (item_num, dur, offset)
+                if best_clip:
+                    _, dur, offset = best_clip
+                    local_start = max(0, ps_secs - offset)
+                    local_end = min(pe_secs - offset, dur)
+                    # Guard: minimum 2s clip, expand toward center of video
+                    if local_end - local_start < 2.0:
+                        mid = (local_start + local_end) / 2
+                        half = max(window, 5.0) / 2
+                        local_start = max(0, mid - half)
+                        local_end = min(local_start + max(window, 5.0), dur)
+                        local_start = max(0, local_end - max(window, 5.0))
+                    item["start_time"] = round(local_start, 1)
+                    item["end_time"] = round(local_end, 1)
+                    item["display_duration"] = round(local_end - local_start, 1)
+                    n_converted += 1
+                    logger.info(
+                        f"  Preview {ps}-{pe} → trim {item['start_time']}-{item['end_time']}s "
+                        f"({item['display_duration']}s)"
+                    )
                 else:
                     logger.warning(f"preview {ps} not in any clip, keeping as-is")
     if n_converted:
