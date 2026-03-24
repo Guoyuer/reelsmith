@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ._display import (
-    _PipelineDisplay,
     _build_headline_from_args,
+    _PipelineDisplay,
     _progress_cb,
     _setup_logging,
 )
@@ -38,6 +38,7 @@ def _handle_sigint(sig, frame):
     if _interrupted:
         # Second Ctrl+C — force kill immediately
         import os
+
         os._exit(1)
     _interrupted = True
     print("\n\u26a0 Interrupted \u2014 press Ctrl+C again to force quit")
@@ -283,9 +284,11 @@ def _run_pipeline(
     pc.display = display
     t_start = time.monotonic()
 
+    current_stage = None
     try:
         for stage in active:
             if stage in _STAGE_RUNNERS:
+                current_stage = stage
                 _STAGE_RUNNERS[stage](pc)
 
         total = round(time.monotonic() - t_start, 1)
@@ -295,7 +298,8 @@ def _run_pipeline(
         raise
     except Exception as e:
         total = round(time.monotonic() - t_start, 1)
-        display.fail("pipeline", str(e)[:80])
+        if current_stage:
+            display.fail(current_stage, str(e)[:80])
         logger.error(f"Pipeline failed in {total:.0f}s: {e}", exc_info=True)
         sys.exit(1)
     finally:
