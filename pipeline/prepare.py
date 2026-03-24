@@ -167,10 +167,8 @@ def prepare(
         _prepare_photo(entry, item_id, local_path, cfg, cache_file)
         results_by_id[item_id] = entry
 
-    # --- Phase 3: Prepare videos — probe metadata ---
+    # --- Phase 3: Probe uncached videos (fast, no progress bar) ---
     for i, (entry, item_id, local_path, cache_file) in enumerate(uncached_videos, 1):
-        if progress_callback:
-            progress_callback(i, len(uncached_videos), "videos")
         _prepare_video(entry, item_id, local_path, cache_file, i, len(uncached_videos))
         results_by_id[item_id] = entry
 
@@ -329,7 +327,7 @@ def _generate_video_previews(
 
     def _progress(done, total):
         if progress_callback:
-            progress_callback(done, total, "previews")
+            progress_callback(done, total, "videos")
         if done % 20 == 0 or done == total:
             logger.info(f"  Video previews: {done}/{total}")
 
