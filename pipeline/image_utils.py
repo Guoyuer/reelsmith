@@ -18,12 +18,17 @@ except ImportError:
     pass  # HEIC thumbnails require pillow-heif; rendering uses convert_heic fallback
 
 
-def convert_heic(source: Path) -> Path:
+def convert_heic(source: Path, cache_dir: Path | None = None) -> Path:
     """Convert HEIC to JPEG for FFmpeg (which can't -loop 1 with HEIC).
 
     Cached — skips if output exists. Tries pillow-heif, sips, ImageMagick.
+    Output goes to cache_dir (default: temp dir), never pollutes source directory.
     """
-    jpeg_path = source.parent / f"_converted_{source.stem}.jpg"
+    if cache_dir is None:
+        import tempfile
+        cache_dir = Path(tempfile.gettempdir()) / "vlog_heic_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    jpeg_path = cache_dir / f"_converted_{source.stem}.jpg"
     if jpeg_path.exists():
         return jpeg_path
 
