@@ -33,6 +33,10 @@ def parse_and_convert_timestamps(
         raw["music"] = None
 
     # Convert preview_start/preview_end (MM:SS) → start_time/end_time (seconds)
+    # Build item_num → offset lookup from the table
+    offset_by_num: dict[int, tuple[float, float]] = {
+        num: (dur, offset) for num, dur, offset in preview_offset_table
+    }
     n_converted = 0
     for seg in raw.get("segments", []):
         for item in seg.get("items", []):
@@ -42,23 +46,37 @@ def parse_and_convert_timestamps(
                 ps_secs = _timestamp_to_secs(ps)
                 pe_secs = _timestamp_to_secs(pe)
                 window = pe_secs - ps_secs
-                # Find the clip with most overlap with the preview window
-                best_clip = None
-                best_overlap = 0.0
+
+                # Match by finding which clip's offset range contains the
+                # MIDPOINT of the selected window (robust against Gemini
+                # using clip-end as preview_start)
+                mid_secs = (ps_secs + pe_secs) / 2
+                matched = None
                 for item_num, dur, offset in preview_offset_table:
-                    clip_start = offset
-                    clip_end = offset + dur
-                    overlap_start = max(ps_secs, clip_start)
-                    overlap_end = min(pe_secs, clip_end)
-                    overlap = max(0, overlap_end - overlap_start)
-                    if overlap > best_overlap:
-                        best_overlap = overlap
-                        best_clip = (item_num, dur, offset)
-                if best_clip:
-                    _, dur, offset = best_clip
+                    if offset <= mid_secs < offset + dur:
+                        matched = (item_num, dur, offset)
+                        break
+
+                if not matched:
+                    # Fallback: best overlap
+                    best_overlap = 0.0
+                    for item_num, dur, offset in preview_offset_table:
+                        ov = max(0, min(pe_secs, offset + dur) - max(ps_secs, offset))
+                        if ov > best_overlap:
+                            best_overlap = ov
+                            matched = (item_num, dur, offset)
+
+                if matched:
+                    _, dur, offset = matched
                     local_start = max(0, ps_secs - offset)
                     local_end = min(pe_secs - offset, dur)
-                    # Guard: minimum 2s clip, expand toward center of video
+                    # If window fell mostly outside this clip (Gemini used
+                    # clip-end as start), treat as "select from start"
+                    if local_end - local_start < window * 0.5:
+                        local_start = max(0, mid_secs - offset - window / 2)
+                        local_end = min(local_start + window, dur)
+                        local_start = max(0, local_end - window)
+                    # Guard: minimum 2s clip
                     if local_end - local_start < 2.0:
                         mid = (local_start + local_end) / 2
                         half = max(window, 5.0) / 2
@@ -70,7 +88,8 @@ def parse_and_convert_timestamps(
                     item["display_duration"] = round(local_end - local_start, 1)
                     n_converted += 1
                     logger.info(
-                        f"  Preview {ps}-{pe} → trim {item['start_time']}-{item['end_time']}s "
+                        f"  Preview {ps}-{pe} → clip #{matched[0]} "
+                        f"trim {item['start_time']}-{item['end_time']}s "
                         f"({item['display_duration']}s)"
                     )
                 else:
