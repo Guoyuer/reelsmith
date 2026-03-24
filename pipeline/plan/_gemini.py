@@ -213,13 +213,10 @@ def _gemini_call(
     usage = response.usage_metadata
     input_tokens = (usage.prompt_token_count or 0) if usage else 0
     output_tokens = (usage.candidates_token_count or 0) if usage else 0
-    # Gemini 3.1 Flash Lite pricing: $0.075/M input, $0.30/M output
-    cost_est = input_tokens * 0.075 / 1_000_000 + output_tokens * 0.30 / 1_000_000
     logger.info(
         f"  Response: {input_tokens:,} input tokens, "
         f"{output_tokens:,} output tokens, {elapsed:.1f}s"
     )
-    logger.info(f"  Estimated cost: ${cost_est:.4f}")
     logger.info(f"  Output: {len(content)} chars")
     logger.info(f"=== [Gemini] End {label} ===")
 
