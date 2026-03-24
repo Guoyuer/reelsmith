@@ -15,73 +15,15 @@ from pathlib import Path
 logger = logging.getLogger("vlog.plan")
 
 
-def _gemini_call(
-    system: str,
-    user_parts: list,
-    label: str = "",
-    model: str = "",
-    thinking_level: str = "HIGH",
-    progress_callback=None,
-) -> str:
-    """Make a Gemini API call with multimodal content. Returns response text.
+def _prepare_parts(user_parts: list, client, progress_callback=None) -> tuple[list, int]:
+    """Convert *user_parts* (str/dict) into Gemini API Part objects.
 
-    *user_parts*: list of strings and/or Part objects (text + images).
-    *thinking_level*: OFF, LOW, or HIGH.
+    Videos are uploaded via the Files API; images are inlined.
+    Returns ``(parts, n_uploaded)`` where *n_uploaded* is the number of
+    files uploaded via the Files API.
     """
-    from google import genai
     from google.genai import types
 
-    if not model:
-        model = os.getenv("VLOG_MODEL", "gemini-3-flash-preview")
-
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    if not api_key:
-        raise RuntimeError(
-            "GEMINI_API_KEY not set. Add it to .env to use the visual/API planner. "
-            "Get a key at https://ai.google.dev/gemini-api/docs/api-key"
-        )
-    client = genai.Client(api_key=api_key)
-
-    # Validate model exists
-    model_id = model if model.startswith("models/") else f"models/{model}"
-    try:
-        client.models.get(model=model_id)
-    except Exception:
-        available = sorted(
-            (m.name or "").removeprefix("models/")
-            for m in client.models.list()
-            if "flash" in (m.name or "") or "pro" in (m.name or "")
-        )
-        raise RuntimeError(
-            f"Model '{model}' not available. Options:\n  " + "\n  ".join(available)
-        )
-
-    # Validate thinking_level
-    valid_thinking = ("OFF", "MINIMAL", "LOW", "MEDIUM", "HIGH")
-    if thinking_level not in valid_thinking:
-        raise ValueError(
-            f"Invalid thinking_level '{thinking_level}'. Must be one of: {', '.join(valid_thinking)}"
-        )
-
-    # First pass: calculate total media size to decide inline vs Files API
-    n_text = 0
-    n_media = 0
-    text_chars = 0
-    media_bytes_total = 0
-    for p in user_parts:
-        if isinstance(p, str):
-            n_text += 1
-            text_chars += len(p)
-        elif isinstance(p, dict) and p.get("type") in (
-            "image_bytes",
-            "audio_bytes",
-            "video_bytes",
-        ):
-            n_media += 1
-            media_bytes_total += len(p.get("data", b""))
-
-    # Videos: single mega-preview uploaded via Files API (1 file, not 100+)
-    # Images: inline (individual thumbnails, ~44MB base64 ~59MB, within 100MB limit)
     n_uploaded = 0
     parts = []
     for p in user_parts:
@@ -127,57 +69,16 @@ def _gemini_call(
         elif isinstance(p, types.Part):
             parts.append(p)
 
-    n_images = sum(1 for p in user_parts if isinstance(p, dict) and p.get("type") == "image_bytes")
-    n_videos_count = sum(1 for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes")
-    img_mb = sum(len(p.get("data", b"")) for p in user_parts if isinstance(p, dict) and p.get("type") == "image_bytes") / 1024 / 1024
-    vid_mb = sum(len(p.get("data", b"")) for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes") / 1024 / 1024
-    logger.info(f"Gemini API call: {label}")
-    logger.info(f"  Model: {model}, thinking: {thinking_level}")
-    logger.info(f"  Prompt: {len(system)} chars ({len(system.split(chr(10)))} lines)")
-    logger.info(f"  Content: {n_images} photos ({img_mb:.0f}MB), {n_videos_count} video ({vid_mb:.0f}MB), {n_uploaded} via Files API")
-    # Log each part for debugging
-    for i, p in enumerate(user_parts):
-        if isinstance(p, str):
-            lines = p.split("\n")
-            logger.info(f"  [part {i}] text ({len(lines)} lines, {len(p)} chars)")
-            for line in lines:
-                logger.debug(f"    | {line}")
-        elif isinstance(p, dict):
-            ptype = p.get("type", "?")
-            mime = p.get("mime_type", "?")
-            size_kb = len(p.get("data", b"")) // 1024
-            if ptype == "image_bytes":
-                logger.debug(f"  [part {i}] photo {mime} ({size_kb}KB)")
-            else:
-                logger.info(f"  [part {i}] {ptype} {mime} ({size_kb}KB)")
+    return parts, n_uploaded
 
-    if progress_callback:
-        progress_callback(0, 0, "request sent, waiting for gemini...")
-    t0 = time.monotonic()
 
-    config_kwargs: dict = {
-        "system_instruction": system,
-        "max_output_tokens": 32000,
-        "temperature": 0.7,
-        "media_resolution": types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
-    }
-    if thinking_level != "OFF":
-        config_kwargs["thinking_config"] = types.ThinkingConfig(
-            thinking_level=thinking_level,  # type: ignore[arg-type]
-            include_thoughts=True,
-        )
-    config = types.GenerateContentConfig(**config_kwargs)  # type: ignore[arg-type]
+def _parse_response(response) -> str:
+    """Extract text content from a Gemini response.
 
-    response = client.models.generate_content(
-        model=model,
-        contents=[types.Content(parts=parts)],
-        config=config,
-    )
-
-    elapsed = time.monotonic() - t0
-    if progress_callback:
-        progress_callback(0, 0, f"response received ({elapsed:.0f}s)")
-
+    Logs thinking, executable_code, and code_execution_result parts.
+    Renders thinking to terminal via Rich when available.
+    Returns the text content string (may be empty).
+    """
     # Log thinking, code execution, and other non-text parts
     if response.candidates:
         cand_content = response.candidates[0].content
@@ -226,6 +127,117 @@ def _gemini_call(
         logger.warning(
             f"Empty response with no candidates. prompt_feedback={response.prompt_feedback}"
         )
+    return content
+
+
+def _gemini_call(
+    system: str,
+    user_parts: list,
+    label: str = "",
+    model: str = "",
+    thinking_level: str = "HIGH",
+    progress_callback=None,
+) -> str:
+    """Make a Gemini API call with multimodal content. Returns response text.
+
+    *user_parts*: list of strings and/or Part objects (text + images).
+    *thinking_level*: OFF, LOW, or HIGH.
+    """
+    from google import genai
+    from google.genai import types
+
+    if not model:
+        model = os.getenv("VLOG_MODEL", "gemini-3-flash-preview")
+
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError(
+            "GEMINI_API_KEY not set. Add it to .env to use the visual/API planner. "
+            "Get a key at https://ai.google.dev/gemini-api/docs/api-key"
+        )
+    client = genai.Client(api_key=api_key)
+
+    # Validate model exists
+    model_id = model if model.startswith("models/") else f"models/{model}"
+    try:
+        client.models.get(model=model_id)
+    except Exception:
+        available = sorted(
+            (m.name or "").removeprefix("models/")
+            for m in client.models.list()
+            if "flash" in (m.name or "") or "pro" in (m.name or "")
+        )
+        raise RuntimeError(
+            f"Model '{model}' not available. Options:\n  " + "\n  ".join(available)
+        )
+
+    # Validate thinking_level
+    valid_thinking = ("OFF", "MINIMAL", "LOW", "MEDIUM", "HIGH")
+    if thinking_level not in valid_thinking:
+        raise ValueError(
+            f"Invalid thinking_level '{thinking_level}'. Must be one of: {', '.join(valid_thinking)}"
+        )
+
+    # Convert user_parts into Gemini Part objects
+    parts, n_uploaded = _prepare_parts(user_parts, client, progress_callback)
+
+    # Log call details
+    n_images = sum(1 for p in user_parts if isinstance(p, dict) and p.get("type") == "image_bytes")
+    n_videos_count = sum(1 for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes")
+    img_mb = sum(len(p.get("data", b"")) for p in user_parts if isinstance(p, dict) and p.get("type") == "image_bytes") / 1024 / 1024
+    vid_mb = sum(len(p.get("data", b"")) for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes") / 1024 / 1024
+    logger.info(f"Gemini API call: {label}")
+    logger.info(f"  Model: {model}, thinking: {thinking_level}")
+    logger.info(f"  Prompt: {len(system)} chars ({len(system.split(chr(10)))} lines)")
+    logger.info(f"  Content: {n_images} photos ({img_mb:.0f}MB), {n_videos_count} video ({vid_mb:.0f}MB), {n_uploaded} via Files API")
+    # Log each part for debugging
+    for i, p in enumerate(user_parts):
+        if isinstance(p, str):
+            lines = p.split("\n")
+            logger.info(f"  [part {i}] text ({len(lines)} lines, {len(p)} chars)")
+            for line in lines:
+                logger.debug(f"    | {line}")
+        elif isinstance(p, dict):
+            ptype = p.get("type", "?")
+            mime = p.get("mime_type", "?")
+            size_kb = len(p.get("data", b"")) // 1024
+            if ptype == "image_bytes":
+                logger.debug(f"  [part {i}] photo {mime} ({size_kb}KB)")
+            else:
+                logger.info(f"  [part {i}] {ptype} {mime} ({size_kb}KB)")
+
+    if progress_callback:
+        progress_callback(0, 0, "request sent, waiting for gemini...")
+    t0 = time.monotonic()
+
+    # Build config and call API
+    config_kwargs: dict = {
+        "system_instruction": system,
+        "max_output_tokens": 32000,
+        "temperature": 0.7,
+        "media_resolution": types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+    }
+    if thinking_level != "OFF":
+        config_kwargs["thinking_config"] = types.ThinkingConfig(
+            thinking_level=thinking_level,  # type: ignore[arg-type]
+            include_thoughts=True,
+        )
+    config = types.GenerateContentConfig(**config_kwargs)  # type: ignore[arg-type]
+
+    response = client.models.generate_content(
+        model=model,
+        contents=[types.Content(parts=parts)],
+        config=config,
+    )
+
+    elapsed = time.monotonic() - t0
+    if progress_callback:
+        progress_callback(0, 0, f"response received ({elapsed:.0f}s)")
+
+    # Parse response content
+    content = _parse_response(response)
+
+    # Log token usage and cost
     usage = response.usage_metadata
     input_tokens = (usage.prompt_token_count or 0) if usage else 0
     output_tokens = (usage.candidates_token_count or 0) if usage else 0
