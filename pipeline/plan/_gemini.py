@@ -144,8 +144,8 @@ def _gemini_call(
     # Log text parts sent to Gemini
     for i, p in enumerate(user_parts):
         if isinstance(p, str):
-            preview = p[:200].replace("\n", " ")
-            logger.info(f"  [text #{i}] {preview}{'...' if len(p) > 200 else ''}")
+            for line in p.split("\n"):
+                logger.info(f"  [text #{i}] {line}")
         elif isinstance(p, dict):
             ptype = p.get("type", "?")
             size_kb = len(p.get("data", b"")) // 1024
@@ -191,13 +191,13 @@ def _gemini_call(
             if getattr(part, "executable_code", None):
                 ec = part.executable_code  # type: ignore[union-attr]
                 code = ec.code or "" if ec else ""
-                logger.info(f"  [Code] {code[:300]}{'...' if len(code) > 300 else ''}")
+                for line in code.split("\n"):
+                    logger.info(f"  [Code] {line}")
             if getattr(part, "code_execution_result", None):
                 cer = part.code_execution_result  # type: ignore[union-attr]
                 if cer:
-                    logger.info(
-                        f"  [CodeResult] {cer.outcome}: {(cer.output or '')[:300]}"
-                    )
+                    for line in (cer.output or "").split("\n"):
+                        logger.info(f"  [CodeResult] {cer.outcome}: {line}")
 
     content = response.text or ""
     # Log finish reason if response is empty or blocked
@@ -221,9 +221,6 @@ def _gemini_call(
     )
     logger.info(f"  Estimated cost: ${cost_est:.4f}")
     logger.info(f"  Output: {len(content)} chars")
-    # Log first 500 chars of response for debugging
-    preview = content[:500].replace("\n", " ")
-    logger.info(f"  Preview: {preview}...")
     logger.info(f"=== [Gemini] End {label} ===")
 
     return content
