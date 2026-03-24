@@ -134,13 +134,16 @@ videos should have keep_audio=true.
   Example: trim 02:05-02:12 (7s) at speed 1.0 → display_duration=7.0.
   Example: trim 02:05-02:15 (10s) at speed 1.0 → display_duration=10.0.
   Do NOT set display_duration independently from trim points.
-- For videos: use the PREVIEW VIDEO to select the best moments.
+- For videos: WATCH the PREVIEW VIDEO to select the best moments.
   Each clip has its item number (e.g. #30) burned into the top-left corner,
   and the metadata shows its preview range (e.g. preview=02:00-02:22).
   Set preview_start and preview_end to the MM:SS (or H:MM:SS for >1hr) timestamps
   in the preview video where the moment you want begins and ends.
-  Example: to select the part of clip #30 from 02:05 to 02:12 in the preview,
-  set preview_start="02:05", preview_end="02:12", display_duration=7.0.
+  IMPORTANT: Do NOT just use the start of each clip's preview range. Watch the
+  entire clip and find the most visually compelling 6-10 second moment. For clips
+  longer than 20s, the best moment is almost never the first few seconds.
+  Example: clip #30 runs from 02:00 to 02:22. After watching, you determine the
+  best action happens at 02:08-02:16. Set preview_start="02:08", preview_end="02:16".
   IMPORTANT: never cut mid-speech. If you hear dialogue, extend the trim to include
   the complete conversation with 1s padding after the last word.
 - effect: ken_burns_in/out/left/right for photos, "none" for video clips
