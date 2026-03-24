@@ -144,10 +144,9 @@ All candidates:"""
         **model_kwargs,
     )
 
-    logger.info(f"=== [Gemini] EDL RESPONSE ({len(edl_content)} chars) ===")
+    logger.info(f"Gemini response: {len(edl_content)} chars")
     for line in edl_content.split("\n"):
-        logger.info(f"  | {line}")
-    logger.info("=== [Gemini] END RESPONSE ===")
+        logger.debug(f"  | {line}")
 
     # --- Post-processing pipeline ---
     if progress_callback:

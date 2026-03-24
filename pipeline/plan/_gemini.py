@@ -127,24 +127,14 @@ def _gemini_call(
         elif isinstance(p, types.Part):
             parts.append(p)
 
-    logger.info(f"=== [Gemini] API Call: {label} ===")
-    logger.info(f"  Model: {model}")
-    logger.info(f"  System prompt: {len(system)} chars")
-    logger.info(
-        f"  Input: {n_text} text parts ({text_chars} chars), "
-        f"{n_media} media files ({media_bytes_total / 1024 / 1024:.1f}MB)"
-    )
-    if n_uploaded:
-        logger.info(f"  Videos: {n_uploaded} uploaded via Files API")
-    logger.info(f"  Images: {n_media - n_uploaded} inline")
-    # Log request summary
-    n_text = sum(1 for p in user_parts if isinstance(p, str))
     n_images = sum(1 for p in user_parts if isinstance(p, dict) and p.get("type") == "image_bytes")
-    n_videos = sum(1 for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes")
+    n_videos_count = sum(1 for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes")
     img_mb = sum(len(p.get("data", b"")) for p in user_parts if isinstance(p, dict) and p.get("type") == "image_bytes") / 1024 / 1024
     vid_mb = sum(len(p.get("data", b"")) for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes") / 1024 / 1024
-    logger.info(f"  Request: {n_text} text, {n_images} photos ({img_mb:.0f}MB), {n_videos} video ({vid_mb:.0f}MB)")
-    logger.info(f"  System prompt: {len(system)} chars ({len(system.split(chr(10)))} lines)")
+    logger.info(f"Gemini API call: {label}")
+    logger.info(f"  Model: {model}, thinking: {thinking_level}")
+    logger.info(f"  Prompt: {len(system)} chars ({len(system.split(chr(10)))} lines)")
+    logger.info(f"  Content: {n_images} photos ({img_mb:.0f}MB), {n_videos_count} video ({vid_mb:.0f}MB), {n_uploaded} via Files API")
     # Log each part for debugging
     for i, p in enumerate(user_parts):
         if isinstance(p, str):
@@ -193,9 +183,9 @@ def _gemini_call(
         cand_content = response.candidates[0].content
         for part in (cand_content.parts if cand_content else None) or []:
             if getattr(part, "thought", False) and part.text:
-                logger.info(f"  [Thinking] ({len(part.text)} chars)")
+                logger.info(f"  [Thinking] {len(part.text)} chars")
                 for line in part.text.split("\n"):
-                    logger.info(f"  | {line}")
+                    logger.debug(f"  💭 {line}")
             if getattr(part, "executable_code", None):
                 ec = part.executable_code  # type: ignore[union-attr]
                 code = ec.code or "" if ec else ""
