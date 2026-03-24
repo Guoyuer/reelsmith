@@ -14,7 +14,8 @@ import re
 from pathlib import Path
 
 from ..config import Config
-from ..media_utils import run_subprocess
+from ..media_utils import probe_duration, run_subprocess
+from ._prompts import _secs_to_timestamp
 
 logger = logging.getLogger("vlog.plan")
 
@@ -186,28 +187,6 @@ def _build_item_text(idx: int, a: dict) -> tuple[str, Path | None]:
     return " ".join(parts), photo_path
 
 
-def probe_duration(path: Path) -> float:
-    """Probe video duration via ffprobe."""
-    try:
-        r = run_subprocess(
-            [
-                "ffprobe",
-                "-v",
-                "error",
-                "-show_entries",
-                "format=duration",
-                "-of",
-                "csv=p=0",
-                str(path),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        return float(r.stdout.strip()) if r.stdout.strip() else 0.0
-    except Exception:
-        return 0.0
-
 
 def _concat_previews(
     video_entries: list[tuple[int, float, Path]],
@@ -299,11 +278,6 @@ def _concat_previews(
 
     return offset_table, output_path
 
-
-def _secs_to_timestamp(s: float) -> str:
-    h, rem = divmod(int(s), 3600)
-    m, sec = divmod(rem, 60)
-    return f"{h}:{m:02d}:{sec:02d}" if h else f"{m:02d}:{sec:02d}"
 
 
 def _collect_items(
