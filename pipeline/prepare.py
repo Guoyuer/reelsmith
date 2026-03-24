@@ -337,6 +337,9 @@ def _generate_video_previews(
             logger.warning(
                 "Preview failed for %s: %s", path, (result.stderr or "")[-200:]
             )
+            # Remove corrupt partial output
+            if path and Path(path).exists():
+                Path(path).unlink(missing_ok=True)
         return result
 
     parallel_tasks = [

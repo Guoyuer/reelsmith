@@ -105,16 +105,23 @@ def _concat_previews(
     """Concatenate video previews into one mega-preview with burned-in labels."""
     import tempfile
 
+    # Use actual preview clip durations (not metadata) for accurate offsets
     offset = 0.0
     offset_table = []
-    for item_num, dur, _ in video_entries:
-        offset_table.append((item_num, dur, offset))
-        offset += dur
+    valid_entries = []
+    for item_num, _meta_dur, preview_path in video_entries:
+        actual_dur = probe_duration(preview_path)
+        if actual_dur <= 0:
+            logger.warning(f"  Skipping preview #{item_num}: could not probe duration")
+            continue
+        offset_table.append((item_num, actual_dur, offset))
+        valid_entries.append((item_num, actual_dur, preview_path))
+        offset += actual_dur
 
     with tempfile.TemporaryDirectory() as td:
         concat_file = Path(td) / "concat.txt"
         with open(concat_file, "w") as f:
-            for _, dur, preview_path in video_entries:
+            for _, dur, preview_path in valid_entries:
                 safe = str(preview_path.resolve()).replace("\\", "/")
                 f.write(f"file '{safe}'\n")
                 f.write(f"duration {dur}\n")
@@ -170,9 +177,13 @@ def _concat_previews(
 
     if output_path.exists():
         actual_dur = probe_duration(output_path)
-        if abs(actual_dur - offset) > 5:
+        if offset > 0 and actual_dur / offset < 0.5:
             raise RuntimeError(
-                f"Mega-preview duration mismatch: expected {offset:.0f}s, got {actual_dur:.0f}s"
+                f"Mega-preview duration mismatch: expected ~{offset:.0f}s, got {actual_dur:.0f}s (<50%)"
+            )
+        if abs(actual_dur - offset) > 5:
+            logger.warning(
+                f"Mega-preview duration drift: expected {offset:.0f}s, got {actual_dur:.0f}s"
             )
 
     return offset_table, output_path

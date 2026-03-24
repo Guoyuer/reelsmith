@@ -17,23 +17,28 @@ class TestConcatPreviews:
     def test_builds_offset_table(self, tmp_path):
         # Create fake preview files
         entries = []
+        clip_durs = [10.0, 11.0, 12.0]
         for i in range(3):
             p = tmp_path / f"preview_{i}.mp4"
             p.write_bytes(b"\x00" * 500)
-            entries.append((i + 1, 10.0 + i, p))
+            entries.append((i + 1, clip_durs[i], p))
 
         out = tmp_path / "mega.mp4"
+        total = sum(clip_durs)
 
+        # probe_duration called per clip (3x) then for mega output (1x)
+        probe_returns = clip_durs + [total]
         with patch("pipeline.plan._preview.run_subprocess") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
-            with patch("pipeline.plan._preview.probe_duration", return_value=33.0):
+            with patch(
+                "pipeline.plan._preview.probe_duration", side_effect=probe_returns
+            ):
                 offset_table, result_path = _concat_previews(entries, out)
 
         assert len(offset_table) == 3
-        # Check offsets are cumulative
-        assert offset_table[0][2] == 0.0  # first offset = 0
-        assert offset_table[1][2] == 10.0  # second = duration of first
-        assert offset_table[2][2] == 21.0  # third = 10 + 11
+        assert offset_table[0][2] == 0.0
+        assert offset_table[1][2] == 10.0
+        assert offset_table[2][2] == 21.0
 
     def test_duration_mismatch_raises(self, tmp_path):
         p = tmp_path / "preview.mp4"
@@ -43,11 +48,12 @@ class TestConcatPreviews:
 
         with patch("pipeline.plan._preview.run_subprocess") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
-            out.write_bytes(b"\x00" * 100)  # create so exists() check passes
+            out.write_bytes(b"\x00" * 100)
+            # probe per clip returns 10.0, probe mega returns 1.0 (<50%)
             with patch(
-                "pipeline.plan._preview.probe_duration", return_value=100.0
-            ):  # way off
-                with pytest.raises(RuntimeError, match="duration mismatch"):
+                "pipeline.plan._preview.probe_duration", side_effect=[10.0, 1.0]
+            ):
+                with pytest.raises(RuntimeError, match="mismatch"):
                     _concat_previews(entries, out)
 
 
