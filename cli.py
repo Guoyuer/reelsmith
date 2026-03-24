@@ -71,6 +71,9 @@ class _PipelineDisplay:
         self._headline = headline
         self._stages = stages
         self._t_start = time.monotonic()
+        self._stage_t_start: dict[str, float] = {}  # stage → start time
+        self.output_file: str = ""  # set by assemble stage
+        self.api_cost: float = 0.0  # accumulated Gemini API cost
         # stage → (state, detail, progress_current, progress_total, duration)
         self._stage_data: dict[str, dict] = {}
         self._current_stage: str | None = None
@@ -107,12 +110,16 @@ class _PipelineDisplay:
         return Console(stderr=True)
 
     def _render_panel(self):
+        import shutil
+
         from rich.panel import Panel
         from rich.table import Table
         from rich.text import Text
 
         self._tick += 1
         elapsed = time.monotonic() - self._t_start
+        term_w = shutil.get_terminal_size((80, 24)).columns
+        panel_w = min(max(term_w - 2, 50), 100)
 
         table = Table.grid(padding=(0, 1))
         table.add_column(width=2)  # icon
@@ -131,7 +138,13 @@ class _PipelineDisplay:
                 spinner = self._SPINNER_FRAMES[self._tick % len(self._SPINNER_FRAMES)]
                 icon = Text(spinner, style="bold cyan")
                 label = Text(name, style="bold cyan")
-                info = self._build_progress(d) if not d["subs"] else Text("")
+                stage_elapsed = time.monotonic() - self._stage_t_start.get(s, self._t_start)
+                if not d["subs"] and d["total"] > 0:
+                    info = self._build_progress(d)
+                elif d["label"]:
+                    info = Text(f"{d['label']}  [dim]{stage_elapsed:.0f}s", style="cyan")
+                else:
+                    info = Text(f"{stage_elapsed:.0f}s", style="dim cyan")
             elif d["state"] == "done":
                 icon = Text(_ICON_DONE)
                 label = Text(name, style="green")
@@ -158,7 +171,7 @@ class _PipelineDisplay:
             title=f"[bold]\U0001f3ac {self._run_name}[/bold] \u2014 {self._headline}",
             subtitle=f"[dim]elapsed {elapsed:.0f}s[/dim]",
             border_style="bright_blue",
-            width=72,
+            width=panel_w,
             padding=(0, 1),
         )
         return panel
@@ -203,6 +216,7 @@ class _PipelineDisplay:
 
     def start(self, stage: str) -> None:
         self._current_stage = stage
+        self._stage_t_start[stage] = time.monotonic()
         self._stage_data[stage].update(state="running", label="", current=0, total=0)
         self._refresh()
 
@@ -293,7 +307,22 @@ class _PipelineDisplay:
             table.add_row(name, icon, dur_str, detail)
 
         table.add_section()
-        table.add_row("[bold]total", "", f"[bold]{total_dur:.0f}s", "")
+        footer_detail = []
+        if self.api_cost > 0:
+            footer_detail.append(f"API ~${self.api_cost:.2f}")
+        if self.output_file:
+            from pathlib import Path
+
+            p = Path(self.output_file)
+            if p.exists():
+                size_mb = p.stat().st_size / 1024 / 1024
+                footer_detail.append(f"{p.name} ({size_mb:.0f}MB)")
+            else:
+                footer_detail.append(p.name)
+        table.add_row(
+            "[bold]total", "", f"[bold]{total_dur:.0f}s",
+            "  ".join(footer_detail),
+        )
 
         Console(stderr=True).print(table)
 
@@ -365,6 +394,13 @@ def _progress_cb(
 
     def cb(current: int, total: int, name: str) -> None:
         if total == 0:
+            # Accumulate API cost if reported
+            if name.startswith("~$"):
+                try:
+                    cost = float(name.split("$")[1].split(" ")[0])
+                    display.api_cost += cost
+                except (ValueError, IndexError):
+                    pass
             # Status text only (no progress bar)
             display.update(stage, name)
             return
@@ -573,6 +609,7 @@ def _run_assemble(pc: _PipelineContext):
     dur = time.monotonic() - t0
     size_mb = round(out.stat().st_size / 1024 / 1024, 1) if out.exists() else 0
     pc.log(f"Assemble: {out.name} ({size_mb}MB) in {dur:.0f}s")
+    pc.display.output_file = str(out)
     pc.display.done("assemble", f"{out.name} ({size_mb}MB)", dur)
 
     for issue in issues:

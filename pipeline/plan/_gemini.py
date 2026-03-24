@@ -229,4 +229,8 @@ def _gemini_call(
     logger.info(f"  Output: {len(content)} chars")
     logger.info(f"=== [Gemini] End {label} ===")
 
+    # Report cost via callback metadata
+    if progress_callback:
+        progress_callback(0, 0, f"~${cost_est:.2f} ({input_tokens:,} in, {output_tokens:,} out)")
+
     return content
