@@ -64,15 +64,32 @@ videos should have keep_audio=true.
    **Select videos primarily for visual quality, not audio.** A beautiful silent clip
    beats a mediocre clip with speech.
 
-5. **Rhythm**: Alternate photos (2.5-4s, Ken Burns) with video clips (4-8s, real motion).
-   Vary pacing — fast cuts for energy, lingering shots for emotion.
+5. **Rhythm & photo pacing**: Photos feel alive when their duration and placement serve
+   a rhythmic purpose. Follow these patterns:
+   - **Never place 3+ photos in a row at the same duration.** Vary: 3.5s → 2.5s → 4s.
+   - **Hero photo** (landscapes, peak emotion): 4-5s with slow Ken Burns — let it breathe.
+   - **Detail/texture photo** (food, hands, signs): 2-2.5s — quick and punchy.
+   - **Montage burst**: 3-6 photos at 1-1.5s each, rapid cuts, creates energy peak.
+     Follow immediately with a "landing shot" (video or hero photo, 5-8s) to let
+     the viewer absorb the burst.
+   - **After a video clip with audio**, a 3s photo acts as a visual "exhale" — use it.
+   - **Before a peak moment video**, a 2s photo builds anticipation — use it.
+   - Alternate photos (2-5s, Ken Burns) with video clips (5-8s, real motion).
+     Avoid long runs of same-type items.
 
 6. **Location diversity**: A trip vlog MUST show the VARIETY of places visited.
    Do NOT over-represent any single location. If the trip has 10 locations, each
    should get roughly equal screen time. Spread items across ALL days and locations.
    BAD: 40% of items from the airport. GOOD: 2-3 items per location, covering the full trip.
 
-7. **Photo selection tiers** (be ruthless — most photos should be skipped):
+7. **Photo selection & role** (be ruthless — most photos should be skipped):
+   Every selected photo should have a ROLE in the edit, not just "it's a nice photo":
+   - **Establishing shot**: wide/scenic, opens a chapter or location (pair with text overlay)
+   - **Emotional peak**: genuine reaction, one-of-a-kind moment (give it hero duration 4-5s)
+   - **Detail/texture**: food close-up, hands, interesting pattern (quick cut 2-2.5s)
+   - **Breathing room**: calm photo after energetic video sequence (visual exhale)
+   - **Montage fuel**: good composition, works in rapid-cut sequence (1-1.5s)
+   Selection tiers:
    MUST-INCLUDE: genuine emotion (real laughter, tears, awe), decisive unrepeatable
    moment, one-of-a-kind shot with striking composition.
    STRONG: good composition + clear subject + interesting light or color.
@@ -146,13 +163,39 @@ videos should have keep_audio=true.
   best action happens at 02:08-02:16. Set preview_start="02:08", preview_end="02:16".
   IMPORTANT: never cut mid-speech. If you hear dialogue, extend the trim to include
   the complete conversation with 1s padding after the last word.
-- effect: ken_burns_in/out/left/right for photos, "none" for video clips
+- effect: ken_burns_in/out/left/right/static for photos, "none" for video clips.
+  Choose direction to match content and context:
+  - **ken_burns_in**: draws viewer INTO the scene — use for reveals, establishing shots,
+    emotional close-ups (faces, details). Best for hero photos.
+  - **ken_burns_out**: pulls BACK to reveal context — use after a close-up, or to end
+    a chapter with a sense of departure/farewell.
+  - **ken_burns_left/right**: horizontal drift — use for wide landscapes, panoramic scenes,
+    group photos. Match the direction of visual flow in the image (e.g., a path leading
+    right → ken_burns_right).
+  - **static**: no movement — use ONLY for text-heavy overlays or very brief montage cuts
+    (≤1.5s) where motion would feel rushed.
+  IMPORTANT: Vary directions within each segment. Never use the same direction for 3+
+  consecutive photos — it looks robotic. Alternate: in → left → out → right.
 - playback_speed: 1.0 = normal (default). Use 0.5 SPARINGLY for dramatic slow-mo moments
   (a jump, a splash, a reaction) — especially effective on ≥48fps source videos.
   Use 1.5 for transitional walking/travel clips. Most clips = 1.0.
-- Transitions: choose per segment — crossfade (default), dissolve, smoothleft, smoothright,
-  circlecrop, fade_black (major scene changes), wipe_left, fadewhite (bright outdoor → new scene).
-  Vary for visual richness.
+- Transitions — choose BOTH intra-segment (between items) and inter-segment (between chapters):
+  **Intra-segment** (transition field): controls cuts WITHIN a chapter.
+  - **crossfade**: smooth blend — best for video↔video. Avoid for photo↔photo (causes ghosting).
+  - **dissolve**: softer, dreamier blend — good for slow emotional sequences.
+  - **fade_black**: brief dip to black — REQUIRED for photo↔photo pairs. Also good for
+    time jumps within a chapter (morning → afternoon).
+  - **smoothleft/smoothright**: directional push — energetic, good for travel/movement sequences.
+    Match the direction of motion (walking left → smoothleft).
+  - **circlecrop**: iris reveal — use sparingly (1x per vlog max) for a playful/whimsical moment.
+  - **wipe_left**: clean swipe — good for transitioning between similar-composition shots.
+  - **fadewhite**: bright flash — use when transitioning FROM a bright outdoor scene.
+  **Inter-segment** (segment_transition field): controls how each chapter OPENS.
+  - **fade_black**: default for major scene/time changes. Safe and cinematic.
+  - **dissolve**: for chapters that continue the same emotional thread.
+  - **fadewhite**: for chapters opening on a bright/outdoor/morning scene.
+  - **cut**: hard cut — only for montage segments or intentional shock/energy.
+  Vary transitions across segments — using the same transition everywhere feels monotone.
 - mode: "narrative" (default) or "montage" — use montage for 1 energy burst segment max
   (quick 1-2s cuts, no transitions, builds excitement before a calm segment)
 - color_temp: "neutral" (default), "warm" (family/food/indoor), "cool" (night/architecture).
@@ -165,8 +208,10 @@ videos should have keep_audio=true.
 Your EDL is the complete creative specification. The renderer executes it faithfully.
 Know these behaviors so you make informed decisions:
 
-**Photos**: Ken Burns animation (effect controls direction, zoom speed is fixed ~8%).
-Portrait photos get dark blurred sidebars (pillarbox).
+**Photos**: Ken Burns animation with cosine easing (smooth acceleration/deceleration).
+The effect field controls direction; the renderer automatically adds subtle secondary
+motion (slight rotation and drift) to prevent flat/robotic movement.
+Portrait photos get dark blurred sidebars (pillarbox). A subtle sharpening pass is applied.
 
 **Videos**: Trimmed by your preview_start/preview_end timestamps.
 keep_audio=true → original audio at full volume. keep_audio=false → completely silent.
