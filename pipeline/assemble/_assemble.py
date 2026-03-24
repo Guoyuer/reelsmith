@@ -137,8 +137,7 @@ def assemble(
     except ImportError:
         pass
 
-    size_mb = output_path.stat().st_size / 1024 / 1024
-    logger.info(f"Assemble: {output_path.name} ({size_mb:.1f}MB) in {total_time:.0f}s")
+
 
     return output_path, val_issues
 

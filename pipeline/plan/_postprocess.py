@@ -342,7 +342,6 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
                 f"    - {item.media_type:5s} {item.display_duration}s "
                 f"{item.effect:16s} {Path(item.source_file).name}{trim}{flag_str}"
             )
-    logger.info("=== [Gemini] END PARSED EDL ===")
 
     # Rich tree display to terminal
     try:

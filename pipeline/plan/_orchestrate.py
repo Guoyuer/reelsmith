@@ -265,8 +265,4 @@ def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, i
         for f in clips_dir.iterdir():
             f.unlink(missing_ok=True)
 
-    logger.info(
-        f"EDL v{version}: {len(edl.segments)} segments, "
-        f"{len(edl.all_items())} items, ~{edl.estimated_duration():.0f}s"
-    )
     return edl, version
