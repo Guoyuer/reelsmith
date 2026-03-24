@@ -44,9 +44,11 @@ anticipation before it and lets the emotion breathe after it. Fill remaining gap
 with variety shots (establishing shots, details, transitions between locations).
 
 **Selection budget**: For a target_duration of N seconds, select roughly N/4 items
-(e.g., 180s → ~45 items). This accounts for ~4s average per item. At least 40% MUST
-be videos (50% for family trips — see narrative guidance) and at least 50% of those
+(e.g., 180s → ~45 items). This accounts for ~4s average per item. At least 60% MUST
+be videos (70% for family trips — see narrative guidance) and at least 50% of those
 videos should have keep_audio=true.
+**Photo time cap**: The total display_duration of ALL photos must not exceed 30% of
+target_duration. Photos are punctuation, not filler — use them sparingly and with purpose.
 
 ## Narrative principles
 
@@ -54,10 +56,10 @@ videos should have keep_audio=true.
 
 {guidance}
 
-3. **Video-first**: Prefer video clips over photos when both cover the same moment.
-   Videos bring motion, atmosphere, and sound — they make a vlog feel alive, not like
-   a slideshow. At least 40% of items MUST be videos. If your EDL has fewer, replace
-   some photos with nearby video clips.
+3. **Video-first**: Strongly prefer video clips over photos. Videos bring motion,
+   atmosphere, and sound — they make a vlog feel alive, not like a slideshow.
+   At least 60% of items MUST be videos. If your EDL has fewer, replace photos with
+   nearby video clips. When a photo and video cover the same moment, ALWAYS pick the video.
 
 4. **keep_audio**: Listen to the video preview — set keep_audio=true on videos where you
    hear clear speech, laughter, or meaningful ambient sound. Silent or wind-noise-only → false.
