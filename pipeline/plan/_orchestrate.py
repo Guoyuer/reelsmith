@@ -77,7 +77,7 @@ def _plan_visual(
 
     trip_summary = f"{n_candidates} candidates ({n_videos} videos, {n_photos} photos)."
 
-    n_items = pc.target_duration // 4
+    n_items = round(pc.target_duration / 5.5)
     trip_label = f"{pc.trip_type} trip" if pc.trip_type != "general" else "trip"
     family_line = ""
     if pc.trip_type == "family" and preprocessed.get("family_names"):
@@ -106,7 +106,15 @@ Photos = 3-4s each, videos = 6-8s each. Select ~{n_items} items to fill {pc.targ
 2. Design a narrative arc — 4-6 chapters based on STORY BEATS.
 3. Select items for each chapter. Verify: sum of display_duration = {pc.target_duration}s (±10%).
    If short, add more items or extend video trims. If long, remove weakest items.
-4. Self-review: diverse locations? No duplicates? Videos ≥ 60%? No portrait videos > 2?
+4. Self-review — check ALL of these before outputting:
+   □ Total display_duration within ±10% of {pc.target_duration}s?
+   □ Videos ≥ 60% of items (≥70% for family trips)?
+   □ Total photo duration ≤ 30% of {pc.target_duration}s ({pc.target_duration * 0.3:.0f}s)?
+   □ keep_audio=true on ≥ 50% of video items?
+   □ Max 3 items from any single location?
+   □ No duplicate source_file?
+   □ No more than 2 portrait videos?
+   □ Locations spread across the full trip (not clustered in one place)?
 
 Output ONE JSON EDL.
 

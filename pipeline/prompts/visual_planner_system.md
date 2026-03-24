@@ -43,10 +43,11 @@ goodbye. Build your chapter structure around these peaks.
 anticipation before it and lets the emotion breathe after it. Fill remaining gaps
 with variety shots (establishing shots, details, transitions between locations).
 
-**Selection budget**: For a target_duration of N seconds, select roughly N/4 items
-(e.g., 180s → ~45 items). This accounts for ~4s average per item. At least 60% MUST
-be videos (70% for family trips — see narrative guidance) and at least 50% of those
-videos should have keep_audio=true.
+**Selection budget**: For a target_duration of N seconds, select roughly N/5.5 items
+(e.g., 180s → ~33 items). This accounts for the mix of videos (6-8s each) and photos
+(3-4s each). At least 60% MUST be videos (70% for family trips — see narrative guidance)
+and at least 50% of those videos should have keep_audio=true.
+Math check: if you pick 33 items at 60% video → 20 videos × 7s + 13 photos × 3.5s = 186s.
 **Photo time cap**: The total display_duration of ALL photos must not exceed 30% of
 target_duration. Photos are punctuation, not filler — use them sparingly and with purpose.
 
@@ -165,8 +166,8 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
   best action happens at 02:08-02:16. Set preview_start="02:08", preview_end="02:16".
   IMPORTANT: never cut mid-speech. If you hear dialogue, extend the trim to include
   the complete conversation with 1s padding after the last word.
-- effect: ken_burns_in/out/left/right/static for photos, "none" for video clips.
-  Choose direction to match content and context:
+- effect (PHOTOS ONLY — omit or set "none" for videos, the renderer ignores it):
+  ken_burns_in/out/left/right/static. Choose direction to match content and context:
   - **ken_burns_in**: draws viewer INTO the scene — use for reveals, establishing shots,
     emotional close-ups (faces, details). Best for hero photos.
   - **ken_burns_out**: pulls BACK to reveal context — use after a close-up, or to end
@@ -230,7 +231,103 @@ speech is loud and you want music still present. Non-keep_audio clips get music 
 
 **Text**: font_size is scaled relative to output resolution. White text with dark border.
 
-Think step-by-step, then output valid JSON only:
+Think step-by-step, then output valid JSON only.
+
+**Example** (2 segments, truncated — your output will have 4-6 segments):
+```json
+{{
+  "title": "Weekend in the Mountains",
+  "target_duration": 120,
+  "intro_duration": 3.0,
+  "outro_duration": 3.0,
+  "music_duck_ratio": 0.3,
+  "segments": [
+    {{
+      "name": "The Road Up",
+      "narrative_rationale": "Opens with anticipation — winding roads and first glimpses of peaks",
+      "music_mood": "gentle acoustic guitar with soft brush percussion, morning drive feeling, building wonder",
+      "mode": "narrative",
+      "color_temp": "warm",
+      "segment_transition": "fade_black",
+      "segment_transition_duration": 1.0,
+      "items": [
+        {{
+          "source_file": "IMG_2025_0613_084512.heic",
+          "media_type": "photo",
+          "display_duration": 4.0,
+          "preview_start": null,
+          "preview_end": null,
+          "effect": "ken_burns_in",
+          "playback_speed": 1.0,
+          "keep_audio": false,
+          "text_overlay": {{"text": "Where the air turns cool", "position": "bottom", "font_size": 48}}
+        }},
+        {{
+          "source_file": "VID_2025_0613_091030.mp4",
+          "media_type": "video",
+          "display_duration": 8.0,
+          "preview_start": "01:15",
+          "preview_end": "01:23",
+          "effect": "none",
+          "playback_speed": 1.0,
+          "keep_audio": true,
+          "text_overlay": null
+        }},
+        {{
+          "source_file": "IMG_2025_0613_093200.heic",
+          "media_type": "photo",
+          "display_duration": 2.5,
+          "preview_start": null,
+          "preview_end": null,
+          "effect": "ken_burns_left",
+          "playback_speed": 1.0,
+          "keep_audio": false,
+          "text_overlay": null
+        }}
+      ],
+      "transition": "crossfade",
+      "transition_duration": 0.4
+    }},
+    {{
+      "name": "Summit Light",
+      "narrative_rationale": "The emotional peak — arrival at the top, golden hour reward",
+      "music_mood": "swelling strings with warm piano, triumphant but intimate, golden hour glow",
+      "mode": "narrative",
+      "color_temp": "warm",
+      "segment_transition": "dissolve",
+      "segment_transition_duration": 1.2,
+      "items": [
+        {{
+          "source_file": "VID_2025_0613_172045.mp4",
+          "media_type": "video",
+          "display_duration": 7.0,
+          "preview_start": "05:32",
+          "preview_end": "05:39",
+          "effect": "none",
+          "playback_speed": 1.0,
+          "keep_audio": true,
+          "text_overlay": null
+        }},
+        {{
+          "source_file": "IMG_2025_0613_173500.heic",
+          "media_type": "photo",
+          "display_duration": 5.0,
+          "preview_start": null,
+          "preview_end": null,
+          "effect": "ken_burns_out",
+          "playback_speed": 1.0,
+          "keep_audio": false,
+          "text_overlay": {{"text": "Worth every step", "position": "bottom", "font_size": 48}}
+        }}
+      ],
+      "transition": "fade_black",
+      "transition_duration": 0.4
+    }}
+  ]
+}}
+```
+
+**Full schema reference:**
 {{
   "title": "string",
   "target_duration": <seconds>,
@@ -251,9 +348,9 @@ Think step-by-step, then output valid JSON only:
           "source_file": "<exact filename from file= in metadata>",
           "media_type": "photo|video",
           "display_duration": 3.0-10.0 (MUST = (preview_end - preview_start) / playback_speed for videos),
-          "preview_start": null or "MM:SS" (video trim start in preview video),
-          "preview_end": null or "MM:SS" (video trim end in preview video),
-          "effect": "ken_burns_in|ken_burns_out|ken_burns_left|ken_burns_right|static|none",
+          "preview_start": null or "MM:SS" (videos only: trim start timestamp in the PREVIEW VIDEO),
+          "preview_end": null or "MM:SS" (videos only: trim end timestamp in the PREVIEW VIDEO),
+          "effect": "ken_burns_in|ken_burns_out|ken_burns_left|ken_burns_right|static" (photos only),
           "playback_speed": 1.0 (default, 0.5 for slow-mo, 1.5 for fast),
           "keep_audio": true or false (for videos: true if you heard meaningful speech/reactions),
           "text_overlay": null or {{"text": "string", "position": "bottom", "font_size": 48}}
