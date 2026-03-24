@@ -204,8 +204,10 @@ def prepare(
             progress_callback(i, len(uncached_photos), "photos")
         _prepare_photo(entry, item_id, local_path, cfg, cache_file)
 
-    # --- Phase 3: Probe uncached videos (fast, no progress bar) ---
+    # --- Phase 3: Probe uncached videos ---
     for i, (entry, item_id, local_path, cache_file) in enumerate(uncached_videos, 1):
+        if progress_callback:
+            progress_callback(i, len(uncached_videos), "video probe")
         _prepare_video(entry, item_id, local_path, cache_file, i, len(uncached_videos))
 
     n_photos = sum(
