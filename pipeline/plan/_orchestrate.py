@@ -194,7 +194,6 @@ All candidates:"""
             f"EDL is {actual_dur:.0f}s, target is {pc.target_duration}s — underfilled"
         )
 
-    validate_and_fix_edl(edl)
     log_edl_summary(edl, pc.target_duration)
 
     return edl
@@ -250,6 +249,9 @@ def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, i
         for item in seg.items:
             if item.media_type == "video" and item.effect != "none":
                 item.effect = "none"
+
+    # Validate AFTER effect fix (avoids noise from effect errors)
+    validate_and_fix_edl(edl)
 
     # Set metadata on the EDL
     edl.trip_type = pc.trip_type
