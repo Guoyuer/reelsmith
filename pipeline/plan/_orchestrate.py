@@ -70,28 +70,12 @@ def _plan_visual(
     Gemini sees individual photo thumbnails (400px) + video clips,
     designs narrative arc + selects items + self-reviews in one call.
     """
-    # Trip-level summary
-    days = preprocessed.get("timeline", [])
-    locations: list[str] = []
-    n_candidates = 0
-    n_videos = 0
-    for day in days:
-        for ch in day.get("chapters", []):
-            loc = ch.get("location", "")
-            if loc and loc != "unknown" and loc not in locations:
-                locations.append(loc)
-            for item_id in ch.get("item_ids", []):
-                a = analysis_by_id.get(str(item_id))
-                if a:
-                    n_candidates += 1
-                    if a.get("media_type") == "video":
-                        n_videos += 1
+    # Summary
+    n_candidates = len(analysis_by_id)
+    n_videos = sum(1 for a in analysis_by_id.values() if a.get("media_type") == "video")
+    n_photos = n_candidates - n_videos
 
-    trip_summary = (
-        f"Trip overview: {len(days)} day{'s' if len(days) != 1 else ''}, "
-        f"{len(locations)} locations, {n_candidates} candidates "
-        f"({n_videos} videos, {n_candidates - n_videos} photos)."
-    )
+    trip_summary = f"{n_candidates} candidates ({n_videos} videos, {n_photos} photos)."
 
     n_items = pc.target_duration // 4
     trip_label = f"{pc.trip_type} trip" if pc.trip_type != "general" else "trip"
@@ -100,9 +84,7 @@ def _plan_visual(
         family_line = f"\nFamily: {', '.join(preprocessed['family_names'])}"
 
     logger.info("=== SINGLE-PASS PLANNING ===")
-    logger.info(
-        "Building individual photo thumbnails and concatenated video preview..."
-    )
+    logger.info("Building photo thumbnails and video preview...")
 
     content_blocks, preview_offset_table = _build_visual_content_blocks(
         preprocessed, analysis_by_id, cfg, force=pc.force
@@ -117,36 +99,9 @@ def _plan_visual(
         for b in content_blocks
         if isinstance(b, dict) and b.get("type") == "video_bytes"
     )
-    n_text = sum(1 for b in content_blocks if isinstance(b, str))
-    logger.info(
-        f"Visual content: {n_text} text blocks, {n_img} photos, {n_vid_clips} video file(s)"
-    )
+    logger.info(f"Visual content: {n_img} photos, {n_vid_clips} video file(s)")
     if progress_callback:
         progress_callback(0, 0, f"uploading {n_img} photos + {n_vid_clips} video...")
-
-    if n_candidates > 0 and n_text == 0:
-        raise RuntimeError(
-            f"Have {n_candidates} candidates but 0 text blocks — "
-            f"analysis_by_id key mismatch (int vs str?)"
-        )
-
-    # Build trip structure summary for arc thinking
-    arc_lines = []
-    for day in preprocessed["timeline"]:
-        arc_lines.append(f"\n=== {day['day_name']} {day['date']} ===")
-        for ch in day["chapters"]:
-            loc = ch["location"]
-            block = ch["time_block"]
-            count = len(ch.get("item_ids", []))
-            n_vids = sum(
-                1
-                for iid in ch["item_ids"]
-                if analysis_by_id.get(str(iid), {}).get("media_type") == "video"
-            )
-            line = f"  [{block.upper()}] {loc} — {count} items"
-            if n_vids:
-                line += f" ({n_vids} videos)"
-            arc_lines.append(line)
 
     intro_text = f"""\
 Create a {pc.style} {trip_label} vlog EDL from the photos and videos shown below.
@@ -160,24 +115,16 @@ items of similar quality, pick the one that better supports this focus.
 DURATION: Sum of ALL display_duration MUST equal {pc.target_duration}s (±10%).
 Photos = 3-4s each, videos = 6-8s each. Select ~{n_items} items to fill {pc.target_duration}s.
 
-Trip structure:
-{"".join(arc_lines)}
-
 **Think step-by-step:**
-1. Design a narrative arc — 4-6 chapters based on STORY BEATS (not locations).
-2. Select items: scan every photo and video clip. Pick the best for each chapter.
-3. Self-review checklist (fix any issues before outputting):
-   - [ ] Does the vlog serve the focus "{pc.focus}"?
-   - [ ] Sum of display_duration = {pc.target_duration}s (±10%)?
-   - [ ] At least 40% video items? At least 50% of videos have keep_audio=true?
-   - [ ] No audio=silent videos with keep_audio=true?
-   - [ ] Items spread across all days/locations (not clustered)?
-   - [ ] No more than 2 portrait videos in the whole EDL?
-   - [ ] No duplicate source_file paths?
+1. Look at ALL photos and watch the video preview. Identify the best moments.
+2. Design a narrative arc — 4-6 chapters based on STORY BEATS.
+3. Select items for each chapter. Verify: sum of display_duration = {pc.target_duration}s (±10%).
+   If short, add more items or extend video trims. If long, remove weakest items.
+4. Self-review: diverse locations? No duplicates? Videos ≥ 50%? No portrait videos > 2?
 
-Output ONE JSON with all your thinking and the final EDL.
+Output ONE JSON EDL.
 
-Candidates by day/location:"""
+All candidates:"""
 
     visual_parts: list = [intro_text] + content_blocks
 

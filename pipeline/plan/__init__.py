@@ -8,7 +8,6 @@ Requires GEMINI_API_KEY in .env.
 
 from ._orchestrate import PlanConfig, plan
 from ._preview import (  # noqa: F401
-    _build_visual_chapter_text,
     _build_visual_content_blocks,
 )
 

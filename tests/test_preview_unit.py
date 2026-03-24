@@ -44,7 +44,9 @@ class TestConcatPreviews:
         with patch("pipeline.plan._preview.run_subprocess") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
             out.write_bytes(b"\x00" * 100)  # create so exists() check passes
-            with patch("pipeline.plan._preview.probe_duration", return_value=100.0):  # way off
+            with patch(
+                "pipeline.plan._preview.probe_duration", return_value=100.0
+            ):  # way off
                 with pytest.raises(RuntimeError, match="duration mismatch"):
                     _concat_previews(entries, out)
 
@@ -67,7 +69,9 @@ class TestBuildVisualContentBlocks:
                 {
                     "date": "2025-01-01",
                     "day_name": "Mon",
-                    "chapters": [{"time_block": "morning", "location": "Beach", "item_ids": [1]}],
+                    "chapters": [
+                        {"time_block": "morning", "location": "Beach", "item_ids": [1]}
+                    ],
                 }
             ]
         }
@@ -85,7 +89,9 @@ class TestBuildVisualContentBlocks:
         blocks, offset_table = _build_visual_content_blocks(preprocessed, analysis, cfg)
 
         texts = [b for b in blocks if isinstance(b, str)]
-        images = [b for b in blocks if isinstance(b, dict) and b.get("type") == "image_bytes"]
+        images = [
+            b for b in blocks if isinstance(b, dict) and b.get("type") == "image_bytes"
+        ]
 
         assert len(texts) >= 1
         assert len(images) == 1
@@ -104,12 +110,19 @@ class TestBuildVisualContentBlocks:
                 {
                     "date": "2025-01-01",
                     "day_name": "Mon",
-                    "chapters": [{"time_block": "morning", "location": "X", "item_ids": [1]}],
+                    "chapters": [
+                        {"time_block": "morning", "location": "X", "item_ids": [1]}
+                    ],
                 }
             ]
         }
         analysis = {
-            "1": {"id": 1, "filename": "photo.jpg", "local_path": str(photo), "media_type": "photo"}
+            "1": {
+                "id": 1,
+                "filename": "photo.jpg",
+                "local_path": str(photo),
+                "media_type": "photo",
+            }
         }
 
         with pytest.raises(FileNotFoundError, match="Thumbnail missing"):
@@ -124,12 +137,14 @@ class TestBuildVisualContentBlocks:
                 {
                     "date": "2025-01-01",
                     "day_name": "Mon",
-                    "chapters": [{"time_block": "morning", "location": "X", "item_ids": [99]}],  # no match
+                    "chapters": [
+                        {"time_block": "morning", "location": "X", "item_ids": [99]}
+                    ],  # no match
                 }
             ]
         }
 
-        with pytest.raises(RuntimeError, match="No text blocks"):
+        with pytest.raises(RuntimeError, match="No photos"):
             _build_visual_content_blocks(preprocessed, {}, cfg)
 
     def test_video_entries_collected(self, tmp_path):
@@ -153,12 +168,19 @@ class TestBuildVisualContentBlocks:
                 {
                     "date": "2025-01-01",
                     "day_name": "Mon",
-                    "chapters": [{"time_block": "am", "location": "X", "item_ids": [1, 2]}],
+                    "chapters": [
+                        {"time_block": "am", "location": "X", "item_ids": [1, 2]}
+                    ],
                 }
             ]
         }
         analysis = {
-            "1": {"id": 1, "filename": "photo.jpg", "local_path": str(photo), "media_type": "photo"},
+            "1": {
+                "id": 1,
+                "filename": "photo.jpg",
+                "local_path": str(photo),
+                "media_type": "photo",
+            },
             "2": {
                 "id": 2,
                 "filename": "vid.mp4",
@@ -170,9 +192,13 @@ class TestBuildVisualContentBlocks:
 
         with patch("pipeline.plan._preview._concat_previews") as mock_concat:
             mock_concat.return_value = ([(2, 30.0, 0.0)], preview)
-            blocks, offset_table = _build_visual_content_blocks(preprocessed, analysis, cfg)
+            blocks, offset_table = _build_visual_content_blocks(
+                preprocessed, analysis, cfg
+            )
 
         # Should have text + image + video preview instruction + video bytes
-        videos = [b for b in blocks if isinstance(b, dict) and b.get("type") == "video_bytes"]
+        videos = [
+            b for b in blocks if isinstance(b, dict) and b.get("type") == "video_bytes"
+        ]
         assert len(videos) == 1
         assert len(offset_table) == 1
