@@ -558,7 +558,7 @@ def _prepare_video(entry, item_id, local_path, cache_file, i, total):
     cache_file.write_text(json.dumps(cache_entry, indent=2))
 
     res_str = f"{video_width}x{video_height}" if video_width else "?"
-    logger.info(
+    logger.debug(
         f"[{i}/{total}] {entry['filename']} — {total_dur:.0f}s {res_str} "
         f"{video_fps}fps {orientation}"
     )
