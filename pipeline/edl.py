@@ -23,7 +23,9 @@ class EditItem(BaseModel):
     start_time: float | None = None  # video trim start (seconds)
     end_time: float | None = None  # video trim end (seconds)
     display_duration: float = 4.0  # how long this item is on screen
-    keep_audio: bool = False  # preserve original audio (Gemini decides from video clips)
+    keep_audio: bool = (
+        False  # preserve original audio (Gemini decides from video clips)
+    )
     playback_speed: float = 1.0  # 0.5=slow-mo, 1.0=normal, 1.5=fast (Gemini decides)
     effect: Literal[
         "ken_burns_in",
@@ -38,7 +40,9 @@ class EditItem(BaseModel):
 
 class Segment(BaseModel):
     name: str  # e.g. "Opening", "Marina Bay", "Hawker Food"
-    narrative_rationale: str = ""  # why these items, what story beat this segment serves
+    narrative_rationale: str = (
+        ""  # why these items, what story beat this segment serves
+    )
     music_mood: str = ""  # e.g. "warm acoustic guitar, uplifting" → Lyria per-segment
     items: list[EditItem]
     # Intra-segment transition (between items within this segment)
@@ -55,15 +59,19 @@ class Segment(BaseModel):
     ] = "crossfade"
     transition_duration: float = 0.4  # seconds
     # Inter-segment transition (how this segment starts, from previous segment)
-    segment_transition: Literal["fade_black", "crossfade", "wipe_left", "dissolve", "cut", "fadewhite"] = "fade_black"
+    segment_transition: Literal[
+        "fade_black", "crossfade", "wipe_left", "dissolve", "cut", "fadewhite"
+    ] = "fade_black"
     segment_transition_duration: float = 1.0  # seconds
     mode: Literal["narrative", "montage"] = "narrative"  # montage = quick-cut burst
-    color_temp: Literal["warm", "cool", "neutral"] = "neutral"  # Gemini sets per segment
+    color_temp: Literal["warm", "cool", "neutral"] = (
+        "neutral"  # Gemini sets per segment
+    )
 
 
 class MusicTrack(BaseModel):
     file: str
-    volume: float = 0.15  # 0.0–1.0
+    volume: float = 0.40  # 0.0–1.0 (ducked dynamically by sidechaincompress)
     fade_in: float = 2.0
     fade_out: float = 3.0
 
@@ -73,8 +81,12 @@ class EDL(BaseModel):
     target_duration: float  # desired total length in seconds
     segments: list[Segment]
     music: MusicTrack | None = None
-    music_mode: Literal["none", "auto", "file"] = "none"  # auto = generate in generate_music step
-    music_duck_ratio: float = 0.3  # during speech: music volume *= this (0.0=silent, 1.0=full)
+    music_mode: Literal["none", "auto", "file"] = (
+        "none"  # auto = generate in generate_music step
+    )
+    music_duck_ratio: float = (
+        0.3  # during speech: music volume *= this (0.0=silent, 1.0=full)
+    )
     trip_type: str = "family"  # used by assemble for music generation prompt
     style: str = "upbeat"  # used by assemble for music generation prompt
     intro_style: Literal["title_card", "none"] = "title_card"
@@ -143,7 +155,6 @@ def load_latest_edl(cfg: Config) -> tuple[EDL, int]:
 # ---------------------------------------------------------------------------
 
 
-
 def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
     """Validate an EDL for correctness before rendering.
 
@@ -190,10 +201,12 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
             _error(f"{seg_label}: no items")
             continue
 
-
         if seg.transition != "cut":
             if seg.transition_duration <= 0 or seg.transition_duration > 3.0:
-                _error(f"{seg_label}: transition_duration {seg.transition_duration}s " f"out of range (0, 3.0]")
+                _error(
+                    f"{seg_label}: transition_duration {seg.transition_duration}s "
+                    f"out of range (0, 3.0]"
+                )
 
         for ii, item in enumerate(seg.items):
             item_label = f"{seg_label} item[{ii}]"
@@ -217,31 +230,57 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
             # Media type vs file extension mismatch
             if src.exists():
                 ext = src.suffix.lower()
-                photo_exts = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp", ".bmp", ".tiff"}
+                photo_exts = {
+                    ".jpg",
+                    ".jpeg",
+                    ".png",
+                    ".heic",
+                    ".heif",
+                    ".webp",
+                    ".bmp",
+                    ".tiff",
+                }
                 video_exts = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".webm", ".mts"}
                 if item.media_type == "video" and ext in photo_exts:
-                    _error(f"{item_label}: media_type='video' but file is a photo ({ext})")
+                    _error(
+                        f"{item_label}: media_type='video' but file is a photo ({ext})"
+                    )
                 elif item.media_type == "photo" and ext in video_exts:
-                    _error(f"{item_label}: media_type='photo' but file is a video ({ext})")
+                    _error(
+                        f"{item_label}: media_type='photo' but file is a video ({ext})"
+                    )
 
             # Duration
             if item.display_duration <= 0:
                 _error(f"{item_label}: display_duration <= 0 ({item.display_duration})")
             elif item.display_duration < 2.0:
-                _warn(f"{item_label}: display_duration too short ({item.display_duration}s, min 2s)")
+                _warn(
+                    f"{item_label}: display_duration too short ({item.display_duration}s, min 2s)"
+                )
             elif item.display_duration > 120:
-                _warn(f"{item_label}: display_duration very long ({item.display_duration}s)")
+                _warn(
+                    f"{item_label}: display_duration very long ({item.display_duration}s)"
+                )
             total_display += item.display_duration
 
             # Video-specific checks
             if item.media_type == "video":
                 if item.effect not in ("none", "static"):
-                    _error(f"{item_label}: video should have effect='none', " f"got '{item.effect}'")
+                    _error(
+                        f"{item_label}: video should have effect='none', "
+                        f"got '{item.effect}'"
+                    )
                 if item.start_time is not None and item.end_time is not None:
                     if item.start_time >= item.end_time:
-                        _error(f"{item_label}: start_time ({item.start_time}) " f">= end_time ({item.end_time})")
+                        _error(
+                            f"{item_label}: start_time ({item.start_time}) "
+                            f">= end_time ({item.end_time})"
+                        )
                     trim_dur = item.end_time - item.start_time
-                    if abs(trim_dur - item.display_duration) > 0.5 and item.playback_speed == 1.0:
+                    if (
+                        abs(trim_dur - item.display_duration) > 0.5
+                        and item.playback_speed == 1.0
+                    ):
                         _warn(
                             f"{item_label}: trim duration ({trim_dur:.1f}s) "
                             f"differs from display_duration ({item.display_duration:.1f}s)"
@@ -249,7 +288,9 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
                 if item.start_time is not None and item.start_time < 0:
                     _error(f"{item_label}: negative start_time ({item.start_time})")
                 if item.playback_speed <= 0 or item.playback_speed > 4.0:
-                    _error(f"{item_label}: invalid playback_speed ({item.playback_speed})")
+                    _error(
+                        f"{item_label}: invalid playback_speed ({item.playback_speed})"
+                    )
 
             # Photo-specific checks
             if item.media_type == "photo":
@@ -264,15 +305,21 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
             if item.text_overlay:
                 if not item.text_overlay.text:
                     _warn(f"{item_label}: empty text overlay")
-                if item.text_overlay.font_size <= 0 or item.text_overlay.font_size > 200:
-                    _error(f"{item_label}: invalid font_size ({item.text_overlay.font_size})")
+                if (
+                    item.text_overlay.font_size <= 0
+                    or item.text_overlay.font_size > 200
+                ):
+                    _error(
+                        f"{item_label}: invalid font_size ({item.text_overlay.font_size})"
+                    )
 
         # Check transition duration vs shortest clip in segment
         if seg.transition != "cut" and len(seg.items) > 1:
             min_dur = min(it.display_duration for it in seg.items)
             if seg.transition_duration >= min_dur:
                 _error(
-                    f"{seg_label}: transition_duration ({seg.transition_duration}s) " f">= shortest clip ({min_dur}s)"
+                    f"{seg_label}: transition_duration ({seg.transition_duration}s) "
+                    f">= shortest clip ({min_dur}s)"
                 )
 
     # --- Global checks ---
@@ -286,9 +333,13 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
     if edl.target_duration > 0 and estimated > 0:
         ratio = estimated / edl.target_duration
         if ratio > 2.0:
-            _warn(f"Estimated duration ({estimated:.0f}s) is >2x target ({edl.target_duration:.0f}s)")
+            _warn(
+                f"Estimated duration ({estimated:.0f}s) is >2x target ({edl.target_duration:.0f}s)"
+            )
         elif ratio < 0.3:
-            _warn(f"Estimated duration ({estimated:.0f}s) is <30% of target ({edl.target_duration:.0f}s)")
+            _warn(
+                f"Estimated duration ({estimated:.0f}s) is <30% of target ({edl.target_duration:.0f}s)"
+            )
 
     # Music checks
     if edl.music:

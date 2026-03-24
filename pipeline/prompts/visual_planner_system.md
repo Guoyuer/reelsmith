@@ -194,12 +194,12 @@ If you want ambient sound from a video, you MUST set keep_audio=true.
 **Transitions**: All transitions are opacity fades. transition_duration controls the
 blend length — longer = smoother. Duration 0 = hard cut (no blend).
 
-**Audio**: Background music generated per-segment from your music_mood. Music plays at a
-constant low volume throughout the entire vlog (static mix — the volume does NOT change
-between keep_audio and non-keep_audio clips). During keep_audio clips, speech plays over
-the music at ~3x the music volume. **Tight trims still matter**: a sloppy 15s keep_audio
-trim means 15s of speech competing with music, hurting clarity. Trim keep_audio clips
-tightly around the speech/reaction moment (speech + 1s padding).
+**Audio**: Background music generated per-segment from your music_mood. Music is
+**dynamically ducked** — when speech plays (keep_audio=true), music automatically fades
+down; when speech stops, music fades back up. This means keep_audio clips have clear
+speech over quiet music, and non-keep_audio clips have music at full volume.
+**Tight trims still matter**: a sloppy 15s keep_audio trim means 15s of suppressed music
+and worse pacing. Trim tightly around the speech/reaction moment (speech + 1s padding).
 
 **Text**: font_size is scaled relative to output resolution. White text with dark border.
 

@@ -86,8 +86,14 @@ def assemble(
 
     # Phase 2: concat + music mix
     _concat_and_mix(
-        segment_files, edl, ctx, cfg, output_path,
-        version=version, res_label=res_label, progress_callback=progress_callback,
+        segment_files,
+        edl,
+        ctx,
+        cfg,
+        output_path,
+        version=version,
+        res_label=res_label,
+        progress_callback=progress_callback,
     )
 
     total_time = time.monotonic() - t_start
@@ -136,8 +142,6 @@ def assemble(
             )
     except ImportError:
         pass
-
-
 
     return output_path, val_issues
 
@@ -330,7 +334,9 @@ def _concat_and_mix(
         fc = (
             f"{music_chain};\n"
             f"[0:a] apad [sp];\n"
-            f"[sp][bg] amix=inputs=2:duration=first:weights=3 1,"
+            f"[bg][sp] sidechaincompress="
+            f"threshold=0.02:ratio=6:attack=200:release=1000 [ducked];\n"
+            f"[sp][ducked] amix=inputs=2:duration=first,"
             f"loudnorm=I=-16:TP=-1.5:LRA=11 [aout]"
         )
 

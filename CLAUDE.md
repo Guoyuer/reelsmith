@@ -152,10 +152,10 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 
 **Phase 2: Concat + music mix** (`_assemble.py`)
 - TS demuxer concatenation (no re-encode: `-c:v copy -c:a copy`)
-- Music overlay: `amix=inputs=2:duration=first:weights=3 1`
-  - **STATIC ducking** — music is at ~25% volume for the ENTIRE keep_audio clip, not dynamically per-word
-  - This means tight trim windows = less music suppression = better pacing
-  - `music_duck_ratio` field exists in EDL but is NOT used — weights are hardcoded
+- Music overlay: `sidechaincompress` dynamic ducking + `amix`
+  - **Dynamic ducking** — music automatically fades down when speech plays, fades back up when speech stops
+  - `sidechaincompress=threshold=0.02:ratio=6:attack=200:release=1000` on music, keyed by speech track
+  - Default music volume: 0.40 (ducked to ~15% during speech, full 40% during silence)
 
 **Phase 3: Beat sync** (`_audio.py`)
 - Aligns transitions to music beats (autocorrelation BPM detection)
@@ -184,23 +184,23 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 | plan | effect field (videos) | _orchestrate.py | Force-overwritten to "none" — prompt should not ask for video effects |
 | plan | display_duration | postprocess | Auto-corrected from trim+speed — Gemini's value is advisory |
 | plan | music_mood | generate_music | Sent directly to Lyria as text prompt |
-| plan | music_duck_ratio | assemble amix | EDL field exists but NOT used by renderer — amix weights are hardcoded `3 1` |
+| plan | music_duck_ratio | assemble | EDL field exists but NOT used — sidechaincompress handles ducking dynamically |
 | assemble | segment .ts files | concat | Demuxer concat, no re-encode |
 | assemble | has_speech flag | beat sync | Segments with speech skip beat alignment |
 
 ## Module structure
 
-Rendering modules (primarily assemble, `parallel.py` also used by plan):
+Rendering modules (`pipeline/assemble/` package, `parallel.py` also used by plan):
 
 | Module | Responsibility |
 |--------|---------------|
-| `assemble.py` | Orchestration: Phase 1 (parallel clip render), Phase 2 (concat), Phase 3 (audio mix), Phase 4 (validation) |
-| `encoder.py` | RenderContext, GPU encoder detection, bitrate calculation, ffprobe caching |
-| `filters.py` | Color grade, text overlay (drawtext), portrait photo filter, font detection |
-| `render.py` | render_photo, render_video, render_title_card |
-| `_graph.py` | FFmpeg filter graph builder: per-item video/audio chains, concat |
-| `audio.py` | BPM estimation, beat sync, speech track, music mixing, chapter markers |
-| `parallel.py` | Shared batched ThreadPoolExecutor runner (used by plan.py and assemble.py) |
+| `assemble/_assemble.py` | Orchestration: Phase 1 (parallel clip render), Phase 2 (concat), Phase 3 (audio mix), Phase 4 (validation) |
+| `assemble/_encoder.py` | RenderContext, GPU encoder detection, bitrate calculation, ffprobe caching |
+| `assemble/_filters.py` | Color grade, text overlay (drawtext), portrait photo filter, font detection |
+| `assemble/_render.py` | render_photo, render_video, render_title_card |
+| `assemble/_graph.py` | FFmpeg filter graph builder: per-item video/audio chains, concat |
+| `assemble/_audio.py` | BPM estimation, beat sync, speech track, music mixing, chapter markers |
+| `parallel.py` | Shared batched ThreadPoolExecutor runner (used by plan and assemble) |
 
 ## Gemini API call in the plan stage
 
@@ -246,7 +246,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - **Thumbnail/keyframe generation** — Pillow resize, FFmpeg extraction
 - **Codec** — HEVC (hevc_nvenc/hevc_videotoolbox) on GPU, H.264 (libx264) on CPU; auto-detected
 - **Bitrate** — HEVC at 65% of H.264 YouTube rates with `--quality` multiplier
-- **Audio ducking** — STATIC: `amix=weights=3 1` drops music to ~25% for the ENTIRE keep_audio clip (not dynamic per-word). `music_duck_ratio` field exists in EDL but is NOT read by renderer. Tight trims = less music suppression.
+- **Audio ducking** — Dynamic via `sidechaincompress`: music auto-ducks when speech detected, recovers when speech stops. Default music volume 0.40, ducked to ~15% during speech. Tight trims = less music suppression.
 - **Color grading** — subtle contrast/saturation boost, temperature shift per segment
 - **YouTube chapter markers** — timestamps from EDL segment boundaries
 - **Text overlays** — baked into clips during render (single FFmpeg pass, no separate overlay step)
