@@ -16,7 +16,6 @@ from ..edl import EDL, MusicTrack, find_latest_version, save_edl
 from ._gemini import _gemini_call
 from ._postprocess import (
     deduplicate_items,
-    fill_duration_gap,
     fix_hallucinated_paths,
     log_edl_summary,
     parse_and_convert_timestamps,
@@ -212,25 +211,9 @@ Candidates by day/location:"""
     fix_hallucinated_paths(edl, cfg.media_dir)
     validate_trim_points(edl, analysis_by_id)
     deduplicate_items(edl)
-    edl = fill_duration_gap(
-        edl,
-        pc.target_duration,
-        analysis_by_id,
-        system_prompt,
-        model=pc.model,
-        thinking_level=pc.thinking_level,
-        progress_callback=progress_callback,
-    )
-
-    # Re-resolve paths (fill_duration_gap may return a new EDL with bare filenames)
-    fix_hallucinated_paths(edl, cfg.media_dir)
 
     actual_dur = edl.estimated_duration()
-    if actual_dur < pc.target_duration * 0.5:
-        logger.warning(
-            f"EDL is {actual_dur:.0f}s, target is {pc.target_duration}s — severely underfilled"
-        )
-    elif actual_dur < pc.target_duration * 0.8:
+    if actual_dur < pc.target_duration:
         logger.warning(
             f"EDL is {actual_dur:.0f}s, target is {pc.target_duration}s — underfilled"
         )

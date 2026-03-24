@@ -122,14 +122,17 @@ videos should have keep_audio=true.
 
 ## Technical rules
 
-- **DURATION IS MANDATORY**: Sum ALL items' display_duration. It MUST reach target_duration.
-  Use code execution to verify the sum before outputting.
-- display_duration: 3-4s per photo, 4-8s for video clips. **MINIMUM 2s for ANY item.**
-  Clips under 2s are too short to register visually — never create them.
+- **DURATION IS MANDATORY AND NON-NEGOTIABLE**: The sum of ALL display_duration values
+  MUST be between 100% and 120% of target_duration. Not 80%, not 90% — at least 100%.
+  **USE CODE EXECUTION** to compute the sum before outputting. If the sum is below
+  target_duration, go back and add more items or extend video trims until it reaches 100%.
+  This is the #1 hard requirement — an underfilled EDL is a failure.
+- display_duration: 3-4s per photo, **6-8s per video** (not 4s — videos need time to breathe).
+  **MINIMUM 2s for ANY item.** Clips under 2s are too short.
   **For videos with trim points: display_duration MUST equal (preview_end - preview_start) / playback_speed.**
-  If this formula gives < 2s, widen the trim window until it reaches at least 2s.
+  Select generous trim windows (6-10s) — don't micro-trim to 1-2s.
   Example: trim 02:05-02:12 (7s) at speed 1.0 → display_duration=7.0.
-  Example: trim 02:05-02:09 (4s) at speed 0.5 → display_duration=8.0.
+  Example: trim 02:05-02:15 (10s) at speed 1.0 → display_duration=10.0.
   Do NOT set display_duration independently from trim points.
 - For videos: use the PREVIEW VIDEO to select the best moments.
   Each clip has its item number (e.g. #30) burned into the top-left corner,
