@@ -279,8 +279,9 @@ def _setup_logging(
             console=display._live.console,
             show_path=False,
             show_level=True,
-            markup=False,
+            markup=True,
             rich_tracebacks=True,
+            tracebacks_suppress=[click],
             log_time_format="%H:%M:%S",
         )
         console.setLevel(logging.INFO)
@@ -1359,4 +1360,10 @@ def workspace(clean, yes):
 
 
 if __name__ == "__main__":
+    try:
+        from rich.traceback import install as _install_traceback
+
+        _install_traceback(show_locals=False, width=120, suppress=[click])
+    except ImportError:
+        pass
     cli()
