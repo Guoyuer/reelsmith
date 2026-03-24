@@ -1,5 +1,22 @@
 # Claude Code Notes
 
+## ⚠️ End-to-end thinking required
+
+**Any behavior change MUST be evaluated across the full pipeline (prepare → plan → assemble).**
+Stages are tightly coupled through data contracts — a change in one stage can silently break
+or degrade another. Before modifying any stage:
+
+1. Trace the data flow: what does this stage consume? What does it produce? Who consumes that?
+2. Check if the prompt tells Gemini something that the renderer handles differently
+3. Check if postprocessing silently overrides what Gemini outputs
+4. Never optimize a single stage in isolation — verify the end-to-end effect
+
+Examples of past bugs caused by local-only thinking:
+- Prompt said "pick ~45 items" but math produced 252s for a 180s target (budget formula didn't account for video/photo duration mix)
+- Prompt told Gemini to choose `effect` for videos, but assemble forced `effect="none"` on all videos (dead instruction wasting tokens)
+- Prompt showed `start_time/end_time` in schema, but Gemini was told to output `preview_start/preview_end` (postprocess converts between them)
+- Prompt said "select for visual quality, not audio" which made Gemini ignore speech — but Gemini is the ONLY component that hears audio in the entire pipeline
+
 ## Pipeline execution
 
 Run pipeline via `vlog` CLI. Stages execute directly in a single Python process — no external services needed. Each stage caches its output; re-running `full` is fast.
@@ -34,6 +51,118 @@ Logs go to terminal AND `workspace/runs/{name}/run_{timestamp}.log`.
 `fetch -> prepare -> plan -> generate_music -> assemble`
 
 5 stages in a single Python process. Only `plan` and `generate_music` call Gemini API. Requires `GEMINI_API_KEY` in `.env`.
+
+## End-to-end data flow (prepare → plan → assemble)
+
+Understanding exactly what each stage produces and consumes is critical for prompt engineering
+and behavior changes. Data contracts between stages are implicit — breaking them causes silent
+degradation, not crashes.
+
+### Stage 1: prepare (`pipeline/prepare.py`)
+
+**Input:** Raw media files (photos + videos) from local folder or NAS.
+
+**What it does per photo:**
+- Generate 400px JPEG thumbnail (cached in `workspace/thumbnails/`)
+- Extract EXIF: focal_length, aperture, ISO
+- Extract faces/persons from NAS manifest (family_count, person names)
+- Extract location (country, region, district) and timestamp
+
+**What it does per video:**
+- ffprobe: duration, width, height, fps, orientation (landscape/portrait)
+- **NO audio analysis** — no speech detection, no loudness, no transcript, no speech timestamps
+- Generate preview clip (480p 1fps WITH AUDIO, mono 64kbps AAC)
+- Extract faces/persons from NAS manifest
+
+**What it does globally:**
+- Family detection: top 5 persons appearing in ≥3% of items
+- Build timeline structure (day → time_block → location chapters)
+- Cache all results in `workspace/analysis_cache/{item_id}.json`
+
+**Output:** `preprocessed.json` + per-item analysis cache + thumbnails + preview clips.
+
+**Critical implication:** Gemini is the ONLY component in the entire pipeline that hears video
+audio. There is no speech-to-text, no audio segmentation, no "speech at 5s-12s" metadata.
+If the prompt doesn't tell Gemini to listen carefully and trim around speech, nobody else will.
+
+### Stage 2: plan (`pipeline/plan/`)
+
+**Input to Gemini (built by `_preview.py`):**
+- System prompt from `visual_planner_system.md` (templated with trip_type guidance + language)
+- Intro text with: trip summary, focus directive, duration target, item count, video ratio, step-by-step + self-review checklist
+- Text metadata block: flat numbered list (#01, #02, ...) with per-item metadata
+  - Photos: `#01: Alice at=Marina Bay 50mm f/2.0 ISO400 file=IMG_2025.heic`
+  - Videos: `#03: family at=Singapore video=45s 1920x1080 (landscape) 24fps preview=02:07-03:52 file=DJI_001.mp4`
+- Inline photo thumbnails (400px JPEG, base64, up to 75MB limit)
+- 1 mega-preview video (all clips concatenated, #XX labels burned in, WITH AUDIO) via Files API
+
+**What Gemini outputs:** JSON EDL with segments → items, each with:
+`source_file, media_type, display_duration, preview_start/preview_end (MM:SS in mega-preview), effect, playback_speed, keep_audio, text_overlay`
+
+**Postprocessing pipeline (`_postprocess.py`):**
+1. `parse_and_convert_timestamps` — convert preview MM:SS → local trim seconds using offset table. Fuzzy: midpoint matching, best-overlap fallback, min-2s guard (widens short clips)
+2. `fix_hallucinated_paths` — fuzzy match filenames (glob, underscore normalization). Picks `candidates[0]` if multiple match
+3. `validate_trim_points` — clamp to actual video duration, ensure min 2s, recalculate display_duration from trim+speed
+4. `deduplicate_items` — remove duplicate source_file (keep first occurrence)
+5. `validate_and_fix_edl` — fix media_type mismatches (video extension on photo item)
+6. Force `effect="none"` on all video items (in `_orchestrate.py`)
+
+**Output:** Versioned EDL JSON saved to `workspace/edl/`.
+
+**Critical implications:**
+- Gemini outputs preview_start/preview_end (mega-preview timestamps), postprocess converts to start_time/end_time (local video seconds). The prompt must teach Gemini to use preview timestamps.
+- Fuzzy path matching is silent and can pick wrong files. Postprocess logs warnings when multiple candidates match.
+- display_duration for videos is auto-corrected from trim points — Gemini's value is guidance, not law.
+- Items with unfixable paths or invalid trims are REMOVED (item count can shrink).
+
+### Stage 3: assemble (`pipeline/assemble/`)
+
+**Input:** EDL JSON + original media files + generated music (if any).
+
+**Phase 1: Render segments** (`_graph.py` builds FFmpeg filter graphs)
+- Per-photo: Ken Burns (zoompan with cosine easing) + color grade + optional text overlay → video stream. Audio = `aevalsrc=0` (silence).
+- Per-video with `keep_audio=true`: `atrim=start:duration` + `atempo` (if speed≠1.0) + `asetpts` → preserves original audio from trim window.
+- Per-video with `keep_audio=false`: video trimmed + speed-adjusted. Audio = `aevalsrc=0` (silence).
+- All items concat'd with `concat=n=N:v=1:a=1` (audio locked to video).
+- Encoded as AAC 192k + HEVC/H.264. Output: per-segment `.ts` files.
+
+**Phase 2: Concat + music mix** (`_assemble.py`)
+- TS demuxer concatenation (no re-encode: `-c:v copy -c:a copy`)
+- Music overlay: `amix=inputs=2:duration=first:weights=3 1`
+  - **STATIC ducking** — music is at ~25% volume for the ENTIRE keep_audio clip, not dynamically per-word
+  - This means tight trim windows = less music suppression = better pacing
+  - music_duck_ratio in EDL controls the weight balance
+
+**Phase 3: Beat sync** (`_audio.py`)
+- Aligns transitions to music beats (autocorrelation BPM detection)
+- **Skips segments with any keep_audio=true items** (speech timing is absolute)
+
+**Phase 4: Validation**
+- 6 checks: file size, duration, streams, codec, A/V sync, resolution
+
+**Critical implications for prompt engineering:**
+- `keep_audio=true` preserves audio for the ENTIRE trim window, not just speech portions. Gemini should trim tightly around speech to minimize music suppression.
+- `keep_audio=false` = complete silence (not quiet music — SILENCE). Only background music plays.
+- Beat sync skips entire segments with speech — so speech segments have fixed timing.
+- Photos are always silent — `keep_audio` on photos is a validation error.
+- effect field is ignored for videos (forced to "none") — don't waste prompt tokens teaching Gemini to pick effects for videos.
+- `playback_speed` affects both video AND audio (atempo filter). 0.5x = slow-mo with pitch-preserved audio.
+
+### Cross-stage data contracts
+
+| Producer | Data | Consumer | Gotcha |
+|----------|------|----------|--------|
+| prepare | video fps ≥48 | prompt | Gemini uses this to decide playback_speed=0.5 |
+| prepare | preview offset table | plan postprocess | Converts Gemini's preview MM:SS to local trim seconds |
+| prepare | NO audio metadata | plan prompt | Gemini must listen to preview audio — no other component does |
+| plan | preview_start/preview_end | postprocess | Converted to start_time/end_time; original fields are popped |
+| plan | keep_audio flag | assemble _graph.py | Determines atrim+atempo (preserve) vs aevalsrc=0 (silence) |
+| plan | effect field (videos) | _orchestrate.py | Force-overwritten to "none" — prompt should not ask for video effects |
+| plan | display_duration | postprocess | Auto-corrected from trim+speed — Gemini's value is advisory |
+| plan | music_mood | generate_music | Sent directly to Lyria as text prompt |
+| plan | music_duck_ratio | assemble amix | Controls static weight balance in amix filter |
+| assemble | segment .ts files | concat | Demuxer concat, no re-encode |
+| assemble | has_speech flag | beat sync | Segments with speech skip beat alignment |
 
 ## Module structure
 
@@ -94,7 +223,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - **Thumbnail/keyframe generation** — Pillow resize, FFmpeg extraction
 - **Codec** — HEVC (hevc_nvenc/hevc_videotoolbox) on GPU, H.264 (libx264) on CPU; auto-detected
 - **Bitrate** — HEVC at 65% of H.264 YouTube rates with `--quality` multiplier
-- **Audio ducking** — music ramps down (300ms attack) to 30% during speech, ramps up (1000ms release) after; configurable via `music_duck_ratio` in EDL
+- **Audio ducking** — STATIC: `amix=weights=3 1` drops music to ~25% for the ENTIRE keep_audio clip (not dynamic per-word). `music_duck_ratio` in EDL controls weight balance. Tight trims = less music suppression.
 - **Color grading** — subtle contrast/saturation boost, temperature shift per segment
 - **YouTube chapter markers** — timestamps from EDL segment boundaries
 - **Text overlays** — baked into clips during render (single FFmpeg pass, no separate overlay step)
