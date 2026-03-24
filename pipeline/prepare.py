@@ -40,6 +40,62 @@ _LOCAL_TZ = datetime.now(timezone.utc).astimezone().tzinfo
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
+def load_analysis(cfg: Config) -> list[dict]:
+    """Reconstruct analysis data from manifest + per-item caches.
+
+    This replaces the old analysis.json file — the per-item cache is the
+    source of truth, manifest provides the item list and base metadata.
+    """
+    if not cfg.manifest_path.exists():
+        raise FileNotFoundError(
+            f"Manifest not found: {cfg.manifest_path}\n"
+            "Run the prepare stage first (e.g. vlog prepare -s local -p ./photos)"
+        )
+    manifest = json.loads(cfg.manifest_path.read_text())
+
+    # Reload family names from preprocessed.json (computed during prepare)
+    family_names: list[str] = []
+    if cfg.preprocessed_path.exists():
+        pp = json.loads(cfg.preprocessed_path.read_text())
+        family_names = pp.get("family_names", [])
+
+    cache_dir = cfg.cache_dir
+    results = []
+    for item in manifest:
+        item_id = item["id"]
+        local_path_str = item.get("local_path", "")
+        suffix = Path(local_path_str).suffix.lower() if local_path_str else ""
+        is_video = suffix in VIDEO_EXTENSIONS
+
+        persons = item.get("metadata", {}).get("persons", [])
+        family_in_photo = [p for p in persons if p in family_names]
+
+        entry = {
+            "id": item_id,
+            "filename": item["filename"],
+            "local_path": local_path_str,
+            "media_type": "video" if is_video else "photo",
+            "taken_iso": item["taken_iso"],
+            "duration_ms": item.get("duration"),
+            "family_count": len(family_in_photo),
+            "persons": persons,
+            "country": item.get("country"),
+            "first_level": item.get("first_level"),
+            "district": item.get("district") or item.get("city"),
+        }
+
+        cache_file = cache_dir / f"{item_id}.json"
+        if cache_file.exists():
+            try:
+                cached = json.loads(cache_file.read_text())
+                entry.update(cached)
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+        results.append(entry)
+    return results
+
+
 def prepare(
     cfg: Config, pc: PrepareConfig | None = None, *, progress_callback=None
 ) -> dict:
@@ -89,15 +145,7 @@ def prepare(
     )
 
     # --- Analyze: thumbnails, EXIF, video duration ---
-    analysis_path = cfg.analysis_path
-
-    existing: dict[int, dict] = {}
-    if analysis_path.exists() and not pc.force:
-        for entry in json.loads(analysis_path.read_text()):
-            existing[entry["id"]] = entry
-
     cache_dir = cfg.cache_dir
-    results_by_id: dict[int, dict] = {}
 
     # --- Phase 1: Scan — check caches, build entries, collect uncached items ---
     uncached_photos: list[
@@ -110,14 +158,26 @@ def prepare(
         if progress_callback:
             progress_callback(i, len(manifest), "scan")
 
-        if item_id in existing:
-            results_by_id[item_id] = existing[item_id]
+        local_path_str = item.get("local_path", "")
+        local_path = Path(local_path_str)
+        if not local_path.exists():
             continue
 
-        local_path_str = item["local_path"]
-        local_path = Path(local_path_str)
         suffix = local_path.suffix.lower()
         is_video = suffix in VIDEO_EXTENSIONS
+
+        cache_file = cache_dir / f"{item_id}.json"
+        if cache_file.exists() and not pc.force:
+            try:
+                cached = json.loads(cache_file.read_text())
+                if is_video and "audio_level" not in cached:
+                    logger.info(
+                        f"[{i}/{len(manifest)}] {item['filename']} — upgrading cached video metadata"
+                    )
+                else:
+                    continue  # cache hit — skip
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning(f"Corrupt cache for item {item_id}, re-analyzing: {e}")
 
         entry = {
             "id": item_id,
@@ -127,33 +187,11 @@ def prepare(
             "taken_iso": item["taken_iso"],
             "duration_ms": item.get("duration"),
             "family_count": item.get("family_count", 0),
-            "persons": item["metadata"]["persons"],
+            "persons": item.get("metadata", {}).get("persons", []),
             "country": item.get("country"),
             "first_level": item.get("first_level"),
             "district": item.get("district") or item.get("city"),
         }
-
-        if not local_path.exists():
-            results_by_id[item_id] = entry
-            continue
-
-        cache_file = cache_dir / f"{item_id}.json"
-        cache_hit = False
-        if cache_file.exists() and not pc.force:
-            try:
-                cached = json.loads(cache_file.read_text())
-                if is_video and "audio_level" not in cached:
-                    logger.info(
-                        f"[{i}/{len(manifest)}] {entry['filename']} — upgrading cached video metadata"
-                    )
-                else:
-                    entry.update(cached)
-                    cache_hit = True
-            except (json.JSONDecodeError, KeyError) as e:
-                logger.warning(f"Corrupt cache for item {item_id}, re-analyzing: {e}")
-        if cache_hit:
-            results_by_id[item_id] = entry
-            continue
 
         if is_video:
             uncached_videos.append((entry, item_id, local_path, cache_file))
@@ -165,28 +203,25 @@ def prepare(
         if progress_callback:
             progress_callback(i, len(uncached_photos), "photos")
         _prepare_photo(entry, item_id, local_path, cfg, cache_file)
-        results_by_id[item_id] = entry
 
     # --- Phase 3: Probe uncached videos (fast, no progress bar) ---
     for i, (entry, item_id, local_path, cache_file) in enumerate(uncached_videos, 1):
         _prepare_video(entry, item_id, local_path, cache_file, i, len(uncached_videos))
-        results_by_id[item_id] = entry
 
-    # Preserve manifest order
-    results = [
-        results_by_id[item["id"]] for item in manifest if item["id"] in results_by_id
-    ]
-    analysis_path.write_text(json.dumps(results, indent=2))
-
-    n_photos = sum(1 for r in results if r.get("media_type") == "photo")
-    n_videos = len(results) - n_photos
-    newly = sum(1 for r in results if r["id"] not in existing)
+    n_photos = sum(
+        1
+        for item in manifest
+        if Path(item.get("local_path", "")).suffix.lower() not in VIDEO_EXTENSIONS
+    )
+    n_videos = len(manifest) - n_photos
     logger.info(
-        f"Prepared: {len(results)} items ({n_photos} photos, {n_videos} videos, "
-        f"{newly} newly analyzed)"
+        f"Prepared: {len(manifest)} items ({n_photos} photos, {n_videos} videos, "
+        f"{len(uncached_photos)} + {len(uncached_videos)} newly analyzed)"
     )
 
     # Generate video previews (cached per video, used by plan stage)
+    # Use load_analysis to get full entries with cache data merged
+    results = load_analysis(cfg)
     video_items = [r for r in results if r.get("media_type") == "video"]
     if video_items:
         _generate_video_previews(
@@ -561,16 +596,21 @@ def _probe_audio_level(local_path) -> str:
 
 
 def _read_exif(path) -> dict:
-    """Extract EXIF metadata from a photo."""
+    """Extract EXIF metadata from a photo (supports JPEG, HEIC, etc.)."""
     try:
         from PIL import Image
         from PIL.ExifTags import TAGS
 
         img = Image.open(path)
-        exif_data = img._getexif()  # type: ignore[attr-defined]
-        if not exif_data:
+        # Use getexif() public API — works for HEIC via pillow-heif
+        exif_ifd = img.getexif()
+        if not exif_ifd:
             return {}
-        exif = {TAGS.get(k, k): v for k, v in exif_data.items()}
+        exif = {TAGS.get(k, k): v for k, v in exif_ifd.items()}
+        # EXIF sub-IFD (tag 0x8769) contains FocalLength, FNumber, ISO etc.
+        exif_sub = exif_ifd.get_ifd(0x8769)
+        if exif_sub:
+            exif.update({TAGS.get(k, k): v for k, v in exif_sub.items()})
         result = {}
         fl = exif.get("FocalLength")
         if fl:

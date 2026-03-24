@@ -181,15 +181,11 @@ def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, i
             f"Preprocessed data not found: {cfg.preprocessed_path}\n"
             "Run the prepare stage first (e.g. vlog prepare -s local -p ./photos)"
         )
-    if not cfg.analysis_path.exists():
-        raise FileNotFoundError(
-            f"Analysis data not found: {cfg.analysis_path}\n"
-            "Run the prepare stage first (e.g. vlog prepare -s local -p ./photos)"
-        )
+    from ..prepare import load_analysis
 
     effective_focus = pc.focus or _default_focus(pc.trip_type)
     preprocessed = json.loads(cfg.preprocessed_path.read_text())
-    analysis_items = json.loads(cfg.analysis_path.read_text())
+    analysis_items = load_analysis(cfg)
     analysis_by_id: dict[str, dict] = {str(a["id"]): a for a in analysis_items}
 
     logger.info(

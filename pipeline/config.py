@@ -54,10 +54,6 @@ class Config:
         return self.workspace / "manifest.json"
 
     @property
-    def analysis_path(self) -> Path:
-        return self.workspace / "analysis.json"
-
-    @property
     def preprocessed_path(self) -> Path:
         return self.workspace / "preprocessed.json"
 

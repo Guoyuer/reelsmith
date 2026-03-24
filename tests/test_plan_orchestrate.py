@@ -38,20 +38,24 @@ def _setup_workspace(tmp_path, n_photos=2):
         thumb.write_bytes(b"\xff\xd8" + b"\x00" * 50)
         photo_paths.append(str(photo))
 
-    # Create analysis.json
-    analysis = [
+    # Create manifest.json + per-item caches (replaces old analysis.json)
+    manifest = [
         {
             "id": i,
             "filename": f"photo_{i}.jpg",
             "local_path": photo_paths[i - 1],
-            "media_type": "photo",
+            "metadata": {"persons": ["Alice"]},
             "family_count": 1,
-            "persons": ["Alice"],
             "taken_iso": f"2025-06-13T{10+i}:30:00",
         }
         for i in range(1, n_photos + 1)
     ]
-    cfg.analysis_path.write_text(json.dumps(analysis))
+    cfg.manifest_path.write_text(json.dumps(manifest))
+    cfg.cache_dir.mkdir(parents=True, exist_ok=True)
+    for i in range(1, n_photos + 1):
+        (cfg.cache_dir / f"{i}.json").write_text(json.dumps({
+            "thumbnail_path": str(cfg.thumbnails_dir / f"photo_{i}_thumb.jpg"),
+        }))
 
     # Create preprocessed.json
     preprocessed = {
