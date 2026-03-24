@@ -41,11 +41,7 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
 def load_analysis(cfg: Config) -> list[dict]:
-    """Reconstruct analysis data from manifest + per-item caches.
-
-    This replaces the old analysis.json file — the per-item cache is the
-    source of truth, manifest provides the item list and base metadata.
-    """
+    """Reconstruct analysis data from manifest + per-item caches."""
     if not cfg.manifest_path.exists():
         raise FileNotFoundError(
             f"Manifest not found: {cfg.manifest_path}\n"
@@ -103,7 +99,7 @@ def prepare(
 
     1. Read manifest, detect family, build timeline
     2. Generate thumbnails + EXIF for photos, probe duration for videos
-    3. Save preprocessed.json + analysis.json
+    3. Generate video previews (360p 1fps)
     """
     if pc is None:
         pc = PrepareConfig()

@@ -103,7 +103,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 
 - Every Gemini API call logs: model, tokens in/out, timing, response preview
 - Every FFmpeg command logged at INFO level and to `output/ffmpeg_commands.log`
-- Use `--force` on `prepare` or `full` to force re-analysis (bypasses cached analysis.json)
+- Use `--force` on `prepare` or `full` to force re-analysis (bypasses per-item cache)
 - YouTube chapter markers saved to `output/chapters_v{N}_{res_label}.txt`
 - Post-assemble validation: 6 automated checks (file size, duration, streams, codec, A/V sync, resolution)
 - Live progress display with per-stage status (icons: ○ pending, ⏳ running, ✅ done, ❌ failed)
