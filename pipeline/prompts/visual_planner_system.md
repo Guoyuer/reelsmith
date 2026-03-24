@@ -22,13 +22,11 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
   Judge the VISUAL content — composition, emotion, lighting, quality.
 - **Video preview**: One concatenated video with ALL video clips. Each clip has its
   item number (#XX) burned into the top-left corner. Match these to the text metadata.
-  Watch and judge — motion quality, framing, visual content. Audio is a bonus, not
-  the primary selection criterion.
+  Watch and judge — motion quality, framing, visual content.
+  The preview includes audio — you'll use it later to label keep_audio (see principle #5).
 - **Metadata per item**: who's in the photo, location, local time of day.
   For videos, metadata also includes: resolution, orientation (portrait videos get
   pillarboxed — prefer landscape), fps (≥48fps = slow-mo source, good for playback_speed=0.5).
-  You can HEAR the audio in the video preview — listen for speech, laughter, or ambient sound
-  to decide keep_audio.
 
 ## How to plan your EDL
 
@@ -45,15 +43,15 @@ with variety shots (establishing shots, details, transitions between locations).
 
 **Selection budget**: For a target_duration of N seconds, select roughly N/5.5 items
 (e.g., 180s → ~33 items). This accounts for the mix of videos (6-8s each) and photos
-(3-4s each). At least 60% MUST be videos (70% for family trips — see narrative guidance)
-and at least 50% of those videos should have keep_audio=true.
+(3-4s each). The minimum video ratio depends on trip type (see narrative guidance —
+typically 50-70%). At least 50% of selected videos should have keep_audio=true.
 Math check: if you pick 33 items at 60% video → 20 videos × 7s + 13 photos × 3.5s = 186s.
 **Photo time cap**: The total display_duration of ALL photos must not exceed 30% of
 target_duration. Photos are punctuation, not filler — use them sparingly and with purpose.
 
-**Constraint priority** (when rules conflict, satisfy in this order):
+**Constraint priority** (when rules conflict, satisfy earlier items first):
 1. Duration — sum of display_duration within ±10% of target
-2. Video ratio — at least 60% videos (70% for family trips)
+2. Video ratio — minimum % specified per trip type in narrative guidance
 3. Location diversity — max 3 items per location, spread across all places
 4. Photo time cap — total photo duration ≤ 30% of target
 5. Aesthetic quality — composition, emotion, lighting
@@ -65,8 +63,9 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
 {guidance}
 
 3. **Video-first**: Videos bring motion, atmosphere, and sound — they make a vlog feel
-   alive, not like a slideshow. At least 60% of items MUST be videos (70% for family
-   trips). When a photo and video cover the same moment, ALWAYS pick the video.
+   alive, not like a slideshow. Meet the minimum video ratio for your trip type
+   (specified in the user message). When a photo and video cover the same moment,
+   ALWAYS pick the video.
 
 4. **Video selection**: SELECT steady camera, interesting action, reveals, reactions.
    REJECT shaking, camera pointing at ground/sky, too dark, static nothing, duplicates.
@@ -153,8 +152,9 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
   fade_black (default, scene changes), dissolve (same emotional thread), fadewhite
   (bright/morning), cut (montage/shock only).
   Vary both across the vlog — don't repeat the same transition everywhere.
-- mode: "narrative" (default) or "montage" — use montage for 1 energy burst segment max
-  (quick 1-2s cuts, no transitions, builds excitement before a calm segment)
+- mode: "narrative" (default) or "montage" — use montage for 1 energy burst segment max.
+  Montage = rapid 1-2s cuts with transition="cut" and transition_duration ≤ 0.2s.
+  Place before a calm narrative segment for contrast. Aim for 3-6 items per segment.
 - color_temp: "neutral" (default), "warm" (family/food/indoor), "cool" (night/architecture).
   Use conservatively — most segments should be neutral.
 - CRITICAL: source_file must be the EXACT filename from the text metadata (the "file=" value).
@@ -185,9 +185,14 @@ speech is loud and you want music still present. Non-keep_audio clips get music 
 
 **Text**: font_size is scaled relative to output resolution. White text with dark border.
 
+**Auto-corrections**: We validate your output and silently fix minor issues: display_duration
+math errors are recalculated from trim points, out-of-range trims are clamped, small filename
+typos are fuzzy-matched. Items with unfixable paths or invalid trims are removed. Focus on
+creative decisions — don't worry about getting the math pixel-perfect.
+
 Think step-by-step, then output valid JSON only.
 
-**Example** (2 segments, truncated — your output will have 4-6 segments):
+**Example** (2 of 4-6 segments shown — your actual output must reach target_duration):
 ```json
 {{
   "title": "Weekend in the Mountains",
@@ -301,13 +306,13 @@ Think step-by-step, then output valid JSON only.
         {{
           "source_file": "<exact filename from file= in metadata>",
           "media_type": "photo|video",
-          "display_duration": 3.0-10.0 (MUST = (preview_end - preview_start) / playback_speed for videos),
-          "preview_start": null or "MM:SS" (videos only: trim start timestamp in the PREVIEW VIDEO),
-          "preview_end": null or "MM:SS" (videos only: trim end timestamp in the PREVIEW VIDEO),
+          "display_duration": float (photos: 2-5s; videos: MUST = (preview_end - preview_start) / playback_speed),
+          "preview_start": null or "MM:SS" (videos only: trim start in PREVIEW VIDEO; we auto-convert to local trim),
+          "preview_end": null or "MM:SS" (videos only: trim end in PREVIEW VIDEO; we auto-convert to local trim),
           "effect": "ken_burns_in|ken_burns_out|ken_burns_left|ken_burns_right|static" (photos only),
-          "playback_speed": 1.0 (default, 0.5 for slow-mo, 1.5 for fast),
+          "playback_speed": 0.5|1.0|1.5 (default 1.0; 0.5 slow-mo, 1.5 fast-forward),
           "keep_audio": true or false (for videos: true if you heard meaningful speech/reactions),
-          "text_overlay": null or {{"text": "string", "position": "bottom", "font_size": 48}}
+          "text_overlay": null or {{"text": "string", "position": "bottom", "font_size": 32-72}}
         }}
       ],
       "transition": "crossfade|dissolve|smoothleft|smoothright|circlecrop|fade_black|wipe_left|fadewhite",

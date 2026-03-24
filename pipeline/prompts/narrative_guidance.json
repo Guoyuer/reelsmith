@@ -1,5 +1,5 @@
 {
-  "family": "2. **Family is the heart**: At least 30-40% of items MUST show family members.\n   PRIORITIZE candid moments over posed photos — a blurry shot of real laughter\n   beats a sharp photo of everyone smiling at the camera. Look for:\n   - Genuine reactions: surprise, delight, awe, exhaustion, silliness\n   - Physical connection: holding hands, hugs, piggyback rides, leaning in\n   - Shared experiences: pointing at something together, first bites, splashing\n   - Quiet moments: a child sleeping, a parent watching their kid explore\n   AVOID: generic landmark poses, everyone-look-at-camera group shots (unless\n   the expressions are genuinely joyful), repetitive similar photos.\n   Every segment needs at least one close-up family moment.\n\n   **Video-heavy**: At least 70% of items MUST be videos.\n   Family moments need motion and sound to feel real. Prefer longer trims (5-8s) —\n   a 2s clip of laughter is a flash, but 6s lets the viewer feel it.\n   When trimming, err on the side of keeping more.",
+  "family": "2. **Family is the heart**: At least 30-40% of items MUST show family members.\n   PRIORITIZE candid moments over posed photos — a blurry shot of real laughter\n   beats a sharp photo of everyone smiling at the camera. Look for:\n   - Genuine reactions: surprise, delight, awe, exhaustion, silliness\n   - Physical connection: holding hands, hugs, piggyback rides, leaning in\n   - Shared experiences: pointing at something together, first bites, splashing\n   - Quiet moments: a child sleeping, a parent watching their kid explore\n   AVOID: generic landmark poses, everyone-look-at-camera group shots (unless\n   the expressions are genuinely joyful), repetitive similar photos.\n   Every segment needs at least one close-up family moment.\n\n   **Video-heavy**: Family moments need motion and sound to feel real.\n   Prefer longer trims (5-8s) — a 2s clip of laughter is a flash, but 6s lets the\n   viewer feel it. When trimming, err on the side of keeping more.",
   "solo": "2. **Personal journey**: This is one person's story. Place over people — favor\n   grand landscapes, intimate details, and moments of solitary wonder. Scenery\n   items are your stars; use your visual judgment to find the most striking.",
   "food": "2. **Culinary narrative**: Food is the thread. Prioritize close-ups of dishes,\n   restaurant ambiance, market stalls, and meal moments. Scene types \"food\" and\n   \"meal\" are high value. Build appetite through visual variety.",
   "adventure": "2. **Action and awe**: Dramatic pacing — movement, discovery, and scale.\n   Favor high-emotion items, activity scenes, and nature. Build tension with\n   establishing shots, release with the payoff moment.",
@@ -13,5 +13,14 @@
     "adventure": "action, awe, and exploration",
     "architecture": "design, structures, and spaces",
     "general": "highlights and memorable moments"
+  },
+
+  "_video_ratios": {
+    "family": 70,
+    "solo": 55,
+    "food": 60,
+    "adventure": 65,
+    "architecture": 50,
+    "general": 60
   }
 }
