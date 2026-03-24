@@ -143,8 +143,23 @@ def _gemini_call(
     n_videos = sum(1 for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes")
     img_mb = sum(len(p.get("data", b"")) for p in user_parts if isinstance(p, dict) and p.get("type") == "image_bytes") / 1024 / 1024
     vid_mb = sum(len(p.get("data", b"")) for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes") / 1024 / 1024
-    logger.info(f"  Request: {n_text} text blocks, {n_images} photos ({img_mb:.0f}MB), {n_videos} video ({vid_mb:.0f}MB)")
-    logger.info(f"  System prompt: {len(system)} chars, {len(system.split(chr(10)))} lines")
+    logger.info(f"  Request: {n_text} text, {n_images} photos ({img_mb:.0f}MB), {n_videos} video ({vid_mb:.0f}MB)")
+    logger.info(f"  System prompt: {len(system)} chars ({len(system.split(chr(10)))} lines)")
+    # Log each part for debugging
+    for i, p in enumerate(user_parts):
+        if isinstance(p, str):
+            lines = p.split("\n")
+            logger.info(f"  [part {i}] text ({len(lines)} lines, {len(p)} chars)")
+            for line in lines:
+                logger.debug(f"    | {line}")
+        elif isinstance(p, dict):
+            ptype = p.get("type", "?")
+            mime = p.get("mime_type", "?")
+            size_kb = len(p.get("data", b"")) // 1024
+            if ptype == "image_bytes":
+                logger.debug(f"  [part {i}] photo {mime} ({size_kb}KB)")
+            else:
+                logger.info(f"  [part {i}] {ptype} {mime} ({size_kb}KB)")
 
     if progress_callback:
         progress_callback(0, 0, "request sent, waiting for gemini...")
