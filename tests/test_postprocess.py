@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
 
 from pipeline.edl import EDL, EditItem, Segment
 from pipeline.plan._postprocess import (
     deduplicate_items,
-    fill_duration_gap,
     fix_hallucinated_paths,
     log_edl_summary,
     parse_and_convert_timestamps,
@@ -21,8 +19,16 @@ def _make_edl(items=None, segments=None) -> EDL:
     if segments:
         return EDL(title="Test", target_duration=60.0, segments=segments)
     if items is None:
-        items = [EditItem(source_file="/media/photo.jpg", media_type="photo", display_duration=4.0)]
-    return EDL(title="Test", target_duration=60.0, segments=[Segment(name="S1", items=items, transition="cut")])
+        items = [
+            EditItem(
+                source_file="/media/photo.jpg", media_type="photo", display_duration=4.0
+            )
+        ]
+    return EDL(
+        title="Test",
+        target_duration=60.0,
+        segments=[Segment(name="S1", items=items, transition="cut")],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +44,13 @@ class TestParseAndConvertTimestamps:
             "segments": [
                 {
                     "name": "S1",
-                    "items": [{"source_file": "a.jpg", "media_type": "photo", "display_duration": 4.0}],
+                    "items": [
+                        {
+                            "source_file": "a.jpg",
+                            "media_type": "photo",
+                            "display_duration": 4.0,
+                        }
+                    ],
                 }
             ],
         }
@@ -52,7 +64,16 @@ class TestParseAndConvertTimestamps:
             "target_duration": 60,
             "music": "some string",
             "segments": [
-                {"name": "S", "items": [{"source_file": "a.jpg", "media_type": "photo", "display_duration": 4.0}]}
+                {
+                    "name": "S",
+                    "items": [
+                        {
+                            "source_file": "a.jpg",
+                            "media_type": "photo",
+                            "display_duration": 4.0,
+                        }
+                    ],
+                }
             ],
         }
         edl = parse_and_convert_timestamps(json.dumps(raw), [])
@@ -115,7 +136,16 @@ class TestParseAndConvertTimestamps:
             "title": "T",
             "target_duration": 60,
             "segments": [
-                {"name": "S", "items": [{"source_file": "a.jpg", "media_type": "photo", "display_duration": 4.0}]}
+                {
+                    "name": "S",
+                    "items": [
+                        {
+                            "source_file": "a.jpg",
+                            "media_type": "photo",
+                            "display_duration": 4.0,
+                        }
+                    ],
+                }
             ],
         }
         fenced = "```json\n" + json.dumps(raw) + "\n```"
@@ -157,13 +187,23 @@ class TestFixHallucinatedPaths:
     def test_existing_path_kept(self, tmp_path):
         photo = tmp_path / "photo.jpg"
         photo.write_bytes(b"\xff\xd8")
-        edl = _make_edl([EditItem(source_file=str(photo), media_type="photo", display_duration=4.0)])
+        edl = _make_edl(
+            [EditItem(source_file=str(photo), media_type="photo", display_duration=4.0)]
+        )
         removed = fix_hallucinated_paths(edl, tmp_path)
         assert removed == 0
         assert len(edl.all_items()) == 1
 
     def test_missing_path_removed(self, tmp_path):
-        edl = _make_edl([EditItem(source_file="/nonexistent/photo.jpg", media_type="photo", display_duration=4.0)])
+        edl = _make_edl(
+            [
+                EditItem(
+                    source_file="/nonexistent/photo.jpg",
+                    media_type="photo",
+                    display_duration=4.0,
+                )
+            ]
+        )
         removed = fix_hallucinated_paths(edl, tmp_path)
         assert removed == 1
         assert len(edl.all_items()) == 0
@@ -172,7 +212,13 @@ class TestFixHallucinatedPaths:
         real = tmp_path / "87681_IMG_001.jpg"
         real.write_bytes(b"\xff\xd8")
         edl = _make_edl(
-            [EditItem(source_file="/wrong/path/IMG_001.jpg", media_type="photo", display_duration=4.0)]
+            [
+                EditItem(
+                    source_file="/wrong/path/IMG_001.jpg",
+                    media_type="photo",
+                    display_duration=4.0,
+                )
+            ]
         )
         removed = fix_hallucinated_paths(edl, tmp_path)
         assert removed == 0
@@ -183,14 +229,22 @@ class TestFixHallucinatedPaths:
             segments=[
                 Segment(
                     name="S1",
-                    items=[EditItem(source_file="/nonexistent.jpg", media_type="photo", display_duration=4.0)],
+                    items=[
+                        EditItem(
+                            source_file="/nonexistent.jpg",
+                            media_type="photo",
+                            display_duration=4.0,
+                        )
+                    ],
                     transition="cut",
                 ),
                 Segment(
                     name="S2",
                     items=[
                         EditItem(
-                            source_file=str(tmp_path / "exists.jpg"), media_type="photo", display_duration=4.0
+                            source_file=str(tmp_path / "exists.jpg"),
+                            media_type="photo",
+                            display_duration=4.0,
                         )
                     ],
                     transition="cut",
@@ -264,7 +318,15 @@ class TestValidateTrimPoints:
         assert edl.all_items()[0].end_time == 60.0
 
     def test_photo_items_unaffected(self):
-        edl = _make_edl([EditItem(source_file="/media/photo.jpg", media_type="photo", display_duration=4.0)])
+        edl = _make_edl(
+            [
+                EditItem(
+                    source_file="/media/photo.jpg",
+                    media_type="photo",
+                    display_duration=4.0,
+                )
+            ]
+        )
         fixed, removed = validate_trim_points(edl, {})
         assert fixed == 0
         assert removed == 0
@@ -293,14 +355,28 @@ class TestDeduplicateItems:
             segments=[
                 Segment(
                     name="S1",
-                    items=[EditItem(source_file="a.mp4", media_type="video", display_duration=5.0)],
+                    items=[
+                        EditItem(
+                            source_file="a.mp4",
+                            media_type="video",
+                            display_duration=5.0,
+                        )
+                    ],
                     transition="cut",
                 ),
                 Segment(
                     name="S2",
                     items=[
-                        EditItem(source_file="a.mp4", media_type="video", display_duration=5.0),
-                        EditItem(source_file="b.jpg", media_type="photo", display_duration=3.0),
+                        EditItem(
+                            source_file="a.mp4",
+                            media_type="video",
+                            display_duration=5.0,
+                        ),
+                        EditItem(
+                            source_file="b.jpg",
+                            media_type="photo",
+                            display_duration=3.0,
+                        ),
                     ],
                     transition="cut",
                 ),
@@ -316,63 +392,30 @@ class TestDeduplicateItems:
             segments=[
                 Segment(
                     name="S1",
-                    items=[EditItem(source_file="a.jpg", media_type="photo", display_duration=4.0)],
+                    items=[
+                        EditItem(
+                            source_file="a.jpg",
+                            media_type="photo",
+                            display_duration=4.0,
+                        )
+                    ],
                     transition="cut",
                 ),
                 Segment(
                     name="S2",
-                    items=[EditItem(source_file="a.jpg", media_type="photo", display_duration=3.0)],
+                    items=[
+                        EditItem(
+                            source_file="a.jpg",
+                            media_type="photo",
+                            display_duration=3.0,
+                        )
+                    ],
                     transition="cut",
                 ),
             ]
         )
         deduplicate_items(edl)
         assert len(edl.segments) == 1
-
-
-# ---------------------------------------------------------------------------
-# fill_duration_gap
-# ---------------------------------------------------------------------------
-
-
-class TestFillDurationGap:
-    def test_adequate_duration_returns_same(self):
-        edl = _make_edl(
-            [
-                EditItem(source_file="a.jpg", media_type="photo", display_duration=40.0),
-                EditItem(source_file="b.jpg", media_type="photo", display_duration=40.0),
-            ]
-        )
-        result = fill_duration_gap(edl, 60, {}, "system prompt")
-        assert result is edl  # same object, no change
-
-    def test_underfilled_calls_gemini(self):
-        edl = _make_edl([EditItem(source_file="a.jpg", media_type="photo", display_duration=5.0)])
-        # Mock _gemini_call to return a bigger EDL
-        bigger_raw = {
-            "title": "Test",
-            "target_duration": 60,
-            "segments": [
-                {
-                    "name": "S1",
-                    "items": [
-                        {"source_file": "a.jpg", "media_type": "photo", "display_duration": 30.0},
-                        {"source_file": "b.jpg", "media_type": "photo", "display_duration": 40.0},
-                    ],
-                }
-            ],
-        }
-        with patch("pipeline.plan._postprocess._gemini_call", return_value=json.dumps(bigger_raw)) as mock_call:
-            result = fill_duration_gap(edl, 60, {"2": {"local_path": "b.jpg", "media_type": "photo"}}, "system")
-        mock_call.assert_called_once()
-        assert result.estimated_duration() > 5.0  # original was only 5s
-        assert len(result.all_items()) == 2
-
-    def test_gemini_failure_returns_original(self):
-        edl = _make_edl([EditItem(source_file="a.jpg", media_type="photo", display_duration=5.0)])
-        with patch("pipeline.plan._postprocess._gemini_call", return_value="invalid json"):
-            result = fill_duration_gap(edl, 60, {}, "system")
-        assert result is edl
 
 
 # ---------------------------------------------------------------------------
@@ -384,13 +427,17 @@ class TestValidateAndFixEdl:
     def test_valid_edl_no_crash(self, tmp_path):
         photo = tmp_path / "photo.jpg"
         photo.write_bytes(b"\xff\xd8")
-        edl = _make_edl([EditItem(source_file=str(photo), media_type="photo", display_duration=4.0)])
+        edl = _make_edl(
+            [EditItem(source_file=str(photo), media_type="photo", display_duration=4.0)]
+        )
         validate_and_fix_edl(edl)  # should not raise
 
     def test_fixes_video_media_type_on_photo_file(self, tmp_path):
         photo = tmp_path / "photo.jpg"
         photo.write_bytes(b"\xff\xd8")
-        edl = _make_edl([EditItem(source_file=str(photo), media_type="video", display_duration=5.0)])
+        edl = _make_edl(
+            [EditItem(source_file=str(photo), media_type="video", display_duration=5.0)]
+        )
         validate_and_fix_edl(edl)
         assert edl.all_items()[0].media_type == "photo"
         assert edl.all_items()[0].effect == "ken_burns_in"
@@ -405,6 +452,7 @@ class TestValidateAndFixEdl:
 class TestLogEdlSummary:
     def test_logs_summary_without_error(self, caplog):
         import logging
+
         edl = _make_edl(
             [
                 EditItem(source_file="a.jpg", media_type="photo", display_duration=4.0),

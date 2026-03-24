@@ -15,7 +15,6 @@ from pathlib import Path
 
 from ..edl import EDL, validate_edl
 from ..media_utils import strip_markdown_fences
-from ._gemini import _gemini_call
 from ._prompts import _timestamp_to_secs
 
 logger = logging.getLogger("vlog.plan")
@@ -220,85 +219,6 @@ def deduplicate_items(edl: EDL) -> int:
     if dedup_removed:
         logger.info(f"  Dedup: removed {dedup_removed} duplicate items")
     return dedup_removed
-
-
-def fill_duration_gap(
-    edl: EDL,
-    target_duration: int,
-    analysis_by_id: dict,
-    system_prompt: str,
-    model: str | None = None,
-    thinking_level: str = "HIGH",
-    progress_callback=None,
-) -> EDL:
-    """If EDL is underfilled, ask Gemini to add items. Returns updated EDL."""
-    actual_dur = edl.estimated_duration()
-    min_dur = target_duration
-
-    if actual_dur >= min_dur:
-        return edl
-
-    deficit = min_dur - actual_dur
-    logger.info(
-        f"  Duration: {actual_dur:.0f}s < {min_dur:.0f}s needed — requesting {deficit:.0f}s more content"
-    )
-
-    used = {item.source_file for item in edl.all_items()}
-    unused_lines = []
-    for aid, a in analysis_by_id.items():
-        path = a.get("local_path", "")
-        if path and path not in used:
-            mt = a.get("media_type", "photo")
-            dur_info = (
-                f" duration={a['video_duration']:.0f}s"
-                if mt == "video" and a.get("video_duration")
-                else ""
-            )
-            unused_lines.append(f"  {mt} file={Path(path).name}{dur_info}")
-    if len(unused_lines) > 200:
-        unused_lines = unused_lines[:200]
-
-    followup = (
-        f"Your EDL totals {actual_dur:.0f}s of display_duration, but the target "
-        f"is {target_duration}s (need ≥{min_dur:.0f}s with transition headroom). "
-        f"Add {deficit:.0f}s more content by inserting items into existing segments.\n\n"
-        f"UNUSED CANDIDATES (pick from these):\n"
-        + "\n".join(unused_lines[:100])
-        + "\n\n"
-        "Return the COMPLETE updated EDL JSON (all segments, all items — "
-        "original + new). Keep the same structure and format."
-    )
-    if progress_callback:
-        progress_callback(0, 0, f"follow-up: filling {deficit:.0f}s gap...")
-    model_kwargs: dict = {}
-    if model:
-        model_kwargs["model"] = model
-    model_kwargs["thinking_level"] = thinking_level
-    edl_content2 = _gemini_call(
-        system_prompt,
-        [followup],
-        label="duration fix",
-        progress_callback=progress_callback,
-        **model_kwargs,
-    )
-    logger.info(f"=== [Gemini] DURATION FIX RESPONSE ({len(edl_content2)} chars) ===")
-    edl_content2 = strip_markdown_fences(edl_content2)
-    try:
-        raw2 = json.loads(edl_content2)
-        if "music" in raw2 and isinstance(raw2["music"], str):
-            raw2["music"] = None
-        edl2 = EDL.model_validate(raw2)
-        new_dur = edl2.estimated_duration()
-        if new_dur > actual_dur:
-            logger.info(f"  Duration fix: {actual_dur:.0f}s → {new_dur:.0f}s")
-            return edl2
-        else:
-            logger.warning(
-                f"Duration fix didn't improve ({new_dur:.0f}s), keeping original"
-            )
-    except Exception as e:
-        logger.warning(f"Duration fix parse failed ({e}), keeping original")
-    return edl
 
 
 def validate_and_fix_edl(edl: EDL) -> None:

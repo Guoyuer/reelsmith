@@ -8,20 +8,30 @@ from unittest.mock import patch
 from pipeline.config import Config
 from pipeline.plan import PlanConfig
 
-FAKE_EDL_JSON = json.dumps({
-    "title": "Test Trip",
-    "target_duration": 60,
-    "segments": [
-        {
-            "name": "Morning Stroll",
-            "music_mood": "gentle acoustic",
-            "items": [
-                {"source_file": "PLACEHOLDER", "media_type": "photo", "display_duration": 4.0},
-                {"source_file": "PLACEHOLDER2", "media_type": "photo", "display_duration": 3.0},
-            ],
-        }
-    ],
-})
+FAKE_EDL_JSON = json.dumps(
+    {
+        "title": "Test Trip",
+        "target_duration": 60,
+        "segments": [
+            {
+                "name": "Morning Stroll",
+                "music_mood": "gentle acoustic",
+                "items": [
+                    {
+                        "source_file": "PLACEHOLDER",
+                        "media_type": "photo",
+                        "display_duration": 4.0,
+                    },
+                    {
+                        "source_file": "PLACEHOLDER2",
+                        "media_type": "photo",
+                        "display_duration": 3.0,
+                    },
+                ],
+            }
+        ],
+    }
+)
 
 
 def _setup_workspace(tmp_path, n_photos=2):
@@ -53,9 +63,13 @@ def _setup_workspace(tmp_path, n_photos=2):
     cfg.manifest_path.write_text(json.dumps(manifest))
     cfg.cache_dir.mkdir(parents=True, exist_ok=True)
     for i in range(1, n_photos + 1):
-        (cfg.cache_dir / f"{i}.json").write_text(json.dumps({
-            "thumbnail_path": str(cfg.thumbnails_dir / f"photo_{i}_thumb.jpg"),
-        }))
+        (cfg.cache_dir / f"{i}.json").write_text(
+            json.dumps(
+                {
+                    "thumbnail_path": str(cfg.thumbnails_dir / f"photo_{i}_thumb.jpg"),
+                }
+            )
+        )
 
     # Create preprocessed.json
     preprocessed = {
@@ -81,11 +95,8 @@ def _setup_workspace(tmp_path, n_photos=2):
 
 
 def _patch_gemini(return_value):
-    """Patch _gemini_call in both _orchestrate and _postprocess."""
-    return (
-        patch("pipeline.plan._orchestrate._gemini_call", return_value=return_value),
-        patch("pipeline.plan._postprocess._gemini_call", return_value=return_value),
-    )
+    """Patch _gemini_call in _orchestrate."""
+    return patch("pipeline.plan._orchestrate._gemini_call", return_value=return_value)
 
 
 class TestPlanOrchestration:
@@ -103,15 +114,24 @@ class TestPlanOrchestration:
                     "name": "Morning",
                     "music_mood": "gentle",
                     "items": [
-                        {"source_file": photo_paths[0], "media_type": "photo", "display_duration": 30.0},
-                        {"source_file": photo_paths[1], "media_type": "photo", "display_duration": 40.0},
+                        {
+                            "source_file": photo_paths[0],
+                            "media_type": "photo",
+                            "display_duration": 30.0,
+                        },
+                        {
+                            "source_file": photo_paths[1],
+                            "media_type": "photo",
+                            "display_duration": 40.0,
+                        },
                     ],
                 }
             ],
         }
 
-        with _patch_gemini(json.dumps(fake_edl))[0], _patch_gemini(json.dumps(fake_edl))[1]:
+        with _patch_gemini(json.dumps(fake_edl)):
             from pipeline.plan import plan
+
             edl, version = plan(cfg, PlanConfig(target_duration=60))
 
         assert version == 1
@@ -147,8 +167,9 @@ class TestPlanOrchestration:
             ],
         }
 
-        with _patch_gemini(json.dumps(fake_edl))[0], _patch_gemini(json.dumps(fake_edl))[1]:
+        with _patch_gemini(json.dumps(fake_edl)):
             from pipeline.plan import plan
+
             edl, _ = plan(cfg, PlanConfig(target_duration=60))
 
         assert edl.all_items()[0].effect == "none"
@@ -166,18 +187,32 @@ class TestPlanOrchestration:
                     "name": "S",
                     "music_mood": "m",
                     "items": [
-                        {"source_file": photo_paths[0], "media_type": "photo", "display_duration": 30.0},
-                        {"source_file": photo_paths[1], "media_type": "photo", "display_duration": 40.0},
+                        {
+                            "source_file": photo_paths[0],
+                            "media_type": "photo",
+                            "display_duration": 30.0,
+                        },
+                        {
+                            "source_file": photo_paths[1],
+                            "media_type": "photo",
+                            "display_duration": 40.0,
+                        },
                     ],
                 }
             ],
         }
 
-        with _patch_gemini(json.dumps(fake_edl))[0], _patch_gemini(json.dumps(fake_edl))[1]:
+        with _patch_gemini(json.dumps(fake_edl)):
             from pipeline.plan import plan
+
             edl, _ = plan(
                 cfg,
-                PlanConfig(target_duration=60, style="cinematic", trip_type="solo", language="cn"),
+                PlanConfig(
+                    target_duration=60,
+                    style="cinematic",
+                    trip_type="solo",
+                    language="cn",
+                ),
             )
 
         assert edl.style == "cinematic"
@@ -197,15 +232,24 @@ class TestPlanOrchestration:
                     "name": "S",
                     "music_mood": "m",
                     "items": [
-                        {"source_file": photo_paths[0], "media_type": "photo", "display_duration": 30.0},
-                        {"source_file": photo_paths[1], "media_type": "photo", "display_duration": 40.0},
+                        {
+                            "source_file": photo_paths[0],
+                            "media_type": "photo",
+                            "display_duration": 30.0,
+                        },
+                        {
+                            "source_file": photo_paths[1],
+                            "media_type": "photo",
+                            "display_duration": 40.0,
+                        },
                     ],
                 }
             ],
         }
 
-        with _patch_gemini(json.dumps(fake_edl))[0], _patch_gemini(json.dumps(fake_edl))[1]:
+        with _patch_gemini(json.dumps(fake_edl)):
             from pipeline.plan import plan
+
             _, v1 = plan(cfg, PlanConfig(target_duration=60))
             _, v2 = plan(cfg, PlanConfig(target_duration=60))
 
@@ -225,19 +269,29 @@ class TestPlanOrchestration:
                     "name": "S",
                     "music_mood": "m",
                     "items": [
-                        {"source_file": photo_paths[0], "media_type": "photo", "display_duration": 30.0},
-                        {"source_file": photo_paths[1], "media_type": "photo", "display_duration": 40.0},
+                        {
+                            "source_file": photo_paths[0],
+                            "media_type": "photo",
+                            "display_duration": 30.0,
+                        },
+                        {
+                            "source_file": photo_paths[1],
+                            "media_type": "photo",
+                            "display_duration": 40.0,
+                        },
                     ],
                 }
             ],
         }
 
         calls = []
+
         def cb(done, total, detail):
             calls.append((done, total, detail))
 
-        with _patch_gemini(json.dumps(fake_edl))[0], _patch_gemini(json.dumps(fake_edl))[1]:
+        with _patch_gemini(json.dumps(fake_edl)):
             from pipeline.plan import plan
+
             plan(cfg, PlanConfig(target_duration=60), progress_callback=cb)
 
         assert len(calls) >= 2  # at least content-ready + done
