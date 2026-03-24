@@ -158,8 +158,9 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
   - Default music volume: 0.40 (ducked to ~15% during speech, full 40% during silence)
 
 **Phase 3: Beat sync** (`_audio.py`)
-- Aligns transitions to music beats (autocorrelation BPM detection)
-- **Skips segments with any keep_audio=true items** (speech timing is absolute)
+- Aligns transitions to music beats (autocorrelation BPM detection, half-beat grid)
+- Per-item speech skip: only skips transitions where the item being adjusted has keep_audio=true
+- Snaps both intra-segment transitions AND segment boundaries
 
 **Phase 4: Validation**
 - 6 checks: file size, duration, streams, codec, A/V sync, resolution
@@ -167,7 +168,7 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 **Critical implications for prompt engineering:**
 - `keep_audio=true` preserves audio for the ENTIRE trim window, not just speech portions. Gemini should trim tightly around speech to minimize music suppression.
 - `keep_audio=false` = complete silence (not quiet music — SILENCE). Only background music plays.
-- Beat sync skips entire segments with speech — so speech segments have fixed timing.
+- Beat sync skips per-item (not per-segment): only keep_audio=true items are anchored, other items in the same segment can still snap to beats.
 - Photos are always silent — `keep_audio` on photos is a validation error.
 - effect field is ignored for videos (forced to "none") — don't waste prompt tokens teaching Gemini to pick effects for videos.
 - `playback_speed` affects both video AND audio (atempo filter). 0.5x = slow-mo with pitch-preserved audio.
@@ -186,7 +187,7 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 | plan | music_mood | generate_music | Sent directly to Lyria as text prompt |
 | plan | music_duck_ratio | assemble | EDL field exists but NOT used — sidechaincompress handles ducking dynamically |
 | assemble | segment .ts files | concat | Demuxer concat, no re-encode |
-| assemble | has_speech flag | beat sync | Segments with speech skip beat alignment |
+| assemble | keep_audio flag | beat sync | Per-item: keep_audio=true items skip beat snap, others in same segment still eligible |
 
 ## Module structure
 

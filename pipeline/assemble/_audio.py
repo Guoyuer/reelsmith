@@ -88,6 +88,12 @@ def estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int |
 def beat_snap_edl(edl: EDL, music_path: Path) -> int:
     """Snap EDL transition points to music beats. Modifies edl in place.
 
+    Improvements over naive approach:
+    - #5: Segment boundaries are snapped (not just intra-segment transitions).
+    - #4: Speech skip is per-item, not per-segment. Only the item whose duration
+      would change is checked — if it has keep_audio=true, that transition is
+      skipped, but other transitions in the same segment are still eligible.
+
     Returns the number of transitions snapped.
     """
     import bisect
@@ -114,20 +120,26 @@ def beat_snap_edl(edl: EDL, music_path: Path) -> int:
 
     snapped = 0
     total_transitions = 0
+    n_segments = len(edl.segments)
 
-    for seg in edl.segments:
+    for seg_idx, seg in enumerate(edl.segments):
         seg_max_shift = 0.2 if seg.mode == "montage" else max_shift
-        has_speech = any(item.keep_audio for item in seg.items)
-        if has_speech:
-            offset += sum(item.display_duration for item in seg.items)
-            total_transitions += max(0, len(seg.items) - 1)
-            continue
 
         for i, item in enumerate(seg.items):
             offset += item.display_duration
+
+            # Is this a transition point?
+            is_intra = i < len(seg.items) - 1
+            is_boundary = i == len(seg.items) - 1 and seg_idx < n_segments - 1
+
+            if not is_intra and not is_boundary:
+                continue  # last item of last segment — no transition after it
+
             total_transitions += 1
 
-            if i == len(seg.items) - 1:
+            # #4: Only skip if THIS item has keep_audio — its duration is
+            # anchored to speech timing and must not change.
+            if item.keep_audio:
                 continue
 
             idx = bisect.bisect_left(beats, offset)
