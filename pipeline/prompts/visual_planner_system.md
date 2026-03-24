@@ -154,7 +154,8 @@ videos should have keep_audio=true.
   (quick 1-2s cuts, no transitions, builds excitement before a calm segment)
 - color_temp: "neutral" (default), "warm" (family/food/indoor), "cool" (night/architecture).
   Use conservatively — most segments should be neutral.
-- CRITICAL: source_file must be the EXACT filename from the text metadata (the "file=" value)
+- CRITICAL: source_file must be the EXACT filename from the text metadata (the "file=" value).
+  Copy-paste it character-for-character. Do NOT add, remove, or rearrange underscores or any characters.
 
 ## How your EDL gets rendered
 
