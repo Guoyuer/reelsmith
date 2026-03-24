@@ -35,9 +35,11 @@ _interrupted = False
 def _handle_sigint(sig, frame):
     global _interrupted
     if _interrupted:
-        sys.exit(1)
+        # Second Ctrl+C — force kill immediately
+        import os
+        os._exit(1)
     _interrupted = True
-    print("\n\u26a0 Interrupted \u2014 finishing current operation...")
+    print("\n\u26a0 Interrupted \u2014 press Ctrl+C again to force quit")
 
 
 signal.signal(signal.SIGINT, _handle_sigint)
