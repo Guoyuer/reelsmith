@@ -142,7 +142,11 @@ class _PipelineDisplay:
                 if not d["subs"] and d["total"] > 0:
                     info = self._build_progress(d)
                 elif d["label"]:
-                    info = Text(f"{d['label']}  [dim]{stage_elapsed:.0f}s", style="cyan")
+                    info = Text.assemble(
+                        (d["label"], "cyan"),
+                        ("  ", ""),
+                        (f"{stage_elapsed:.0f}s", "dim cyan"),
+                    )
                 else:
                     info = Text(f"{stage_elapsed:.0f}s", style="dim cyan")
             elif d["state"] == "done":
