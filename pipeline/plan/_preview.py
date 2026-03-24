@@ -188,6 +188,100 @@ def _secs_to_timestamp(s: float) -> str:
     return f"{h}:{m:02d}:{sec:02d}" if h else f"{m:02d}:{sec:02d}"
 
 
+def _collect_items(
+    analysis_by_id: dict,
+    cfg: Config,
+    preview_dir: Path,
+) -> tuple[str, list[Path], list[tuple[int, float, Path]], int, int]:
+    """Iterate all items, build text lines, collect photo paths and video entries.
+
+    Returns (text_block, photo_paths, video_entries, n_photos, n_videos).
+    """
+    all_items = sorted(analysis_by_id.values(), key=lambda a: a.get("id", 0))
+
+    lines: list[str] = []
+    photo_paths: list[Path] = []
+    video_entries: list[tuple[int, float, Path]] = []
+    idx = 1
+    n_photos = 0
+    n_videos = 0
+
+    for a in all_items:
+        local_path = a.get("local_path", "")
+        if not local_path or not Path(local_path).exists():
+            continue
+
+        text_line, photo_path = _build_item_text(idx, a)
+        lines.append(text_line)
+
+        if photo_path:
+            photo_paths.append(photo_path)
+            n_photos += 1
+        else:
+            # Video — collect for mega-preview
+            vid_id = a["id"]
+            dur = a.get("video_duration", 0)
+            if dur > 0:
+                preview_path = preview_dir / f"preview_{vid_id}.mp4"
+                if preview_path.exists() and preview_path.stat().st_size > 500:
+                    video_entries.append((idx, dur, preview_path))
+            n_videos += 1
+
+        idx += 1
+
+    header = f"--- All media ({n_photos} photos, {n_videos} videos) ---"
+    text_block = header + "\n" + "\n".join(lines)
+    return text_block, photo_paths, video_entries, n_photos, n_videos
+
+
+def _build_mega_preview(
+    video_entries: list[tuple[int, float, Path]],
+    preview_dir: Path,
+    *,
+    force: bool = False,
+) -> tuple[list[tuple[int, float, float]], Path | None]:
+    """Handle mega-preview caching, concatenation, and offset table.
+
+    Returns (offset_table, mega_path or None).
+    """
+    if not video_entries:
+        return [], None
+
+    mega_path = preview_dir / "_mega_preview.mp4"
+    meta_path = preview_dir / "_mega_preview.json"
+
+    if force:
+        if mega_path.exists():
+            mega_path.unlink()
+        if meta_path.exists():
+            meta_path.unlink()
+        logger.info("Force: deleted cached mega-preview")
+
+    cache_key = hashlib.md5(
+        str([(n, p.name, d) for n, d, p in video_entries]).encode()
+    ).hexdigest()
+
+    cached_meta = None
+    if mega_path.exists() and meta_path.exists():
+        try:
+            cached_meta = json.loads(meta_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            logger.debug(
+                "Could not read mega-preview cache %s", meta_path, exc_info=True
+            )
+
+    if cached_meta and cached_meta.get("key") == cache_key:
+        logger.info(f"Mega-preview cached ({len(video_entries)} videos)")
+        offset_table = [tuple(e) for e in cached_meta["offset_table"]]
+    else:
+        offset_table, mega_path = _concat_previews(video_entries, mega_path)
+        meta_path.write_text(
+            json.dumps({"key": cache_key, "offset_table": offset_table})
+        )
+
+    return offset_table, mega_path
+
+
 def _build_visual_content_blocks(
     preprocessed: dict,
     analysis_by_id: dict,
@@ -205,49 +299,13 @@ def _build_visual_content_blocks(
     blocks: list = []
     preview_dir = cfg.preview_clips_dir
 
-    # Collect all item IDs from analysis
-    all_items = sorted(analysis_by_id.values(), key=lambda a: a.get("id", 0))
-
-    # Build flat item list
-    lines: list[str] = []
-    photo_paths: list[Path] = []
-    photo_indices: list[int] = []  # which line index each photo corresponds to
-    video_entries: list[tuple[int, float, Path]] = []
-    idx = 1
-
-    n_photos = 0
-    n_videos = 0
-
-    for a in all_items:
-        local_path = a.get("local_path", "")
-        if not local_path or not Path(local_path).exists():
-            continue
-
-        text_line, photo_path = _build_item_text(idx, a)
-        lines.append(text_line)
-
-        if photo_path:
-            photo_paths.append(photo_path)
-            photo_indices.append(idx)
-            n_photos += 1
-        else:
-            # Video — collect for mega-preview
-            vid_id = a["id"]
-            dur = a.get("video_duration", 0)
-            if dur > 0:
-                preview_path = preview_dir / f"preview_{vid_id}.mp4"
-                if preview_path.exists() and preview_path.stat().st_size > 500:
-                    video_entries.append((idx, dur, preview_path))
-            n_videos += 1
-
-        idx += 1
-
-    # Build text block header
-    header = f"--- All media ({n_photos} photos, {n_videos} videos) ---"
-    text_block = header + "\n" + "\n".join(lines)
+    # --- Phase 1: collect items ---
+    text_block, photo_paths, video_entries, n_photos, n_videos = _collect_items(
+        analysis_by_id, cfg, preview_dir
+    )
     blocks.append(text_block)
 
-    # Add photo thumbnails inline
+    # --- Phase 2: add photo thumbnails inline ---
     for p in photo_paths:
         thumb = cfg.thumbnails_dir / f"{p.stem}_thumb.jpg"
         if not thumb.exists():
@@ -262,41 +320,12 @@ def _build_visual_content_blocks(
             }
         )
 
-    # Build one concatenated mega-preview (cached)
-    offset_table: list[tuple[int, float, float]] = []
-    if video_entries:
-        mega_path = preview_dir / "_mega_preview.mp4"
-        meta_path = preview_dir / "_mega_preview.json"
+    # --- Phase 3: build mega-preview and inject timestamps ---
+    offset_table, mega_path = _build_mega_preview(
+        video_entries, preview_dir, force=force
+    )
 
-        if force:
-            if mega_path.exists():
-                mega_path.unlink()
-            if meta_path.exists():
-                meta_path.unlink()
-            logger.info("Force: deleted cached mega-preview")
-
-        cache_key = hashlib.md5(
-            str([(n, p.name, d) for n, d, p in video_entries]).encode()
-        ).hexdigest()
-
-        cached_meta = None
-        if mega_path.exists() and meta_path.exists():
-            try:
-                cached_meta = json.loads(meta_path.read_text())
-            except (json.JSONDecodeError, OSError):
-                logger.debug(
-                    "Could not read mega-preview cache %s", meta_path, exc_info=True
-                )
-
-        if cached_meta and cached_meta.get("key") == cache_key:
-            logger.info(f"Mega-preview cached ({len(video_entries)} videos)")
-            offset_table = [tuple(e) for e in cached_meta["offset_table"]]
-        else:
-            offset_table, mega_path = _concat_previews(video_entries, mega_path)
-            meta_path.write_text(
-                json.dumps({"key": cache_key, "offset_table": offset_table})
-            )
-
+    if offset_table and mega_path:
         # Inject preview timestamps into text block
         preview_ranges: dict[int, str] = {}
         for item_num, dur, offset in offset_table:
@@ -333,7 +362,7 @@ def _build_visual_content_blocks(
             }
         )
 
-    # --- Validate ---
+    # --- Phase 4: validate ---
     n_text_blocks = sum(1 for b in blocks if isinstance(b, str))
     n_images = sum(
         1 for b in blocks if isinstance(b, dict) and b.get("type") == "image_bytes"
