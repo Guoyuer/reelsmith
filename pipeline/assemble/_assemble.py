@@ -71,16 +71,99 @@ def assemble(
 
     ctx = RenderContext(w=ac.w, h=ac.h, fps=ac.fps, quality=ac.quality)
     res_label = f"{ac.h}p{ac.fps}"
-    output_dir = cfg.output_dir
-    output_path = output_dir / f"vlog_v{version}_{res_label}.mp4"
+    output_path = cfg.output_dir / f"vlog_v{version}_{res_label}.mp4"
 
     # Beat sync
     if edl.music and Path(edl.music.file).exists():
         beat_snap_edl(edl, Path(edl.music.file))
 
-    # --- Phase 1: Per-segment render ---
+    t_start = time.monotonic()
+
+    # Phase 1: render segments
+    segment_files = _render_segments(
+        edl, ctx, cfg, res_label=res_label, progress_callback=progress_callback
+    )
+
+    # Phase 2: concat + music mix
+    _concat_and_mix(
+        segment_files, edl, ctx, cfg, output_path,
+        version=version, res_label=res_label, progress_callback=progress_callback,
+    )
+
+    total_time = time.monotonic() - t_start
+
+    # Validate
+    if progress_callback:
+        progress_callback(0, 0, "validating output...")
+
+    final_dur = ctx.probe_duration(output_path) or 0.0
+    logger.info(
+        f"Done: {output_path.name} ({final_dur:.1f}s, rendered in {total_time:.0f}s)"
+    )
+
+    has_speech = any(item.keep_audio for item in edl.all_items())
+    val_issues = _validate_output(output_path, edl, has_speech, (ctx.w, ctx.h), ctx=ctx)
+    for i in val_issues:
+        level = "ERROR" if i["level"] == "error" else "WARNING"
+        logger.info(f"  {level} [{i['check']}]: {i['message']}")
+    if not [i for i in val_issues if i["level"] == "error"]:
+        logger.info("Validation: all checks passed")
+
+    # Rich validation panel to terminal
+    try:
+        import sys
+
+        if sys.stderr.isatty():
+            from rich.console import Console
+            from rich.panel import Panel
+            from rich.text import Text
+
+            lines = Text()
+            for vi in val_issues:
+                icon = "\u2717" if vi["level"] == "error" else "\u26a0"
+                style = "red" if vi["level"] == "error" else "yellow"
+                lines.append(f" {icon} ", style=style)
+                lines.append(f"[{vi['check']}] {vi['message']}\n")
+            if not val_issues:
+                lines.append(" \u2713 All checks passed\n", style="green")
+            has_errors = any(vi["level"] == "error" for vi in val_issues)
+            Console(stderr=True).print(
+                Panel(
+                    lines,
+                    title="Validation",
+                    border_style="red" if has_errors else "green",
+                )
+            )
+    except ImportError:
+        pass
+
+    size_mb = output_path.stat().st_size / 1024 / 1024
+    logger.info(f"Assemble: {output_path.name} ({size_mb:.1f}MB) in {total_time:.0f}s")
+
+    return output_path, val_issues
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: Per-segment render
+# ---------------------------------------------------------------------------
+
+
+def _render_segments(
+    edl: EDL,
+    ctx: RenderContext,
+    cfg: Config,
+    *,
+    res_label: str,
+    progress_callback=None,
+) -> list[Path]:
+    """Build segment filter graphs and encode segments in parallel.
+
+    Returns list of segment .ts file paths.
+    """
     t_start = time.monotonic()
     logger.info(f"Phase 1: Rendering {len(edl.segments)} segments...")
+
+    output_dir = cfg.output_dir
 
     # Title cards
     intro_path = _render_title_card_if_needed(
@@ -160,7 +243,28 @@ def assemble(
     t_phase1 = time.monotonic() - t_start
     logger.info(f"Phase 1: {t_phase1:.0f}s ({len(segment_files)} segments)")
 
-    # --- Phase 2: Final concat + music ---
+    return segment_files
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Concat + music mix
+# ---------------------------------------------------------------------------
+
+
+def _concat_and_mix(
+    segment_files: list[Path],
+    edl: EDL,
+    ctx: RenderContext,
+    cfg: Config,
+    output_path: Path,
+    *,
+    version: int,
+    res_label: str,
+    progress_callback=None,
+) -> Path:
+    """Concat demuxer + music overlay. Returns final output path."""
+    output_dir = cfg.output_dir
+
     logger.info("Phase 2: Concat + music...")
     if progress_callback:
         progress_callback(0, 0, "concatenating segments...")
@@ -261,8 +365,6 @@ def assemble(
 
         nomix_path.unlink(missing_ok=True)
 
-    total_time = time.monotonic() - t_start
-
     # Chapters (before cleanup — needs segment files for durations)
     chapters_path = output_dir / f"chapters_v{version}_{res_label}.txt"
     seg_durations = [ctx.probe_duration(f) or 0.0 for f in segment_files]
@@ -272,55 +374,7 @@ def assemble(
     for seg_file in segment_files:
         seg_file.unlink(missing_ok=True)
 
-    if progress_callback:
-        progress_callback(0, 0, "validating output...")
-
-    final_dur = ctx.probe_duration(output_path) or 0.0
-    logger.info(
-        f"Done: {output_path.name} ({final_dur:.1f}s, rendered in {total_time:.0f}s)"
-    )
-
-    # Validate
-    has_speech = any(item.keep_audio for item in edl.all_items())
-    val_issues = _validate_output(output_path, edl, has_speech, (ctx.w, ctx.h), ctx=ctx)
-    for i in val_issues:
-        level = "ERROR" if i["level"] == "error" else "WARNING"
-        logger.info(f"  {level} [{i['check']}]: {i['message']}")
-    if not [i for i in val_issues if i["level"] == "error"]:
-        logger.info("Validation: all checks passed")
-
-    # Rich validation panel to terminal
-    try:
-        import sys
-
-        if sys.stderr.isatty():
-            from rich.console import Console
-            from rich.panel import Panel
-            from rich.text import Text
-
-            lines = Text()
-            for vi in val_issues:
-                icon = "\u2717" if vi["level"] == "error" else "\u26a0"
-                style = "red" if vi["level"] == "error" else "yellow"
-                lines.append(f" {icon} ", style=style)
-                lines.append(f"[{vi['check']}] {vi['message']}\n")
-            if not val_issues:
-                lines.append(" \u2713 All checks passed\n", style="green")
-            has_errors = any(vi["level"] == "error" for vi in val_issues)
-            Console(stderr=True).print(
-                Panel(
-                    lines,
-                    title="Validation",
-                    border_style="red" if has_errors else "green",
-                )
-            )
-    except ImportError:
-        pass
-
-    size_mb = output_path.stat().st_size / 1024 / 1024
-    logger.info(f"Assemble: {output_path.name} ({size_mb:.1f}MB) in {total_time:.0f}s")
-
-    return output_path, val_issues
+    return output_path
 
 
 # ---------------------------------------------------------------------------
