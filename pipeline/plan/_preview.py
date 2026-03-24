@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 from pathlib import Path
 
@@ -16,6 +17,123 @@ from ..config import Config
 from ..media_utils import run_subprocess
 
 logger = logging.getLogger("vlog.plan")
+
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
+
+
+# ---------------------------------------------------------------------------
+# Burst photo dedup (HSV histogram similarity)
+# ---------------------------------------------------------------------------
+
+
+def _photo_histogram(path: Path) -> list[int] | None:
+    """Compute RGB histogram from a thumbnail (64x64)."""
+    try:
+        from PIL import Image
+
+        return Image.open(path).convert("RGB").resize((64, 64)).histogram()
+    except Exception:
+        return None
+
+
+def _histogram_similarity(h1: list[int], h2: list[int]) -> float:
+    """Cosine similarity between two PIL histograms."""
+    dot = sum(a * b for a, b in zip(h1, h2))
+    mag1 = math.sqrt(sum(a * a for a in h1))
+    mag2 = math.sqrt(sum(b * b for b in h2))
+    if mag1 == 0 or mag2 == 0:
+        return 0.0
+    return dot / (mag1 * mag2)
+
+
+def _dedup_burst_photos(
+    items: list[dict], thumbnails_dir: Path, threshold: float = 0.92
+) -> list[dict]:
+    """Remove near-identical burst photos before sending to Gemini.
+
+    Two-pass: group by 10s time window, then compare histograms within each
+    group. Keeps the photo with highest family_count (then largest file).
+    Videos pass through untouched.
+    """
+    photos = []
+    others = []
+    for a in items:
+        suffix = Path(a.get("local_path", "")).suffix.lower()
+        if suffix not in VIDEO_EXTENSIONS and a.get("media_type") != "video":
+            photos.append(a)
+        else:
+            others.append(a)
+
+    if len(photos) < 2:
+        return items
+
+    photos.sort(key=lambda x: x.get("taken_iso", "") or "")
+
+    # Group consecutive photos within 10s (by filename timestamp as proxy)
+    bursts: list[list[dict]] = [[photos[0]]]
+    for p in photos[1:]:
+        prev_t = bursts[-1][-1].get("taken_iso", "") or ""
+        curr_t = p.get("taken_iso", "") or ""
+        # Compare ISO timestamps: if within 10s, same burst
+        try:
+            from datetime import datetime
+
+            t1 = datetime.fromisoformat(prev_t.replace("Z", "+00:00"))
+            t2 = datetime.fromisoformat(curr_t.replace("Z", "+00:00"))
+            if abs((t2 - t1).total_seconds()) <= 10:
+                bursts[-1].append(p)
+            else:
+                bursts.append([p])
+        except (ValueError, TypeError):
+            bursts.append([p])
+
+    kept = []
+    removed_total = 0
+    for burst in bursts:
+        if len(burst) <= 1:
+            kept.extend(burst)
+            continue
+
+        # Load histograms from thumbnails (fast — 400px already cached)
+        hists = []
+        for p in burst:
+            thumb = thumbnails_dir / f"{Path(p.get('local_path', '')).stem}_thumb.jpg"
+            hists.append(_photo_histogram(thumb) if thumb.exists() else None)
+
+        # Cluster similar photos
+        used = [False] * len(burst)
+        for i in range(len(burst)):
+            if used[i]:
+                continue
+            cluster = [i]
+            used[i] = True
+            if hists[i] is not None:
+                for j in range(i + 1, len(burst)):
+                    if used[j] or hists[j] is None:
+                        continue
+                    if _histogram_similarity(hists[i], hists[j]) > threshold:
+                        cluster.append(j)
+                        used[j] = True
+
+            # Keep best from cluster
+            best = max(
+                cluster,
+                key=lambda k: (burst[k].get("family_count", 0), burst[k].get("filesize", 0)),
+            )
+            kept.append(burst[best])
+            if len(cluster) > 1:
+                removed = [burst[k]["filename"] for k in cluster if k != best]
+                removed_total += len(removed)
+                logger.info(
+                    f"  Burst dedup: kept {burst[best]['filename']}, "
+                    f"removed {len(removed)}: {', '.join(removed[:3])}"
+                    f"{'...' if len(removed) > 3 else ''}"
+                )
+
+    if removed_total:
+        logger.info(f"  Burst dedup: {len(photos)} → {len(kept)} photos ({removed_total} removed)")
+
+    return kept + others
 
 
 def _build_item_text(idx: int, a: dict) -> tuple[str, Path | None]:
@@ -198,6 +316,7 @@ def _collect_items(
     Returns (text_block, photo_paths, video_entries, n_photos, n_videos).
     """
     all_items = sorted(analysis_by_id.values(), key=lambda a: a.get("id", 0))
+    all_items = _dedup_burst_photos(all_items, cfg.thumbnails_dir)
 
     lines: list[str] = []
     photo_paths: list[Path] = []
