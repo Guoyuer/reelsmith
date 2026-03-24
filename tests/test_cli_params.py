@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from cli import _PLANNING_PRESETS, _RESOLUTION_PRESETS, _resolve_planning, cli
+from pipeline.cli import _PLANNING_PRESETS, _RESOLUTION_PRESETS, _resolve_planning, cli
 
 # ---------------------------------------------------------------------------
 # _resolve_planning unit tests
@@ -128,7 +128,7 @@ class TestFullCommandWiring:
             captured["plan"] = plan
             captured["assemble"] = assemble
 
-        with patch("cli._run_pipeline", side_effect=mock_pipeline):
+        with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
             result = runner.invoke(cli, base_args, catch_exceptions=False)
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         return captured
@@ -230,7 +230,7 @@ class TestPlanCommandWiring:
             captured.update(kwargs)
             captured["stages"] = stages
 
-        with patch("cli._run_pipeline", side_effect=mock_pipeline):
+        with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
             result = runner.invoke(
                 cli,
                 [
@@ -268,7 +268,7 @@ class TestAssembleCommandWiring:
         def mock_pipeline(run_name, *, stages, **kwargs):
             captured.update(kwargs)
 
-        with patch("cli._run_pipeline", side_effect=mock_pipeline):
+        with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
             result = runner.invoke(
                 cli,
                 [
@@ -292,7 +292,7 @@ class TestAssembleCommandWiring:
         def mock_pipeline(run_name, *, stages, **kwargs):
             captured.update(kwargs)
 
-        with patch("cli._run_pipeline", side_effect=mock_pipeline):
+        with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
             result = runner.invoke(
                 cli,
                 [
@@ -405,7 +405,7 @@ class TestRequiredParams:
 
     def test_full_local_missing_path(self, runner):
         """--source local without --path should fail."""
-        with patch("cli._run_pipeline"):
+        with patch("pipeline.cli._commands._run_pipeline"):
             result = runner.invoke(
                 cli,
                 [
@@ -462,7 +462,7 @@ class TestRunPrepareNoAnalysisPath:
         )
 
         # Build a minimal _PipelineContext
-        from cli import _PipelineDisplay, _run_prepare
+        from pipeline.cli import _PipelineDisplay, _run_prepare
 
         display = MagicMock(spec=_PipelineDisplay)
         pc = MagicMock()

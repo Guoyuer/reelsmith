@@ -26,7 +26,7 @@ dev = ["ruff>=0.8", "pyright>=1.1", "pre-commit>=4.0"]
 Repository = "https://github.com/Guoyuer/vlog"
 
 [project.scripts]
-vlog = "cli:cli"
+vlog = "pipeline.cli:cli"
 
 [tool.ruff]
 target-version = "py311"
