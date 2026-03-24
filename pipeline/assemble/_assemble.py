@@ -205,6 +205,7 @@ def assemble(
 
     # Music overlay
     if has_music:
+        assert edl.music is not None  # narrowing for type checker
         if progress_callback:
             progress_callback(0, 0, "mixing music...")
         music_path = Path(edl.music.file)
