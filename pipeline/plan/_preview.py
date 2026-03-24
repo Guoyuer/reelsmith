@@ -28,11 +28,11 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
 def _photo_histogram(path: Path) -> list[int] | None:
-    """Compute RGB histogram from a thumbnail (64x64)."""
+    """Compute HSV histogram from a thumbnail (64x64)."""
     try:
         from PIL import Image
 
-        return Image.open(path).convert("RGB").resize((64, 64)).histogram()
+        return Image.open(path).convert("HSV").resize((64, 64)).histogram()
     except Exception:
         return None
 
