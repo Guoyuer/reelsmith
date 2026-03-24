@@ -457,9 +457,7 @@ class TestRunPrepareNoAnalysisPath:
         cfg.manifest_path.write_text(json.dumps(manifest))
         cfg.cache_dir.mkdir(parents=True, exist_ok=True)
         (cfg.cache_dir / "1.json").write_text(json.dumps({"thumbnail_path": "/t.jpg"}))
-        cfg.preprocessed_path.write_text(
-            json.dumps({"family_names": [], "timeline": []})
-        )
+        cfg.preprocessed_path.write_text(json.dumps({"family_names": []}))
 
         # Build a minimal _PipelineContext
         from pipeline.cli import _PipelineDisplay, _run_prepare

@@ -41,7 +41,6 @@ class PlanConfig:
     focus: str = ""
     trip_type: str = "family"
     language: str = "en"
-    tz_hours: int | None = None
     model: str | None = None
     thinking_level: str = "HIGH"  # OFF, LOW, HIGH
     music_file: str | None = None
@@ -157,7 +156,9 @@ All candidates:"""
     try:
         import sys
 
-        if sys.stderr.isatty() and (n_path_removed or n_trim_fixed or n_trim_removed or n_dedup):
+        if sys.stderr.isatty() and (
+            n_path_removed or n_trim_fixed or n_trim_removed or n_dedup
+        ):
             from rich.console import Console
             from rich.table import Table
 
@@ -225,7 +226,6 @@ def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, i
         focus=effective_focus,
         trip_type=pc.trip_type,
         language=pc.language,
-        tz_hours=pc.tz_hours,
         model=pc.model,
         thinking_level=pc.thinking_level,
         music_file=pc.music_file,
@@ -255,7 +255,9 @@ def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, i
     edl.intro_style = edl.intro_style or "title_card"
     edl.outro_style = edl.outro_style or "fade_title"
     if not edl.date_range:
-        all_dates = sorted({d["date"] for d in preprocessed.get("timeline", [])})
+        all_dates = sorted(
+            {a["taken_iso"][:10] for a in analysis_by_id.values() if a.get("taken_iso")}
+        )
         edl.date_range = _format_date_range(all_dates) if all_dates else ""
 
     # Store music intent

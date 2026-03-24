@@ -119,7 +119,10 @@ def _dedup_burst_photos(
             # Keep best from cluster
             best = max(
                 cluster,
-                key=lambda k: (burst[k].get("family_count", 0), burst[k].get("filesize", 0)),
+                key=lambda k: (
+                    burst[k].get("family_count", 0),
+                    burst[k].get("filesize", 0),
+                ),
             )
             kept.append(burst[best])
             if len(cluster) > 1:
@@ -132,7 +135,9 @@ def _dedup_burst_photos(
                 )
 
     if removed_total:
-        logger.info(f"  Burst dedup: {len(photos)} → {len(kept)} photos ({removed_total} removed)")
+        logger.info(
+            f"  Burst dedup: {len(photos)} → {len(kept)} photos ({removed_total} removed)"
+        )
 
     return kept + others
 
@@ -146,7 +151,11 @@ def _build_item_text(idx: int, a: dict) -> tuple[str, Path | None]:
     label = f"#{idx:02d}:"
     parts = [label]
     if a.get("family_count", 0) >= 2:
-        who = f"family together ({','.join(persons[:3])})" if persons else "family together"
+        who = (
+            f"family together ({','.join(persons[:3])})"
+            if persons
+            else "family together"
+        )
         parts.append(who)
     elif a.get("family_count", 0) == 1:
         parts.append(f"{persons[0]}" if persons else "one family member")
@@ -384,7 +393,7 @@ def _build_visual_content_blocks(
 ) -> tuple[list, list[tuple[int, float, float]]]:
     """Build flat multimodal content: text metadata + photos + mega video preview.
 
-    No timeline grouping — items are sent as a flat numbered list.
+    Items are sent as a flat numbered list.
     Gemini sees all photos/videos and decides the narrative structure.
 
     Returns (blocks, offset_table).

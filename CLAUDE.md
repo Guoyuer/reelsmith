@@ -28,13 +28,13 @@ Run pipeline via `vlog` CLI. Stages execute directly in a single Python process 
 
 ```bash
 # Full pipeline from local folder
-vlog full -n singapore -s local -p ./photos -r 4k60 --duration 180 --lang cn --tz 8
+vlog full -n singapore -s local -p ./photos -r 4k60 --duration 180 --lang cn
 
 # Full pipeline from NAS
 vlog full -n singapore -s nas -f 2025-06-13 -t 2025-06-17 -r 1080p30 --duration 180
 
 # Prepare only (fetch + media processing)
-vlog prepare -n singapore -s local -p ./photos --tz 8
+vlog prepare -n singapore -s local -p ./photos
 
 # Re-plan only (no render)
 vlog plan -n singapore --duration 180 --lang cn

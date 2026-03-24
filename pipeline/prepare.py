@@ -17,7 +17,6 @@ import logging
 import os
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .config import Config
@@ -30,12 +29,8 @@ logger = logging.getLogger("vlog.prepare")
 @dataclass
 class PrepareConfig:
     force: bool = False
-    tz_hours: int | None = None
     family_names: list[str] | None = None
 
-
-# Default timezone: system local (replaces hardcoded SGT)
-_LOCAL_TZ = datetime.now(timezone.utc).astimezone().tzinfo
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
@@ -97,7 +92,7 @@ def prepare(
 ) -> dict:
     """Prepare all media for Gemini visual planning.
 
-    1. Read manifest, detect family, build timeline
+    1. Read manifest, detect family
     2. Generate thumbnails + EXIF for photos, probe duration for videos
     3. Generate video previews (360p 1fps)
     """
@@ -123,22 +118,11 @@ def prepare(
         item["family_count"] = len(family_in_photo)
         item["family_names"] = family_in_photo
 
-    # --- Build timeline ---
-    if pc.tz_hours is not None:
-        tz = timezone(timedelta(hours=pc.tz_hours))
-    else:
-        tz = _LOCAL_TZ
-    timeline = _build_timeline(manifest, tz=tz)
-
     preprocessed = {
         "family_names": family_names,
-        "timeline": timeline,
     }
     pp_path = cfg.preprocessed_path
     pp_path.write_text(json.dumps(preprocessed, indent=2))
-    logger.info(
-        f"Timeline: {len(timeline)} days, {sum(len(d['chapters']) for d in timeline)} chapters"
-    )
 
     # --- Analyze: thumbnails, EXIF, video duration ---
     cache_dir = cfg.cache_dir
@@ -390,9 +374,7 @@ def _generate_video_previews(
     def _run_preview(cmd, path=None):
         result = run_subprocess(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            logger.warning(
-                "Preview failed for %s: %s", path, (result.stderr or "")
-            )
+            logger.warning("Preview failed for %s: %s", path, (result.stderr or ""))
             # Remove corrupt partial output
             if path and Path(path).exists():
                 Path(path).unlink(missing_ok=True)
@@ -424,81 +406,6 @@ def _detect_family(manifest: list[dict], top_n: int = 5) -> list[str]:
     ranked = sorted(counts.items(), key=lambda x: -x[1])
     threshold = max(len(manifest) * 0.03, 5)
     return [name for name, c in ranked[:top_n] if c >= threshold]
-
-
-def _build_timeline(items: list[dict], tz=None) -> list[dict]:
-    """Group items into day -> time_block -> location chapters."""
-    if tz is None:
-        tz = _LOCAL_TZ
-    days: dict[str, list[dict]] = defaultdict(list)
-
-    for item in items:
-        t = item.get("takentime")
-        if not t:
-            continue
-        dt = datetime.fromtimestamp(t, tz=tz)
-        day_key = dt.strftime("%Y-%m-%d")
-
-        hour = dt.hour
-        if hour < 6:
-            block = "early_morning"
-        elif hour < 12:
-            block = "morning"
-        elif hour < 17:
-            block = "afternoon"
-        else:
-            block = "evening"
-
-        location = (
-            item.get("district")
-            or item.get("first_level")
-            or item.get("country")
-            or "unknown"
-        )
-
-        days[day_key].append(
-            {
-                "item_id": item["id"],
-                "time_block": block,
-                "location": location,
-                "family_count": item.get("family_count", 0),
-            }
-        )
-
-    timeline = []
-    for day in sorted(days.keys()):
-        day_items = days[day]
-        seen_chapters: dict[tuple[str, str], list] = {}
-        for di in day_items:
-            key = (di["time_block"], di["location"])
-            if key not in seen_chapters:
-                seen_chapters[key] = []
-            seen_chapters[key].append(di)
-
-        chapters = []
-        block_order = {"early_morning": 0, "morning": 1, "afternoon": 2, "evening": 3}
-        for (block, location), chapter_items in sorted(
-            seen_chapters.items(), key=lambda x: block_order.get(x[0][0], 9)
-        ):
-            chapters.append(
-                {
-                    "time_block": block,
-                    "location": location,
-                    "item_ids": [i["item_id"] for i in chapter_items],
-                }
-            )
-
-        dt_obj = datetime.strptime(day, "%Y-%m-%d")
-        timeline.append(
-            {
-                "date": day,
-                "day_name": dt_obj.strftime("%A"),
-                "chapters": chapters,
-                "total_items": len(day_items),
-            }
-        )
-
-    return timeline
 
 
 def _prepare_video(entry, item_id, local_path, cache_file, i, total):

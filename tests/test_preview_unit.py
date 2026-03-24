@@ -70,17 +70,7 @@ class TestBuildVisualContentBlocks:
         thumb = cfg.thumbnails_dir / "photo_thumb.jpg"
         Image.new("RGB", (50, 50), "red").save(thumb, "JPEG")
 
-        preprocessed = {
-            "timeline": [
-                {
-                    "date": "2025-01-01",
-                    "day_name": "Mon",
-                    "chapters": [
-                        {"time_block": "morning", "location": "Beach", "item_ids": [1]}
-                    ],
-                }
-            ]
-        }
+        preprocessed = {"family_names": []}
         analysis = {
             "1": {
                 "id": 1,
@@ -111,17 +101,7 @@ class TestBuildVisualContentBlocks:
         Image.new("RGB", (100, 100), "red").save(photo, "JPEG")
         # Don't create thumbnail
 
-        preprocessed = {
-            "timeline": [
-                {
-                    "date": "2025-01-01",
-                    "day_name": "Mon",
-                    "chapters": [
-                        {"time_block": "morning", "location": "X", "item_ids": [1]}
-                    ],
-                }
-            ]
-        }
+        preprocessed = {"family_names": []}
         analysis = {
             "1": {
                 "id": 1,
@@ -138,17 +118,7 @@ class TestBuildVisualContentBlocks:
         cfg = Config(workspace=tmp_path)
         cfg.ensure_dirs()
 
-        preprocessed = {
-            "timeline": [
-                {
-                    "date": "2025-01-01",
-                    "day_name": "Mon",
-                    "chapters": [
-                        {"time_block": "morning", "location": "X", "item_ids": [99]}
-                    ],  # no match
-                }
-            ]
-        }
+        preprocessed = {"family_names": []}
 
         with pytest.raises(RuntimeError, match="No photos"):
             _build_visual_content_blocks(preprocessed, {}, cfg)
@@ -169,17 +139,7 @@ class TestBuildVisualContentBlocks:
         preview = cfg.preview_clips_dir / "preview_2.mp4"
         preview.write_bytes(b"\x00" * 1000)
 
-        preprocessed = {
-            "timeline": [
-                {
-                    "date": "2025-01-01",
-                    "day_name": "Mon",
-                    "chapters": [
-                        {"time_block": "am", "location": "X", "item_ids": [1, 2]}
-                    ],
-                }
-            ]
-        }
+        preprocessed = {"family_names": []}
         analysis = {
             "1": {
                 "id": 1,

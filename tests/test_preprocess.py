@@ -1,25 +1,19 @@
-"""Tests for pipeline.prepare — family detection, timeline, analysis caching, integration."""
+"""Tests for pipeline.prepare — family detection, analysis caching, integration."""
 
 from __future__ import annotations
 
 import json
 import os
-from datetime import timezone
 from pathlib import Path
 from unittest.mock import patch
 
 from pipeline.config import Config
 from pipeline.prepare import (
     PrepareConfig,
-    _build_timeline,
     _detect_family,
     load_analysis,
 )
 from pipeline.prepare import prepare as preprocess
-
-# Fixed timezone for deterministic tests (UTC)
-_UTC = timezone.utc
-
 
 # -----------------------------------------------------------------------
 # Helpers
@@ -129,72 +123,6 @@ class TestDetectFamily:
 
 
 # -----------------------------------------------------------------------
-# _build_timeline tests
-# -----------------------------------------------------------------------
-
-
-class TestBuildTimeline:
-    def test_groups_by_day(self):
-        """Items on different days produce separate timeline entries."""
-        base = 1700000000
-        items = [
-            {"id": 1, "takentime": base, "family_count": 2, "district": "Marina Bay"},
-            {
-                "id": 2,
-                "takentime": base + 86400,
-                "family_count": 1,
-                "district": "Orchard",
-            },
-        ]
-        timeline = _build_timeline(items, tz=_UTC)
-        assert len(timeline) == 2
-        dates = [d["date"] for d in timeline]
-        assert dates == sorted(dates)
-
-    def test_groups_by_time_block_and_location(self):
-        """Items in the same day but different locations get separate chapters."""
-        base = 1700000000
-        items = [
-            {"id": 1, "takentime": base, "family_count": 2, "district": "Marina Bay"},
-            {
-                "id": 2,
-                "takentime": base + 60,
-                "family_count": 1,
-                "district": "Chinatown",
-            },
-        ]
-        timeline = _build_timeline(items, tz=_UTC)
-        assert len(timeline) == 1
-        assert len(timeline[0]["chapters"]) == 2
-
-    def test_items_without_takentime_skipped(self):
-        """Items missing takentime are excluded from the timeline."""
-        items = [
-            {"id": 1, "takentime": None, "family_count": 2},
-            {"id": 2, "family_count": 1},  # no takentime key
-        ]
-        timeline = _build_timeline(items, tz=_UTC)
-        assert len(timeline) == 0
-
-    def test_chapter_has_item_ids(self):
-        """Chapters should contain item_ids list."""
-        base = 1700000000
-        items = [
-            {"id": 1, "takentime": base, "family_count": 2, "district": "Marina Bay"},
-            {
-                "id": 2,
-                "takentime": base + 60,
-                "family_count": 1,
-                "district": "Marina Bay",
-            },
-        ]
-        timeline = _build_timeline(items, tz=_UTC)
-        chapter = timeline[0]["chapters"][0]
-        assert "item_ids" in chapter
-        assert set(chapter["item_ids"]) == {1, 2}
-
-
-# -----------------------------------------------------------------------
 # Full preprocess() integration test
 # -----------------------------------------------------------------------
 
@@ -221,8 +149,6 @@ class TestPreprocessIntegration:
 
         saved = json.loads(out_path.read_text())
         assert saved["family_names"] == ["Alice", "Bob"]
-        assert "timeline" in saved
-        assert len(saved["timeline"]) >= 1
 
 
 # -----------------------------------------------------------------------

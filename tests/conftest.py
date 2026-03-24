@@ -36,7 +36,14 @@ def sample_manifest() -> list[dict]:
         }
 
     return [
-        _item(1, "IMG_001.jpg", base_time, district="Marina Bay", country="Singapore", persons=["Alice", "Bob"]),
+        _item(
+            1,
+            "IMG_001.jpg",
+            base_time,
+            district="Marina Bay",
+            country="Singapore",
+            persons=["Alice", "Bob"],
+        ),
         _item(
             2,
             "IMG_002.jpg",
@@ -47,10 +54,18 @@ def sample_manifest() -> list[dict]:
             filesize=4000000,
         ),
         _item(
-            3, "VID_003.mp4", base_time + 20, item_type=1, district="Chinatown", country="Singapore", filesize=30000000
+            3,
+            "VID_003.mp4",
+            base_time + 20,
+            item_type=1,
+            district="Chinatown",
+            country="Singapore",
+            filesize=30000000,
         ),
         _item(4, "IMG_004.jpg", base_time + 30, filesize=6000000),
-        _item(5, "Screenshot_20231114.png", base_time + 40, item_type=3, filesize=1000000),
+        _item(
+            5, "Screenshot_20231114.png", base_time + 40, item_type=3, filesize=1000000
+        ),
         _item(
             6,
             "IMG_006.jpg",
@@ -73,8 +88,16 @@ def sample_edl() -> EDL:
             Segment(
                 name="Marina Bay",
                 items=[
-                    EditItem(source_file="IMG_001.jpg", media_type="photo", display_duration=4.0),
-                    EditItem(source_file="IMG_002.jpg", media_type="photo", display_duration=3.0),
+                    EditItem(
+                        source_file="IMG_001.jpg",
+                        media_type="photo",
+                        display_duration=4.0,
+                    ),
+                    EditItem(
+                        source_file="IMG_002.jpg",
+                        media_type="photo",
+                        display_duration=3.0,
+                    ),
                     EditItem(
                         source_file="VID_003.mp4",
                         media_type="video",
@@ -89,8 +112,16 @@ def sample_edl() -> EDL:
             Segment(
                 name="Chinatown",
                 items=[
-                    EditItem(source_file="IMG_004.jpg", media_type="photo", display_duration=4.0),
-                    EditItem(source_file="IMG_005.jpg", media_type="photo", display_duration=3.5),
+                    EditItem(
+                        source_file="IMG_004.jpg",
+                        media_type="photo",
+                        display_duration=4.0,
+                    ),
+                    EditItem(
+                        source_file="IMG_005.jpg",
+                        media_type="photo",
+                        display_duration=3.5,
+                    ),
                     EditItem(
                         source_file="VID_006.mp4",
                         media_type="video",

@@ -74,20 +74,6 @@ def _setup_workspace(tmp_path, n_photos=2):
     # Create preprocessed.json
     preprocessed = {
         "family_names": ["Alice"],
-        "tz_hours": 8,
-        "timeline": [
-            {
-                "date": "2025-06-13",
-                "day_name": "Friday",
-                "chapters": [
-                    {
-                        "time_block": "morning",
-                        "location": "Marina Bay",
-                        "item_ids": list(range(1, n_photos + 1)),
-                    }
-                ],
-            }
-        ],
     }
     cfg.preprocessed_path.write_text(json.dumps(preprocessed))
 

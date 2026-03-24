@@ -35,7 +35,7 @@ class TestPlanPrerequisites:
         cfg = Config(workspace=tmp_path)
         cfg.ensure_dirs()
         # Create preprocessed.json but not manifest.json
-        cfg.preprocessed_path.write_text('{"timeline": [], "family_names": []}')
+        cfg.preprocessed_path.write_text('{"family_names": []}')
         with pytest.raises(FileNotFoundError, match="Manifest not found"):
             plan(cfg, PlanConfig(target_duration=60))
 

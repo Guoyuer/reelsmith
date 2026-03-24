@@ -273,21 +273,7 @@ class TestPreGeminiValidation:
             cfg = Config(workspace=Path(td))
             cfg.ensure_dirs()
 
-            preprocessed = {
-                "timeline": [
-                    {
-                        "date": "2025-01-01",
-                        "day_name": "Mon",
-                        "chapters": [
-                            {
-                                "time_block": "morning",
-                                "location": "x",
-                                "item_ids": [1, 2, 3],
-                            }
-                        ],
-                    }
-                ]
-            }
+            preprocessed = {"family_names": []}
             # Empty analysis → no items → should raise
             with pytest.raises(RuntimeError, match="No photos"):
                 _build_visual_content_blocks(preprocessed, {}, cfg)
@@ -422,17 +408,7 @@ class TestContentBlockValidation:
         thumb_path = cfg.thumbnails_dir / "photo_thumb.jpg"
         Image.new("RGB", (100, 100), "red").save(thumb_path, "JPEG")
 
-        preprocessed = {
-            "timeline": [
-                {
-                    "date": "2025-01-01",
-                    "day_name": "Mon",
-                    "chapters": [
-                        {"time_block": "morning", "location": "x", "item_ids": [1]}
-                    ],
-                }
-            ]
-        }
+        preprocessed = {"family_names": []}
         analysis = {
             "1": {
                 "id": 1,

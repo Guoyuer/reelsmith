@@ -81,14 +81,6 @@ _name_option = click.option(
     help="Run name (subdirectory under workspace/runs/)",
 )
 
-_tz_option = click.option(
-    "--timezone",
-    "--tz",
-    "tz_hours",
-    default=None,
-    type=int,
-    help="UTC offset in hours (default: system local, e.g. -5 NYC, 8 SGT)",
-)
 _force_option = click.option(
     "--force",
     is_flag=True,
@@ -321,7 +313,6 @@ def _build_fetch_config(
 @cli.command()
 @_name_option
 @_apply_options(_source_options)
-@_tz_option
 @_force_option
 def prepare(
     run_name,
@@ -332,7 +323,6 @@ def prepare(
     country,
     district,
     item_types,
-    tz_hours,
     force,
 ):
     """Fetch media and generate thumbnails + video previews (cached, use --force to regenerate)."""
@@ -343,7 +333,7 @@ def prepare(
         fetch=_build_fetch_config(
             source, path, from_date, to_date, country, district, item_types
         ),
-        prepare=PrepareConfig(force=force, tz_hours=tz_hours),
+        prepare=PrepareConfig(force=force),
         stages=["fetch", "prepare"],
     )
 
@@ -356,7 +346,6 @@ def prepare(
 @cli.command()
 @_name_option
 @_apply_options(_source_options)
-@_tz_option
 @_force_option
 @_apply_options(_plan_options)
 @_apply_options(_assemble_options)
@@ -369,7 +358,6 @@ def full(
     country,
     district,
     item_types,
-    tz_hours,
     force,
     duration,
     trip_type,
@@ -399,7 +387,7 @@ def full(
         fetch=_build_fetch_config(
             source, path, from_date, to_date, country, district, item_types
         ),
-        prepare=PrepareConfig(force=force, tz_hours=tz_hours),
+        prepare=PrepareConfig(force=force),
         plan=PlanConfig(
             style=style,
             target_duration=duration,
@@ -409,7 +397,6 @@ def full(
             model=resolved_model,
             thinking_level=resolved_thinking,
             music_file=music_file,
-            tz_hours=tz_hours,
             force=force,
         ),
         assemble=AssembleConfig(w=w, h=h, fps=fps, quality=quality),
@@ -420,11 +407,8 @@ def full(
 @cli.command()
 @_name_option
 @_apply_options(_plan_options)
-@_tz_option
 @_force_option
-def plan(
-    run_name, duration, trip_type, style, focus, lang, model, music, tz_hours, force
-):
+def plan(run_name, duration, trip_type, style, focus, lang, model, music, force):
     """Call Gemini to generate a new EDL (increments version). Requires prepare to have run first."""
     from pipeline.plan import PlanConfig
 
@@ -445,7 +429,6 @@ def plan(
             model=resolved_model,
             thinking_level=resolved_thinking,
             music_file=music_file,
-            tz_hours=tz_hours,
             force=force,
         ),
         stages=stages,
