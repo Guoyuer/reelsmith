@@ -312,13 +312,23 @@ def _progress_cb(
 ):
     """Create a progress callback that logs to file and updates display."""
 
+    seen_names: set[str] = set()
+
     def cb(current: int, total: int, name: str) -> None:
         if total == 0:
             # Status text only (no progress bar)
             display.update(stage, name)
             return
-        # Send as sub-stage progress: "name:current/total"
-        display.update(stage, f"{name}:{current}/{total}")
+        seen_names.add(name)
+        if len(seen_names) <= 5:
+            # Few distinct names → sub-stage progress bars (e.g. assemble phases)
+            display.update(stage, f"{name}:{current}/{total}")
+        else:
+            # Many distinct names → single main progress bar + label
+            display.update(stage, f"{current}/{total}")
+            d = display._stage_data.get(stage)
+            if d:
+                d["label"] = name
         # Log at ~10% intervals to file
         if current % max(total // 10, 1) == 0 or current == total:
             elapsed = time.monotonic() - t0
