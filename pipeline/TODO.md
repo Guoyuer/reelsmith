@@ -39,6 +39,29 @@
 
 ---
 
+## Pending
+
+### Split cli.py into package
+
+cli.py is 1343 lines. Split into:
+```
+pipeline/cli/
+├── __init__.py      — cli group, entry point
+├── _display.py      — _PipelineDisplay, _setup_logging, _progress_cb (~250 lines)
+├── _runner.py       — _PipelineContext, stage runners, _run_pipeline (~250 lines)
+├── _commands.py     — full/plan/prepare/assemble commands + options (~300 lines)
+└── _workspace.py    — workspace command + utils (~300 lines)
+```
+
+### Open source essentials
+
+- Add LICENSE (MIT)
+- Add GitHub Actions CI (ruff + pytest)
+- Add CHANGELOG.md
+- Complete README (install guide, badges, screenshots)
+
+---
+
 ## Feature Ideas (Aspirational)
 
 ### F1. Ambient sound effects layer
