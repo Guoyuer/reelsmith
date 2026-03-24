@@ -100,6 +100,14 @@ def fix_hallucinated_paths(edl: EDL, media_dir: Path) -> int:
             candidates = list(media_dir.glob(f"*{parts[-1]}")) if len(parts) > 1 else []
             if not candidates:
                 candidates = list(media_dir.glob(f"*{name}"))
+            # Normalize underscores (Gemini adds/removes _ in timestamps)
+            if not candidates:
+                norm = name.replace("_", "").lower()
+                candidates = [
+                    f
+                    for f in media_dir.iterdir()
+                    if f.name.replace("_", "").lower() == norm
+                ]
             if candidates:
                 item.source_file = str(candidates[0])
                 logger.info(f"  Fixed path: {name} → {candidates[0].name}")
