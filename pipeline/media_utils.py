@@ -43,12 +43,8 @@ def run_subprocess(cmd: list[str], timeout: int = 300, **kwargs) -> subprocess.C
         stdout, stderr = proc.communicate()
         return subprocess.CompletedProcess(cmd, 1, stdout=stdout, stderr=stderr)
     except KeyboardInterrupt:
-        proc.terminate()
-        try:
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+        proc.kill()
+        proc.wait()
         raise
     return subprocess.CompletedProcess(
         cmd,
