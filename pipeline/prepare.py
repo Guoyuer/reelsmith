@@ -139,7 +139,7 @@ def prepare(
 
         cache_file = cache_dir / f"{item_id}.json"
         cache_hit = False
-        if cache_file.exists():
+        if cache_file.exists() and not pc.force:
             try:
                 cached = json.loads(cache_file.read_text())
                 if is_video and "audio_level" not in cached:
