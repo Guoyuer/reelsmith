@@ -106,7 +106,7 @@ Photos = 3-4s each, videos = 6-8s each. Select ~{n_items} items to fill {pc.targ
 2. Design a narrative arc — 4-6 chapters based on STORY BEATS.
 3. Select items for each chapter. Verify: sum of display_duration = {pc.target_duration}s (±10%).
    If short, add more items or extend video trims. If long, remove weakest items.
-4. Self-review: diverse locations? No duplicates? Videos ≥ 50%? No portrait videos > 2?
+4. Self-review: diverse locations? No duplicates? Videos ≥ 60%? No portrait videos > 2?
 
 Output ONE JSON EDL.
 

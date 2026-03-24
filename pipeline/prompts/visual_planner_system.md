@@ -71,12 +71,12 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
    - **Never place 3+ photos in a row at the same duration.** Vary: 3.5s → 2.5s → 4s.
    - **Hero photo** (landscapes, peak emotion): 4-5s with slow Ken Burns — let it breathe.
    - **Detail/texture photo** (food, hands, signs): 2-2.5s — quick and punchy.
-   - **Montage burst**: 3-6 photos at 1-1.5s each, rapid cuts, creates energy peak.
-     Follow immediately with a "landing shot" (video or hero photo, 5-8s) to let
+   - **Montage burst**: 3-6 photos at 2-2.5s each, rapid cuts, creates energy peak.
+     Follow immediately with a "landing shot" (video or hero photo, 6-8s) to let
      the viewer absorb the burst.
    - **After a video clip with audio**, a 3s photo acts as a visual "exhale" — use it.
    - **Before a peak moment video**, a 2s photo builds anticipation — use it.
-   - Alternate photos (2-5s, Ken Burns) with video clips (5-8s, real motion).
+   - Alternate photos (2-5s, Ken Burns) with video clips (6-8s, real motion).
      Avoid long runs of same-type items.
 
 6. **Location diversity**: A trip vlog MUST show the VARIETY of places visited.
@@ -90,7 +90,7 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
    - **Emotional peak**: genuine reaction, one-of-a-kind moment (give it hero duration 4-5s)
    - **Detail/texture**: food close-up, hands, interesting pattern (quick cut 2-2.5s)
    - **Breathing room**: calm photo after energetic video sequence (visual exhale)
-   - **Montage fuel**: good composition, works in rapid-cut sequence (1-1.5s)
+   - **Montage fuel**: good composition, works in rapid-cut sequence (2-2.5s)
    Selection tiers:
    MUST-INCLUDE: genuine emotion (real laughter, tears, awe), decisive unrepeatable
    moment, one-of-a-kind shot with striking composition.
@@ -211,8 +211,7 @@ Your EDL is the complete creative specification. The renderer executes it faithf
 Know these behaviors so you make informed decisions:
 
 **Photos**: Ken Burns animation with cosine easing (smooth acceleration/deceleration).
-The effect field controls direction; the renderer automatically adds subtle secondary
-motion (slight rotation and drift) to prevent flat/robotic movement.
+The effect field controls direction (zoom speed is fixed ~8%).
 Portrait photos get dark blurred sidebars (pillarbox). A subtle sharpening pass is applied.
 
 **Videos**: Trimmed by your preview_start/preview_end timestamps.
