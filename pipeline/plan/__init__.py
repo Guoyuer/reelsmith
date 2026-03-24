@@ -13,16 +13,12 @@ from ._preview import (  # noqa: F401
 
 # Re-exports for backward compatibility (tests import these by name)
 from ._prompts import (  # noqa: F401
-    _PROMPTS_DIR,
-    TRIP_TYPES,
     _default_focus,
     _format_date_range,
     _load_json,
     _load_lang_instructions,
     _load_narrative_guidance,
     _load_system_template,
-    _secs_to_timestamp,
-    _timestamp_to_secs,
     _visual_system_prompt,
 )
 

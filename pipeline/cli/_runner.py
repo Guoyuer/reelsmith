@@ -53,7 +53,6 @@ signal.signal(signal.SIGINT, _handle_sigint)
 
 def _check_interrupted(display: _PipelineDisplay, logger: logging.Logger):
     """Check if Ctrl+C was pressed between stages. If so, exit."""
-    global _interrupted
     if _interrupted:
         logger.info("Pipeline interrupted by user")
         display.stop()

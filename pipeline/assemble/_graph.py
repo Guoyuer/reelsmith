@@ -47,7 +47,7 @@ def build_segment_graph(
     Returns inputs + script for a single FFmpeg call.
     Video and audio are concat'd together (v=1:a=1) for perfect sync.
     """
-    w, h, fps = ctx.w, ctx.h, ctx.fps
+    fps = ctx.fps
     inputs: list[list[str]] = []
     filters: list[str] = []
     segment_pairs: list[tuple[str, str]] = []

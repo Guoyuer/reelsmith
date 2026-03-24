@@ -482,12 +482,8 @@ def _build_visual_content_blocks(
         )
 
     # --- Phase 4: validate ---
-    n_text_blocks = sum(1 for b in blocks if isinstance(b, str))
     n_images = sum(
         1 for b in blocks if isinstance(b, dict) and b.get("type") == "image_bytes"
-    )
-    n_video_blocks = sum(
-        1 for b in blocks if isinstance(b, dict) and b.get("type") == "video_bytes"
     )
 
     if n_images == 0:
@@ -528,11 +524,5 @@ def _build_visual_content_blocks(
             f"Inline image payload {inline_bytes / 1024 / 1024:.0f}MB exceeds ~75MB limit "
             f"(100MB base64). Reduce photo count or thumbnail size."
         )
-
-    video_bytes = sum(
-        len(b.get("data", b""))
-        for b in blocks
-        if isinstance(b, dict) and b.get("type") == "video_bytes"
-    )
 
     return blocks, offset_table
