@@ -9,7 +9,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pipeline.config import Config
-from pipeline.prepare import PrepareConfig, _build_timeline, _detect_family
+from pipeline.prepare import (
+    PrepareConfig,
+    _build_timeline,
+    _detect_family,
+    load_analysis,
+)
 from pipeline.prepare import prepare as preprocess
 
 # Fixed timezone for deterministic tests (UTC)
@@ -69,9 +74,9 @@ class TestFamilyCount:
         ):
             cfg = Config.load(workspace=str(ws))
         preprocess(cfg, PrepareConfig(family_names=["Alice", "Bob"]))
-        # Read the analysis.json to check items
-        analysis = json.loads((ws / "analysis.json").read_text())
-        return analysis
+        from pipeline.prepare import load_analysis
+
+        return load_analysis(cfg)
 
     def test_two_family_members(self, tmp_path: Path):
         """Item with 2 family persons gets family_count=2."""
@@ -263,25 +268,19 @@ class TestAnalysisCaching:
         img = _make_tiny_image(cfg.media_dir / "100_photo.jpg")
         _write_manifest(cfg, [_make_analysis_item(100, "photo.jpg", str(img))])
         preprocess(cfg)
-        results = json.loads(cfg.analysis_path.read_text())
+        results = load_analysis(cfg)
         assert len(results) == 1
 
-    def test_resumes_from_existing(self, mock_config):
+    def test_resumes_from_cache(self, mock_config):
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "101_photo.jpg")
         _write_manifest(cfg, [_make_analysis_item(101, "photo.jpg", str(img))])
-        existing = [
-            {
-                "id": 101,
-                "filename": "photo.jpg",
-                "local_path": str(img),
-                "vision": {"description": "already analyzed"},
-            }
-        ]
-        cfg.analysis_path.write_text(json.dumps(existing))
+        (cfg.cache_dir / "101.json").write_text(
+            json.dumps({"thumbnail_path": "/cached/thumb.jpg"})
+        )
         preprocess(cfg)
-        results = json.loads(cfg.analysis_path.read_text())
-        assert results[0]["vision"]["description"] == "already analyzed"
+        results = load_analysis(cfg)
+        assert results[0]["thumbnail_path"] == "/cached/thumb.jpg"
 
     def test_uses_shared_cache(self, mock_config):
         cfg = mock_config
@@ -291,7 +290,7 @@ class TestAnalysisCaching:
             json.dumps({"thumbnail_path": "/fake/thumb.jpg"})
         )
         preprocess(cfg)
-        results = json.loads(cfg.analysis_path.read_text())
+        results = load_analysis(cfg)
         assert results[0]["thumbnail_path"] == "/fake/thumb.jpg"
 
     def test_saves_to_shared_cache(self, mock_config):
@@ -320,7 +319,7 @@ class TestAnalysisCaching:
         }
         (cfg.cache_dir / "201.json").write_text(json.dumps(cache_data))
         preprocess(cfg)
-        results = json.loads(cfg.analysis_path.read_text())
+        results = load_analysis(cfg)
         assert results[0].get("exif") == {
             "focal_length": 24.0,
             "aperture": 1.4,

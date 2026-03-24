@@ -12,7 +12,6 @@ import pytest
 
 WORKSPACE = Path("workspace/runs/singapore")
 MEDIA_DIR = Path("workspace/media")
-ANALYSIS_PATH = WORKSPACE / "analysis.json"
 
 
 def _probe(path: Path) -> dict:
@@ -32,15 +31,26 @@ def _probe(path: Path) -> dict:
 
 
 def _get_media_samples() -> tuple[list[str], list[dict]]:
-    """Get sample photos and videos from analysis.json."""
-    if not ANALYSIS_PATH.exists():
-        pytest.skip("No analysis.json — run prepare first")
-    analysis = json.loads(ANALYSIS_PATH.read_text())
-    photos = [a for a in analysis if a.get("media_type") == "photo" and Path(a["local_path"]).exists()]
+    """Get sample photos and videos from manifest + per-item caches."""
+    manifest_path = WORKSPACE / "manifest.json"
+    if not manifest_path.exists():
+        pytest.skip("No manifest.json — run prepare first")
+    from pipeline.config import Config
+    from pipeline.prepare import load_analysis
+
+    cfg = Config(workspace=WORKSPACE)
+    analysis = load_analysis(cfg)
+    photos = [
+        a
+        for a in analysis
+        if a.get("media_type") == "photo" and Path(a["local_path"]).exists()
+    ]
     videos = [
         a
         for a in analysis
-        if a.get("media_type") == "video" and Path(a["local_path"]).exists() and a.get("video_duration", 0) > 3
+        if a.get("media_type") == "video"
+        and Path(a["local_path"]).exists()
+        and a.get("video_duration", 0) > 3
     ]
     if len(photos) < 3 or len(videos) < 2:
         pytest.skip("Not enough media files")
@@ -66,7 +76,9 @@ def _make_edl(
                 "source_file": p["local_path"],
                 "media_type": "photo",
                 "display_duration": 3.0,
-                "effect": ["ken_burns_in", "ken_burns_out", "static", "ken_burns_left"][i % 4],
+                "effect": ["ken_burns_in", "ken_burns_out", "static", "ken_burns_left"][
+                    i % 4
+                ],
             }
         )
     for i, v in enumerate(videos[:n_video]):
@@ -156,7 +168,9 @@ def validate_edl(edl: dict) -> list[str]:
 
             if media_type == "photo":
                 if item.get("effect") == "none":
-                    errors.append(f"Seg{si} item{ii}: photo should not have effect='none'")
+                    errors.append(
+                        f"Seg{si} item{ii}: photo should not have effect='none'"
+                    )
 
             src = item.get("source_file", "")
             if src in all_sources:
@@ -173,7 +187,9 @@ def validate_edl(edl: dict) -> list[str]:
     return errors
 
 
-def validate_output(video_path: Path, edl: dict, expected_resolution: tuple[int, int] = (640, 360)) -> list[str]:
+def validate_output(
+    video_path: Path, edl: dict, expected_resolution: tuple[int, int] = (640, 360)
+) -> list[str]:
     """Validate rendered video against expected resolution and EDL content."""
     errors = []
     if not video_path.exists():
@@ -205,7 +221,11 @@ def validate_output(video_path: Path, edl: dict, expected_resolution: tuple[int,
             errors.append(f"Resolution mismatch: {w}x{h} vs expected {exp_w}x{exp_h}")
 
     # Check audio stream exists if any keep_audio items
-    has_speech = any(item.get("keep_audio") for seg in edl.get("segments", []) for item in seg.get("items", []))
+    has_speech = any(
+        item.get("keep_audio")
+        for seg in edl.get("segments", [])
+        for item in seg.get("items", [])
+    )
     a_streams = [s for s in info.get("streams", []) if s.get("codec_type") == "audio"]
     if has_speech and not a_streams:
         errors.append("EDL has keep_audio items but output has no audio stream")
@@ -215,20 +235,36 @@ def validate_output(video_path: Path, edl: dict, expected_resolution: tuple[int,
 
     expected = EDLModel.model_validate(edl).estimated_duration()
     if expected > 0 and abs(duration - expected) / expected > 0.30:
-        errors.append(f"Duration off by >30%: {duration:.1f}s vs expected {expected:.1f}s")
+        errors.append(
+            f"Duration off by >30%: {duration:.1f}s vs expected {expected:.1f}s"
+        )
 
     return errors
 
 
 def _run_assemble(
-    edl_dict: dict, run_name: str = "singapore", width: int = 640, height: int = 360, fps: int = 15
+    edl_dict: dict,
+    run_name: str = "singapore",
+    width: int = 640,
+    height: int = 360,
+    fps: int = 15,
 ) -> Path:
     """Write EDL to a temp file and run assemble."""
     edl_path = Path("workspace/test_edl.json")
     edl_path.write_text(json.dumps(edl_dict, indent=2))
 
     result = subprocess.run(
-        ["python", "cli.py", "assemble", "-n", run_name, "--edl", str(edl_path), "-r", f"{width}x{height}x{fps}"],
+        [
+            "python",
+            "cli.py",
+            "assemble",
+            "-n",
+            run_name,
+            "--edl",
+            str(edl_path),
+            "-r",
+            f"{width}x{height}x{fps}",
+        ],
         capture_output=True,
         text=True,
         timeout=600,
@@ -267,7 +303,9 @@ class TestEDLValidation:
     def test_duplicate_source(self):
         photos, videos = _get_media_samples()
         edl = _make_edl(photos, videos)
-        edl["segments"][0]["items"][1]["source_file"] = edl["segments"][0]["items"][0]["source_file"]
+        edl["segments"][0]["items"][1]["source_file"] = edl["segments"][0]["items"][0][
+            "source_file"
+        ]
         errors = validate_edl(edl)
         assert any("duplicate" in e for e in errors)
 
@@ -316,7 +354,9 @@ class TestAssembleE2E:
     def test_fade_black_transition(self):
         """Test fade_black transitions."""
         photos, videos = _get_media_samples()
-        edl = _make_edl(photos, videos, transition="fade_black", transition_duration=0.6)
+        edl = _make_edl(
+            photos, videos, transition="fade_black", transition_duration=0.6
+        )
         output = _run_assemble(edl)
         errors = validate_output(output, edl)
         assert errors == [], f"Output validation failed: {errors}"
@@ -423,10 +463,18 @@ class TestAssembleE2E:
         photos, videos = _get_media_samples()
         edl = _make_edl(photos, videos, title="Text Overlay Test")
         # Add text overlays
-        edl["segments"][0]["items"][0]["text_overlay"] = {"text": "测试文字覆盖", "position": "bottom", "font_size": 48}
+        edl["segments"][0]["items"][0]["text_overlay"] = {
+            "text": "测试文字覆盖",
+            "position": "bottom",
+            "font_size": 48,
+        }
         for item in edl["segments"][0]["items"]:
             if item["media_type"] == "video":
-                item["text_overlay"] = {"text": "Video overlay", "position": "top", "font_size": 48}
+                item["text_overlay"] = {
+                    "text": "Video overlay",
+                    "position": "top",
+                    "font_size": 48,
+                }
                 break
         edl["language"] = "cn"
         output = _run_assemble(edl)
@@ -458,7 +506,14 @@ class TestAssembleE2E:
         photos, videos = _get_media_samples()
         if len(videos) < 4:
             pytest.skip("Need at least 4 videos")
-        edl = _make_edl(photos, videos, n_photo=0, n_video=4, title="Videos Only", keep_audio_idx={0, 2})
+        edl = _make_edl(
+            photos,
+            videos,
+            n_photo=0,
+            n_video=4,
+            title="Videos Only",
+            keep_audio_idx={0, 2},
+        )
         output = _run_assemble(edl)
         errors = validate_output(output, edl)
         assert errors == [], f"Output validation failed: {errors}"
