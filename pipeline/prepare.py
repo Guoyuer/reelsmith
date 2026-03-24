@@ -363,7 +363,7 @@ def _generate_video_previews(
         result = run_subprocess(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             logger.warning(
-                "Preview failed for %s: %s", path, (result.stderr or "")[-200:]
+                "Preview failed for %s: %s", path, (result.stderr or "")
             )
             # Remove corrupt partial output
             if path and Path(path).exists():

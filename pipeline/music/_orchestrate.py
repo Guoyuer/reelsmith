@@ -90,7 +90,7 @@ def _build_composite_music(
         )
         if result.returncode != 0:
             logger.warning(
-                "Trim failed for segment %d: %s", i, (result.stderr or "")[-200:]
+                "Trim failed for segment %d: %s", i, (result.stderr or "")
             )
             continue
         if trimmed_path.exists():
@@ -140,7 +140,7 @@ def _build_composite_music(
         t.unlink(missing_ok=True)
 
     if result.returncode != 0:
-        logger.error("Composite music build failed: %s", result.stderr[-200:])
+        logger.error("Composite music build failed: %s", result.stderr)
         return False
 
     logger.info(

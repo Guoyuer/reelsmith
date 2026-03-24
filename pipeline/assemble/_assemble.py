@@ -138,7 +138,7 @@ def assemble(
     def _render_seg(seg_idx, cmd):
         result = run_subprocess(cmd, capture_output=True, text=True, timeout=600)
         if result.returncode != 0:
-            raise RuntimeError(f"Segment {seg_idx} failed: {result.stderr[-500:]}")
+            raise RuntimeError(f"Segment {seg_idx} failed: {result.stderr}")
         return seg_idx
 
     def _on_seg_done(done, total):
@@ -198,7 +198,7 @@ def assemble(
     ]
     result = run_subprocess(cmd, capture_output=True, text=True, timeout=60)
     if result.returncode != 0:
-        raise RuntimeError(f"Concat failed: {result.stderr[-300:]}")
+        raise RuntimeError(f"Concat failed: {result.stderr}")
 
     total_dur = ctx.probe_duration(nomix_path) or 0.0
     logger.info(f"  Concat: {total_dur:.1f}s")
@@ -255,9 +255,9 @@ def assemble(
         ]
         result = run_subprocess(cmd, capture_output=True, text=True, timeout=600)
         if result.returncode != 0 and not output_path.exists():
-            raise RuntimeError(f"Music mix failed: {result.stderr[-300:]}")
+            raise RuntimeError(f"Music mix failed: {result.stderr}")
         if not output_path.exists() or output_path.stat().st_size < 1024:
-            raise RuntimeError(f"Music mix produced no output: {result.stderr[-300:]}")
+            raise RuntimeError(f"Music mix produced no output: {result.stderr}")
 
         nomix_path.unlink(missing_ok=True)
 

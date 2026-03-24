@@ -121,4 +121,4 @@ def render_title_card(
         ]
     result = run_subprocess(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        raise RuntimeError(f"Title card render failed: {result.stderr[-300:]}")
+        raise RuntimeError(f"Title card render failed: {result.stderr}")
