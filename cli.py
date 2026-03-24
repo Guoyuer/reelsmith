@@ -722,8 +722,12 @@ _plan_options = [
         "--model",
         required=True,
         cls=_RequiredPrefixOption,
-        help="fast (3.1-flash-lite:low ~$0.01) | balanced (3-flash:high ~$0.05) "
-        "| quality (3-pro:high ~$0.50) | model:thinking",
+        help="Presets: fast / balanced / quality, or model:thinking.\n\n"
+        "\b\n"
+        "  fast      3.1-flash-lite  LOW thinking  ~$0.01\n"
+        "  balanced  3-flash         HIGH thinking  ~$0.05\n"
+        "  quality   3-pro           HIGH thinking  ~$0.50\n"
+        "  custom    gemini-2.5-flash:medium",
     ),
     click.option(
         "--music",
