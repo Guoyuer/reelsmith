@@ -48,9 +48,9 @@ def _gemini_call(
         client.models.get(model=model_id)
     except Exception:
         available = sorted(
-            m.name.removeprefix("models/")
+            (m.name or "").removeprefix("models/")
             for m in client.models.list()
-            if "flash" in m.name or "pro" in m.name
+            if "flash" in (m.name or "") or "pro" in (m.name or "")
         )
         raise RuntimeError(
             f"Model '{model}' not available. Options:\n  " + "\n  ".join(available)
@@ -106,7 +106,7 @@ def _gemini_call(
                     if progress_callback:
                         progress_callback(0, 0, f"uploading video ({size_mb:.0f}MB)...")
                     uploaded = client.files.upload(file=tf_path)
-                    while uploaded.state.name != "ACTIVE":
+                    while (uploaded.state.name if uploaded.state else None) != "ACTIVE":  # type: ignore[union-attr]
                         time.sleep(2)
                         uploaded = client.files.get(name=uploaded.name or "")
                     logger.info(f"  Video uploaded and ACTIVE: {uploaded.name}")
@@ -157,24 +157,23 @@ def _gemini_call(
         progress_callback(0, 0, "request sent, waiting for gemini...")
     t0 = time.monotonic()
 
+    config_kwargs: dict = {
+        "system_instruction": system,
+        "max_output_tokens": 32000,
+        "temperature": 0.7,
+        "media_resolution": types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+    }
+    if thinking_level != "OFF":
+        config_kwargs["thinking_config"] = types.ThinkingConfig(
+            thinking_level=thinking_level,  # type: ignore[arg-type]
+            include_thoughts=True,
+        )
+    config = types.GenerateContentConfig(**config_kwargs)  # type: ignore[arg-type]
+
     response = client.models.generate_content(
         model=model,
         contents=[types.Content(parts=parts)],
-        config=types.GenerateContentConfig(
-            system_instruction=system,
-            max_output_tokens=32000,
-            temperature=0.7,
-            media_resolution=types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
-            **(
-                {
-                    "thinking_config": types.ThinkingConfig(
-                        thinking_level=thinking_level, include_thoughts=True
-                    )
-                }
-                if thinking_level != "OFF"
-                else {}
-            ),
-        ),
+        config=config,
     )
 
     elapsed = time.monotonic() - t0
@@ -183,19 +182,22 @@ def _gemini_call(
 
     # Log thinking, code execution, and other non-text parts
     if response.candidates:
-        for part in response.candidates[0].content.parts or []:
+        cand_content = response.candidates[0].content
+        for part in (cand_content.parts if cand_content else None) or []:
             if getattr(part, "thought", False) and part.text:
                 logger.info(f"  [Thinking] ({len(part.text)} chars)")
                 for line in part.text.split("\n"):
                     logger.info(f"  | {line}")
             if getattr(part, "executable_code", None):
-                code = part.executable_code.code or ""
+                ec = part.executable_code  # type: ignore[union-attr]
+                code = ec.code or "" if ec else ""
                 logger.info(f"  [Code] {code[:300]}{'...' if len(code) > 300 else ''}")
             if getattr(part, "code_execution_result", None):
-                result = part.code_execution_result
-                logger.info(
-                    f"  [CodeResult] {result.outcome}: {(result.output or '')[:300]}"
-                )
+                cer = part.code_execution_result  # type: ignore[union-attr]
+                if cer:
+                    logger.info(
+                        f"  [CodeResult] {cer.outcome}: {(cer.output or '')[:300]}"
+                    )
 
     content = response.text or ""
     # Log finish reason if response is empty or blocked
@@ -209,8 +211,8 @@ def _gemini_call(
             f"Empty response with no candidates. prompt_feedback={response.prompt_feedback}"
         )
     usage = response.usage_metadata
-    input_tokens = usage.prompt_token_count or 0
-    output_tokens = usage.candidates_token_count or 0
+    input_tokens = (usage.prompt_token_count or 0) if usage else 0
+    output_tokens = (usage.candidates_token_count or 0) if usage else 0
     # Gemini 3.1 Flash Lite pricing: $0.075/M input, $0.30/M output
     cost_est = input_tokens * 0.075 / 1_000_000 + output_tokens * 0.30 / 1_000_000
     logger.info(
