@@ -124,7 +124,7 @@ def _dedup_burst_photos(
             if len(cluster) > 1:
                 removed = [burst[k]["filename"] for k in cluster if k != best]
                 removed_total += len(removed)
-                logger.info(
+                logger.debug(
                     f"  Burst dedup: kept {burst[best]['filename']}, "
                     f"removed {len(removed)}: {', '.join(removed[:3])}"
                     f"{'...' if len(removed) > 3 else ''}"
@@ -533,12 +533,6 @@ def _build_visual_content_blocks(
         len(b.get("data", b""))
         for b in blocks
         if isinstance(b, dict) and b.get("type") == "video_bytes"
-    )
-
-    logger.info(
-        f"Validation OK: {n_text_blocks} text, {n_images} images ({inline_bytes / 1024 / 1024:.1f}MB), "
-        f"{n_video_blocks} video ({video_bytes / 1024 / 1024:.1f}MB), "
-        f"{len(text_item_nums)} items, {len(video_nums_in_mega)} video labels"
     )
 
     return blocks, offset_table

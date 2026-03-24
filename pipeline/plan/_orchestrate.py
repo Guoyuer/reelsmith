@@ -83,25 +83,11 @@ def _plan_visual(
     if pc.trip_type == "family" and preprocessed.get("family_names"):
         family_line = f"\nFamily: {', '.join(preprocessed['family_names'])}"
 
-    logger.info("=== SINGLE-PASS PLANNING ===")
-    logger.info("Building photo thumbnails and video preview...")
-
     content_blocks, preview_offset_table = _build_visual_content_blocks(
         preprocessed, analysis_by_id, cfg, force=pc.force
     )
-    n_img = sum(
-        1
-        for b in content_blocks
-        if isinstance(b, dict) and b.get("type") == "image_bytes"
-    )
-    n_vid_clips = sum(
-        1
-        for b in content_blocks
-        if isinstance(b, dict) and b.get("type") == "video_bytes"
-    )
-    logger.info(f"Visual content: {n_img} photos, {n_vid_clips} video file(s)")
     if progress_callback:
-        progress_callback(0, 0, f"uploading {n_img} photos + {n_vid_clips} video...")
+        progress_callback(0, 0, "uploading to Gemini...")
 
     intro_text = f"""\
 Create a {pc.style} {trip_label} vlog EDL from the photos and videos shown below.
@@ -129,7 +115,6 @@ All candidates:"""
     visual_parts: list = [intro_text] + content_blocks
 
     system_prompt = _visual_system_prompt(pc.trip_type, language=pc.language)
-    logger.info(f"Sending {len(visual_parts)} parts to Gemini (single pass)...")
 
     model_kwargs: dict = {}
     if pc.model:

@@ -186,25 +186,18 @@ def _gemini_call(
     n_videos_count = sum(1 for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes")
     img_mb = sum(len(p.get("data", b"")) for p in user_parts if isinstance(p, dict) and p.get("type") == "image_bytes") / 1024 / 1024
     vid_mb = sum(len(p.get("data", b"")) for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes") / 1024 / 1024
+    n_text_parts = sum(1 for p in user_parts if isinstance(p, str))
+    text_chars = sum(len(p) for p in user_parts if isinstance(p, str))
     logger.info(f"Gemini API call: {label}")
     logger.info(f"  Model: {model}, thinking: {thinking_level}")
-    logger.info(f"  Prompt: {len(system)} chars ({len(system.split(chr(10)))} lines)")
-    logger.info(f"  Content: {n_images} photos ({img_mb:.0f}MB), {n_videos_count} video ({vid_mb:.0f}MB), {n_uploaded} via Files API")
-    # Log each part for debugging
+    logger.info(f"  {n_text_parts} text ({text_chars} chars), {n_images} photos ({img_mb:.0f}MB), {n_videos_count} video ({vid_mb:.0f}MB)")
+    # Full part details at DEBUG
     for i, p in enumerate(user_parts):
         if isinstance(p, str):
-            lines = p.split("\n")
-            logger.info(f"  [part {i}] text ({len(lines)} lines, {len(p)} chars)")
-            for line in lines:
+            for line in p.split("\n"):
                 logger.debug(f"    | {line}")
         elif isinstance(p, dict):
-            ptype = p.get("type", "?")
-            mime = p.get("mime_type", "?")
-            size_kb = len(p.get("data", b"")) // 1024
-            if ptype == "image_bytes":
-                logger.debug(f"  [part {i}] photo {mime} ({size_kb}KB)")
-            else:
-                logger.info(f"  [part {i}] {ptype} {mime} ({size_kb}KB)")
+            logger.debug(f"  [part {i}] {p.get('type', '?')} {p.get('mime_type', '?')} ({len(p.get('data', b'')) // 1024}KB)")
 
     if progress_callback:
         progress_callback(0, 0, "request sent, waiting for gemini...")
