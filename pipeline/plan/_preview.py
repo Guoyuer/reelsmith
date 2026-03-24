@@ -25,19 +25,14 @@ def _build_item_text(idx: int, a: dict) -> tuple[str, Path | None]:
     persons = a.get("persons", [])
 
     label = f"#{idx:02d}"
+    parts = [label]
     if a.get("family_count", 0) >= 2:
-        who = (
-            f"family together ({','.join(persons[:3])})"
-            if persons
-            else "family together"
-        )
+        who = f"family together ({','.join(persons[:3])})" if persons else "family together"
+        parts.append(who)
     elif a.get("family_count", 0) == 1:
-        who = f"{persons[0]}" if persons else "one family member"
+        parts.append(f"{persons[0]}" if persons else "one family member")
     elif persons:
-        who = f"people: {','.join(persons[:3])}"
-    else:
-        who = "unknown"
-    parts = [f"{label}: {who}"]
+        parts.append(f"people: {','.join(persons[:3])}")
 
     item_loc = a.get("district") or a.get("first_level") or a.get("country")
     if item_loc:
