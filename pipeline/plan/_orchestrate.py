@@ -16,6 +16,7 @@ from ..edl import EDL, MusicTrack, find_latest_version, save_edl
 from ._gemini import _gemini_call
 from ._postprocess import (
     deduplicate_items,
+    fill_duration_gap,
     fix_hallucinated_paths,
     log_edl_summary,
     parse_and_convert_timestamps,
@@ -156,6 +157,16 @@ All candidates:"""
     fix_hallucinated_paths(edl, cfg.media_dir)
     validate_trim_points(edl, analysis_by_id)
     deduplicate_items(edl)
+    edl = fill_duration_gap(
+        edl,
+        pc.target_duration,
+        analysis_by_id,
+        system_prompt,
+        model=pc.model,
+        thinking_level=pc.thinking_level,
+        progress_callback=progress_callback,
+    )
+    fix_hallucinated_paths(edl, cfg.media_dir)
 
     actual_dur = edl.estimated_duration()
     if actual_dur < pc.target_duration:
