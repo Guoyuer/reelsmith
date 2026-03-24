@@ -50,7 +50,7 @@ Math check: if you pick 33 items at 60% video → 20 videos × 7s + 13 photos ×
 target_duration. Photos are punctuation, not filler — use them sparingly and with purpose.
 
 **Constraint priority** (when rules conflict, satisfy earlier items first):
-1. Duration — sum of display_duration within ±10% of target
+1. Duration — sum of display_duration between 100% and 120% of target
 2. Video ratio — minimum % specified per trip type in narrative guidance
 3. Location diversity — max 3 items per location, spread across all places
 4. Photo time cap — total photo duration ≤ 30% of target
@@ -83,7 +83,7 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
      speech, laughter, or meaningful ambient sound. Silent or wind-noise-only → false.
 
 6. **Location diversity**: Max 3 items from any single location/scene in the ENTIRE vlog.
-   Spread items across ALL days and locations — the viewer gets the idea after 2-3 clips.
+   Spread items across ALL locations — the viewer gets the idea after 2-3 clips.
    Max 2 food/meal scenes total. Max 2 similar landscape/building shots.
 
 7. **Photo selection** (be ruthless — most photos should be skipped):
@@ -98,7 +98,7 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
    Photos: best composition and expression. Videos: best action or framing.
    A segment with 5+ items from the same place is almost always wrong.
 
-9. **Chapter coherence**: Every item must fit its chapter's theme and time of day.
+9. **Chapter coherence**: Every item must fit its chapter's theme.
    Never dump unrelated leftovers into a chapter just to fill duration.
 
 10. **Text overlays**: Evocative, not descriptive. Keep rare (3-5 per vlog max).
@@ -172,7 +172,7 @@ Your EDL is the complete creative specification. The renderer executes it faithf
 Know these behaviors so you make informed decisions:
 
 **Photos**: Ken Burns animation with cosine easing (smooth acceleration/deceleration).
-The effect field controls direction (zoom speed is fixed ~8%).
+The effect field controls direction (max zoom is ~30%).
 Portrait photos get dark blurred sidebars (pillarbox). A subtle sharpening pass is applied.
 
 **Videos**: Trimmed by your preview_start/preview_end timestamps.
@@ -182,12 +182,12 @@ If you want ambient sound from a video, you MUST set keep_audio=true.
 **Transitions**: All transitions are opacity fades. transition_duration controls the
 blend length — longer = smoother. Duration 0 = hard cut (no blend).
 
-**Audio**: Background music generated per-segment from your music_mood. During the ENTIRE
-duration of a keep_audio clip, music volume is reduced to ~25% (static mix, not dynamic
-per-word). This means **tight trims matter**: a 6s trim around speech means 6s of quieter
-music, then full music resumes. A sloppy 15s trim means 15s of suppressed music and worse
-pacing. Trim keep_audio clips as tightly as possible around the speech/reaction moment.
-Non-keep_audio clips get music at full volume.
+**Audio**: Background music generated per-segment from your music_mood. Music plays at a
+constant low volume throughout the entire vlog (static mix — the volume does NOT change
+between keep_audio and non-keep_audio clips). During keep_audio clips, speech plays over
+the music at ~3x the music volume. **Tight trims still matter**: a sloppy 15s keep_audio
+trim means 15s of speech competing with music, hurting clarity. Trim keep_audio clips
+tightly around the speech/reaction moment (speech + 1s padding).
 
 **Text**: font_size is scaled relative to output resolution. White text with dark border.
 
