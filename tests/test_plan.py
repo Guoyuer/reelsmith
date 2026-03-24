@@ -176,8 +176,7 @@ class TestVisualSystemPrompt:
     def test_contains_transition_options(self):
         prompt = _visual_system_prompt("family")
         assert "crossfade" in prompt
-        assert "dissolve" in prompt
-        assert "fade_black" in prompt
+        assert "cut" in prompt
 
 
 # ---------------------------------------------------------------------------

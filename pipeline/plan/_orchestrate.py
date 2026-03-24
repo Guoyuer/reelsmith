@@ -97,21 +97,21 @@ Create a {pc.style} {trip_label} vlog EDL from the photos and videos shown below
 decision, and every text overlay should serve this focus. When choosing between two
 items of similar quality, pick the one that better supports this focus.
 
-DURATION: Sum of ALL display_duration MUST equal {pc.target_duration}s (±10%).
+DURATION: Sum of ALL display_duration MUST be between {pc.target_duration}s and {int(pc.target_duration * 1.2)}s (100-120% of target). Underfilling is a failure.
 Photos = 3-4s each, videos = 6-8s each. Select ~{n_items} items to fill {pc.target_duration}s.
 Video ratio: at least {vid_ratio}% videos for this {trip_label}.
 
 **Think step-by-step:**
 1. Look at ALL photos and watch the video preview. Identify the best moments.
 2. Design a narrative arc — 4-6 chapters based on STORY BEATS (aim for 3-6 items per segment).
-3. Select items for each chapter. Verify: sum of display_duration = {pc.target_duration}s (±10%).
+3. Select items for each chapter. Verify: sum of display_duration ≥ {pc.target_duration}s.
    If short, add more items or extend video trims. If long, remove weakest items.
 4. Self-review — check in PRIORITY ORDER (satisfy earlier items first if conflicts arise):
-   □ P1 Duration: total display_duration within ±10% of {pc.target_duration}s?
+   □ P1 Duration: total display_duration between {pc.target_duration}s and {int(pc.target_duration * 1.2)}s?
    □ P2 Video ratio: videos ≥ {vid_ratio}% of items?
    □ P3 Location diversity: max 3 items per location? Spread across full trip?
    □ P4 Photo cap: total photo duration ≤ {pc.target_duration * 0.3:.0f}s (30%)?
-   □ P5 keep_audio=true on ≥ 50% of video items?
+   □ P5 keep_audio=true on every video where you heard clear speech or laughter?
    □ P6 No duplicate source_file? No more than 2 portrait videos?
    □ P7 Text overlays ≤ 5 total?
 
