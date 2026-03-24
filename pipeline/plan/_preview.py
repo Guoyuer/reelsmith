@@ -54,9 +54,7 @@ def _build_item_text(idx: int, a: dict) -> tuple[str, Path | None]:
         orient_str = f"({orient})" if orient == "portrait" else ""
         vfps = a.get("video_fps", 0)
         fps_str = f" {vfps}fps" if vfps and vfps >= 48 else ""
-        audio = a.get("audio_level", "")
-        audio_str = f" audio={audio}" if audio and audio != "unknown" else ""
-        parts.append(f"video={dur_s}{res_str}{orient_str}{fps_str}{audio_str}")
+        parts.append(f"video={dur_s}{res_str}{orient_str}{fps_str}")
     else:
         exif_data = a.get("exif", {})
         if exif_data:

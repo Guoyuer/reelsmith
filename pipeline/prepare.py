@@ -169,13 +169,8 @@ def prepare(
         cache_file = cache_dir / f"{item_id}.json"
         if cache_file.exists() and not pc.force:
             try:
-                cached = json.loads(cache_file.read_text())
-                if is_video and "audio_level" not in cached:
-                    logger.info(
-                        f"[{i}/{len(manifest)}] {item['filename']} — upgrading cached video metadata"
-                    )
-                else:
-                    continue  # cache hit — skip
+                json.loads(cache_file.read_text())  # validate not corrupt
+                continue  # cache hit — skip
             except (json.JSONDecodeError, KeyError) as e:
                 logger.warning(f"Corrupt cache for item {item_id}, re-analyzing: {e}")
 
@@ -531,70 +526,20 @@ def _prepare_video(entry, item_id, local_path, cache_file, i, total):
     entry["video_fps"] = video_fps
     entry["video_orientation"] = orientation
 
-    # Probe audio loudness (integrated loudness via loudnorm filter)
-    audio_level = _probe_audio_level(local_path)
-    entry["audio_level"] = audio_level
-
     cache_entry = {
         "video_duration": round(total_dur, 1),
         "video_width": video_width,
         "video_height": video_height,
         "video_fps": video_fps,
         "video_orientation": orientation,
-        "audio_level": audio_level,
     }
     cache_file.write_text(json.dumps(cache_entry, indent=2))
 
     res_str = f"{video_width}x{video_height}" if video_width else "?"
     logger.info(
         f"[{i}/{total}] {entry['filename']} — {total_dur:.0f}s {res_str} "
-        f"{video_fps}fps {orientation} audio={audio_level}"
+        f"{video_fps}fps {orientation}"
     )
-
-
-def _probe_audio_level(local_path) -> str:
-    """Probe integrated audio loudness. Returns 'silent', 'quiet', 'normal', or 'loud'.
-
-    Uses ffmpeg loudnorm filter in measure-only mode on the first 30s.
-    """
-    probe = run_subprocess(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-i",
-            str(local_path),
-            "-t",
-            "30",
-            "-af",
-            "loudnorm=print_format=json",
-            "-f",
-            "null",
-            "-",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    try:
-        # loudnorm prints JSON to stderr after processing
-        stderr = probe.stderr
-        # Find the JSON block in stderr
-        json_start = stderr.rfind("{")
-        json_end = stderr.rfind("}") + 1
-        if json_start >= 0 and json_end > json_start:
-            loudness_data = json.loads(stderr[json_start:json_end])
-            input_i = float(loudness_data.get("input_i", -70))
-            if input_i < -40:
-                return "silent"
-            elif input_i < -28:
-                return "quiet"
-            elif input_i < -10:
-                return "normal"
-            else:
-                return "loud"
-    except (ValueError, json.JSONDecodeError, KeyError):
-        logger.debug("Could not parse audio loudness for %s", local_path, exc_info=True)
-    return "unknown"
 
 
 def _read_exif(path) -> dict:

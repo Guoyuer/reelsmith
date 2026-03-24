@@ -7,55 +7,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 
-class TestPrepareVideoAnalysis:
-    """Test _prepare_video and related helpers."""
-
-    def test_probe_audio_level_silent(self):
-        from pipeline.prepare import _probe_audio_level
-
-        fake = MagicMock()
-        fake.stderr = '{\n"input_i": "-70.5"\n}'
-        with patch("pipeline.prepare.run_subprocess", return_value=fake):
-            level = _probe_audio_level("/fake/video.mp4")
-        assert level == "silent"
-
-    def test_probe_audio_level_normal(self):
-        from pipeline.prepare import _probe_audio_level
-
-        fake = MagicMock()
-        fake.stderr = '{\n"input_i": "-20.0"\n}'
-        with patch("pipeline.prepare.run_subprocess", return_value=fake):
-            level = _probe_audio_level("/fake/video.mp4")
-        assert level == "normal"
-
-    def test_probe_audio_level_loud(self):
-        from pipeline.prepare import _probe_audio_level
-
-        fake = MagicMock()
-        fake.stderr = '{\n"input_i": "-5.0"\n}'
-        with patch("pipeline.prepare.run_subprocess", return_value=fake):
-            level = _probe_audio_level("/fake/video.mp4")
-        assert level == "loud"
-
-    def test_probe_audio_level_quiet(self):
-        from pipeline.prepare import _probe_audio_level
-
-        fake = MagicMock()
-        fake.stderr = '{\n"input_i": "-35.0"\n}'
-        with patch("pipeline.prepare.run_subprocess", return_value=fake):
-            level = _probe_audio_level("/fake/video.mp4")
-        assert level == "quiet"
-
-    def test_probe_audio_level_bad_output(self):
-        from pipeline.prepare import _probe_audio_level
-
-        fake = MagicMock()
-        fake.stderr = "garbage"
-        with patch("pipeline.prepare.run_subprocess", return_value=fake):
-            level = _probe_audio_level("/fake/video.mp4")
-        assert level == "unknown"
-
-
 class TestReadExif:
     """Test EXIF extraction from photos."""
 
@@ -128,8 +79,6 @@ class TestPrepareVideo:
                         "format": {"duration": "45.5"},
                     }
                 )
-            elif "loudnorm" in cmd_str:
-                result.stderr = '{"input_i": "-20.0"}'
             return result
 
         cache_file = tmp_path / "cache" / "1.json"

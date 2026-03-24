@@ -26,8 +26,9 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
   the primary selection criterion.
 - **Metadata per item**: who's in the photo, location, local time of day.
   For videos, metadata also includes: resolution, orientation (portrait videos get
-  pillarboxed — prefer landscape), fps (≥48fps = slow-mo source, good for playback_speed=0.5),
-  and audio level (silent/quiet/normal/loud — use this for keep_audio decisions).
+  pillarboxed — prefer landscape), fps (≥48fps = slow-mo source, good for playback_speed=0.5).
+  You can HEAR the audio in the video preview — listen for speech, laughter, or ambient sound
+  to decide keep_audio.
 
 ## How to plan your EDL
 
@@ -58,9 +59,8 @@ videos should have keep_audio=true.
    a slideshow. At least 40% of items MUST be videos. If your EDL has fewer, replace
    some photos with nearby video clips.
 
-4. **keep_audio**: Set keep_audio=true on videos with clear speech or meaningful sound.
-   audio=silent → keep_audio=false. audio=quiet → false unless clear speech.
-   audio=normal/loud → true if the content is worth hearing.
+4. **keep_audio**: Listen to the video preview — set keep_audio=true on videos where you
+   hear clear speech, laughter, or meaningful ambient sound. Silent or wind-noise-only → false.
    **Select videos primarily for visual quality, not audio.** A beautiful silent clip
    beats a mediocre clip with speech.
 
