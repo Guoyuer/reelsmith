@@ -97,7 +97,13 @@ def prepare(
             existing[entry["id"]] = entry
 
     cache_dir = cfg.cache_dir
-    results = []
+    results_by_id: dict[int, dict] = {}
+
+    # --- Phase 1: Scan — check caches, build entries, collect uncached items ---
+    uncached_photos: list[
+        tuple[dict, int, Path, Path]
+    ] = []  # (entry, item_id, path, cache_file)
+    uncached_videos: list[tuple[dict, int, Path, Path]] = []
 
     for i, item in enumerate(manifest, 1):
         item_id = item["id"]
@@ -105,7 +111,7 @@ def prepare(
             progress_callback(i, len(manifest), "scan")
 
         if item_id in existing:
-            results.append(existing[item_id])
+            results_by_id[item_id] = existing[item_id]
             continue
 
         local_path_str = item["local_path"]
@@ -128,7 +134,7 @@ def prepare(
         }
 
         if not local_path.exists():
-            results.append(entry)
+            results_by_id[item_id] = entry
             continue
 
         cache_file = cache_dir / f"{item_id}.json"
@@ -136,7 +142,6 @@ def prepare(
         if cache_file.exists():
             try:
                 cached = json.loads(cache_file.read_text())
-                # Re-probe videos missing new metadata fields (dimensions, audio level)
                 if is_video and "audio_level" not in cached:
                     logger.info(
                         f"[{i}/{len(manifest)}] {entry['filename']} — upgrading cached video metadata"
@@ -147,19 +152,32 @@ def prepare(
             except (json.JSONDecodeError, KeyError) as e:
                 logger.warning(f"Corrupt cache for item {item_id}, re-analyzing: {e}")
         if cache_hit:
-            results.append(entry)
+            results_by_id[item_id] = entry
             continue
 
         if is_video:
-            _prepare_video(entry, item_id, local_path, cache_file, i, len(manifest))
+            uncached_videos.append((entry, item_id, local_path, cache_file))
         else:
-            _prepare_photo(entry, item_id, local_path, cfg, cache_file)
+            uncached_photos.append((entry, item_id, local_path, cache_file))
 
-        results.append(entry)
+    # --- Phase 2: Prepare photos — EXIF + thumbnails ---
+    for i, (entry, item_id, local_path, cache_file) in enumerate(uncached_photos, 1):
+        if progress_callback:
+            progress_callback(i, len(uncached_photos), "photos")
+        _prepare_photo(entry, item_id, local_path, cfg, cache_file)
+        results_by_id[item_id] = entry
 
-        if i % 20 == 0:
-            analysis_path.write_text(json.dumps(results, indent=2))
+    # --- Phase 3: Prepare videos — probe metadata ---
+    for i, (entry, item_id, local_path, cache_file) in enumerate(uncached_videos, 1):
+        if progress_callback:
+            progress_callback(i, len(uncached_videos), "videos")
+        _prepare_video(entry, item_id, local_path, cache_file, i, len(uncached_videos))
+        results_by_id[item_id] = entry
 
+    # Preserve manifest order
+    results = [
+        results_by_id[item["id"]] for item in manifest if item["id"] in results_by_id
+    ]
     analysis_path.write_text(json.dumps(results, indent=2))
 
     n_photos = sum(1 for r in results if r.get("media_type") == "photo")

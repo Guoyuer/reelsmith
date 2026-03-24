@@ -63,7 +63,10 @@ class TestFamilyCount:
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text(json.dumps(items))
 
-        with patch.dict(os.environ, {}, clear=True), patch("pipeline.config.load_dotenv"):
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("pipeline.config.load_dotenv"),
+        ):
             cfg = Config.load(workspace=str(ws))
         preprocess(cfg, PrepareConfig(family_names=["Alice", "Bob"]))
         # Read the analysis.json to check items
@@ -103,7 +106,9 @@ class TestFamilyCount:
 class TestDetectFamily:
     def test_returns_top_persons(self):
         """Most frequently appearing persons should be detected as family."""
-        items = [_make_item(i, persons=["Alice", "Bob"]) for i in range(20)] + [_make_item(99, persons=["Stranger"])]
+        items = [_make_item(i, persons=["Alice", "Bob"]) for i in range(20)] + [
+            _make_item(99, persons=["Stranger"])
+        ]
         result = _detect_family(items)
         assert "Alice" in result
         assert "Bob" in result
@@ -129,7 +134,12 @@ class TestBuildTimeline:
         base = 1700000000
         items = [
             {"id": 1, "takentime": base, "family_count": 2, "district": "Marina Bay"},
-            {"id": 2, "takentime": base + 86400, "family_count": 1, "district": "Orchard"},
+            {
+                "id": 2,
+                "takentime": base + 86400,
+                "family_count": 1,
+                "district": "Orchard",
+            },
         ]
         timeline = _build_timeline(items, tz=_UTC)
         assert len(timeline) == 2
@@ -141,7 +151,12 @@ class TestBuildTimeline:
         base = 1700000000
         items = [
             {"id": 1, "takentime": base, "family_count": 2, "district": "Marina Bay"},
-            {"id": 2, "takentime": base + 60, "family_count": 1, "district": "Chinatown"},
+            {
+                "id": 2,
+                "takentime": base + 60,
+                "family_count": 1,
+                "district": "Chinatown",
+            },
         ]
         timeline = _build_timeline(items, tz=_UTC)
         assert len(timeline) == 1
@@ -161,7 +176,12 @@ class TestBuildTimeline:
         base = 1700000000
         items = [
             {"id": 1, "takentime": base, "family_count": 2, "district": "Marina Bay"},
-            {"id": 2, "takentime": base + 60, "family_count": 1, "district": "Marina Bay"},
+            {
+                "id": 2,
+                "takentime": base + 60,
+                "family_count": 1,
+                "district": "Marina Bay",
+            },
         ]
         timeline = _build_timeline(items, tz=_UTC)
         chapter = timeline[0]["chapters"][0]
@@ -175,13 +195,18 @@ class TestBuildTimeline:
 
 
 class TestPreprocessIntegration:
-    def test_writes_preprocessed_json(self, tmp_path: Path, sample_manifest: list[dict]):
+    def test_writes_preprocessed_json(
+        self, tmp_path: Path, sample_manifest: list[dict]
+    ):
         """preprocess() writes preprocessed.json with expected structure."""
         ws = tmp_path / "workspace"
         ws.mkdir(parents=True)
         (ws / "manifest.json").write_text(json.dumps(sample_manifest))
 
-        with patch.dict(os.environ, {}, clear=True), patch("pipeline.config.load_dotenv"):
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("pipeline.config.load_dotenv"),
+        ):
             cfg = Config.load(workspace=str(ws))
 
         preprocess(cfg, PrepareConfig(family_names=["Alice", "Bob"]))
@@ -246,7 +271,12 @@ class TestAnalysisCaching:
         img = _make_tiny_image(cfg.media_dir / "101_photo.jpg")
         _write_manifest(cfg, [_make_analysis_item(101, "photo.jpg", str(img))])
         existing = [
-            {"id": 101, "filename": "photo.jpg", "local_path": str(img), "vision": {"description": "already analyzed"}}
+            {
+                "id": 101,
+                "filename": "photo.jpg",
+                "local_path": str(img),
+                "vision": {"description": "already analyzed"},
+            }
         ]
         cfg.analysis_path.write_text(json.dumps(existing))
         preprocess(cfg)
@@ -257,7 +287,9 @@ class TestAnalysisCaching:
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "102_photo.jpg")
         _write_manifest(cfg, [_make_analysis_item(102, "photo.jpg", str(img))])
-        (cfg.cache_dir / "102.json").write_text(json.dumps({"thumbnail_path": "/fake/thumb.jpg"}))
+        (cfg.cache_dir / "102.json").write_text(
+            json.dumps({"thumbnail_path": "/fake/thumb.jpg"})
+        )
         preprocess(cfg)
         results = json.loads(cfg.analysis_path.read_text())
         assert results[0]["thumbnail_path"] == "/fake/thumb.jpg"
@@ -282,11 +314,18 @@ class TestAnalysisCaching:
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "201_photo.jpg")
         _write_manifest(cfg, [_make_analysis_item(201, "photo.jpg", str(img))])
-        cache_data = {"thumbnail_path": "/fake/thumb.jpg", "exif": {"focal_length": 24.0, "aperture": 1.4, "iso": 100}}
+        cache_data = {
+            "thumbnail_path": "/fake/thumb.jpg",
+            "exif": {"focal_length": 24.0, "aperture": 1.4, "iso": 100},
+        }
         (cfg.cache_dir / "201.json").write_text(json.dumps(cache_data))
         preprocess(cfg)
         results = json.loads(cfg.analysis_path.read_text())
-        assert results[0].get("exif") == {"focal_length": 24.0, "aperture": 1.4, "iso": 100}
+        assert results[0].get("exif") == {
+            "focal_length": 24.0,
+            "aperture": 1.4,
+            "iso": 100,
+        }
 
     def test_progress_callback(self, mock_config):
         cfg = mock_config
@@ -301,5 +340,9 @@ class TestAnalysisCaching:
         )
         calls = []
         preprocess(cfg, progress_callback=lambda c, t, n: calls.append((c, t, n)))
-        assert len(calls) == 2
-        assert calls[0][1] == 2
+        scan_calls = [c for c in calls if c[2] == "scan"]
+        photo_calls = [c for c in calls if c[2] == "photos"]
+        assert len(scan_calls) == 2
+        assert scan_calls[0][1] == 2  # total = 2 items
+        assert len(photo_calls) == 2
+        assert photo_calls[0][1] == 2  # total = 2 photos
