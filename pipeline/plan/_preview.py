@@ -24,7 +24,7 @@ def _build_item_text(idx: int, a: dict) -> tuple[str, Path | None]:
     media = a.get("media_type", "photo")
     persons = a.get("persons", [])
 
-    label = f"#{idx:02d}"
+    label = f"#{idx:02d}:"
     parts = [label]
     if a.get("family_count", 0) >= 2:
         who = f"family together ({','.join(persons[:3])})" if persons else "family together"

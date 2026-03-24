@@ -329,8 +329,8 @@ def _progress_cb(
             d = display._stage_data.get(stage)
             if d:
                 d["label"] = name
-        # Log at ~10% intervals to file
-        if current % max(total // 10, 1) == 0 or current == total:
+        # Log at ~25% intervals to file
+        if current % max(total // 4, 1) == 0 or current == total:
             elapsed = time.monotonic() - t0
             eta = (elapsed / current * (total - current) / 60) if current else 0
             pct = current / total * 100

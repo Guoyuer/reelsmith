@@ -29,7 +29,7 @@ def run_subprocess(cmd: list[str], timeout: int = 300, **kwargs) -> subprocess.C
     Accepts the same keyword arguments as ``subprocess.run``.
     """
     if cmd and cmd[0] in ("ffmpeg", "ffprobe"):
-        _ffmpeg_logger.info("$ %s", " ".join(str(c) for c in cmd))
+        _ffmpeg_logger.debug("$ %s", " ".join(str(c) for c in cmd))
     capture = kwargs.pop("capture_output", False)
     if capture:
         kwargs.setdefault("stdout", subprocess.PIPE)

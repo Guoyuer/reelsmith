@@ -475,8 +475,6 @@ def _build_timeline(items: list[dict], tz=None) -> list[dict]:
 
 def _prepare_video(entry, item_id, local_path, cache_file, i, total):
     """Probe video duration, dimensions, fps, orientation, and audio loudness."""
-    logger.info(f"[{i}/{total}] {entry['filename']} — video metadata...")
-
     probe = run_subprocess(
         [
             "ffprobe",
