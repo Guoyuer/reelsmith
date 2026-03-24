@@ -289,6 +289,34 @@ def assemble(
     if not [i for i in val_issues if i["level"] == "error"]:
         logger.info("Validation: all checks passed")
 
+    # Rich validation panel to terminal
+    try:
+        import sys
+
+        if sys.stderr.isatty():
+            from rich.console import Console
+            from rich.panel import Panel
+            from rich.text import Text
+
+            lines = Text()
+            for vi in val_issues:
+                icon = "\u2717" if vi["level"] == "error" else "\u26a0"
+                style = "red" if vi["level"] == "error" else "yellow"
+                lines.append(f" {icon} ", style=style)
+                lines.append(f"[{vi['check']}] {vi['message']}\n")
+            if not val_issues:
+                lines.append(" \u2713 All checks passed\n", style="green")
+            has_errors = any(vi["level"] == "error" for vi in val_issues)
+            Console(stderr=True).print(
+                Panel(
+                    lines,
+                    title="Validation",
+                    border_style="red" if has_errors else "green",
+                )
+            )
+    except ImportError:
+        pass
+
     size_mb = output_path.stat().st_size / 1024 / 1024
     logger.info(f"Assemble: {output_path.name} ({size_mb:.1f}MB) in {total_time:.0f}s")
 

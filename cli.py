@@ -218,6 +218,9 @@ class _PipelineDisplay:
         self._current_stage = stage
         self._stage_t_start[stage] = time.monotonic()
         self._stage_data[stage].update(state="running", label="", current=0, total=0)
+        if self._live:
+            from rich.rule import Rule
+            self._live.console.print(Rule(f"[bold]{stage.replace('_', ' ')}[/bold]", style="dim"))
         self._refresh()
 
     def update(self, stage: str, detail: str) -> None:
@@ -324,7 +327,12 @@ class _PipelineDisplay:
             "  ".join(footer_detail),
         )
 
-        Console(stderr=True).print(table)
+        con = Console(stderr=True)
+        con.print(table)
+        try:
+            con.bell()
+        except Exception:
+            pass
 
     def _refresh(self) -> None:
         if self._live:
