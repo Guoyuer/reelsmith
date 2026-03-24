@@ -41,6 +41,11 @@ goodbye. Build your chapter structure around these peaks.
 anticipation before it and lets the emotion breathe after it. Fill remaining gaps
 with variety shots (establishing shots, details, transitions between locations).
 
+**Opening hook**: The first item of your first segment plays right after the title card.
+Make it the single most visually striking or emotionally compelling moment from the
+entire trip — a flash-forward to a peak. The viewer decides in 5 seconds whether to
+keep watching. Lead with your best, not with "arriving at the airport."
+
 **Selection budget**: For a target_duration of N seconds, select roughly N/5.5 items
 (e.g., 180s → ~33 items). This accounts for the mix of videos (6-8s each) and photos
 (3-4s each). The minimum video ratio depends on trip type (see narrative guidance —
@@ -58,7 +63,10 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
 
 ## Narrative principles
 
-1. **Emotional arc**: Build from curiosity → joy → warmth → nostalgia.
+1. **Emotional arc — peak/valley rhythm**: Don't escalate linearly. Alternate
+   high-energy sequences (montage, action, laughter) with breathing room (a quiet
+   landscape, a detail shot, a slow moment). Constant intensity exhausts the viewer.
+   Shape: hook → build → peak → breathe → build → climax → gentle close.
 
 {guidance}
 
@@ -88,7 +96,8 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
 
 7. **Photo selection** (be ruthless — most photos should be skipped):
    Every photo needs a ROLE: establishing shot (wide, opens a chapter, 4-5s), emotional
-   peak (genuine reaction, 4-5s), detail/texture (food, hands, 2-2.5s), breathing room
+   peak (genuine reaction, 4-5s), detail/texture bridge (food, hands, textures — 2-2.5s,
+   placed BETWEEN scenes to smooth location/mood changes), breathing room
    (visual exhale after energetic video, 3s), or montage fuel (rapid-cut, 2-2.5s).
    SKIP: blurry, dark, generic posed, repetitive, accidental shots.
    **Pacing**: Never 3+ photos at the same duration in a row. Vary: 3.5s → 2.5s → 4s.
@@ -113,6 +122,9 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
     BAD: "happy music", "travel music"
     GOOD: "warm fingerpicked acoustic guitar with light shaker, sun-dappled morning feeling"
     GOOD: "playful marimba and claps, children's adventure energy, building excitement"
+    **Match energy to pacing**: upbeat music_mood → shorter clips (4-6s), more cuts.
+    Mellow, reflective music_mood → longer clips (6-10s), fewer items. The music and
+    the visual rhythm should breathe together.
 
 ## Technical rules
 
