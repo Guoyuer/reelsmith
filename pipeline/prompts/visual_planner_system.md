@@ -310,7 +310,7 @@ creative decisions — don't worry about getting the math pixel-perfect.
   ]
 }}
 ```
-Note what this example demonstrates vs. the mountain example above:
+Note what this example demonstrates:
 - **Hook opening**: first item is a nighttime flash-forward, not chronological arrival
 - **Duration variety**: photos at 2.0, 2.5, 3.0, 3.5s — NOT all 4.0s. Videos at 3.0, 5.0, 6.0, 7.0, 8.0s — NOT all 9-10s
 - **Slow-mo**: 0.5x on a 3s splash clip → 6s display (preview_end - preview_start = 3s, ÷ 0.5 = 6s)
