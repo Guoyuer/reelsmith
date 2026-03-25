@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
+
 import click
 
+from ._config_io import config_path_for, load_run_config
 from ._runner import _run_pipeline
 
 # ---------------------------------------------------------------------------
@@ -54,6 +57,25 @@ class _CliGroup(click.Group):
                 hint = "Did you forget a command? Use: full, prepare, plan, assemble, workspace"
                 raise click.UsageError(f"{e}\n\nHint: {hint}") from None
             raise
+
+
+class _CfgAwareCommand(click.Command):
+    """Command that skips 'required' checks when --use-cfg-file is present."""
+
+    def parse_args(self, ctx, args):
+        # Peek: if --use-cfg-file is in args, temporarily disable required checks
+        # on all params except run_name (which is always required).
+        restored = []
+        if "--use-cfg-file" in args:
+            for param in self.params:
+                if param.name != "run_name" and getattr(param, "required", False):
+                    param.required = False
+                    restored.append(param)
+        try:
+            return super().parse_args(ctx, args)
+        finally:
+            for param in restored:
+                param.required = True
 
 
 @click.group(cls=_CliGroup)
@@ -177,8 +199,10 @@ _RESOLUTION_PRESETS = {
 }
 
 
-def _parse_resolution(ctx, param, value: str) -> tuple[int, int, int]:
+def _parse_resolution(ctx, param, value: str | None) -> tuple[int, int, int] | None:
     """Parse resolution preset (e.g. '4k60', '1080p30') or WxHxFPS (e.g. '1920x1080x30')."""
+    if value is None:
+        return None
     key = value.lower().replace(" ", "")
     if key in _RESOLUTION_PRESETS:
         return _RESOLUTION_PRESETS[key]
@@ -240,6 +264,91 @@ def _apply_options(options):
         return fn
 
     return wrapper
+
+
+# ---------------------------------------------------------------------------
+# --use-cfg-file flag & helpers
+# ---------------------------------------------------------------------------
+
+_use_cfg_option = click.option(
+    "--use-cfg-file",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Load parameters from a JSON config file (mutually exclusive with other options except -n, --force, -v). "
+    "Tip: a config is auto-saved to workspace/runs/{name}/run_config.json on every run.",
+)
+
+# Params that are always allowed alongside --use-cfg-file
+_CFG_ALLOWED_PARAMS = frozenset({"run_name", "use_cfg_file", "force", "version"})
+
+
+def _validate_use_cfg(ctx: click.Context) -> None:
+    """Raise UsageError if --use-cfg-file is combined with explicitly-set params."""
+    for param in ctx.command.params:
+        if param.name in _CFG_ALLOWED_PARAMS:
+            continue
+        source = ctx.get_parameter_source(param.name)
+        if source == click.core.ParameterSource.COMMANDLINE:
+            raise click.UsageError(
+                f"--use-cfg-file cannot be combined with --{param.name.replace('_', '-')}. "
+                "Edit the run_config.json file instead."
+            )
+
+
+_RESOLUTION_PRESETS_REVERSE = {v: k for k, v in _RESOLUTION_PRESETS.items()}
+
+
+def _format_resolution(resolution: tuple[int, int, int]) -> str:
+    """Convert (w, h, fps) back to a preset name or WxHxFPS string."""
+    if resolution in _RESOLUTION_PRESETS_REVERSE:
+        return _RESOLUTION_PRESETS_REVERSE[resolution]
+    w, h, fps = resolution
+    return f"{w}x{h}x{fps}"
+
+
+def _build_cli_params(**kwargs) -> dict:
+    """Build a cli_params dict, converting resolution tuple to string."""
+    params = {}
+    for k, v in kwargs.items():
+        if k == "resolution" and isinstance(v, tuple):
+            params[k] = _format_resolution(v)
+        else:
+            params[k] = v
+    return params
+
+
+def _load_source_fields(saved: dict) -> tuple:
+    """Extract source-related fields from saved config. Returns 7-tuple."""
+    return (
+        saved["source"],
+        saved.get("path"),
+        saved.get("from_date"),
+        saved.get("to_date"),
+        saved.get("country"),
+        saved.get("district"),
+        saved.get("item_types"),
+    )
+
+
+def _load_plan_fields(saved: dict) -> tuple:
+    """Extract plan-related fields from saved config. Returns 7-tuple."""
+    return (
+        saved["duration"],
+        saved["model"],
+        saved.get("lang", "en"),
+        saved.get("trip_type", "family"),
+        saved.get("style", "upbeat"),
+        saved.get("focus", ""),
+        saved.get("music", "auto"),
+    )
+
+
+def _load_assemble_fields(saved: dict) -> tuple:
+    """Extract assemble-related fields from saved config. Returns (resolution, quality)."""
+    return (
+        _parse_resolution(None, None, saved["resolution"]),
+        saved.get("bitrate", 1.0),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -310,12 +419,16 @@ def _build_fetch_config(
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+@cli.command(cls=_CfgAwareCommand)
+@click.pass_context
 @_name_option
+@_use_cfg_option
 @_apply_options(_source_options)
 @_force_option
 def prepare(
+    ctx,
     run_name,
+    use_cfg_file,
     source,
     path,
     from_date,
@@ -328,6 +441,16 @@ def prepare(
     """Fetch media and generate thumbnails + video previews (cached, use --force to regenerate)."""
     from pipeline.prepare import PrepareConfig
 
+    if use_cfg_file:
+        _validate_use_cfg(ctx)
+        saved = load_run_config(use_cfg_file)
+        source, path, from_date, to_date, country, district, item_types = _load_source_fields(saved)
+
+    cli_params = _build_cli_params(
+        source=source, path=path, from_date=from_date, to_date=to_date,
+        country=country, district=district, item_types=item_types,
+    )
+
     _run_pipeline(
         run_name,
         fetch=_build_fetch_config(
@@ -335,6 +458,7 @@ def prepare(
         ),
         prepare=PrepareConfig(force=force),
         stages=["fetch", "prepare"],
+        cli_params=cli_params,
     )
 
 
@@ -343,14 +467,18 @@ def prepare(
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+@cli.command(cls=_CfgAwareCommand)
+@click.pass_context
 @_name_option
+@_use_cfg_option
 @_apply_options(_source_options)
 @_force_option
 @_apply_options(_plan_options)
 @_apply_options(_assemble_options)
 def full(
+    ctx,
     run_name,
+    use_cfg_file,
     source,
     path,
     from_date,
@@ -374,6 +502,13 @@ def full(
     from pipeline.plan import PlanConfig
     from pipeline.prepare import PrepareConfig
 
+    if use_cfg_file:
+        _validate_use_cfg(ctx)
+        saved = load_run_config(use_cfg_file)
+        source, path, from_date, to_date, country, district, item_types = _load_source_fields(saved)
+        duration, model, lang, trip_type, style, focus, music = _load_plan_fields(saved)
+        resolution, quality = _load_assemble_fields(saved)
+
     resolved_model, resolved_thinking = _resolve_planning(model)
     w, h, fps = resolution
     stages = ["fetch", "prepare", "plan"]
@@ -381,6 +516,14 @@ def full(
     if music != "none":
         stages.append("generate_music")
     stages.append("assemble")
+
+    cli_params = _build_cli_params(
+        source=source, path=path, from_date=from_date, to_date=to_date,
+        country=country, district=district, item_types=item_types,
+        duration=duration, model=model, resolution=resolution,
+        lang=lang, trip_type=trip_type, style=style, focus=focus,
+        music=music, bitrate=quality,
+    )
 
     _run_pipeline(
         run_name,
@@ -401,22 +544,35 @@ def full(
         ),
         assemble=AssembleConfig(w=w, h=h, fps=fps, quality=quality),
         stages=stages,
+        cli_params=cli_params,
     )
 
 
-@cli.command()
+@cli.command(cls=_CfgAwareCommand)
+@click.pass_context
 @_name_option
+@_use_cfg_option
 @_apply_options(_plan_options)
 @_force_option
-def plan(run_name, duration, trip_type, style, focus, lang, model, music, force):
+def plan(ctx, run_name, use_cfg_file, duration, trip_type, style, focus, lang, model, music, force):
     """Call Gemini to generate a new EDL (increments version). Requires prepare to have run first."""
     from pipeline.plan import PlanConfig
+
+    if use_cfg_file:
+        _validate_use_cfg(ctx)
+        saved = load_run_config(use_cfg_file)
+        duration, model, lang, trip_type, style, focus, music = _load_plan_fields(saved)
 
     resolved_model, resolved_thinking = _resolve_planning(model)
     music_file = None if music == "none" else music
     stages = ["plan"]
     if music != "none":
         stages.append("generate_music")
+
+    cli_params = _build_cli_params(
+        duration=duration, model=model, lang=lang, trip_type=trip_type,
+        style=style, focus=focus, music=music,
+    )
 
     _run_pipeline(
         run_name,
@@ -432,11 +588,14 @@ def plan(run_name, duration, trip_type, style, focus, lang, model, music, force)
             force=force,
         ),
         stages=stages,
+        cli_params=cli_params,
     )
 
 
-@cli.command()
+@cli.command(cls=_CfgAwareCommand)
+@click.pass_context
 @_name_option
+@_use_cfg_option
 @click.option(
     "-v",
     "--version",
@@ -445,13 +604,47 @@ def plan(run_name, duration, trip_type, style, focus, lang, model, music, force)
     help="EDL version to render (default: latest)",
 )
 @_apply_options(_assemble_options)
-def assemble(run_name, version, resolution, quality):
+def assemble(ctx, run_name, use_cfg_file, version, resolution, quality):
     """Render video from EDL. Uses latest version unless -v specified."""
     from pipeline.assemble import AssembleConfig
 
+    if use_cfg_file:
+        _validate_use_cfg(ctx)
+        saved = load_run_config(use_cfg_file)
+        resolution, quality = _load_assemble_fields(saved)
+
     w, h, fps = resolution
+
+    cli_params = _build_cli_params(resolution=resolution, bitrate=quality)
+
     _run_pipeline(
         run_name,
         assemble=AssembleConfig(w=w, h=h, fps=fps, quality=quality, version=version),
         stages=["assemble"],
+        cli_params=cli_params,
     )
+
+
+# ---------------------------------------------------------------------------
+# config: inspect saved run_config.json
+# ---------------------------------------------------------------------------
+
+
+@cli.command("config")
+@_name_option
+def show_config(run_name):
+    """Print saved run_config.json for a run (human-readable JSON)."""
+    from pipeline.config import Config
+
+    ws = Config.run_workspace(run_name=run_name)
+    cfg = Config.load(ws)
+    cfg_path = config_path_for(cfg.workspace)
+    try:
+        saved = json.loads(cfg_path.read_text())
+    except FileNotFoundError:
+        raise click.UsageError(
+            f"No saved config at {cfg_path}.\n"
+            "Run the pipeline with full parameters first."
+        )
+    click.echo(f"# {cfg_path}")
+    click.echo(json.dumps(saved, indent=2, ensure_ascii=False))
