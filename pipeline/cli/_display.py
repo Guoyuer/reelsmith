@@ -433,7 +433,13 @@ def _progress_cb(
             eta = (elapsed / current * (total - current) / 60) if current else 0
             pct = current / total * 100
             logger.info(
-                f"{stage}: {current}/{total} ({pct:.0f}%) ETA {eta:.1f}min \u2014 {name}"
+                "%s: %d/%d (%.0f%%) ETA %.1fmin — %s",
+                stage,
+                current,
+                total,
+                pct,
+                eta,
+                name,
             )
 
     return cb

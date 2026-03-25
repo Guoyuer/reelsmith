@@ -78,9 +78,12 @@ def parse_and_convert_timestamps(
                         widened = local_end - local_start
                         if widened - original_span > 2.0:
                             logger.warning(
-                                f"  Min-2s guard widened clip #{matched[0]} "
-                                f"from {original_span:.1f}s to {widened:.1f}s "
-                                f"(Gemini trim may have been off)"
+                                "  Min-2s guard widened clip #%s "
+                                "from %.1fs to %.1fs "
+                                "(Gemini trim may have been off)",
+                                matched[0],
+                                original_span,
+                                widened,
                             )
                     item["start_time"] = round(local_start, 1)
                     item["end_time"] = round(local_end, 1)
@@ -307,7 +310,8 @@ def validate_and_fix_edl(edl: EDL) -> None:
                         ".webp",
                     }:
                         logger.info(
-                            f"  Auto-fix: {Path(item.source_file).name} video→photo"
+                            "  Auto-fix: %s video→photo",
+                            Path(item.source_file).name,
                         )
                         item.media_type = "photo"
                         item.effect = "ken_burns_in"

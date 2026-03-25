@@ -246,7 +246,7 @@ def _concat_previews(
         vf = ",".join(drawtext_parts) if drawtext_parts else "null"
 
         logger.info(
-            f"Building mega-preview ({len(video_entries)} videos, {offset:.0f}s)..."
+            "Building mega-preview (%d videos, %.0fs)...", len(video_entries), offset
         )
         run_subprocess(
             [
@@ -290,7 +290,9 @@ def _concat_previews(
             )
         if abs(actual_dur - offset) > 5:
             logger.warning(
-                f"Mega-preview duration drift: expected {offset:.0f}s, got {actual_dur:.0f}s"
+                "Mega-preview duration drift: expected %.0fs, got %.0fs",
+                offset,
+                actual_dur,
             )
 
     return offset_table, output_path

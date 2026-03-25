@@ -251,7 +251,7 @@ All candidates:"""
         )
     if actual_dur < pc.target_duration:
         logger.warning(
-            f"EDL is {actual_dur:.0f}s, target is {pc.target_duration}s — underfilled"
+            "EDL is %.0fs, target is %ds — underfilled", actual_dur, pc.target_duration
         )
 
     log_edl_summary(edl, pc.target_duration)
