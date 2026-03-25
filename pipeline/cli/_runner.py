@@ -154,20 +154,23 @@ def _run_plan(pc: _PipelineContext):
     n_videos = sum(1 for i in all_items if i.media_type == "video")
     n_photos = len(all_items) - n_videos
     n_keep_audio = sum(1 for i in all_items if i.keep_audio)
-    vid_time = sum(i.display_duration for i in all_items if i.media_type == "video")
-    total_time = sum(i.display_duration for i in all_items)
+    _out_dur = edl._item_output_duration
+    photo_time = sum(_out_dur(i) for i in all_items if i.media_type != "video")
+    vid_time = sum(_out_dur(i) for i in all_items if i.media_type == "video")
+    total_time = photo_time + vid_time
     vid_pct = int(vid_time / total_time * 100) if total_time > 0 else 0
 
     dur = time.monotonic() - t0
     plan_detail = (
-        f"v{version}: {n_photos}p+{n_videos}v, " f"~{edl.estimated_duration():.0f}s"
+        f"v{version}: {n_photos}p({photo_time:.0f}s)+{n_videos}v({vid_time:.0f}s), "
+        f"~{edl.estimated_duration():.0f}s"
     )
     pc.display.done("plan", plan_detail, dur)
 
     pc.log(
         f"Plan: EDL v{version} \u2014 {len(edl.segments)} segments, "
         f"{n_photos} photos + {n_videos} videos ({vid_pct}% video), "
-        f"~{edl.estimated_duration():.0f}s, {dur:.0f}s"
+        f"duration ~{edl.estimated_duration():.0f}s (target {edl.target_duration:.0f}s), planned in {dur:.0f}s"
     )
     if n_keep_audio:
         pc.log(f"  Speech preserved: {n_keep_audio} clips")

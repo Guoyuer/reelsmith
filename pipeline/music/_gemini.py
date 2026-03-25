@@ -32,9 +32,12 @@ def generate_music_gemini(
     Returns path to generated wav, or None if unavailable.
     Caches tracks in cache_dir to avoid regenerating.
     """
-    # Check cache
+    # Check cache — include mood hash so different moods don't collide
+    import hashlib
+
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_key = f"gemini_{trip_type}_{style}_{target_duration}s"
+    mood_hash = hashlib.md5(mood.encode()).hexdigest()[:8] if mood else "default"
+    cache_key = f"gemini_{trip_type}_{style}_{target_duration}s_{mood_hash}"
     cache_meta = cache_dir / f"{cache_key}.json"
     if cache_meta.exists():
         meta = json.loads(cache_meta.read_text())
@@ -79,7 +82,9 @@ def generate_music_gemini(
 
         bytes_per_second = sample_rate * channels * (bits_per_sample // 8)
         dur = len(pcm_data) / bytes_per_second
-        logger.info("Generated %.1fs of audio in %.1fs via Lyria RealTime", dur, gen_time)
+        logger.info(
+            "Generated %.1fs of audio in %.1fs via Lyria RealTime", dur, gen_time
+        )
 
         cache_meta.write_text(
             json.dumps(
@@ -96,7 +101,9 @@ def generate_music_gemini(
             )
         )
 
-        logger.info("Music saved: %s (%dKB)", out_path.name, out_path.stat().st_size // 1024)
+        logger.info(
+            "Music saved: %s (%dKB)", out_path.name, out_path.stat().st_size // 1024
+        )
         return out_path
 
     except Exception:
@@ -130,7 +137,9 @@ async def _generate_music(
     async with client.aio.live.music.connect(
         model="models/lyria-realtime-exp",
     ) as session:
-        await session.set_weighted_prompts(prompts=[types.WeightedPrompt(text=prompt, weight=1.0)])
+        await session.set_weighted_prompts(
+            prompts=[types.WeightedPrompt(text=prompt, weight=1.0)]
+        )
         await session.set_music_generation_config(
             config=types.LiveMusicGenerationConfig(
                 guidance=4.0,

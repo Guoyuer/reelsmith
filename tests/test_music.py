@@ -74,7 +74,10 @@ class TestGenerateMusic:
     def test_dispatches_to_gemini(self, tmp_path: Path):
         from pipeline.music import generate_music
 
-        with patch("pipeline.music._gemini.generate_music_gemini", return_value=tmp_path / "track.wav") as mock:
+        with patch(
+            "pipeline.music._gemini.generate_music_gemini",
+            return_value=tmp_path / "track.wav",
+        ) as mock:
             result = generate_music(
                 "family",
                 "upbeat",
@@ -94,7 +97,9 @@ class TestGenerateMusic:
     def test_passes_mood(self, tmp_path: Path):
         from pipeline.music import generate_music
 
-        with patch("pipeline.music._gemini.generate_music_gemini", return_value=None) as mock:
+        with patch(
+            "pipeline.music._gemini.generate_music_gemini", return_value=None
+        ) as mock:
             generate_music(
                 "solo",
                 "cinematic",
@@ -129,7 +134,7 @@ class TestGenerateMusicGemini:
         from pipeline.music._gemini import generate_music_gemini
 
         # Create cached file
-        cache_key = "gemini_family_upbeat_30s"
+        cache_key = "gemini_family_upbeat_30s_default"
         wav_path = tmp_path / f"{cache_key}.wav"
         wav_path.write_bytes(b"RIFF" + b"\x00" * 100)
 
@@ -163,7 +168,7 @@ class TestGenerateMusicGemini:
         assert data[8:12] == b"WAVE"
 
         # Cache metadata should exist
-        cache_meta = tmp_path / "gemini_family_upbeat_1s.json"
+        cache_meta = tmp_path / "gemini_family_upbeat_1s_default.json"
         assert cache_meta.exists()
         meta = json.loads(cache_meta.read_text())
         assert meta["backend"] == "gemini"
@@ -226,7 +231,11 @@ class TestGenerateMusicGemini:
 
 class TestGenerateMusicForEdl:
     def _make_workspace(
-        self, tmp_path: Path, music_mode: str = "auto", music_file: str | None = None, music_mood: str = ""
+        self,
+        tmp_path: Path,
+        music_mode: str = "auto",
+        music_file: str | None = None,
+        music_mood: str = "",
     ) -> Path:
         """Create workspace with EDL."""
         from pipeline.edl import EDL, EditItem, MusicTrack, Segment
@@ -247,7 +256,13 @@ class TestGenerateMusicForEdl:
                 Segment(
                     name="test",
                     music_mood=music_mood,
-                    items=[EditItem(source_file="test.jpg", media_type="photo", display_duration=10.0)],
+                    items=[
+                        EditItem(
+                            source_file="test.jpg",
+                            media_type="photo",
+                            display_duration=10.0,
+                        )
+                    ],
                 )
             ],
         )
@@ -282,7 +297,9 @@ class TestGenerateMusicForEdl:
         music_file = tmp_path / "existing.wav"
         music_file.write_bytes(b"RIFF" + b"\x00" * 100)
 
-        ws = self._make_workspace(tmp_path, music_mode="auto", music_file=str(music_file))
+        ws = self._make_workspace(
+            tmp_path, music_mode="auto", music_file=str(music_file)
+        )
         cfg = Config.load(str(ws))
         result = generate_music_for_edl(cfg)
         assert result == music_file
@@ -291,10 +308,14 @@ class TestGenerateMusicForEdl:
         from pipeline.config import Config
         from pipeline.music import generate_music_for_edl
 
-        ws = self._make_workspace(tmp_path, music_mode="auto", music_mood="gentle piano")
+        ws = self._make_workspace(
+            tmp_path, music_mode="auto", music_mood="gentle piano"
+        )
         cfg = Config.load(str(ws))
 
-        with patch("pipeline.music._orchestrate.generate_music", return_value=None) as mock:
+        with patch(
+            "pipeline.music._orchestrate.generate_music", return_value=None
+        ) as mock:
             generate_music_for_edl(cfg)
 
         mock.assert_called_once()
@@ -313,7 +334,9 @@ class TestGenerateMusicForEdl:
         fake_track = tmp_path / "track.wav"
         fake_track.write_bytes(b"RIFF" + b"\x00" * 100)
 
-        with patch("pipeline.music._orchestrate.generate_music", return_value=fake_track):
+        with patch(
+            "pipeline.music._orchestrate.generate_music", return_value=fake_track
+        ):
             result = generate_music_for_edl(cfg)
 
         assert result is not None

@@ -150,6 +150,23 @@ All candidates:"""
     n_dedup = deduplicate_items(edl)
     items_after = len(edl.all_items())
 
+    # Log post-processing summary at INFO
+    pp_parts = []
+    if n_path_removed:
+        pp_parts.append(f"{n_path_removed} bad paths removed")
+    if n_trim_fixed:
+        pp_parts.append(f"{n_trim_fixed} trims clamped")
+    if n_trim_removed:
+        pp_parts.append(f"{n_trim_removed} bad trims removed")
+    if n_dedup:
+        pp_parts.append(f"{n_dedup} duplicates removed")
+    if pp_parts:
+        logger.info(
+            f"Post-processing: {', '.join(pp_parts)} ({items_before} → {items_after} items)"
+        )
+    else:
+        logger.info(f"Post-processing: no changes ({items_after} items)")
+
     # Rich post-processing diff
     try:
         import sys
