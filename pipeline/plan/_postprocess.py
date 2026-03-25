@@ -87,7 +87,8 @@ def parse_and_convert_timestamps(
                             )
                     item["start_time"] = round(local_start, 1)
                     item["end_time"] = round(local_end, 1)
-                    item["display_duration"] = round(local_end - local_start, 1)
+                    speed = item.get("playback_speed") or 1.0
+                    item["display_duration"] = round((local_end - local_start) / speed, 1)
                     n_converted += 1
                     logger.info(
                         "  Preview %s-%s → clip #%s trim %s-%ss (%ss)",
