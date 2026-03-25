@@ -53,7 +53,7 @@ def _build_composite_music(
     segment_tracks: [(segment_duration, music_wav_path), ...]
     Returns True on success.
     """
-    from ..media_utils import run_subprocess
+    from ..utils.media import run_subprocess
 
     if not segment_tracks:
         return False

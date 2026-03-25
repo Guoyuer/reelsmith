@@ -2,24 +2,113 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
     from .config import Config
 
 
+# ---------------------------------------------------------------------------
+# Enumerations — single source of truth for valid string values
+# ---------------------------------------------------------------------------
+
+
+class MediaType(StrEnum):
+    PHOTO = "photo"
+    VIDEO = "video"
+
+
+class Effect(StrEnum):
+    KEN_BURNS_IN = "ken_burns_in"
+    KEN_BURNS_OUT = "ken_burns_out"
+    KEN_BURNS_LEFT = "ken_burns_left"
+    KEN_BURNS_RIGHT = "ken_burns_right"
+    STATIC = "static"
+    NONE = "none"
+
+
+class Transition(StrEnum):
+    CROSSFADE = "crossfade"
+    CUT = "cut"
+    FADE_BLACK = "fade_black"
+    WIPE_LEFT = "wipe_left"
+    DISSOLVE = "dissolve"
+    SMOOTHLEFT = "smoothleft"
+    SMOOTHRIGHT = "smoothright"
+    CIRCLECROP = "circlecrop"
+    FADEWHITE = "fadewhite"
+
+
+class SegmentTransition(StrEnum):
+    FADE_BLACK = "fade_black"
+    CROSSFADE = "crossfade"
+    WIPE_LEFT = "wipe_left"
+    DISSOLVE = "dissolve"
+    CUT = "cut"
+    FADEWHITE = "fadewhite"
+
+
+class ColorTemp(StrEnum):
+    WARM = "warm"
+    COOL = "cool"
+    NEUTRAL = "neutral"
+
+
+class SegmentMode(StrEnum):
+    NARRATIVE = "narrative"
+    MONTAGE = "montage"
+
+
+class OverlayPosition(StrEnum):
+    TOP = "top"
+    CENTER = "center"
+    BOTTOM = "bottom"
+
+
+class MusicMode(StrEnum):
+    NONE = "none"
+    AUTO = "auto"
+    FILE = "file"
+
+
+class IntroStyle(StrEnum):
+    TITLE_CARD = "title_card"
+    NONE = "none"
+
+
+class OutroStyle(StrEnum):
+    FADE_TITLE = "fade_title"
+    NONE = "none"
+
+
+class Language(StrEnum):
+    EN = "en"
+    CN = "cn"
+    BOTH = "both"
+
+
+# ---------------------------------------------------------------------------
+# Data models
+# ---------------------------------------------------------------------------
+
+
 class TextOverlay(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
     text: str
-    position: Literal["top", "center", "bottom"] = "bottom"
+    position: OverlayPosition = OverlayPosition.BOTTOM
     font_size: int = 48
 
 
 class EditItem(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
     source_file: str
-    media_type: Literal["photo", "video"]
+    media_type: MediaType
     start_time: float | None = None  # video trim start (seconds)
     end_time: float | None = None  # video trim end (seconds)
     display_duration: float = 4.0  # how long this item is on screen
@@ -27,18 +116,13 @@ class EditItem(BaseModel):
         False  # preserve original audio (Gemini decides from video clips)
     )
     playback_speed: float = 1.0  # 0.5=slow-mo, 1.0=normal, 1.5=fast (Gemini decides)
-    effect: Literal[
-        "ken_burns_in",
-        "ken_burns_out",
-        "ken_burns_left",
-        "ken_burns_right",
-        "static",
-        "none",
-    ] = "ken_burns_in"
+    effect: Effect = Effect.KEN_BURNS_IN
     text_overlay: TextOverlay | None = None
 
 
 class Segment(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
     name: str  # e.g. "Opening", "Marina Bay", "Hawker Food"
     narrative_rationale: str = (
         ""  # why these items, what story beat this segment serves
@@ -46,27 +130,13 @@ class Segment(BaseModel):
     music_mood: str = ""  # e.g. "warm acoustic guitar, uplifting" → Lyria per-segment
     items: list[EditItem]
     # Intra-segment transition (between items within this segment)
-    transition: Literal[
-        "crossfade",
-        "cut",
-        "fade_black",
-        "wipe_left",
-        "dissolve",
-        "smoothleft",
-        "smoothright",
-        "circlecrop",
-        "fadewhite",
-    ] = "crossfade"
+    transition: Transition = Transition.CROSSFADE
     transition_duration: float = 0.4  # seconds
     # Inter-segment transition (how this segment starts, from previous segment)
-    segment_transition: Literal[
-        "fade_black", "crossfade", "wipe_left", "dissolve", "cut", "fadewhite"
-    ] = "fade_black"
+    segment_transition: SegmentTransition = SegmentTransition.FADE_BLACK
     segment_transition_duration: float = 1.0  # seconds
-    mode: Literal["narrative", "montage"] = "narrative"  # montage = quick-cut burst
-    color_temp: Literal["warm", "cool", "neutral"] = (
-        "neutral"  # Gemini sets per segment
-    )
+    mode: SegmentMode = SegmentMode.NARRATIVE  # montage = quick-cut burst
+    color_temp: ColorTemp = ColorTemp.NEUTRAL  # Gemini sets per segment
 
 
 class MusicTrack(BaseModel):
@@ -77,24 +147,24 @@ class MusicTrack(BaseModel):
 
 
 class EDL(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
     title: str
     target_duration: float  # desired total length in seconds
     segments: list[Segment]
     music: MusicTrack | None = None
-    music_mode: Literal["none", "auto", "file"] = (
-        "none"  # auto = generate in generate_music step
-    )
+    music_mode: MusicMode = MusicMode.NONE  # auto = generate in generate_music step
     music_duck_ratio: float = (
         0.3  # during speech: music volume *= this (0.0=silent, 1.0=full)
     )
     trip_type: str = "family"  # used by assemble for music generation prompt
     style: str = "upbeat"  # used by assemble for music generation prompt
-    intro_style: Literal["title_card", "none"] = "title_card"
+    intro_style: IntroStyle = IntroStyle.TITLE_CARD
     intro_duration: float = 3.0  # seconds for intro clip
-    outro_style: Literal["fade_title", "none"] = "fade_title"
+    outro_style: OutroStyle = OutroStyle.FADE_TITLE
     outro_duration: float = 3.0  # seconds for outro clip
     date_range: str = ""  # e.g. "June 13-16, 2025" for title card
-    language: Literal["en", "cn", "both"] = "en"  # text language: en/cn/both
+    language: Language = Language.EN  # text language: en/cn/both
 
     def all_items(self) -> list[EditItem]:
         return [item for seg in self.segments for item in seg.items]

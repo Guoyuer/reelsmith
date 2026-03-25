@@ -1,4 +1,4 @@
-"""Tests for pipeline.image_utils — thumbnail generation and HEIC support."""
+"""Tests for pipeline.utils.image — thumbnail generation and HEIC support."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from PIL import Image
 
 class TestGenerateThumbnail:
     def test_creates_thumbnail(self, tmp_path):
-        from pipeline.image_utils import generate_thumbnail
+        from pipeline.utils.image import generate_thumbnail
 
         src = tmp_path / "photo.jpg"
         Image.new("RGB", (4000, 3000), "blue").save(src, "JPEG")
@@ -24,7 +24,7 @@ class TestGenerateThumbnail:
         assert max(img.size) <= 400
 
     def test_skips_existing_thumbnail(self, tmp_path):
-        from pipeline.image_utils import generate_thumbnail
+        from pipeline.utils.image import generate_thumbnail
 
         src = tmp_path / "photo.jpg"
         Image.new("RGB", (100, 100), "red").save(src, "JPEG")
@@ -44,7 +44,7 @@ class TestGenerateThumbnail:
         assert result2.stat().st_mtime == mtime1
 
     def test_handles_heic(self, tmp_path):
-        from pipeline.image_utils import generate_thumbnail
+        from pipeline.utils.image import generate_thumbnail
 
         # Create a fake HEIC (just test the path logic — actual conversion tested elsewhere)
         src = tmp_path / "photo.heic"

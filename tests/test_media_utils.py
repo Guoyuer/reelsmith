@@ -1,4 +1,4 @@
-"""Tests for pipeline.media_utils and pipeline.image_utils."""
+"""Tests for pipeline.utils.media and pipeline.utils.image."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import pipeline.image_utils as _img_utils
-from pipeline.image_utils import convert_heic
-from pipeline.media_utils import probe_duration, run_subprocess, strip_markdown_fences
+import pipeline.utils.image as _img_utils
+from pipeline.utils.image import convert_heic
+from pipeline.utils.media import probe_duration, run_subprocess, strip_markdown_fences
 
 
 @pytest.fixture(autouse=True)
@@ -69,7 +69,7 @@ class TestConvertHeicCallsSips:
                 "shutil.which",
                 side_effect=lambda x: "/usr/bin/sips" if x == "sips" else None,
             ),
-            patch("pipeline.image_utils.run_subprocess", side_effect=mock_run),
+            patch("pipeline.utils.image.run_subprocess", side_effect=mock_run),
             patch.dict("sys.modules", {"pillow_heif": None}),
         ):
             jpeg = convert_heic(heic_file)
@@ -91,7 +91,7 @@ class TestConvertHeicSkipsExisting:
         jpeg_path = tmp_path / f"_converted_{heic_file.stem}.jpg"
         jpeg_path.write_bytes(b"\xff\xd8" + b"\x00" * 50)
 
-        with patch("pipeline.image_utils.run_subprocess") as mock_run:
+        with patch("pipeline.utils.image.run_subprocess") as mock_run:
             result = convert_heic(heic_file)
 
         mock_run.assert_not_called()
@@ -133,17 +133,17 @@ class TestProbeDuration:
     def test_returns_duration(self):
         fake = MagicMock()
         fake.stdout = "123.45\n"
-        with patch("pipeline.media_utils.run_subprocess", return_value=fake):
+        with patch("pipeline.utils.media.run_subprocess", return_value=fake):
             assert probe_duration(Path("/fake.mp4")) == 123.45
 
     def test_handles_empty_output(self):
         fake = MagicMock()
         fake.stdout = "\n"
-        with patch("pipeline.media_utils.run_subprocess", return_value=fake):
+        with patch("pipeline.utils.media.run_subprocess", return_value=fake):
             assert probe_duration(Path("/fake.mp4")) == 0.0
 
     def test_handles_bad_output(self):
         fake = MagicMock()
         fake.stdout = "not a number\n"
-        with patch("pipeline.media_utils.run_subprocess", return_value=fake):
+        with patch("pipeline.utils.media.run_subprocess", return_value=fake):
             assert probe_duration(Path("/fake.mp4")) == 0.0

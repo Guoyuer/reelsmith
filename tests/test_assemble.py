@@ -175,7 +175,7 @@ def _patch_validation(**kwargs):
     with (
         patch("pipeline.assemble._assemble.run_subprocess", side_effect=mock_fn),
         patch("pipeline.assemble._encoder.run_subprocess", side_effect=mock_fn),
-        patch("pipeline.media_utils.run_subprocess", side_effect=mock_fn),
+        patch("pipeline.utils.media.run_subprocess", side_effect=mock_fn),
     ):
         yield RenderContext(w=1920, h=1080, fps=30)
 

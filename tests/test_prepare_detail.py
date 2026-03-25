@@ -83,8 +83,8 @@ class TestPrepareVideo:
 
         cache_file = tmp_path / "cache" / "1.json"
         cache_file.parent.mkdir(parents=True, exist_ok=True)
-        with patch("pipeline.prepare.run_subprocess", side_effect=fake_run):
-            with patch("pipeline.prepare._has_dense_keyframes", return_value=True):
+        with patch("pipeline.prepare._prepare.run_subprocess", side_effect=fake_run):
+            with patch("pipeline.prepare._prepare._has_dense_keyframes", return_value=True):
                 _prepare_video(entry, 1, str(tmp_path / "video.mp4"), cache_file, 1, 1)
 
         assert (
@@ -179,7 +179,7 @@ class TestHasDenseKeyframes:
         fake = MagicMock()
         # Keyframes at 0, 1, 2, 3 seconds (1s interval = dense)
         fake.stdout = "0.000000,K_\n1.000000,K_\n2.000000,K_\n3.000000,K_\n"
-        with patch("pipeline.prepare.run_subprocess", return_value=fake):
+        with patch("pipeline.prepare._prepare.run_subprocess", return_value=fake):
             assert _has_dense_keyframes("/fake/video.mp4") is True
 
     def test_sparse_keyframes_returns_false(self):
@@ -188,7 +188,7 @@ class TestHasDenseKeyframes:
         fake = MagicMock()
         # Keyframes at 0, 5, 10 seconds (5s interval = sparse)
         fake.stdout = "0.000000,K_\n5.000000,K_\n10.000000,K_\n"
-        with patch("pipeline.prepare.run_subprocess", return_value=fake):
+        with patch("pipeline.prepare._prepare.run_subprocess", return_value=fake):
             assert _has_dense_keyframes("/fake/video.mp4") is False
 
     def test_too_few_keyframes_returns_false(self):
@@ -196,14 +196,14 @@ class TestHasDenseKeyframes:
 
         fake = MagicMock()
         fake.stdout = "0.000000,K_\n"
-        with patch("pipeline.prepare.run_subprocess", return_value=fake):
+        with patch("pipeline.prepare._prepare.run_subprocess", return_value=fake):
             assert _has_dense_keyframes("/fake/video.mp4") is False
 
     def test_probe_failure_returns_false(self):
         from pipeline.prepare import _has_dense_keyframes
 
         with patch(
-            "pipeline.prepare.run_subprocess",
+            "pipeline.prepare._prepare.run_subprocess",
             side_effect=RuntimeError("ffprobe failed"),
         ):
             assert _has_dense_keyframes("/fake/video.mp4") is False
@@ -225,7 +225,7 @@ class TestGenerateVideoPreview:
         video_items = [
             {"id": 123, "local_path": "/fake/video.mp4", "video_duration": 30}
         ]
-        with patch("pipeline.prepare.run_subprocess") as mock_run:
+        with patch("pipeline.prepare._prepare.run_subprocess") as mock_run:
             _generate_video_previews(video_items, preview_dir)
         # Should not call ffmpeg since preview exists
         mock_run.assert_not_called()
@@ -252,6 +252,6 @@ class TestGenerateVideoPreview:
             result.returncode = 0
             return result
 
-        with patch("pipeline.prepare.run_subprocess", side_effect=fake_run):
-            with patch("pipeline.prepare._has_dense_keyframes", return_value=False):
+        with patch("pipeline.prepare._prepare.run_subprocess", side_effect=fake_run):
+            with patch("pipeline.prepare._prepare._has_dense_keyframes", return_value=False):
                 _generate_video_previews(video_items, preview_dir, force=True)

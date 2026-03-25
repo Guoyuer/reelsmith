@@ -112,7 +112,7 @@ def _extract_date(path: Path) -> datetime | None:
     if path.suffix.lower() in VIDEO_EXTENSIONS:
         # Use ffprobe to get creation_time from video metadata
         try:
-            from ..media_utils import run_subprocess
+            from ..utils.media import run_subprocess
 
             result = run_subprocess(
                 [

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .._types import AnalysisEntry, PreprocessedData
 from ..config import Config
-from ..media_utils import probe_duration, run_subprocess
+from ..utils.media import probe_duration, run_subprocess
 from ._prompts import _secs_to_timestamp
 
 logger = logging.getLogger("vlog.plan")

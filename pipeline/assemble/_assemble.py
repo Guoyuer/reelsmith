@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ..config import Config, ProgressCallback
 from ..edl import EDL, load_latest_edl, validate_edl
-from ..media_utils import run_subprocess
+from ..utils.media import run_subprocess
 from ._audio import beat_snap_edl, write_chapters
 from ._encoder import RenderContext
 from ._graph import build_segment_graph, compute_fade_params
@@ -214,7 +214,7 @@ def _render_segments(
         )
 
     # Render segments in parallel (3 NVENC sessions max)
-    from ..parallel import run_parallel
+    from ..utils.parallel import run_parallel
 
     max_workers = 3 if "nvenc" in " ".join(ctx.get_encoder()) else 2
 
@@ -420,7 +420,7 @@ def _render_title_card_if_needed(edl, kind, path, ctx, res_label) -> Path | None
 
 
 def _find_first_photo(edl: EDL) -> str | None:
-    from ..image_utils import convert_heic
+    from ..utils.image import convert_heic
 
     for seg in edl.segments:
         for item in seg.items:

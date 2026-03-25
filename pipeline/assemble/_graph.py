@@ -70,7 +70,7 @@ def build_segment_graph(
 
         # HEIC conversion for photos (FFmpeg can't -loop 1 with HEIC)
         if item.media_type == "photo" and source.suffix.lower() in {".heic", ".heif"}:
-            from ..image_utils import convert_heic
+            from ..utils.image import convert_heic
 
             source = convert_heic(source)
 
