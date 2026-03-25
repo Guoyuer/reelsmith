@@ -81,7 +81,7 @@ def drawtext_filter(
         font_size = max(font_size, int(out_h * 0.055))
     if len(text) > 20:
         font_size = int(font_size * 20 / len(text))
-    end_time = min(clip_duration - 0.5, 3.0)
+    end_time = max(1.0, clip_duration * 0.6)
     font = find_font(language)
     font_arg = f":fontfile='{font}'" if font else ""
     return (
