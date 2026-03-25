@@ -239,7 +239,7 @@ def _gemini_call(
     # Build config and call API
     config_kwargs: dict = {
         "system_instruction": system,
-        "max_output_tokens": 32000,
+        "max_output_tokens": 65536,
         "temperature": 0.7,
         "media_resolution": types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
     }
