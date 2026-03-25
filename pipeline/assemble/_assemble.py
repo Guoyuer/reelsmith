@@ -114,7 +114,7 @@ def assemble(
     for i in val_issues:
         level = "ERROR" if i["level"] == "error" else "WARNING"
         logger.info("  %s [%s]: %s", level, i["check"], i["message"])
-    if not [i for i in val_issues if i["level"] == "error"]:
+    if not any(i["level"] == "error" for i in val_issues):
         logger.info("Validation: all checks passed")
 
     # Rich validation panel to terminal
@@ -368,10 +368,8 @@ def _concat_and_mix(
             str(output_path),
         ]
         result = run_subprocess(cmd, capture_output=True, text=True, timeout=600)
-        if result.returncode != 0 and not output_path.exists():
-            raise RuntimeError(f"Music mix failed: {result.stderr}")
         if not output_path.exists() or output_path.stat().st_size < 1024:
-            raise RuntimeError(f"Music mix produced no output: {result.stderr}")
+            raise RuntimeError(f"Music mix failed: {result.stderr}")
 
         nomix_path.unlink(missing_ok=True)
 

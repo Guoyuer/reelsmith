@@ -63,51 +63,28 @@ def detect_hw_encoder(
             logger.debug("HEVC VideoToolbox probe failed: %s", e)
         return ["-c:v", "h264_videotoolbox", "-b:v", h264_br]
 
+    def _try_nvenc(codec: str, bitrate: str) -> list[str] | None:
+        test = run_subprocess(
+            _test_cmd + ["-c:v", codec, "-f", "null", "-"],
+            capture_output=True,
+            text=True,
+        )
+        if test.returncode == 0:
+            return ["-c:v", codec, "-preset", "p4", "-rc", "vbr",
+                    "-b:v", bitrate, "-maxrate", bitrate]
+        return None
+
     try:
         result = run_subprocess(
             ["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True
         )
         encoders = result.stdout or ""
 
-        if "hevc_nvenc" in encoders:
-            test = run_subprocess(
-                _test_cmd + ["-c:v", "hevc_nvenc", "-f", "null", "-"],
-                capture_output=True,
-                text=True,
-            )
-            if test.returncode == 0:
-                return [
-                    "-c:v",
-                    "hevc_nvenc",
-                    "-preset",
-                    "p4",
-                    "-rc",
-                    "vbr",
-                    "-b:v",
-                    hevc_br,
-                    "-maxrate",
-                    hevc_br,
-                ]
-
-        if "h264_nvenc" in encoders:
-            test = run_subprocess(
-                _test_cmd + ["-c:v", "h264_nvenc", "-f", "null", "-"],
-                capture_output=True,
-                text=True,
-            )
-            if test.returncode == 0:
-                return [
-                    "-c:v",
-                    "h264_nvenc",
-                    "-preset",
-                    "p4",
-                    "-rc",
-                    "vbr",
-                    "-b:v",
-                    h264_br,
-                    "-maxrate",
-                    h264_br,
-                ]
+        for codec, br in [("hevc_nvenc", hevc_br), ("h264_nvenc", h264_br)]:
+            if codec in encoders:
+                enc = _try_nvenc(codec, br)
+                if enc:
+                    return enc
     except (OSError, subprocess.SubprocessError) as e:
         logger.debug("HW encoder probe failed: %s", e)
 
