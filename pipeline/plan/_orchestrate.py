@@ -10,6 +10,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ..config import Config
 from ..edl import EDL, MusicTrack, find_latest_version, save_edl
@@ -60,8 +61,8 @@ class PlanConfig:
 
 def _plan_visual(
     cfg: Config,
-    preprocessed: dict,
-    analysis_by_id: dict,
+    preprocessed: dict[str, Any],
+    analysis_by_id: dict[str, Any],
     pc: PlanConfig,
     *,
     progress_callback=None,
@@ -167,7 +168,7 @@ All candidates:"""
 
     system_prompt = _visual_system_prompt(pc.trip_type, language=pc.language)
 
-    model_kwargs: dict = {}
+    model_kwargs: dict[str, Any] = {}
     if pc.model:
         model_kwargs["model"] = pc.model
     if pc.thinking_level:
@@ -274,7 +275,7 @@ def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, i
     effective_focus = pc.focus or _default_focus(pc.trip_type)
     preprocessed = json.loads(cfg.preprocessed_path.read_text())
     analysis_items = load_analysis(cfg)
-    analysis_by_id: dict[str, dict] = {str(a["id"]): a for a in analysis_items}
+    analysis_by_id: dict[str, Any] = {str(a["id"]): a for a in analysis_items}
 
     # Use a copy with effective_focus applied so _plan_visual gets the resolved focus
     visual_pc = PlanConfig(

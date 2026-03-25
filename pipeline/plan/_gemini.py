@@ -11,6 +11,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger("vlog.plan")
 
@@ -132,7 +133,7 @@ def _parse_response(response) -> str:
     return content
 
 
-def _edl_response_schema() -> dict:
+def _edl_response_schema() -> dict[str, Any]:
     """JSON schema for Gemini's EDL response (structured output).
 
     Uses preview_start/preview_end (MM:SS strings) which postprocessing
@@ -316,7 +317,7 @@ def _gemini_call(
     t0 = time.monotonic()
 
     # Build config and call API
-    config_kwargs: dict = {
+    config_kwargs: dict[str, Any] = {
         "system_instruction": system,
         "max_output_tokens": 65536,
         "temperature": 1.0,  # Gemini 3 default; lower values degrade reasoning

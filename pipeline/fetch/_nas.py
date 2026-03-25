@@ -6,6 +6,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -39,7 +40,7 @@ def fetch(cfg: Config, fc: FetchConfig, *, progress_callback=None) -> list[dict]
     raw_dir = cfg.media_dir
 
     # Build collect request
-    body: dict = {}
+    body: dict[str, Any] = {}
     if fc.from_date:
         body["from_date"] = fc.from_date
     if fc.to_date:
@@ -57,7 +58,7 @@ def fetch(cfg: Config, fc: FetchConfig, *, progress_callback=None) -> list[dict]
 
     # Load previous manifest for metadata cache (avoids re-fetching /api/meta per item)
     manifest_path = cfg.manifest_path
-    prev_meta: dict[int, dict] = {}
+    prev_meta: dict[int, dict[str, Any]] = {}
     if manifest_path.exists():
         try:
             for entry in json.loads(manifest_path.read_text()):

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -54,8 +55,8 @@ def _latest_mtime(path) -> float:
     return latest
 
 
-def _run_detail(run_dir) -> dict:
-    info: dict = {"name": run_dir.name, "path": run_dir}
+def _run_detail(run_dir: Path) -> dict[str, Any]:
+    info: dict[str, Any] = {"name": run_dir.name, "path": run_dir}
     size, count = _dir_size(run_dir)
     info["size"] = size
     info["file_count"] = count

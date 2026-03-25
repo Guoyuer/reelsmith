@@ -12,6 +12,7 @@ import logging
 import math
 import re
 from pathlib import Path
+from typing import Any
 
 from ..config import Config
 from ..media_utils import probe_duration, run_subprocess
@@ -142,7 +143,7 @@ def _dedup_burst_photos(
     return kept + others
 
 
-def _build_item_text(idx: int, a: dict) -> tuple[str, Path | None]:
+def _build_item_text(idx: int, a: dict[str, Any]) -> tuple[str, Path | None]:
     """Build text metadata for one item. Returns (text_line, photo_path_or_None)."""
     local_path = a.get("local_path", "")
     media = a.get("media_type", "photo")
@@ -288,7 +289,7 @@ def _concat_previews(
 
 
 def _collect_items(
-    analysis_by_id: dict,
+    analysis_by_id: dict[str, Any],
     cfg: Config,
     preview_dir: Path,
 ) -> tuple[str, list[Path], list[tuple[int, float, Path]], int, int]:
@@ -383,12 +384,12 @@ def _build_mega_preview(
 
 
 def _build_visual_content_blocks(
-    preprocessed: dict,
-    analysis_by_id: dict,
+    preprocessed: dict[str, Any],
+    analysis_by_id: dict[str, Any],
     cfg: Config,
     *,
     force: bool = False,
-) -> tuple[list, list[tuple[int, float, float]]]:
+) -> tuple[list, list[tuple[int, float, float]], int, int]:
     """Build flat multimodal content: text metadata + photos + mega video preview.
 
     Items are sent as a flat numbered list.

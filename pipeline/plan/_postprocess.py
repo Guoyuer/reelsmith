@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from ..edl import EDL, validate_edl
 from ._prompts import _timestamp_to_secs
@@ -165,7 +166,7 @@ def fix_hallucinated_paths(edl: EDL, media_dir: Path) -> int:
     return removed_count
 
 
-def validate_trim_points(edl: EDL, analysis_by_id: dict) -> tuple[int, int]:
+def validate_trim_points(edl: EDL, analysis_by_id: dict[str, Any]) -> tuple[int, int]:
     """Clamp or remove invalid video trim points. Returns (fixed, removed) counts."""
     trim_fixed = 0
     trim_removed = 0
@@ -173,37 +174,40 @@ def validate_trim_points(edl: EDL, analysis_by_id: dict) -> tuple[int, int]:
         valid_items = []
         for item in seg.items:
             if item.media_type == "video" and item.start_time is not None:
-                vid_dur = analysis_by_id.get(
-                    next(
-                        (
-                            aid
-                            for aid, a in analysis_by_id.items()
-                            if a.get("local_path") == item.source_file
-                        ),
-                        None,
+                matched_id = next(
+                    (
+                        aid
+                        for aid, a in analysis_by_id.items()
+                        if a.get("local_path") == item.source_file
                     ),
-                    {},
-                ).get("video_duration")
+                    None,
+                )
+                vid_dur = (
+                    analysis_by_id[matched_id].get("video_duration")
+                    if matched_id is not None
+                    else None
+                )
                 if vid_dur and vid_dur > 0:
                     changed = False
-                    if item.start_time >= vid_dur:
-                        item.start_time = max(vid_dur - 2, 0)
+                    st = item.start_time
+                    et = item.end_time
+                    if st >= vid_dur:
+                        st = max(vid_dur - 2, 0)
                         changed = True
-                    if item.end_time is not None and item.end_time > vid_dur:
-                        item.end_time = vid_dur
+                    if et is not None and et > vid_dur:
+                        et = vid_dur
                         changed = True
                     # Ensure minimum 2s trim after clamping
-                    if (
-                        item.end_time is not None
-                        and item.end_time - item.start_time < 2.0
-                    ):
+                    if et is not None and et - st < 2.0:
                         # Try widening: move start earlier, then end later
-                        needed = 2.0 - (item.end_time - item.start_time)
-                        item.start_time = max(0, item.start_time - needed)
-                        if item.end_time - item.start_time < 2.0:
-                            item.end_time = min(item.start_time + 2.0, vid_dur)
+                        needed = 2.0 - (et - st)
+                        st = max(0, st - needed)
+                        if et - st < 2.0:
+                            et = min(st + 2.0, vid_dur)
                         changed = True
-                    if item.end_time is not None and item.start_time >= item.end_time:
+                    item.start_time = st
+                    item.end_time = et
+                    if et is not None and st >= et:
                         logger.info(
                             "  Trim removal: %s start=%.1f >= end=%.1f (duration=%.1fs)",
                             Path(item.source_file).name,

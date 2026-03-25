@@ -18,6 +18,7 @@ import os
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .config import Config
 from .image_utils import generate_thumbnail
@@ -89,7 +90,7 @@ def load_analysis(cfg: Config) -> list[dict]:
 
 def prepare(
     cfg: Config, pc: PrepareConfig | None = None, *, progress_callback=None
-) -> dict:
+) -> dict[str, Any]:
     """Prepare all media for Gemini visual planning.
 
     1. Read manifest, detect family
@@ -482,7 +483,7 @@ def _prepare_video(entry, item_id, local_path, cache_file, i, total):
     )
 
 
-def _read_exif(path) -> dict:
+def _read_exif(path: str | Path) -> dict[str, Any]:
     """Extract EXIF metadata from a photo (supports JPEG, HEIC, etc.)."""
     try:
         from PIL import Image

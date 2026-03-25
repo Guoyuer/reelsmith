@@ -6,6 +6,7 @@ import json
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -19,7 +20,7 @@ TRIP_TYPES = {
 }
 
 
-def _load_json(name: str) -> dict:
+def _load_json(name: str) -> dict[str, Any]:
     """Load a JSON file from the prompts directory."""
     path = _PROMPTS_DIR / name
     if not path.exists():
@@ -28,12 +29,12 @@ def _load_json(name: str) -> dict:
 
 
 @lru_cache(maxsize=1)
-def _load_narrative_guidance() -> dict:
+def _load_narrative_guidance() -> dict[str, Any]:
     return _load_json("narrative_guidance.json")
 
 
 @lru_cache(maxsize=1)
-def _load_lang_instructions() -> dict:
+def _load_lang_instructions() -> dict[str, Any]:
     return _load_json("lang_instructions.json")
 
 
