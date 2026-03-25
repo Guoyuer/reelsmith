@@ -64,13 +64,13 @@ SYNOLOGY_PASS=your-pass
 
 ```bash
 # Full pipeline from local photos
-python run.py -n singapore full -s local -p ./photos -r 4k60 \
-  --duration 180 --style cinematic \
+vlog full -n singapore -s local -p ./photos -r 4k60 \
+  --duration 180 --model balanced --style cinematic \
   --focus "happiness of family trip; exotic scenes of Singapore"
 
 # Full pipeline from NAS
-python run.py -n singapore full -s nas -f 2025-06-13 -t 2025-06-17 -r 1080p30 \
-  --duration 180 --lang cn
+vlog full -n singapore -s nas -f 2025-06-13 -t 2025-06-17 -r 1080p30 \
+  --duration 180 --model balanced --lang cn
 ```
 
 ### Iteration workflow
@@ -79,33 +79,33 @@ Use low-res to iterate quickly, then do a final 4K render:
 
 ```bash
 # 1. Fast preview (~1min render) — check if story works
-python run.py -n sg-draft full -s nas -f 2025-06-13 -t 2025-06-17 -r 720p30 \
-  --duration 180 --style energetic --quality 0.3
+vlog full -n sg-draft -s nas -f 2025-06-13 -t 2025-06-17 -r 720p30 \
+  --duration 180 --model fast --style energetic --bitrate 0.3
 
 # 2. Happy with the edit? Re-plan with tweaks
-python run.py -n sg-draft plan --style cinematic --duration 120
+vlog plan -n sg-draft --style cinematic --duration 120 --model balanced
 
 # 3. Final 4K render
-python run.py -n sg-draft assemble -r 4k60
+vlog assemble -n sg-draft -r 4k60
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `python run.py -n <name> full ...` | Full pipeline end-to-end |
-| `python run.py -n <name> prepare ...` | Fetch + prepare media only |
-| `python run.py -n <name> plan ...` | Re-plan (reuses cached media) |
-| `python run.py -n <name> assemble -r <res>` | Re-render from current EDL |
-| `python run.py workspace` | Show disk usage |
-| `python run.py workspace --clean all -y` | Delete all workspace data |
+| `vlog full -n <name> ...` | Full pipeline end-to-end |
+| `vlog prepare -n <name> ...` | Fetch + prepare media only |
+| `vlog plan -n <name> ...` | Re-plan (reuses cached media) |
+| `vlog assemble -n <name> -r <res>` | Re-render from current EDL |
+| `vlog workspace` | Show disk usage |
+| `vlog workspace --clean all -y` | Delete all workspace data |
 
 The `-n` / `--run-name` flag isolates each run in `workspace/runs/<name>/`.
 
 ### Full pipeline flags
 
 ```
-python run.py -n <name> full [OPTIONS]
+vlog full -n <name> [OPTIONS]
 ```
 
 **Source (required):**
@@ -134,12 +134,13 @@ python run.py -n <name> full [OPTIONS]
 | `--focus` | — | free text | What to emphasize (e.g. `"family happiness; street food"`) |
 | `--lang` | `en` | `en`, `cn`, `both` | Text language for title, overlays, chapters |
 
-**Planning:**
+**Planning (required):**
 
 | Flag | Default | Values | Description |
 |------|---------|--------|-------------|
+| `--model` | — (required) | `fast`, `balanced`, `quality`, or `model:thinking` | Preset or custom Gemini model. `fast`=3.1-flash-lite, `balanced`=3-flash, `quality`=3.1-pro. Custom: `gemini-2.5-flash:medium` |
+| `--duration` | — (required) | seconds | Target vlog length |
 | `--style` | `upbeat` | `upbeat`, `cinematic`, `reflective`, `energetic` | Pacing, transitions, music mood |
-| `--duration` | `60` | seconds | Target vlog length |
 
 **Music:**
 
@@ -151,30 +152,28 @@ python run.py -n <name> full [OPTIONS]
 
 | Flag | Description |
 |------|-------------|
-| `--quality` | Bitrate multiplier: `0.5` = draft, `1.0` = YouTube (default), `2.0` = master |
-| `--tz` | UTC offset in hours (e.g. `8` for SGT, `-5` for NYC). Default: system local |
-| `--force` | Force re-analyze (ignore cached analysis.json) |
-| `--model` | Override Gemini model (default: `gemini-3-flash-preview` or `VLOG_MODEL` env var) |
+| `--bitrate` | Bitrate quality multiplier: `0.5` = draft, `1.0` = YouTube (default), `2.0` = master |
+| `--force` | Re-generate all cached data (thumbnails, video previews, EDL) |
 
 ### Examples
 
 **Family trip, cinematic, Chinese overlays:**
 ```bash
-python run.py -n singapore full -s local -p ./photos -r 4k60 \
-  --duration 180 --style cinematic --lang cn \
+vlog full -n singapore -s local -p ./photos -r 4k60 \
+  --duration 180 --model quality --style cinematic --lang cn \
   --focus "family reunion joy, parents exploring Singapore for the first time"
 ```
 
 **Solo travel montage from NAS:**
 ```bash
-python run.py -n tokyo full -s nas -f 2025-03-01 -t 2025-03-05 -r 1080p30 \
-  --trip-type solo --style energetic --duration 120 \
+vlog full -n tokyo -s nas -f 2025-03-01 -t 2025-03-05 -r 1080p30 \
+  --trip-type solo --style energetic --duration 120 --model balanced \
   --focus "street culture, neon lights, temple serenity"
 ```
 
 **Re-plan with different style (keeps cached media):**
 ```bash
-python run.py -n singapore plan --style reflective --duration 120
+vlog plan -n singapore --style reflective --duration 120 --model balanced
 ```
 
 ## Workspace Structure
@@ -184,24 +183,21 @@ workspace/
   -- Shared across all runs (cached, reused) --
   media/                          <- raw photos/videos (downloaded once)
   analysis_cache/                 <- per-file prepare results ({item_id}.json)
-  thumbnails/                     <- 600px JPEG thumbnails (prepare stage)
-  preview_clips/                  <- 360p 1fps MP4 previews sent to Gemini
-  music/                          <- generated music tracks (Lyria/MusicGen)
+  thumbnails/                     <- 400px JPEG thumbnails (prepare stage)
+  preview_clips/                  <- 480p 1fps MP4 previews sent to Gemini
+  music/                          <- generated music tracks (Lyria)
 
   -- Per-run (isolated pipeline outputs) --
   runs/
     singapore/
       manifest.json               <- fetched items list
-      preprocessed.json           <- family names + timeline
-      analysis.json               <- per-item metadata (media type, duration, EXIF)
+      preprocessed.json           <- family names
       edl_v1.json, edl_v2.json   <- versioned EDLs from Gemini
-      clips/                      <- rendered clips (resolution-tagged, e.g. seg00_item00_1080p30.mp4)
+      clips/                      <- rendered clips (resolution-tagged)
       output/
         vlog_v1_1080p30.mp4      <- final rendered vlog (resolution in filename)
         chapters_v1_1080p30.txt  <- YouTube chapter markers
-        ffmpeg_commands.log      <- all FFmpeg commands for debugging
       run_*.log                   <- pipeline log
-      run_status.json             <- stage status summary
 ```
 
 Shared files are reused across runs — a second run for the same trip skips media download, thumbnails, and preview clip generation.
@@ -216,10 +212,11 @@ prepare                          plan                             assemble
 source photo                     read thumbnail bytes             source photo (original)
 (HEIC/JPG/PNG, 3000-4000px)      → send inline to Gemini          → HEIC? convert to JPEG
   │                                                                  (cache: heic_converted/)
-  ↓                                                                → FFmpeg: Ken Burns (cosine
-PIL open (pillow-heif for HEIC)                                      eased) + color grade +
-  → resize to 400px, q70                                             text overlay (drop shadow)
-  → save as JPEG                                                   → portrait: blurred bg +
+  ↓                                                                → FFmpeg: Ken Burns (crop +
+PIL open (pillow-heif for HEIC)                                      lanczos, cosine eased) +
+  → resize to 400px, q70                                             color grade + text overlay
+  → save as JPEG                                                     (drop shadow)
+                                                                   → portrait: blurred bg +
                                                                      sharp fg overlay
 cache: thumbnails/{stem}_thumb.jpg                                 cache: clips/seg_item_{res}.mp4
 ```
@@ -235,13 +232,10 @@ source video                     read cached previews             source video (
   ↓                                (single FFmpeg call)             + color grade + text overlay
 ffprobe: duration, resolution,   → upload mega-preview             → portrait: blurred bg
   FPS, orientation                 via Files API                  → output duration =
-ffmpeg loudnorm: audio level     → send to Gemini                   source_dur / speed
-  (first 30s → silent/quiet/
-   normal/loud)                  mega-preview cached across       cache: clips/seg_item_{res}.mp4
-  → cache: analysis_cache/       plan re-runs (hash key)
+  → cache: analysis_cache/       → send to Gemini                   source_dur / speed
     {id}.json
-
-generate 360p 1fps preview
+                                 mega-preview cached across       cache: clips/seg_item_{res}.mp4
+generate 480p 1fps preview       plan re-runs (hash key)
   (with audio, for Gemini
    to watch + listen)
   → cache: preview_clips/
@@ -253,8 +247,8 @@ generate 360p 1fps preview
 | Directory | Contents | Created by | Shared across runs |
 |-----------|----------|------------|--------------------|
 | `workspace/thumbnails/` | 400px JPEG per photo | prepare | yes |
-| `workspace/analysis_cache/` | ffprobe + audio level per video | prepare | yes |
-| `workspace/preview_clips/` | 360p 1fps preview per video | prepare | yes |
+| `workspace/analysis_cache/` | ffprobe metadata per video | prepare | yes |
+| `workspace/preview_clips/` | 480p 1fps preview per video | prepare | yes |
 | `workspace/preview_clips/_mega_preview.*` | labeled concatenated preview | plan | yes (cached by hash) |
 | `workspace/heic_converted/` | full-size JPEG for HEIC photos | assemble | yes |
 | `workspace/runs/{name}/clips/` | rendered clips per resolution | assemble | no (per run) |
@@ -265,17 +259,18 @@ generate 360p 1fps preview
 Downloads photos/videos from Synology Photos API (filtered by date range, location, item types) or scans a local folder. Builds `manifest.json`.
 
 ### 2. prepare
-All heavy media processing happens here — plan and assemble only read cached outputs. Generates thumbnails, video metadata, audio levels, and 360p previews. Also: family member auto-detection (NAS face data), timeline construction (day → time_block → location).
+All heavy media processing happens here — plan and assemble only read cached outputs. Generates thumbnails, video metadata, and 480p previews. Also: family member auto-detection (NAS face data).
 
 ### 3. plan
-Reads cached thumbnails and previews — no heavy processing. Calls Gemini once.
+Reads cached thumbnails and previews — no heavy processing. Calls Gemini once with structured JSON output.
 
 - Reads photo thumbnail bytes directly (no PIL, no resize)
 - Burns #XX labels on video previews + concatenates into one mega-preview (single FFmpeg call, cached across plan re-runs)
 - Uploads mega-preview via Files API, sends photo thumbnails inline
 - Gemini designs narrative arc, selects items, assigns transitions/speed/audio/text
+- Uses planning presets: `fast` (3.1-flash-lite), `balanced` (3-flash), `quality` (3.1-pro)
 
-Fault tolerance: fuzzy path matching, trim point clamping, deduplication, duration validation with optional follow-up call. Outputs versioned `edl_v{N}.json`.
+Fault tolerance: fuzzy path matching, trim point clamping, deduplication, duration validation. Outputs versioned `edl_v{N}.json`.
 
 ### 4. generate_music
 Generates background music from EDL `music_mood` descriptions. Skipped when `--music none`.
@@ -285,14 +280,14 @@ Generates background music from EDL `music_mood` descriptions. Skipped when `--m
 | `auto` (default) | Gemini Lyria RealTime | ~8s for 60s | 48kHz stereo |
 
 ### 5. assemble
-Renders the final video in 4 phases:
+Renders the final video in phases:
 
-1. **Clip rendering** — parallel (3 NVENC / 2 VideoToolbox / cpu_count/2 libx264 workers). Cached per resolution.
-2. **Concatenation** — xfade transitions in groups of ≤10. 8 types: crossfade, dissolve, smoothleft, smoothright, circlecrop, fade_black, wipe_left, fadewhite.
-3. **Audio mixing** — music + speech with ducking (300ms attack, 1000ms release). Title cards with hero-photo background.
-4. **Validation** — 6 checks: file size, duration, streams, codec, A/V sync, resolution.
+1. **Segment rendering** — per-segment filter graphs with concat=v=1:a=1 for perfect A/V sync. Rendered in parallel (3 NVENC / 2 VideoToolbox workers). Opacity fades between items (controlled by `transition_duration`).
+2. **Concat + music mix** — TS demuxer concatenation (no re-encode: `-c:v copy -c:a copy`), then `sidechaincompress` dynamic ducking (200ms attack, 1000ms release). Title cards with hero-photo background.
+3. **Beat sync** — aligns transitions to music beats (autocorrelation BPM detection, half-beat grid).
+4. **Validation** — checks: file size, duration, streams, codec, resolution.
 
-Clips cached per resolution — switching from 1080p30 to 4k60 doesn't re-render existing clips. Output: `vlog_v{N}_{res}.mp4`.
+Output: `vlog_v{N}_{res}.mp4`.
 
 ## Trip Types
 
@@ -328,7 +323,7 @@ No local AI models needed — everything runs via Gemini API.
 
 | Component | Model | RAM | Notes |
 |-----------|-------|-----|-------|
-| Planning | Gemini 3 Flash (remote) | — | Sees photos + listens to videos |
+| Planning | Gemini (remote) | — | `--model` preset: fast (3.1-flash-lite), balanced (3-flash), quality (3.1-pro) |
 | Music | Lyria RealTime (remote) | — | `--music auto` |
 
 ## Testing
@@ -336,9 +331,9 @@ No local AI models needed — everything runs via Gemini API.
 ```bash
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
-python -m pytest tests/ -m "not integration"    # unit tests (~2s, 232 tests)
-python -m pytest tests/ -m integration           # integration tests (requires FFmpeg)
-python -m pytest tests/                           # all tests (255 tests)
+pytest                       # unit tests (excludes integration by default)
+pytest -m integration        # integration tests (requires FFmpeg)
+pytest -m ""                 # all tests
 ```
 
 ## How it evolved
