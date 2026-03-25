@@ -108,7 +108,9 @@ class _PipelineDisplay:
                 spinner = self._SPINNER_FRAMES[self._tick % len(self._SPINNER_FRAMES)]
                 icon = Text(spinner, style="bold cyan")
                 label = Text(name, style="bold cyan")
-                stage_elapsed = time.monotonic() - self._stage_t_start.get(s, self._t_start)
+                stage_elapsed = time.monotonic() - self._stage_t_start.get(
+                    s, self._t_start
+                )
                 if not d["subs"] and d["total"] > 0:
                     info = self._build_progress(d)
                 elif d["label"]:
@@ -164,8 +166,18 @@ class _PipelineDisplay:
             row.add_column(width=20)
             row.add_column(width=12)
             row.add_column()
-            bar = ProgressBar(total=total, completed=cur, width=20, complete_style="cyan", finished_style="green")
-            row.add_row(bar, Text(f"{cur}/{total} {cur/total:.0%}", style="cyan"), Text(label, style="dim"))
+            bar = ProgressBar(
+                total=total,
+                completed=cur,
+                width=20,
+                complete_style="cyan",
+                finished_style="green",
+            )
+            row.add_row(
+                bar,
+                Text(f"{cur}/{total} {cur/total:.0%}", style="cyan"),
+                Text(label, style="dim"),
+            )
             return row
         elif label:
             return Text(label, style="cyan")
@@ -183,8 +195,18 @@ class _PipelineDisplay:
             row.add_column(width=14)
             row.add_column(width=16)
             row.add_column()
-            bar = ProgressBar(total=total, completed=cur, width=16, complete_style="bar.complete", finished_style="green")
-            row.add_row(Text(name, style="dim cyan"), bar, Text(f"{cur}/{total} {cur/total:.0%}", style="dim cyan"))
+            bar = ProgressBar(
+                total=total,
+                completed=cur,
+                width=16,
+                complete_style="bar.complete",
+                finished_style="green",
+            )
+            row.add_row(
+                Text(name, style="dim cyan"),
+                bar,
+                Text(f"{cur}/{total} {cur/total:.0%}", style="dim cyan"),
+            )
             return row
         return Text(f"  {name}", style="dim cyan")
 
@@ -192,9 +214,14 @@ class _PipelineDisplay:
         self._current_stage = stage
         self._stage_t_start[stage] = time.monotonic()
         self._stage_data[stage].update(state="running", label="", current=0, total=0)
+        # Stage separator for file log (terminal gets Rich Rule)
+        logging.getLogger("vlog").info(f"--- {stage.replace('_', ' ')} ---")
         if self._live:
             from rich.rule import Rule
-            self._live.console.print(Rule(f"[bold]{stage.replace('_', ' ')}[/bold]", style="dim"))
+
+            self._live.console.print(
+                Rule(f"[bold]{stage.replace('_', ' ')}[/bold]", style="dim")
+            )
         self._refresh()
 
     def update(self, stage: str, detail: str) -> None:
@@ -297,7 +324,9 @@ class _PipelineDisplay:
             else:
                 footer_detail.append(p.name)
         table.add_row(
-            "[bold]total", "", f"[bold]{total_dur:.0f}s",
+            "[bold]total",
+            "",
+            f"[bold]{total_dur:.0f}s",
             "  ".join(footer_detail),
         )
 
@@ -396,8 +425,9 @@ def _progress_cb(
             d = display._stage_data.get(stage)
             if d:
                 d["label"] = name
-        # Log at ~25% intervals to file
-        if current % max(total // 4, 1) == 0 or current == total:
+        # Log at ~25% intervals to file (skip final — stage done log covers it)
+        interval = max(total // 4, 1)
+        if current % interval == 0 and current < total:
             elapsed = time.monotonic() - t0
             eta = (elapsed / current * (total - current) / 60) if current else 0
             pct = current / total * 100

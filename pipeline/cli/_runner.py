@@ -129,9 +129,6 @@ def _run_prepare(pc: _PipelineContext):
     results = load_analysis(pc.cfg)
     n_photos = sum(1 for r in results if r.get("media_type") == "photo")
     n_videos = len(results) - n_photos
-    pc.log(
-        f"Prepare: {len(results)} items ({n_photos} photos, {n_videos} videos) in {dur:.0f}s"
-    )
     pc.display.done("prepare", f"{n_photos} photos, {n_videos} videos", dur)
 
 
@@ -291,7 +288,8 @@ def _run_pipeline(
     if prepare:
         logger.info(f"  Prepare: force={prepare.force}")
     if fetch:
-        logger.info(f"  Fetch: source={getattr(fetch, 'source', '?')}")
+        src = fetch.source_dir or "nas"
+        logger.info(f"  Fetch: source={src}")
 
     pc = _PipelineContext(
         cfg=cfg,

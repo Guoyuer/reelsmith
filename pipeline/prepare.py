@@ -221,9 +221,10 @@ def prepare(
         if Path(item.get("local_path", "")).suffix.lower() not in VIDEO_EXTENSIONS
     )
     n_videos = len(manifest) - n_photos
+    n_new = len(uncached_photos) + len(uncached_videos)
+    cached_note = f", {n_new} new" if n_new else ", all cached"
     logger.info(
-        f"Prepared: {len(manifest)} items ({n_photos} photos, {n_videos} videos, "
-        f"{len(uncached_photos)} + {len(uncached_videos)} newly analyzed)"
+        f"Prepared: {len(manifest)} items ({n_photos} photos, {n_videos} videos{cached_note})"
     )
 
     # Generate video previews (cached per video, used by plan stage)
@@ -374,7 +375,15 @@ def _generate_video_previews(
     def _run_preview(cmd, path=None):
         result = run_subprocess(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            logger.warning("Preview failed for %s: %s", path, (result.stderr or ""))
+            err_lines = [
+                line
+                for line in (result.stderr or "").strip().splitlines()
+                if line.strip()
+            ]
+            err_msg = err_lines[-1].strip() if err_lines else "unknown error"
+            logger.warning(
+                "Preview failed for %s: %s", Path(path).name if path else "?", err_msg
+            )
             # Remove corrupt partial output
             if path and Path(path).exists():
                 Path(path).unlink(missing_ok=True)
