@@ -25,7 +25,7 @@ def parse_and_convert_timestamps(
     preview_offset_table: list[tuple[int, float, float]],
 ) -> EDL:
     """Parse Gemini JSON response and convert preview timestamps to trim points."""
-    edl_content = strip_markdown_fences(edl_content)
+    edl_content = strip_markdown_fences(edl_content)  # no-op for structured output
     raw = json.loads(edl_content)
 
     # Gemini sometimes puts a string in "music" instead of object/null

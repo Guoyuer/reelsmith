@@ -132,6 +132,75 @@ def _parse_response(response) -> str:
     return content
 
 
+def _edl_response_schema() -> dict:
+    """JSON schema for Gemini's EDL response (structured output).
+
+    Uses preview_start/preview_end (MM:SS strings) which postprocessing
+    converts to start_time/end_time (float seconds).
+    """
+    text_overlay_schema = {
+        "type": "OBJECT",
+        "properties": {
+            "text": {"type": "STRING"},
+            "position": {"type": "STRING", "enum": ["bottom", "center", "top"]},
+            "font_size": {"type": "INTEGER"},
+        },
+        "required": ["text"],
+    }
+    item_schema = {
+        "type": "OBJECT",
+        "properties": {
+            "source_file": {"type": "STRING"},
+            "media_type": {"type": "STRING", "enum": ["photo", "video"]},
+            "display_duration": {"type": "NUMBER"},
+            "preview_start": {"type": "STRING", "nullable": True},
+            "preview_end": {"type": "STRING", "nullable": True},
+            "effect": {
+                "type": "STRING",
+                "enum": [
+                    "ken_burns_in",
+                    "ken_burns_out",
+                    "ken_burns_left",
+                    "ken_burns_right",
+                    "static",
+                    "none",
+                ],
+            },
+            "playback_speed": {"type": "NUMBER"},
+            "keep_audio": {"type": "BOOLEAN"},
+            "text_overlay": {**text_overlay_schema, "nullable": True},
+        },
+        "required": ["source_file", "media_type", "display_duration"],
+    }
+    segment_schema = {
+        "type": "OBJECT",
+        "properties": {
+            "name": {"type": "STRING"},
+            "narrative_rationale": {"type": "STRING"},
+            "music_mood": {"type": "STRING"},
+            "mode": {"type": "STRING", "enum": ["narrative", "montage"]},
+            "color_temp": {"type": "STRING", "enum": ["neutral", "warm", "cool"]},
+            "segment_transition": {"type": "STRING", "enum": ["crossfade", "cut"]},
+            "segment_transition_duration": {"type": "NUMBER"},
+            "items": {"type": "ARRAY", "items": item_schema},
+            "transition": {"type": "STRING", "enum": ["crossfade", "cut"]},
+            "transition_duration": {"type": "NUMBER"},
+        },
+        "required": ["name", "items"],
+    }
+    return {
+        "type": "OBJECT",
+        "properties": {
+            "title": {"type": "STRING"},
+            "target_duration": {"type": "NUMBER"},
+            "intro_duration": {"type": "NUMBER"},
+            "outro_duration": {"type": "NUMBER"},
+            "segments": {"type": "ARRAY", "items": segment_schema},
+        },
+        "required": ["title", "target_duration", "segments"],
+    }
+
+
 def _gemini_call(
     system: str,
     user_parts: list,
@@ -242,6 +311,8 @@ def _gemini_call(
         "max_output_tokens": 65536,
         "temperature": 0.7,
         "media_resolution": types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+        "response_mime_type": "application/json",
+        "response_schema": _edl_response_schema(),
     }
     if thinking_level != "OFF":
         config_kwargs["thinking_config"] = types.ThinkingConfig(

@@ -212,7 +212,7 @@ math errors are recalculated from trim points, out-of-range trims are clamped, s
 typos are fuzzy-matched. Items with unfixable paths or invalid trims are removed. Focus on
 creative decisions — don't worry about getting the math pixel-perfect.
 
-Think step-by-step, then output valid JSON only.
+Think step-by-step, then output the JSON EDL.
 
 **Example — family trip** (3 of 5 segments shown — note the hook opening, slow-mo, montage, and duration variety):
 ```json
