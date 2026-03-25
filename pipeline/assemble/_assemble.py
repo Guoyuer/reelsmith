@@ -58,15 +58,17 @@ def assemble(
     issues = validate_edl(edl, strict=False)
     errors = [i for i in issues if i["level"] == "error"]
     for i in issues:
-        logger.info(
-            f"  EDL {'ERROR' if i['level'] == 'error' else 'WARNING'}: {i['message']}"
-        )
+        level = "ERROR" if i["level"] == "error" else "WARNING"
+        logger.info("  EDL %s: %s", level, i["message"])
     if errors:
         raise ValueError(
             f"EDL validation failed: {'; '.join(i['message'] for i in errors)}"
         )
     logger.info(
-        f"EDL: {len(edl.all_items())} items, {len(edl.segments)} segments, ~{edl.estimated_duration():.0f}s"
+        "EDL: %d items, %d segments, ~%.0fs",
+        len(edl.all_items()),
+        len(edl.segments),
+        edl.estimated_duration(),
     )
 
     ctx = RenderContext(w=ac.w, h=ac.h, fps=ac.fps, quality=ac.quality)
@@ -104,7 +106,7 @@ def assemble(
 
     final_dur = ctx.probe_duration(output_path) or 0.0
     logger.info(
-        f"Done: {output_path.name} ({final_dur:.1f}s, rendered in {total_time:.0f}s)"
+        "Done: %s (%.1fs, rendered in %.0fs)", output_path.name, final_dur, total_time
     )
 
     has_speech = any(item.keep_audio for item in edl.all_items())
@@ -210,7 +212,10 @@ def _render_segments(
         cmd += [str(segment_files[seg_idx])]
         segment_cmds.append((seg_idx, cmd))
         logger.info(
-            f"  Segment {seg_idx}: {len(segment.items)} items, {len(graph.inputs)} inputs"
+            "  Segment %d: %d items, %d inputs",
+            seg_idx,
+            len(segment.items),
+            len(graph.inputs),
         )
 
     # Render segments in parallel (3 NVENC sessions max)
@@ -387,7 +392,9 @@ def _concat_and_mix(
 # ---------------------------------------------------------------------------
 
 
-def _render_title_card_if_needed(edl, kind, path, ctx, res_label) -> Path | None:
+def _render_title_card_if_needed(
+    edl: EDL, kind: str, path: Path, ctx: RenderContext, res_label: str
+) -> Path | None:
     if kind == "intro" and edl.intro_style == "title_card" and edl.title:
         if not path.exists():
             bg = _find_first_photo(edl)
@@ -432,7 +439,13 @@ def _find_first_photo(edl: EDL) -> str | None:
     return None
 
 
-def _validate_output(output_path, edl, has_speech, resolution, ctx=None):
+def _validate_output(
+    output_path: Path,
+    edl: EDL,
+    has_speech: bool,
+    resolution: tuple[int, int],
+    ctx: RenderContext | None = None,
+) -> list[dict[str, str]]:
     issues = []
 
     def _error(check, msg):

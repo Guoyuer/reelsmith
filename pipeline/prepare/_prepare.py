@@ -231,7 +231,11 @@ def prepare(
     n_new = len(uncached_photos) + len(uncached_videos)
     cached_note = f", {n_new} new" if n_new else ", all cached"
     logger.info(
-        f"Prepared: {len(manifest)} items ({n_photos} photos, {n_videos} videos{cached_note})"
+        "Prepared: %d items (%d photos, %d videos%s)",
+        len(manifest),
+        n_photos,
+        n_videos,
+        cached_note,
     )
 
     # Generate video previews (cached per video, used by plan stage)
@@ -424,7 +428,14 @@ def _detect_family(manifest: list[ManifestEntry], top_n: int = 5) -> list[str]:
     return [name for name, c in ranked[:top_n] if c >= threshold]
 
 
-def _prepare_video(entry, item_id, local_path, cache_file, i, total):
+def _prepare_video(
+    entry: dict[str, Any],
+    item_id: int,
+    local_path: Path,
+    cache_file: Path,
+    i: int,
+    total: int,
+) -> None:
     """Probe video duration, dimensions, fps, orientation, and audio loudness."""
     probe = run_subprocess(
         [
@@ -482,8 +493,14 @@ def _prepare_video(entry, item_id, local_path, cache_file, i, total):
 
     res_str = f"{video_width}x{video_height}" if video_width else "?"
     logger.debug(
-        f"[{i}/{total}] {entry['filename']} — {total_dur:.0f}s {res_str} "
-        f"{video_fps}fps {orientation}"
+        "[%d/%d] %s — %.0fs %s %sfps %s",
+        i,
+        total,
+        entry["filename"],
+        total_dur,
+        res_str,
+        video_fps,
+        orientation,
     )
 
 
@@ -529,7 +546,9 @@ def _read_exif(path: str | Path) -> dict[str, Any]:
         return {}
 
 
-def _prepare_photo(entry, item_id, local_path, cfg, cache_file):
+def _prepare_photo(
+    entry: dict[str, Any], item_id: int, local_path: Path, cfg: Config, cache_file: Path
+) -> None:
     """Generate thumbnail and extract EXIF for a photo."""
     thumb_dir = cfg.thumbnails_dir
     thumb = generate_thumbnail(local_path, thumb_dir, size=400, quality=70)

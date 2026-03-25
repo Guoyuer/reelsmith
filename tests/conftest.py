@@ -20,16 +20,16 @@ def sample_manifest() -> list[dict]:
 
     base_time = 1700000000  # 2023-11-14 ~14:13 UTC
 
-    def _item(id, filename, taken, **kw):
+    def _item(item_id, filename, taken, **kw):
         """Build a manifest item with required fields."""
         iso = datetime.fromtimestamp(taken, tz=timezone.utc).isoformat()
         return {
-            "id": id,
+            "id": item_id,
             "filename": filename,
             "item_type": kw.pop("item_type", 0),
             "takentime": taken,
             "taken_iso": iso,
-            "local_path": f"/fake/media/{id}_{filename}",
+            "local_path": f"/fake/media/{item_id}_{filename}",
             "filesize": kw.pop("filesize", 5000000),
             "metadata": {"persons": kw.pop("persons", [])},
             **kw,

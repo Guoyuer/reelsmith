@@ -126,11 +126,14 @@ def _parse_response(response) -> str:
     if not content and response.candidates:
         c = response.candidates[0]
         logger.warning(
-            f"Empty response. finish_reason={c.finish_reason}, safety={c.safety_ratings}"
+            "Empty response. finish_reason=%s, safety=%s",
+            c.finish_reason,
+            c.safety_ratings,
         )
     elif not content:
         logger.warning(
-            f"Empty response with no candidates. prompt_feedback={response.prompt_feedback}"
+            "Empty response with no candidates. prompt_feedback=%s",
+            response.prompt_feedback,
         )
     return content
 
