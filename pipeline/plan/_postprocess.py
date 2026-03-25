@@ -24,9 +24,6 @@ def parse_and_convert_timestamps(
     preview_offset_table: list[tuple[int, float, float]],
 ) -> EDL:
     """Parse Gemini JSON response and convert preview timestamps to trim points."""
-    from ..media_utils import strip_markdown_fences
-
-    edl_content = strip_markdown_fences(edl_content)
     raw = json.loads(edl_content)
 
     # Convert preview_start/preview_end (MM:SS) → start_time/end_time (seconds)

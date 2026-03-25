@@ -154,7 +154,6 @@ class TestGeminiCall:
         assert result == "ok"
         client.files.upload.assert_called_once()
 
-    @pytest.mark.skip(reason="response_schema temporarily disabled for Deep Think test")
     def test_config_includes_response_schema(self, monkeypatch):
         """Structured output: response_mime_type and response_schema are passed."""
         monkeypatch.setenv("GEMINI_API_KEY", "test-key")
