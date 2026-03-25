@@ -13,8 +13,8 @@ import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
+from .._types import ManifestEntry
 from ..config import Config, ProgressCallback
 from ._nas import FetchConfig
 
@@ -26,7 +26,7 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 def fetch_local(
     cfg: Config, fc: FetchConfig, *, progress_callback: ProgressCallback = None
-) -> list[dict[str, Any]]:
+) -> list[ManifestEntry]:
     """Scan a local folder for photos/videos and build a manifest.
 
     Uses all media files found — no date filtering.

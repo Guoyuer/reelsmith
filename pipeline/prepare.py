@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ._types import AnalysisEntry, ManifestEntry, PreprocessedData
 from .config import Config, ProgressCallback
 from .image_utils import generate_thumbnail
 from .media_utils import run_subprocess
@@ -36,7 +37,7 @@ class PrepareConfig:
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
-def load_analysis(cfg: Config) -> list[dict]:
+def load_analysis(cfg: Config) -> list[AnalysisEntry]:
     """Reconstruct analysis data from manifest + per-item caches."""
     if not cfg.manifest_path.exists():
         raise FileNotFoundError(
@@ -93,7 +94,7 @@ def prepare(
     pc: PrepareConfig | None = None,
     *,
     progress_callback: ProgressCallback = None,
-) -> dict[str, Any]:
+) -> PreprocessedData:
     """Prepare all media for Gemini visual planning.
 
     1. Read manifest, detect family
@@ -122,7 +123,7 @@ def prepare(
         item["family_count"] = len(family_in_photo)
         item["family_names"] = family_in_photo
 
-    preprocessed = {
+    preprocessed: PreprocessedData = {
         "family_names": family_names,
     }
     pp_path = cfg.preprocessed_path
@@ -297,7 +298,7 @@ def _has_dense_keyframes(source: Path) -> bool:
 
 
 def _generate_video_previews(
-    video_items: list[dict[str, Any]],
+    video_items: list[AnalysisEntry],
     preview_dir: Path,
     *,
     force: bool = False,
@@ -412,7 +413,7 @@ def _generate_video_previews(
 # ---------------------------------------------------------------------------
 
 
-def _detect_family(manifest: list[dict], top_n: int = 5) -> list[str]:
+def _detect_family(manifest: list[ManifestEntry], top_n: int = 5) -> list[str]:
     """Auto-detect the most frequent persons as family members."""
     counts: dict[str, int] = defaultdict(int)
     for item in manifest:

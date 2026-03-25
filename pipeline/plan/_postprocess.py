@@ -12,8 +12,8 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
 
+from .._types import AnalysisEntry
 from ..edl import EDL, validate_edl
 from ._prompts import _timestamp_to_secs
 
@@ -166,7 +166,9 @@ def fix_hallucinated_paths(edl: EDL, media_dir: Path) -> int:
     return removed_count
 
 
-def validate_trim_points(edl: EDL, analysis_by_id: dict[str, Any]) -> tuple[int, int]:
+def validate_trim_points(
+    edl: EDL, analysis_by_id: dict[str, AnalysisEntry]
+) -> tuple[int, int]:
     """Clamp or remove invalid video trim points. Returns (fixed, removed) counts."""
     trim_fixed = 0
     trim_removed = 0
