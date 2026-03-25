@@ -83,7 +83,7 @@ Understanding exactly what each stage produces and consumes is critical for prom
 and behavior changes. Data contracts between stages are implicit — breaking them causes silent
 degradation, not crashes.
 
-### Stage 1: prepare (`pipeline/prepare.py`)
+### Stage 1: prepare (`pipeline/prepare/_prepare.py`)
 
 **Input:** Raw media files (photos + videos) from local folder or NAS.
 
@@ -96,7 +96,7 @@ degradation, not crashes.
 **What it does per video:**
 - ffprobe: duration, width, height, fps, orientation (landscape/portrait)
 - **NO audio analysis** — no speech detection, no loudness, no transcript, no speech timestamps
-- Generate preview clip (480p 1fps WITH AUDIO, mono 64kbps AAC)
+- Generate preview clip (480p 1fps WITH AUDIO, mono 64kbps AAC, via parallel workers)
 - Extract faces/persons from NAS manifest
 
 **What it does globally:**
@@ -131,7 +131,7 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 5. `validate_and_fix_edl` — fix media_type mismatches (video extension on photo item)
 6. Force `effect="none"` on all video items (in `_orchestrate.py`)
 
-**Output:** Versioned EDL JSON saved to `workspace/edl/`.
+**Output:** Versioned EDL JSON saved to `workspace/runs/{name}/edl_v{N}.json`.
 
 **Critical implications:**
 - Gemini outputs preview_start/preview_end (mega-preview timestamps), postprocess converts to start_time/end_time (local video seconds). The prompt must teach Gemini to use preview timestamps.
@@ -144,7 +144,7 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 **Input:** EDL JSON + original media files + generated music (if any).
 
 **Phase 1: Render segments** (`_graph.py` builds FFmpeg filter graphs)
-- Per-photo: Ken Burns (zoompan with cosine easing) + color grade + optional text overlay → video stream. Audio = `aevalsrc=0` (silence).
+- Per-photo: Ken Burns (crop + lanczos scale with cosine easing) + color grade + optional text overlay → video stream. Audio = `aevalsrc=0` (silence).
 - Per-video with `keep_audio=true`: `atrim=start:duration` + `atempo` (if speed≠1.0) + `asetpts` → preserves original audio from trim window.
 - Per-video with `keep_audio=false`: video trimmed + speed-adjusted. Audio = `aevalsrc=0` (silence).
 - All items concat'd with `concat=n=N:v=1:a=1` (audio locked to video).
@@ -220,7 +220,7 @@ deduplication, duration check with optional follow-up Gemini call to fill gaps.
 |-------|-----------------|
 | Individual photos (400px thumbnails, inline) + 1 concatenated video preview (480p 1fps with audio, #XX labels, Files API) + per-item metadata | Design narrative arc → select items → assign music_mood/keep_audio/playback_speed/transitions/color_temp → self-review |
 
-Model: `gemini-3-flash-preview` (default, override via `VLOG_MODEL` env var or `--model` flag).
+Model: `--model` is required. Presets: `fast` (gemini-3.1-flash-lite-preview), `balanced` (gemini-3-flash-preview), `quality` (gemini-3.1-pro-preview). Custom: `model:thinking` (e.g. `gemini-2.5-flash:medium`). Fallback via `VLOG_MODEL` env var.
 
 Every API call is logged with: model, input token count, output tokens, wall time, response preview.
 
@@ -242,8 +242,8 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 ## What's still hard-coded
 
 - **Family detection** — family_count from NAS face data (top 5 persons appearing in ≥3% of items)
-- **FFmpeg rendering** — parallel clip assembly from EDL (3 NVENC workers by default, `VLOG_PARALLEL_CLIPS` env var)
-- **Ken Burns effects** — cosine-eased zoompan per EDL effect field (photos only; videos use a separate render path with no zoompan)
+- **FFmpeg rendering** — parallel segment rendering from EDL (3 NVENC workers, 2 VideoToolbox workers)
+- **Ken Burns effects** — cosine-eased crop + lanczos scale per EDL effect field (photos only; videos use a separate render path)
 - **Thumbnail/keyframe generation** — Pillow resize, FFmpeg extraction
 - **Codec** — HEVC (hevc_nvenc/hevc_videotoolbox) on GPU, H.264 (libx264) on CPU; auto-detected
 - **Bitrate** — HEVC at 65% of H.264 YouTube rates with `--quality` multiplier
@@ -254,12 +254,12 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 
 ## Debugging & iteration
 
-- Every Gemini API call logs: model, tokens in/out, timing, response preview
-- Every FFmpeg command logged at INFO level and to `output/ffmpeg_commands.log`
-- Use `--force` on `prepare` or `full` to force re-analysis (bypasses per-item cache)
+- Every Gemini API call logs: model, tokens in/out, timing, cost estimate, response preview
+- Every FFmpeg command logged at INFO level to the run log (`workspace/runs/{name}/run_*.log`)
+- Use `--force` on `prepare` or `full` to force re-generation (bypasses per-item cache, thumbnails, previews)
 - YouTube chapter markers saved to `output/chapters_v{N}_{res_label}.txt`
-- Post-assemble validation: 6 automated checks (file size, duration, streams, codec, A/V sync, resolution)
-- Live progress display with per-stage status (icons: ○ pending, ⏳ running, ✅ done, ❌ failed)
+- Post-assemble validation: checks (file size, duration, streams, codec, resolution)
+- Live progress display with Rich (per-stage status: ○ pending, ⏳ running, ✅ done, ❌ failed)
 
 ## Key gotchas
 
@@ -267,13 +267,13 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - Preview generation uses `-hwaccel auto`; `-skip_frame nokey` (~22x speedup) only when keyframe interval ≤2s, otherwise full decode
 - Photo thumbnails cached in `workspace/thumbnails/`, video analysis cached in `workspace/analysis_cache/`
 - Preview clips cached in `workspace/preview_clips/` — orphaned files from old runs auto-cleaned
-- tqdm auto-disabled when stderr is not a TTY
+- Rich progress auto-adapts to terminal capabilities
 - Stale cache auto-invalidation: prepare re-runs if upstream file is newer (mtime check)
-- FFmpeg subprocesses have a 5-minute timeout (prevents hanging on corrupt files)
-- Ken Burns uses cosine easing (ease-in/ease-out); only applies to photos (videos use a separate render path)
+- FFmpeg subprocesses have a 10-minute timeout for segment renders, 1-minute for concat (prevents hanging on corrupt files)
+- Ken Burns uses cosine easing (ease-in/ease-out) via crop+lanczos; only applies to photos (videos use a separate render path)
 - `--music auto` uses Gemini Lyria RealTime; `--music /path/to/file` uses custom audio; `--music none` disables music
 - `--lang en|cn|both` controls text language (title, overlays, chapters); cn/both auto-selects CJK font
-- Clip rendering is parallel via `parallel.run_parallel()`: 3 workers for NVENC, 2 for VideoToolbox, cpu_count/2 for libx264
+- Segment rendering is parallel via `parallel.run_parallel()`: 3 workers for NVENC, 2 for VideoToolbox
 - HEVC auto-detected: hevc_nvenc (Win/Linux) or hevc_videotoolbox (macOS); falls back to H.264 NVENC → libx264
 - ffprobe results cached per assemble run via RenderContext (dimensions + duration)
 - Text overlays baked into clips via drawtext filter with drop shadow (no separate encode pass)
