@@ -69,36 +69,6 @@ class TestBeatSnapBasic:
         assert n == 1  # snaps to 4.0 (shift=+0.4 is exactly at boundary)
         assert edl.segments[0].items[0].display_duration == 4.0
 
-    def test_no_snap_if_would_violate_min_duration(self):
-        """Don't shrink a photo below 2.0s."""
-
-        # Photo at 2.1s. Nearest beat: 2.0s (shift -0.1). New dur=2.0 >= min. OK.
-        # Photo at 2.05s. Nearest beat: 2.0s (shift -0.05). New dur=2.0 >= min. OK.
-        # Photo at 2.0s exactly on beat. No shift needed.
-        # To test rejection: need new_dur < 2.0.
-        # At 120 BPM, half-beat=0.25. Photo at 2.15s. Nearest: 2.0 (shift -0.15).
-        # new_dur=2.0. That's OK. Try 2.12 → nearest 2.0 (shift -0.12) → 2.0. OK.
-        # Need dur close to 2.0 where nearest beat is BELOW 2.0.
-        # Photo at 2.05s. Nearest beats: 2.0 (shift -0.05, new_dur=2.0 OK) and
-        # 2.25 (shift +0.2, new_dur=2.25 OK). Will snap to 2.0.
-        # Actually let's just test with a video (min 3.0s).
-        # Video at 3.1s. Nearest: 3.0 (shift -0.1, new_dur=3.0 OK).
-        # Video at 3.05s. Same. Hard to get below min with 0.25s grid.
-        # Use a scenario: 30 BPM, video at 3.3s. Beats at 3.0, 4.0.
-        # Shift to 3.0: new_dur=3.0 OK. Shift to 4.0: new_dur=4.0 OK.
-        # Try: 30 BPM, video at 3.4s. Nearest 3.0 (shift -0.4, new_dur=3.0 OK).
-        # It's hard to violate with reasonable durations.
-        # Direct test: force a photo with dur=2.2, 60 BPM (half_beat=0.5).
-        # Beats: 0, 0.5, 1.0, 1.5, 2.0, 2.5...
-        # Transition at 2.2. Nearest: 2.0 (shift=-0.2, new=2.0 OK) or 2.5 (+0.3, 2.5).
-        # Snaps to 2.0. That's >= min_photo_dur. Still passes.
-        # To actually reject: photo dur=2.05, beat grid misses.
-        # 90 BPM → beat=0.667, half=0.333. Grid: 0, 0.333, 0.667, 1.0, 1.333, 1.667, 2.0, 2.333...
-        # Photo at 2.05. Nearest 2.0 (shift -0.05, new=2.0 OK) or 2.333 (+0.283, new=2.333).
-        # Still OK. The min_dur guard is hard to trigger with reasonable BPMs.
-        # Let's just verify the guard exists by checking a marginal case.
-        pass  # guard tested implicitly by other tests
-
     def test_returns_zero_when_bpm_not_detected(self):
         """No snapping if BPM estimation fails."""
         from pipeline.assemble._audio import beat_snap_edl

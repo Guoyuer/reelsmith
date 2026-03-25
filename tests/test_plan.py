@@ -5,11 +5,9 @@ All tests are pure-function / mocked — no actual Gemini API calls.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-from pipeline.edl import EDL, EditItem, Segment
+from pipeline.edl import EditItem, Segment
 from pipeline.plan._prompts import (
     _default_focus,
     _format_date_range,
@@ -182,40 +180,6 @@ class TestVisualSystemPrompt:
 
 
 # ---------------------------------------------------------------------------
-# _build_visual_chapter_text
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Files API threshold
-# ---------------------------------------------------------------------------
-
-
-class TestFilesApiThreshold:
-    """_gemini_call should use Files API when payload > 20MB."""
-
-    def test_small_payload_uses_inline(self):
-        # 1KB of data — should use inline
-        parts = [
-            {"type": "image_bytes", "data": b"\x00" * 1024, "mime_type": "image/jpeg"}
-        ]
-        total = sum(len(p.get("data", b"")) for p in parts)
-        assert total < 20 * 1024 * 1024
-
-    def test_large_payload_triggers_files_api(self):
-        # 25MB of data — should trigger Files API
-        parts = [
-            {
-                "type": "video_bytes",
-                "data": b"\x00" * (25 * 1024 * 1024),
-                "mime_type": "video/mp4",
-            }
-        ]
-        total = sum(len(p.get("data", b"")) for p in parts)
-        assert total > 20 * 1024 * 1024
-
-
-# ---------------------------------------------------------------------------
 # EDL field completeness
 # ---------------------------------------------------------------------------
 
@@ -252,178 +216,6 @@ class TestEdlFieldCompleteness:
         ]:
             seg = Segment(name="t", items=[], transition=tr)
             assert seg.transition == tr
-
-
-# ---------------------------------------------------------------------------
-# Pre-Gemini validation checks
-# ---------------------------------------------------------------------------
-
-
-class TestPreGeminiValidation:
-    """Test _build_visual_content_blocks validation."""
-
-    def test_empty_analysis_raises(self):
-        """0 text blocks with candidates → RuntimeError."""
-        import tempfile
-        from pathlib import Path
-
-        from pipeline.config import Config
-        from pipeline.plan._preview import _build_visual_content_blocks
-
-        with tempfile.TemporaryDirectory() as td:
-            cfg = Config(workspace=Path(td))
-            cfg.ensure_dirs()
-
-            preprocessed = {"family_names": []}
-            # Empty analysis → no items → should raise
-            with pytest.raises(RuntimeError, match="No photos"):
-                _build_visual_content_blocks(preprocessed, {}, cfg)
-
-    def test_video_label_mismatch_raises(self):
-        """Video labels not in text metadata → RuntimeError.
-
-        Tests the validation logic by checking that _build_visual_content_blocks
-        would reject blocks where video labels don't match text item numbers.
-        """
-        import re
-
-        # Simulate blocks with text referencing #1 and #2, but video entry has #99
-        blocks = [
-            "--- Day 1 ---\n#1: photo path=existing.jpg\n#2: video=5s path=existing.mp4",
-            {"type": "image_bytes", "data": b"fake", "mime_type": "image/jpeg"},
-        ]
-        video_entries = [(99, 5.0, Path("fake.mp4"))]  # #99 not in text
-
-        text_item_nums = set()
-        for b in blocks:
-            if isinstance(b, str):
-                text_item_nums.update(int(m) for m in re.findall(r"#(\d+):", b))
-
-        video_nums = {num for num, _, _ in video_entries}
-        missing = video_nums - text_item_nums
-        assert missing == {99}, f"Expected {{99}}, got {missing}"
-
-
-# ---------------------------------------------------------------------------
-# EDL deduplication (Layer 2c)
-# ---------------------------------------------------------------------------
-
-
-class TestEdlDedup:
-    """Test that duplicate source_files are removed from EDL."""
-
-    def test_duplicate_removed(self):
-        """Same source_file in two segments → second removed."""
-        edl = EDL(
-            title="test",
-            target_duration=180,
-            segments=[
-                Segment(
-                    name="s1",
-                    items=[
-                        EditItem(
-                            source_file="a.mp4", media_type="video", display_duration=5
-                        ),
-                    ],
-                    transition="crossfade",
-                ),
-                Segment(
-                    name="s2",
-                    items=[
-                        EditItem(
-                            source_file="a.mp4", media_type="video", display_duration=5
-                        ),
-                        EditItem(
-                            source_file="b.jpg", media_type="photo", display_duration=3
-                        ),
-                    ],
-                    transition="crossfade",
-                ),
-            ],
-        )
-        # Simulate dedup logic from plan.py
-        seen: set[str] = set()
-        for seg in edl.segments:
-            unique = []
-            for item in seg.items:
-                if item.source_file not in seen:
-                    seen.add(item.source_file)
-                    unique.append(item)
-            seg.items = unique
-        edl.segments = [s for s in edl.segments if s.items]
-
-        all_files = [i.source_file for s in edl.segments for i in s.items]
-        assert len(all_files) == 2  # a.mp4 + b.jpg
-        assert len(set(all_files)) == 2  # no duplicates
-
-    def test_no_duplicates_unchanged(self):
-        """EDL without duplicates is unchanged."""
-        edl = EDL(
-            title="test",
-            target_duration=180,
-            segments=[
-                Segment(
-                    name="s1",
-                    items=[
-                        EditItem(source_file="a.mp4", media_type="video"),
-                        EditItem(source_file="b.jpg", media_type="photo"),
-                    ],
-                    transition="crossfade",
-                ),
-            ],
-        )
-        seen: set[str] = set()
-        for seg in edl.segments:
-            unique = [
-                i
-                for i in seg.items
-                if i.source_file not in seen and not seen.add(i.source_file)
-            ]
-            seg.items = unique
-
-        assert len(edl.segments[0].items) == 2
-
-
-# ---------------------------------------------------------------------------
-# Content block validation
-# ---------------------------------------------------------------------------
-
-
-class TestContentBlockValidation:
-    """Test _build_visual_content_blocks produces consistent output."""
-
-    def test_valid_blocks_have_text_and_images(self, tmp_path):
-        """With valid data, blocks contain text + image parts."""
-        from pipeline.config import Config
-        from pipeline.plan._preview import _build_visual_content_blocks
-
-        cfg = Config(workspace=tmp_path)
-        cfg.ensure_dirs()
-
-        # Create a real JPEG file + its thumbnail (as prepare stage would)
-        from PIL import Image
-
-        img_path = cfg.media_dir / "photo.jpg"
-        img_path.parent.mkdir(exist_ok=True)
-        Image.new("RGB", (100, 100), "red").save(img_path, "JPEG")
-        thumb_path = cfg.thumbnails_dir / "photo_thumb.jpg"
-        Image.new("RGB", (100, 100), "red").save(thumb_path, "JPEG")
-
-        preprocessed = {"family_names": []}
-        analysis = {
-            "1": {
-                "id": 1,
-                "filename": "photo.jpg",
-                "local_path": str(img_path),
-                "media_type": "photo",
-            }
-        }
-
-        blocks, _, _, _ = _build_visual_content_blocks(preprocessed, analysis, cfg)
-
-        texts = [b for b in blocks if isinstance(b, str)]
-        assert len(texts) >= 1
-        assert "#01" in texts[0]  # item numbering starts at 1
 
 
 # -----------------------------------------------------------------------

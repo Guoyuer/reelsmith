@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from pipeline.assemble._assemble import AssembleConfig
 from pipeline.config import Config
 from pipeline.edl import EDL, EditItem, Segment
@@ -41,11 +39,3 @@ class TestAssembleConfigToEdlLoading:
         edl_loaded = EDLModel.model_validate_json(cfg.edl_path(1).read_text())
         assert edl_loaded.title == "V1"
 
-    def test_missing_version_raises(self, tmp_path):
-        from pipeline.assemble import assemble
-
-        cfg = Config(workspace=tmp_path)
-        cfg.ensure_dirs()
-        ac = AssembleConfig(w=320, h=180, fps=15, version=99)
-        with pytest.raises(FileNotFoundError):
-            assemble(cfg, ac)

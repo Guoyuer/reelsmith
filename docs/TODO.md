@@ -47,7 +47,7 @@
 
 - Add LICENSE (MIT)
 - Add GitHub Actions CI (ruff + pytest)
-- Add CHANGELOG.md
+- ~~Add CHANGELOG.md~~ ✅
 - Complete README (install guide, badges, screenshots)
 
 ---

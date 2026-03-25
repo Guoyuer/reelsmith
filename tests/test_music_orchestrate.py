@@ -111,6 +111,14 @@ class TestGenerateMusicForEdl:
         result = generate_music_for_edl(cfg)
         assert result is None
 
+    def test_skips_when_music_mode_file(self, tmp_path):
+        from pipeline.music import generate_music_for_edl
+
+        ws = self._make_workspace(tmp_path, music_mode="file")
+        cfg = Config.load(str(ws))
+        result = generate_music_for_edl(cfg)
+        assert result is None
+
     def test_returns_existing_music_file(self, tmp_path):
         from pipeline.music import generate_music_for_edl
 
@@ -144,6 +152,34 @@ class TestGenerateMusicForEdl:
             result = generate_music_for_edl(cfg)
 
         assert result is not None
+
+    def test_updates_edl_on_success(self, tmp_path):
+        from pipeline.music import generate_music_for_edl
+
+        ws = self._make_workspace(tmp_path)
+        cfg = Config.load(str(ws))
+        fake_track = tmp_path / "track.wav"
+        fake_track.write_bytes(b"RIFF" + b"\x00" * 100)
+
+        with patch(
+            "pipeline.music._gemini.generate_music_gemini", return_value=fake_track
+        ):
+            result = generate_music_for_edl(cfg)
+
+        assert result is not None
+        edl = EDL.model_validate_json((ws / "edl_v1.json").read_text())
+        assert edl.music is not None
+
+    def test_handles_generation_failure(self, tmp_path):
+        from pipeline.music import generate_music_for_edl
+
+        ws = self._make_workspace(tmp_path)
+        cfg = Config.load(str(ws))
+
+        with patch("pipeline.music._gemini.generate_music_gemini", return_value=None):
+            result = generate_music_for_edl(cfg)
+
+        assert result is None
 
     def test_progress_callback(self, tmp_path):
         from pipeline.music import generate_music_for_edl
