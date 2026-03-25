@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..config import Config
+from ..config import Config, ProgressCallback
 from ..edl import EDL, MusicTrack, find_latest_version, save_edl
 from ._gemini import _gemini_call
 from ._postprocess import (
@@ -65,7 +65,7 @@ def _plan_visual(
     analysis_by_id: dict[str, Any],
     pc: PlanConfig,
     *,
-    progress_callback=None,
+    progress_callback: ProgressCallback = None,
 ) -> EDL:
     """Single-pass Gemini planning with chain-of-thought.
 
@@ -263,7 +263,9 @@ All candidates:"""
 # ---------------------------------------------------------------------------
 
 
-def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, int]:
+def plan(
+    cfg: Config, pc: PlanConfig, *, progress_callback: ProgressCallback = None
+) -> tuple[EDL, int]:
     """Generate an EDL from preprocessed + analysis data using the visual planner."""
     if not cfg.preprocessed_path.exists():
         raise FileNotFoundError(

@@ -13,11 +13,13 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..config import ProgressCallback
+
 logger = logging.getLogger("vlog.plan")
 
 
 def _prepare_parts(
-    user_parts: list, client, progress_callback=None
+    user_parts: list, client, progress_callback: ProgressCallback = None
 ) -> tuple[list, int]:
     """Convert *user_parts* (str/dict) into Gemini API Part objects.
 
@@ -208,7 +210,7 @@ def _gemini_call(
     label: str = "",
     model: str = "",
     thinking_level: str = "HIGH",
-    progress_callback=None,
+    progress_callback: ProgressCallback = None,
 ) -> str:
     """Make a Gemini API call with multimodal content. Returns response text.
 

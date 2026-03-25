@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..config import Config
+from ..config import Config, ProgressCallback
 from ..edl import EDL, load_latest_edl, validate_edl
 from ..media_utils import run_subprocess
 from ._audio import beat_snap_edl, write_chapters
@@ -43,8 +43,8 @@ class AssembleConfig:
 
 
 def assemble(
-    cfg: Config, ac: AssembleConfig, *, progress_callback=None
-) -> tuple[Path, list[dict]]:
+    cfg: Config, ac: AssembleConfig, *, progress_callback: ProgressCallback = None
+) -> tuple[Path, list[dict[str, str]]]:
     """Render a vlog from an EDL. Returns (output_path, validation_issues)."""
     cfg.ensure_dirs()
 
@@ -157,7 +157,7 @@ def _render_segments(
     cfg: Config,
     *,
     res_label: str,
-    progress_callback=None,
+    progress_callback: ProgressCallback = None,
 ) -> list[Path]:
     """Build segment filter graphs and encode segments in parallel.
 
@@ -263,7 +263,7 @@ def _concat_and_mix(
     *,
     version: int,
     res_label: str,
-    progress_callback=None,
+    progress_callback: ProgressCallback = None,
 ) -> Path:
     """Concat demuxer + music overlay. Returns final output path."""
     output_dir = cfg.output_dir

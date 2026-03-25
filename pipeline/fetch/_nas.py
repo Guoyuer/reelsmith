@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from ..config import Config
+from ..config import Config, ProgressCallback
 
 
 @dataclass
@@ -34,7 +34,9 @@ class FetchConfig:
 logger = logging.getLogger("vlog.fetch.nas")
 
 
-def fetch(cfg: Config, fc: FetchConfig, *, progress_callback=None) -> list[dict]:
+def fetch(
+    cfg: Config, fc: FetchConfig, *, progress_callback: ProgressCallback = None
+) -> list[dict[str, Any]]:
     """Query the Synology Photos API, download all matching items, and build a manifest."""
     cfg.ensure_dirs()
     raw_dir = cfg.media_dir

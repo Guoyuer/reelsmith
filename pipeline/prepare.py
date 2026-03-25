@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .config import Config
+from .config import Config, ProgressCallback
 from .image_utils import generate_thumbnail
 from .media_utils import run_subprocess
 
@@ -89,7 +89,10 @@ def load_analysis(cfg: Config) -> list[dict]:
 
 
 def prepare(
-    cfg: Config, pc: PrepareConfig | None = None, *, progress_callback=None
+    cfg: Config,
+    pc: PrepareConfig | None = None,
+    *,
+    progress_callback: ProgressCallback = None,
 ) -> dict[str, Any]:
     """Prepare all media for Gemini visual planning.
 
@@ -294,11 +297,11 @@ def _has_dense_keyframes(source: Path) -> bool:
 
 
 def _generate_video_previews(
-    video_items: list[dict],
+    video_items: list[dict[str, Any]],
     preview_dir: Path,
     *,
     force: bool = False,
-    progress_callback=None,
+    progress_callback: ProgressCallback = None,
 ) -> None:
     """Generate one full-length preview per video (480p 1fps + audio)."""
     from .parallel import run_parallel

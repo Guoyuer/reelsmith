@@ -11,6 +11,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from ..config import ProgressCallback
+
 logger = logging.getLogger("vlog.music")
 
 
@@ -149,7 +151,9 @@ def _build_composite_music(
     return True
 
 
-def generate_music_for_edl(cfg, *, progress_callback=None) -> Path | None:
+def generate_music_for_edl(
+    cfg, *, progress_callback: ProgressCallback = None
+) -> Path | None:
     """Generate per-segment music and build a composite track with crossfades.
 
     Called by the generate_music stage. Generates one Lyria track per
