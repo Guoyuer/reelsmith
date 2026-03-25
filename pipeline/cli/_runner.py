@@ -276,6 +276,23 @@ def _run_pipeline(
     display = _PipelineDisplay(run_name, headline, active)
     logger = _setup_logging(run_name, display)
 
+    # Log CLI parameters for reproducibility
+    logger.info(f"Run: {run_name} | stages: {', '.join(active)}")
+    if plan:
+        logger.info(
+            f"  Plan: duration={plan.target_duration}s, trip_type={plan.trip_type}, "
+            f"style={plan.style}, lang={plan.language}, model={plan.model}, "
+            f"thinking={plan.thinking_level}, focus={plan.focus!r}"
+        )
+    if assemble:
+        logger.info(
+            f"  Assemble: {assemble.w}x{assemble.h}@{assemble.fps} quality={assemble.quality}"
+        )
+    if prepare:
+        logger.info(f"  Prepare: force={prepare.force}")
+    if fetch:
+        logger.info(f"  Fetch: source={getattr(fetch, 'source', '?')}")
+
     pc = _PipelineContext(
         cfg=cfg,
         logger=logger,
