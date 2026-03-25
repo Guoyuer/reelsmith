@@ -139,7 +139,13 @@ def _make_edl(**kwargs) -> EDL:
         "segments": [
             Segment(
                 name="Seg1",
-                items=[EditItem(source_file="/fake/photo.jpg", media_type="photo", display_duration=4.0)],
+                items=[
+                    EditItem(
+                        source_file="/fake/photo.jpg",
+                        media_type="photo",
+                        display_duration=4.0,
+                    )
+                ],
                 transition="crossfade",
                 transition_duration=0.5,
             )
@@ -157,7 +163,13 @@ class TestValidateEdlTopLevel:
             segments=[
                 Segment(
                     name="S",
-                    items=[EditItem(source_file=str(photo), media_type="photo", display_duration=4.0)],
+                    items=[
+                        EditItem(
+                            source_file=str(photo),
+                            media_type="photo",
+                            display_duration=4.0,
+                        )
+                    ],
                     transition="crossfade",
                     transition_duration=0.5,
                 )
@@ -212,8 +224,16 @@ class TestValidateEdlItems:
                 Segment(
                     name="S",
                     items=[
-                        EditItem(source_file=str(photo), media_type="photo", display_duration=4.0),
-                        EditItem(source_file=str(photo), media_type="photo", display_duration=3.0),
+                        EditItem(
+                            source_file=str(photo),
+                            media_type="photo",
+                            display_duration=4.0,
+                        ),
+                        EditItem(
+                            source_file=str(photo),
+                            media_type="photo",
+                            display_duration=3.0,
+                        ),
                     ],
                     transition="crossfade",
                     transition_duration=0.5,
@@ -228,7 +248,11 @@ class TestValidateEdlItems:
             segments=[
                 Segment(
                     name="S",
-                    items=[EditItem(source_file="/f.jpg", media_type="photo", display_duration=0)],
+                    items=[
+                        EditItem(
+                            source_file="/f.jpg", media_type="photo", display_duration=0
+                        )
+                    ],
                     transition="cut",
                 )
             ]
@@ -243,7 +267,10 @@ class TestValidateEdlItems:
                     name="S",
                     items=[
                         EditItem(
-                            source_file="/f.mp4", media_type="video", display_duration=5.0, effect="ken_burns_in"
+                            source_file="/f.mp4",
+                            media_type="video",
+                            display_duration=5.0,
+                            effect="ken_burns_in",
                         )
                     ],
                     transition="cut",
@@ -272,14 +299,23 @@ class TestValidateEdlItems:
             ]
         )
         issues = validate_edl(edl, strict=False)
-        assert any("start_time" in i["message"] and "end_time" in i["message"] for i in issues)
+        assert any(
+            "start_time" in i["message"] and "end_time" in i["message"] for i in issues
+        )
 
     def test_photo_with_keep_audio_errors(self):
         edl = _make_edl(
             segments=[
                 Segment(
                     name="S",
-                    items=[EditItem(source_file="/f.jpg", media_type="photo", display_duration=4.0, keep_audio=True)],
+                    items=[
+                        EditItem(
+                            source_file="/f.jpg",
+                            media_type="photo",
+                            display_duration=4.0,
+                            keep_audio=True,
+                        )
+                    ],
                     transition="cut",
                 )
             ]
@@ -294,7 +330,11 @@ class TestValidateEdlItems:
                     name="S",
                     items=[
                         EditItem(
-                            source_file="/f.jpg", media_type="photo", display_duration=4.0, start_time=0.0, end_time=4.0
+                            source_file="/f.jpg",
+                            media_type="photo",
+                            display_duration=4.0,
+                            start_time=0.0,
+                            end_time=4.0,
                         )
                     ],
                     transition="cut",
@@ -312,8 +352,16 @@ class TestValidateEdlItems:
                 Segment(
                     name="S",
                     items=[
-                        EditItem(source_file=str(photo), media_type="photo", display_duration=2.0),
-                        EditItem(source_file=str(photo), media_type="photo", display_duration=1.5),
+                        EditItem(
+                            source_file=str(photo),
+                            media_type="photo",
+                            display_duration=2.0,
+                        ),
+                        EditItem(
+                            source_file=str(photo),
+                            media_type="photo",
+                            display_duration=1.5,
+                        ),
                     ],
                     transition="crossfade",
                     transition_duration=2.0,
@@ -321,7 +369,10 @@ class TestValidateEdlItems:
             ]
         )
         issues = validate_edl(edl, strict=False)
-        assert any("transition_duration" in i["message"] and "shortest" in i["message"] for i in issues)
+        assert any(
+            "transition_duration" in i["message"] and "shortest" in i["message"]
+            for i in issues
+        )
 
     def test_strict_promotes_warnings_to_errors(self):
         edl = _make_edl(title="")
@@ -344,7 +395,12 @@ class TestValidateEdlItems:
                 Segment(
                     name="S",
                     items=[
-                        EditItem(source_file="/f.mp4", media_type="video", display_duration=5.0, playback_speed=0)
+                        EditItem(
+                            source_file="/f.mp4",
+                            media_type="video",
+                            display_duration=5.0,
+                            playback_speed=0,
+                        )
                     ],
                     transition="cut",
                 )

@@ -50,7 +50,10 @@ class TestConfigLoadEnvVars:
             "SYNOLOGY_API_BASE": "http://nas:5000",
             "WORKSPACE": str(tmp_path),
         }
-        with patch.dict(os.environ, env, clear=True), patch("pipeline.config.load_dotenv"):
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch("pipeline.config.load_dotenv"),
+        ):
             cfg = Config.load()
         assert cfg.api_base == "http://nas:5000"
         assert cfg.workspace == tmp_path
@@ -58,7 +61,10 @@ class TestConfigLoadEnvVars:
     def test_workspace_arg_overrides_env(self, tmp_path: Path):
         env = {"WORKSPACE": "/should/not/use"}
         ws = str(tmp_path / "explicit")
-        with patch.dict(os.environ, env, clear=True), patch("pipeline.config.load_dotenv"):
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch("pipeline.config.load_dotenv"),
+        ):
             cfg = Config.load(workspace=ws)
         assert cfg.workspace == Path(ws)
 

@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..config import Config
+from ..config import Config, ProgressCallback
 from ..edl import EDL, load_latest_edl, validate_edl
 from ..media_utils import run_subprocess
 from ._audio import beat_snap_edl, write_chapters
@@ -43,8 +43,8 @@ class AssembleConfig:
 
 
 def assemble(
-    cfg: Config, ac: AssembleConfig, *, progress_callback=None
-) -> tuple[Path, list[dict]]:
+    cfg: Config, ac: AssembleConfig, *, progress_callback: ProgressCallback = None
+) -> tuple[Path, list[dict[str, str]]]:
     """Render a vlog from an EDL. Returns (output_path, validation_issues)."""
     cfg.ensure_dirs()
 
@@ -111,7 +111,7 @@ def assemble(
     val_issues = _validate_output(output_path, edl, has_speech, (ctx.w, ctx.h), ctx=ctx)
     for i in val_issues:
         level = "ERROR" if i["level"] == "error" else "WARNING"
-        logger.info(f"  {level} [{i['check']}]: {i['message']}")
+        logger.info("  %s [%s]: %s", level, i["check"], i["message"])
     if not [i for i in val_issues if i["level"] == "error"]:
         logger.info("Validation: all checks passed")
 
@@ -157,14 +157,14 @@ def _render_segments(
     cfg: Config,
     *,
     res_label: str,
-    progress_callback=None,
+    progress_callback: ProgressCallback = None,
 ) -> list[Path]:
     """Build segment filter graphs and encode segments in parallel.
 
     Returns list of segment .ts file paths.
     """
     t_start = time.monotonic()
-    logger.info(f"Phase 1: Rendering {len(edl.segments)} segments...")
+    logger.info("Phase 1: Rendering %d segments...", len(edl.segments))
 
     output_dir = cfg.output_dir
 
@@ -241,10 +241,10 @@ def _render_segments(
         if isinstance(result, Exception):
             raise RuntimeError(f"Segment {seg_idx} render failed: {result}")
         dur = ctx.probe_duration(segment_files[seg_idx]) or 0.0
-        logger.info(f"  Segment {seg_idx}: {dur:.1f}s")
+        logger.info("  Segment %d: %.1fs", seg_idx, dur)
 
     t_phase1 = time.monotonic() - t_start
-    logger.info(f"Phase 1: {t_phase1:.0f}s ({len(segment_files)} segments)")
+    logger.info("Phase 1: %.0fs (%d segments)", t_phase1, len(segment_files))
 
     return segment_files
 
@@ -263,7 +263,7 @@ def _concat_and_mix(
     *,
     version: int,
     res_label: str,
-    progress_callback=None,
+    progress_callback: ProgressCallback = None,
 ) -> Path:
     """Concat demuxer + music overlay. Returns final output path."""
     output_dir = cfg.output_dir
@@ -308,7 +308,7 @@ def _concat_and_mix(
         raise RuntimeError(f"Concat failed: {result.stderr}")
 
     total_dur = ctx.probe_duration(nomix_path) or 0.0
-    logger.info(f"  Concat: {total_dur:.1f}s")
+    logger.info("  Concat: %.1fs", total_dur)
 
     # Music overlay
     if has_music:

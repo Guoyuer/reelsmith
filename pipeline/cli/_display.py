@@ -7,6 +7,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -45,7 +46,7 @@ class _PipelineDisplay:
         self.output_file: str = ""  # set by assemble stage
         self.api_cost: float = 0.0  # accumulated Gemini API cost
         # stage → (state, detail, progress_current, progress_total, duration)
-        self._stage_data: dict[str, dict] = {}
+        self._stage_data: dict[str, dict[str, Any]] = {}
         self._current_stage: str | None = None
         self._live = None
         self._tick = 0
@@ -152,7 +153,7 @@ class _PipelineDisplay:
         )
         return panel
 
-    def _build_progress(self, d: dict):
+    def _build_progress(self, d: dict[str, Any]):
         """Build progress text with Rich ProgressBar for a running stage."""
         from rich.progress_bar import ProgressBar
         from rich.table import Table as InlineTable
@@ -175,7 +176,7 @@ class _PipelineDisplay:
             )
             row.add_row(
                 bar,
-                Text(f"{cur}/{total} {cur/total:.0%}", style="cyan"),
+                Text(f"{cur}/{total} {cur / total:.0%}", style="cyan"),
                 Text(label, style="dim"),
             )
             return row
@@ -183,7 +184,7 @@ class _PipelineDisplay:
             return Text(label, style="cyan")
         return Text("", style="cyan")
 
-    def _build_sub_progress(self, name: str, sub: dict):
+    def _build_sub_progress(self, name: str, sub: dict[str, Any]):
         """Build a sub-stage progress line with Rich ProgressBar."""
         from rich.progress_bar import ProgressBar
         from rich.table import Table as InlineTable
@@ -205,7 +206,7 @@ class _PipelineDisplay:
             row.add_row(
                 Text(name, style="dim cyan"),
                 bar,
-                Text(f"{cur}/{total} {cur/total:.0%}", style="dim cyan"),
+                Text(f"{cur}/{total} {cur / total:.0%}", style="dim cyan"),
             )
             return row
         return Text(f"  {name}", style="dim cyan")

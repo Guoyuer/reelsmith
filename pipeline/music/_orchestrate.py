@@ -11,6 +11,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from ..config import ProgressCallback
+
 logger = logging.getLogger("vlog.music")
 
 
@@ -89,9 +91,7 @@ def _build_composite_music(
             text=True,
         )
         if result.returncode != 0:
-            logger.warning(
-                "Trim failed for segment %d: %s", i, (result.stderr or "")
-            )
+            logger.warning("Trim failed for segment %d: %s", i, (result.stderr or ""))
             continue
         if trimmed_path.exists():
             trimmed.append(trimmed_path)
@@ -110,7 +110,7 @@ def _build_composite_music(
     # Chain acrossfade filters
     filter_parts = []
     for i in range(1, len(trimmed)):
-        in_label = "[0:a]" if i == 1 else f"[a{i-1}]"
+        in_label = "[0:a]" if i == 1 else f"[a{i - 1}]"
         out_label = f"[a{i}]" if i < len(trimmed) - 1 else "[out]"
         filter_parts.append(
             f"{in_label}[{i}:a]acrossfade=d={crossfade}:c1=tri:c2=tri{out_label}"
@@ -151,7 +151,9 @@ def _build_composite_music(
     return True
 
 
-def generate_music_for_edl(cfg, *, progress_callback=None) -> Path | None:
+def generate_music_for_edl(
+    cfg, *, progress_callback: ProgressCallback = None
+) -> Path | None:
     """Generate per-segment music and build a composite track with crossfades.
 
     Called by the generate_music stage. Generates one Lyria track per

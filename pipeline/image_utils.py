@@ -26,6 +26,7 @@ def convert_heic(source: Path, cache_dir: Path | None = None) -> Path:
     """
     if cache_dir is None:
         import tempfile
+
         cache_dir = Path(tempfile.gettempdir()) / "vlog_heic_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     jpeg_path = cache_dir / f"_converted_{source.stem}.jpg"
@@ -59,7 +60,9 @@ def convert_heic(source: Path, cache_dir: Path | None = None) -> Path:
         if jpeg_path.exists():
             return jpeg_path
 
-    raise RuntimeError(f"HEIC conversion failed for {source}. Install pillow-heif or ImageMagick.")
+    raise RuntimeError(
+        f"HEIC conversion failed for {source}. Install pillow-heif or ImageMagick."
+    )
 
 
 def generate_thumbnail(

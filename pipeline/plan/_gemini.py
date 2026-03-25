@@ -11,12 +11,15 @@ import os
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
+
+from ..config import ProgressCallback
 
 logger = logging.getLogger("vlog.plan")
 
 
 def _prepare_parts(
-    user_parts: list, client, progress_callback=None
+    user_parts: list, client, progress_callback: ProgressCallback = None
 ) -> tuple[list, int]:
     """Convert *user_parts* (str/dict) into Gemini API Part objects.
 
@@ -46,14 +49,14 @@ def _prepare_parts(
                     tf_path = tf.name
                 try:
                     size_mb = len(p["data"]) / 1024 / 1024
-                    logger.info(f"  Uploading video ({size_mb:.1f}MB) to Files API...")
+                    logger.info("  Uploading video (%.1fMB) to Files API...", size_mb)
                     if progress_callback:
                         progress_callback(0, 0, f"uploading video ({size_mb:.0f}MB)...")
                     uploaded = client.files.upload(file=tf_path)
                     while (uploaded.state.name if uploaded.state else None) != "ACTIVE":  # type: ignore[union-attr]
                         time.sleep(2)
                         uploaded = client.files.get(name=uploaded.name or "")
-                    logger.info(f"  Video uploaded and ACTIVE: {uploaded.name}")
+                    logger.info("  Video uploaded and ACTIVE: %s", uploaded.name)
                     n_uploaded += 1
                 finally:
                     Path(tf_path).unlink(missing_ok=True)
@@ -86,9 +89,9 @@ def _parse_response(response) -> str:
         cand_content = response.candidates[0].content
         for part in (cand_content.parts if cand_content else None) or []:
             if getattr(part, "thought", False) and part.text:
-                logger.info(f"  [Thinking] {len(part.text)} chars")
+                logger.info("  [Thinking] %d chars", len(part.text))
                 for line in part.text.split("\n"):
-                    logger.debug(f"  \U0001f4ad {line}")
+                    logger.debug("  \U0001f4ad %s", line)
                 # Rich Markdown to terminal
                 try:
                     import sys
@@ -111,12 +114,12 @@ def _parse_response(response) -> str:
                 ec = part.executable_code  # type: ignore[union-attr]
                 code = ec.code or "" if ec else ""
                 for line in code.split("\n"):
-                    logger.info(f"  [Code] {line}")
+                    logger.info("  [Code] %s", line)
             if getattr(part, "code_execution_result", None):
                 cer = part.code_execution_result  # type: ignore[union-attr]
                 if cer:
                     for line in (cer.output or "").split("\n"):
-                        logger.info(f"  [CodeResult] {cer.outcome}: {line}")
+                        logger.info("  [CodeResult] %s: %s", cer.outcome, line)
 
     content = response.text or ""
     # Log finish reason if response is empty or blocked
@@ -132,7 +135,7 @@ def _parse_response(response) -> str:
     return content
 
 
-def _edl_response_schema() -> dict:
+def _edl_response_schema() -> dict[str, Any]:
     """JSON schema for Gemini's EDL response (structured output).
 
     Uses preview_start/preview_end (MM:SS strings) which postprocessing
@@ -207,7 +210,7 @@ def _gemini_call(
     label: str = "",
     model: str = "",
     thinking_level: str = "HIGH",
-    progress_callback=None,
+    progress_callback: ProgressCallback = None,
 ) -> str:
     """Make a Gemini API call with multimodal content. Returns response text.
 
@@ -279,25 +282,35 @@ def _gemini_call(
     )
     n_text_parts = sum(1 for p in user_parts if isinstance(p, str))
     text_chars = sum(len(p) for p in user_parts if isinstance(p, str))
-    logger.info(f"Gemini API call: {label}")
-    logger.info(f"  Model: {model}, thinking: {thinking_level}")
+    logger.info("Gemini API call: %s", label)
+    logger.info("  Model: %s, thinking: %s", model, thinking_level)
     logger.info(
-        f"  {n_text_parts} text ({text_chars} chars), {n_images} photos ({img_mb:.0f}MB), {n_videos_count} video ({vid_mb:.0f}MB)"
+        "  %d text (%d chars), %d photos (%.0fMB), %d video (%.0fMB)",
+        n_text_parts,
+        text_chars,
+        n_images,
+        img_mb,
+        n_videos_count,
+        vid_mb,
     )
     # System prompt at DEBUG
     logger.debug("  --- SYSTEM PROMPT ---")
     for line in system.split("\n"):
-        logger.debug(f"    | {line}")
+        logger.debug("    | %s", line)
     logger.debug("  --- END SYSTEM PROMPT ---")
     # Full part details at DEBUG
     logger.debug("  --- USER PARTS ---")
     for i, p in enumerate(user_parts):
         if isinstance(p, str):
             for line in p.split("\n"):
-                logger.debug(f"    | {line}")
+                logger.debug("    | %s", line)
         elif isinstance(p, dict):
             logger.debug(
-                f"  [part {i}] {p.get('type', '?')} {p.get('mime_type', '?')} ({len(p.get('data', b'')) // 1024}KB)"
+                "  [part %d] %s %s (%dKB)",
+                i,
+                p.get("type", "?"),
+                p.get("mime_type", "?"),
+                len(p.get("data", b"")) // 1024,
             )
     logger.debug("  --- END USER PARTS ---")
 
@@ -306,7 +319,7 @@ def _gemini_call(
     t0 = time.monotonic()
 
     # Build config and call API
-    config_kwargs: dict = {
+    config_kwargs: dict[str, Any] = {
         "system_instruction": system,
         "max_output_tokens": 65536,
         "temperature": 1.0,  # Gemini 3 default; lower values degrade reasoning
@@ -350,11 +363,14 @@ def _gemini_call(
     cost_est = input_tokens * in_rate / 1_000_000 + output_tokens * out_rate / 1_000_000
 
     logger.info(
-        f"  Response: {input_tokens:,} input tokens, "
-        f"{output_tokens:,} output tokens, {elapsed:.1f}s, ~${cost_est:.2f}"
+        "  Response: %s input tokens, %s output tokens, %.1fs, ~$%.2f",
+        f"{input_tokens:,}",
+        f"{output_tokens:,}",
+        elapsed,
+        cost_est,
     )
-    logger.info(f"  Output: {len(content)} chars")
-    logger.info(f"=== [Gemini] End {label} ===")
+    logger.info("  Output: %d chars", len(content))
+    logger.info("=== [Gemini] End %s ===", label)
 
     # Rich cost breakdown table to terminal
     try:

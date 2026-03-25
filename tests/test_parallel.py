@@ -30,7 +30,11 @@ class TestRunParallel:
     def test_progress_callback(self):
         progress_calls = []
         tasks = [(i, lambda: None) for i in range(4)]
-        run_parallel(tasks, max_workers=2, progress_fn=lambda done, total: progress_calls.append((done, total)))
+        run_parallel(
+            tasks,
+            max_workers=2,
+            progress_fn=lambda done, total: progress_calls.append((done, total)),
+        )
         assert len(progress_calls) == 4
         assert progress_calls[-1] == (4, 4)
 

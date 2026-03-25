@@ -13,6 +13,7 @@ import math
 import re
 from pathlib import Path
 
+from .._types import AnalysisEntry, PreprocessedData
 from ..config import Config
 from ..media_utils import probe_duration, run_subprocess
 from ._prompts import _secs_to_timestamp
@@ -48,8 +49,8 @@ def _histogram_similarity(h1: list[int], h2: list[int]) -> float:
 
 
 def _dedup_burst_photos(
-    items: list[dict], thumbnails_dir: Path, threshold: float = 0.92
-) -> list[dict]:
+    items: list[AnalysisEntry], thumbnails_dir: Path, threshold: float = 0.92
+) -> list[AnalysisEntry]:
     """Remove near-identical burst photos before sending to Gemini.
 
     Two-pass: group by 10s time window, then compare histograms within each
@@ -71,7 +72,7 @@ def _dedup_burst_photos(
     photos.sort(key=lambda x: x.get("taken_iso", "") or "")
 
     # Group consecutive photos within 10s (by filename timestamp as proxy)
-    bursts: list[list[dict]] = [[photos[0]]]
+    bursts: list[list[AnalysisEntry]] = [[photos[0]]]
     for p in photos[1:]:
         prev_t = bursts[-1][-1].get("taken_iso", "") or ""
         curr_t = p.get("taken_iso", "") or ""
@@ -129,20 +130,25 @@ def _dedup_burst_photos(
                 removed = [burst[k]["filename"] for k in cluster if k != best]
                 removed_total += len(removed)
                 logger.debug(
-                    f"  Burst dedup: kept {burst[best]['filename']}, "
-                    f"removed {len(removed)}: {', '.join(removed[:3])}"
-                    f"{'...' if len(removed) > 3 else ''}"
+                    "  Burst dedup: kept %s, removed %d: %s%s",
+                    burst[best]["filename"],
+                    len(removed),
+                    ", ".join(removed[:3]),
+                    "..." if len(removed) > 3 else "",
                 )
 
     if removed_total:
         logger.info(
-            f"  Burst dedup: {len(photos)} → {len(kept)} photos ({removed_total} removed)"
+            "  Burst dedup: %d → %d photos (%d removed)",
+            len(photos),
+            len(kept),
+            removed_total,
         )
 
     return kept + others
 
 
-def _build_item_text(idx: int, a: dict) -> tuple[str, Path | None]:
+def _build_item_text(idx: int, a: AnalysisEntry) -> tuple[str, Path | None]:
     """Build text metadata for one item. Returns (text_line, photo_path_or_None)."""
     local_path = a.get("local_path", "")
     media = a.get("media_type", "photo")
@@ -168,7 +174,7 @@ def _build_item_text(idx: int, a: dict) -> tuple[str, Path | None]:
 
     photo_path = None
     if media == "video":
-        dur = a.get("video_duration") or (a.get("duration_ms", 0) / 1000)
+        dur = a.get("video_duration") or ((a.get("duration_ms") or 0) / 1000)
         dur_s = f"{dur:.0f}s" if dur else "?"
         vw = a.get("video_width", 0)
         vh = a.get("video_height", 0)
@@ -182,12 +188,15 @@ def _build_item_text(idx: int, a: dict) -> tuple[str, Path | None]:
         exif_data = a.get("exif", {})
         if exif_data:
             exif_parts = []
-            if exif_data.get("focal_length"):
-                exif_parts.append(f"{exif_data['focal_length']:.0f}mm")
-            if exif_data.get("aperture"):
-                exif_parts.append(f"f/{exif_data['aperture']:.1f}")
-            if exif_data.get("iso"):
-                exif_parts.append(f"ISO{exif_data['iso']}")
+            fl = exif_data.get("focal_length")
+            ap = exif_data.get("aperture")
+            iso = exif_data.get("iso")
+            if fl:
+                exif_parts.append(f"{fl:.0f}mm")
+            if ap:
+                exif_parts.append(f"f/{ap:.1f}")
+            if iso:
+                exif_parts.append(f"ISO{iso}")
             if exif_parts:
                 parts.append(" ".join(exif_parts))
         photo_path = Path(local_path)
@@ -210,7 +219,7 @@ def _concat_previews(
     for item_num, _meta_dur, preview_path in video_entries:
         actual_dur = probe_duration(preview_path)
         if actual_dur <= 0:
-            logger.warning(f"  Skipping preview #{item_num}: could not probe duration")
+            logger.warning("  Skipping preview #%s: could not probe duration", item_num)
             continue
         offset_table.append((item_num, actual_dur, offset))
         valid_entries.append((item_num, actual_dur, preview_path))
@@ -271,7 +280,7 @@ def _concat_previews(
         )
 
     size_mb = output_path.stat().st_size / 1024 / 1024 if output_path.exists() else 0
-    logger.info(f"  Mega-preview: {size_mb:.1f}MB")
+    logger.info("  Mega-preview: %.1fMB", size_mb)
 
     if output_path.exists():
         actual_dur = probe_duration(output_path)
@@ -288,7 +297,7 @@ def _concat_previews(
 
 
 def _collect_items(
-    analysis_by_id: dict,
+    analysis_by_id: dict[str, AnalysisEntry],
     cfg: Config,
     preview_dir: Path,
 ) -> tuple[str, list[Path], list[tuple[int, float, Path]], int, int]:
@@ -371,7 +380,7 @@ def _build_mega_preview(
             )
 
     if cached_meta and cached_meta.get("key") == cache_key:
-        logger.info(f"Mega-preview cached ({len(video_entries)} videos)")
+        logger.info("Mega-preview cached (%d videos)", len(video_entries))
         offset_table = [tuple(e) for e in cached_meta["offset_table"]]
     else:
         offset_table, mega_path = _concat_previews(video_entries, mega_path)
@@ -383,12 +392,12 @@ def _build_mega_preview(
 
 
 def _build_visual_content_blocks(
-    preprocessed: dict,
-    analysis_by_id: dict,
+    preprocessed: PreprocessedData,
+    analysis_by_id: dict[str, AnalysisEntry],
     cfg: Config,
     *,
     force: bool = False,
-) -> tuple[list, list[tuple[int, float, float]]]:
+) -> tuple[list, list[tuple[int, float, float]], int, int]:
     """Build flat multimodal content: text metadata + photos + mega video preview.
 
     Items are sent as a flat numbered list.

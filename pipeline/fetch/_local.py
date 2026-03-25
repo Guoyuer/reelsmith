@@ -14,7 +14,8 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..config import Config
+from .._types import ManifestEntry
+from ..config import Config, ProgressCallback
 from ._nas import FetchConfig
 
 logger = logging.getLogger("vlog.fetch.local")
@@ -23,7 +24,9 @@ PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
-def fetch_local(cfg: Config, fc: FetchConfig, *, progress_callback=None) -> list[dict]:
+def fetch_local(
+    cfg: Config, fc: FetchConfig, *, progress_callback: ProgressCallback = None
+) -> list[ManifestEntry]:
     """Scan a local folder for photos/videos and build a manifest.
 
     Uses all media files found — no date filtering.
@@ -112,7 +115,16 @@ def _extract_date(path: Path) -> datetime | None:
             from ..media_utils import run_subprocess
 
             result = run_subprocess(
-                ["ffprobe", "-v", "error", "-show_entries", "format_tags=creation_time", "-of", "csv=p=0", str(path)],
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format_tags=creation_time",
+                    "-of",
+                    "csv=p=0",
+                    str(path),
+                ],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -123,7 +135,9 @@ def _extract_date(path: Path) -> datetime | None:
                 dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                 return dt
         except Exception:
-            logger.debug("Could not extract video date via ffprobe from %s", path, exc_info=True)
+            logger.debug(
+                "Could not extract video date via ffprobe from %s", path, exc_info=True
+            )
         # ffprobe failed — try filename
         return _parse_date_from_filename(path.stem)
 

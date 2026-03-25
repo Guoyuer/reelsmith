@@ -3,11 +3,13 @@
 Exports the ``cli`` Click group and key symbols used by tests.
 """
 
+# Register the workspace command (side-effect import)
+from . import _workspace  # noqa: F401
 from ._commands import (
-    ITEM_TYPE_NAMES,
-    _parse_resolution,
     _PLANNING_PRESETS,
     _RESOLUTION_PRESETS,
+    ITEM_TYPE_NAMES,
+    _parse_resolution,
     _resolve_planning,
     cli,
 )
@@ -20,9 +22,6 @@ from ._runner import (
     _run_pipeline,
     _run_prepare,
 )
-
-# Register the workspace command (side-effect import)
-from . import _workspace  # noqa: F401
 
 __all__ = [
     "cli",

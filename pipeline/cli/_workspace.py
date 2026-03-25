@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -54,8 +55,8 @@ def _latest_mtime(path) -> float:
     return latest
 
 
-def _run_detail(run_dir) -> dict:
-    info: dict = {"name": run_dir.name, "path": run_dir}
+def _run_detail(run_dir: Path) -> dict[str, Any]:
+    info: dict[str, Any] = {"name": run_dir.name, "path": run_dir}
     size, count = _dir_size(run_dir)
     info["size"] = size
     info["file_count"] = count
@@ -216,7 +217,7 @@ def workspace(clean, yes):
                 edl_parts.append(f"lang={r['language']}")
             click.echo(f"    EDL {', '.join(edl_parts)}")
             if r.get("title"):
-                click.echo(f"    \"{r['title'][:60]}\"")
+                click.echo(f'    "{r["title"][:60]}"')
         elif r["edl_versions"] > 0:
             click.echo(f"    EDL: {r['edl_versions']} version(s)")
 

@@ -18,8 +18,10 @@ import os
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-from .config import Config
+from ._types import AnalysisEntry, ManifestEntry, PreprocessedData
+from .config import Config, ProgressCallback
 from .image_utils import generate_thumbnail
 from .media_utils import run_subprocess
 
@@ -35,7 +37,7 @@ class PrepareConfig:
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
-def load_analysis(cfg: Config) -> list[dict]:
+def load_analysis(cfg: Config) -> list[AnalysisEntry]:
     """Reconstruct analysis data from manifest + per-item caches."""
     if not cfg.manifest_path.exists():
         raise FileNotFoundError(
@@ -88,8 +90,11 @@ def load_analysis(cfg: Config) -> list[dict]:
 
 
 def prepare(
-    cfg: Config, pc: PrepareConfig | None = None, *, progress_callback=None
-) -> dict:
+    cfg: Config,
+    pc: PrepareConfig | None = None,
+    *,
+    progress_callback: ProgressCallback = None,
+) -> PreprocessedData:
     """Prepare all media for Gemini visual planning.
 
     1. Read manifest, detect family
@@ -110,7 +115,7 @@ def prepare(
     family_names = pc.family_names
     if not family_names:
         family_names = _detect_family(manifest)
-    logger.info(f"Family members: {family_names}")
+    logger.info("Family members: %s", family_names)
 
     for item in manifest:
         persons = item.get("metadata", {}).get("persons", [])
@@ -118,7 +123,7 @@ def prepare(
         item["family_count"] = len(family_in_photo)
         item["family_names"] = family_in_photo
 
-    preprocessed = {
+    preprocessed: PreprocessedData = {
         "family_names": family_names,
     }
     pp_path = cfg.preprocessed_path
@@ -152,7 +157,9 @@ def prepare(
                 json.loads(cache_file.read_text())  # validate not corrupt
                 continue  # cache hit — skip
             except (json.JSONDecodeError, KeyError) as e:
-                logger.warning(f"Corrupt cache for item {item_id}, re-analyzing: {e}")
+                logger.warning(
+                    "Corrupt cache for item %s, re-analyzing: %s", item_id, e
+                )
 
         entry = {
             "id": item_id,
@@ -291,11 +298,11 @@ def _has_dense_keyframes(source: Path) -> bool:
 
 
 def _generate_video_previews(
-    video_items: list[dict],
+    video_items: list[AnalysisEntry],
     preview_dir: Path,
     *,
     force: bool = False,
-    progress_callback=None,
+    progress_callback: ProgressCallback = None,
 ) -> None:
     """Generate one full-length preview per video (480p 1fps + audio)."""
     from .parallel import run_parallel
@@ -314,7 +321,7 @@ def _generate_video_previews(
             meta_file.unlink()
             deleted += 1
         if deleted:
-            logger.info(f"Force: deleted {deleted} cached preview files")
+            logger.info("Force: deleted %d cached preview files", deleted)
 
     # Clean orphaned previews
     current_ids = {str(vi["id"]) for vi in video_items}
@@ -362,11 +369,11 @@ def _generate_video_previews(
 
     cached = len(video_items) - len(tasks)
     if cached:
-        logger.info(f"Video previews: {cached} cached, {len(tasks)} to generate")
+        logger.info("Video previews: %d cached, %d to generate", cached, len(tasks))
     if not tasks:
         return
 
-    logger.info(f"Generating {len(tasks)} video previews (CPU x{max_workers})...")
+    logger.info("Generating %d video previews (CPU x%d)...", len(tasks), max_workers)
 
     def _progress(done, total):
         if progress_callback:
@@ -396,9 +403,9 @@ def _generate_video_previews(
 
     n_ok = sum(1 for p, _ in tasks if p.exists() and p.stat().st_size > 500)
     n_failed = len(tasks) - n_ok
-    logger.info(f"  Video previews done: {n_ok}/{len(tasks)} OK")
+    logger.info("  Video previews done: %d/%d OK", n_ok, len(tasks))
     if n_failed:
-        logger.warning(f"  Video previews: {n_failed} failed (check warnings above)")
+        logger.warning("  Video previews: %d failed (check warnings above)", n_failed)
 
 
 # ---------------------------------------------------------------------------
@@ -406,7 +413,7 @@ def _generate_video_previews(
 # ---------------------------------------------------------------------------
 
 
-def _detect_family(manifest: list[dict], top_n: int = 5) -> list[str]:
+def _detect_family(manifest: list[ManifestEntry], top_n: int = 5) -> list[str]:
     """Auto-detect the most frequent persons as family members."""
     counts: dict[str, int] = defaultdict(int)
     for item in manifest:
@@ -452,7 +459,7 @@ def _prepare_video(entry, item_id, local_path, cache_file, i, total):
             num, den = fps_str.split("/")
             video_fps = round(int(num) / max(int(den), 1), 1)
     except (ValueError, AttributeError, json.JSONDecodeError, KeyError):
-        logger.warning(f"Could not probe metadata for {local_path}, assuming 10s")
+        logger.warning("Could not probe metadata for %s, assuming 10s", local_path)
 
     orientation = "landscape"
     if video_width > 0 and video_height > 0 and video_height > video_width:
@@ -480,7 +487,7 @@ def _prepare_video(entry, item_id, local_path, cache_file, i, total):
     )
 
 
-def _read_exif(path) -> dict:
+def _read_exif(path: str | Path) -> dict[str, Any]:
     """Extract EXIF metadata from a photo (supports JPEG, HEIC, etc.)."""
     try:
         from PIL import Image

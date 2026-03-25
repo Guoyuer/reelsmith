@@ -185,7 +185,9 @@ class TestExtractDateFallback:
         video = tmp_path / "VID_20250613_120415.mp4"
         _create_fake_video(video)
 
-        with patch("pipeline.media_utils.run_subprocess", side_effect=Exception("no ffprobe")):
+        with patch(
+            "pipeline.media_utils.run_subprocess", side_effect=Exception("no ffprobe")
+        ):
             dt = _extract_date(video)
 
         assert dt == datetime(2025, 6, 13, 12, 4, 15, tzinfo=timezone.utc)
@@ -254,5 +256,7 @@ class TestReverseGeocode:
         _create_fake_image(source_dir / "no_gps.jpg")
         with patch("pipeline.fetch._local._extract_date", return_value=None):
             with patch("pipeline.fetch._local._extract_gps", return_value=(None, None)):
-                result = fetch_local(mock_config, FetchConfig(source_dir=str(source_dir)))
+                result = fetch_local(
+                    mock_config, FetchConfig(source_dir=str(source_dir))
+                )
         assert "city" not in result[0]

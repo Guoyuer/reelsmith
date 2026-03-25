@@ -10,8 +10,10 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-from ..config import Config
+from .._types import AnalysisEntry, PreprocessedData
+from ..config import Config, ProgressCallback
 from ..edl import EDL, MusicTrack, find_latest_version, save_edl
 from ._gemini import _gemini_call
 from ._postprocess import (
@@ -60,11 +62,11 @@ class PlanConfig:
 
 def _plan_visual(
     cfg: Config,
-    preprocessed: dict,
-    analysis_by_id: dict,
+    preprocessed: PreprocessedData,
+    analysis_by_id: dict[str, AnalysisEntry],
     pc: PlanConfig,
     *,
-    progress_callback=None,
+    progress_callback: ProgressCallback = None,
 ) -> EDL:
     """Single-pass Gemini planning with chain-of-thought.
 
@@ -167,7 +169,7 @@ All candidates:"""
 
     system_prompt = _visual_system_prompt(pc.trip_type, language=pc.language)
 
-    model_kwargs: dict = {}
+    model_kwargs: dict[str, Any] = {}
     if pc.model:
         model_kwargs["model"] = pc.model
     if pc.thinking_level:
@@ -180,9 +182,9 @@ All candidates:"""
         **model_kwargs,
     )
 
-    logger.info(f"Gemini response: {len(edl_content)} chars")
+    logger.info("Gemini response: %d chars", len(edl_content))
     for line in edl_content.split("\n"):
-        logger.debug(f"  | {line}")
+        logger.debug("  | %s", line)
 
     # --- Post-processing pipeline ---
     if progress_callback:
@@ -206,10 +208,13 @@ All candidates:"""
         pp_parts.append(f"{n_dedup} duplicates removed")
     if pp_parts:
         logger.info(
-            f"Post-processing: {', '.join(pp_parts)} ({items_before} → {items_after} items)"
+            "Post-processing: %s (%d → %d items)",
+            ", ".join(pp_parts),
+            items_before,
+            items_after,
         )
     else:
-        logger.info(f"Post-processing: no changes ({items_after} items)")
+        logger.info("Post-processing: no changes (%d items)", items_after)
 
     # Rich post-processing diff
     try:
@@ -259,7 +264,9 @@ All candidates:"""
 # ---------------------------------------------------------------------------
 
 
-def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, int]:
+def plan(
+    cfg: Config, pc: PlanConfig, *, progress_callback: ProgressCallback = None
+) -> tuple[EDL, int]:
     """Generate an EDL from preprocessed + analysis data using the visual planner."""
     if not cfg.preprocessed_path.exists():
         raise FileNotFoundError(
@@ -271,7 +278,7 @@ def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, i
     effective_focus = pc.focus or _default_focus(pc.trip_type)
     preprocessed = json.loads(cfg.preprocessed_path.read_text())
     analysis_items = load_analysis(cfg)
-    analysis_by_id: dict[str, dict] = {str(a["id"]): a for a in analysis_items}
+    analysis_by_id: dict[str, AnalysisEntry] = {str(a["id"]): a for a in analysis_items}
 
     # Use a copy with effective_focus applied so _plan_visual gets the resolved focus
     visual_pc = PlanConfig(
@@ -317,7 +324,7 @@ def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, i
 
     # Store music intent
     if pc.music_file and pc.music_file != "auto" and Path(pc.music_file).exists():
-        logger.info(f"Attaching music file: {pc.music_file}")
+        logger.info("Attaching music file: %s", pc.music_file)
         edl.music = MusicTrack(file=pc.music_file)
         edl.music_mode = "file"
     elif pc.music_file == "auto":

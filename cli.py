@@ -6,9 +6,8 @@ from pipeline.cli import cli  # explicit for type checkers
 
 if __name__ == "__main__":
     try:
-        from rich.traceback import install as _install_traceback
-
         import click
+        from rich.traceback import install as _install_traceback
 
         _install_traceback(show_locals=False, width=120, suppress=[click])
     except ImportError:

@@ -6,6 +6,7 @@ import json
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -19,7 +20,7 @@ TRIP_TYPES = {
 }
 
 
-def _load_json(name: str) -> dict:
+def _load_json(name: str) -> dict[str, Any]:
     """Load a JSON file from the prompts directory."""
     path = _PROMPTS_DIR / name
     if not path.exists():
@@ -28,12 +29,12 @@ def _load_json(name: str) -> dict:
 
 
 @lru_cache(maxsize=1)
-def _load_narrative_guidance() -> dict:
+def _load_narrative_guidance() -> dict[str, Any]:
     return _load_json("narrative_guidance.json")
 
 
 @lru_cache(maxsize=1)
-def _load_lang_instructions() -> dict:
+def _load_lang_instructions() -> dict[str, Any]:
     return _load_json("lang_instructions.json")
 
 
@@ -48,7 +49,9 @@ def _load_system_template() -> str:
 def _default_focus(trip_type: str) -> str:
     data = _load_narrative_guidance()
     defaults = data.get("_default_focus", {})
-    return defaults.get(trip_type, defaults.get("general", "highlights and memorable moments"))
+    return defaults.get(
+        trip_type, defaults.get("general", "highlights and memorable moments")
+    )
 
 
 def _trip_guidance(trip_type: str) -> str:
@@ -57,7 +60,7 @@ def _trip_guidance(trip_type: str) -> str:
     text = data.get(trip_type, data.get("general", ""))
     # Strip leading principle number artifact (e.g. "2. ")
     if text and text[0].isdigit() and ". " in text[:5]:
-        text = text[text.index(". ") + 2:]
+        text = text[text.index(". ") + 2 :]
     return text
 
 

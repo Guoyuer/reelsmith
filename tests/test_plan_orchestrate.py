@@ -56,7 +56,7 @@ def _setup_workspace(tmp_path, n_photos=2):
             "local_path": photo_paths[i - 1],
             "metadata": {"persons": ["Alice"]},
             "family_count": 1,
-            "taken_iso": f"2025-06-13T{10+i}:30:00",
+            "taken_iso": f"2025-06-13T{10 + i}:30:00",
         }
         for i in range(1, n_photos + 1)
     ]

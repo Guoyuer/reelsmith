@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+# Shared callback type: (current, total, label) → None
+ProgressCallback = Callable[[int, int, str], None] | None
 
 
 @dataclass
@@ -17,7 +21,11 @@ class Config:
     @property
     def _base(self) -> Path:
         """Shared root: workspace/../.. if in runs/xxx, else workspace itself."""
-        return self.workspace.parent.parent if self.workspace.parent.name == "runs" else self.workspace
+        return (
+            self.workspace.parent.parent
+            if self.workspace.parent.name == "runs"
+            else self.workspace
+        )
 
     # Shared directories (across all runs)
     @property
