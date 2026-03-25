@@ -58,27 +58,6 @@ class TestParseAndConvertTimestamps:
         assert edl.title == "Test"
         assert len(edl.all_items()) == 1
 
-    def test_music_string_becomes_none(self):
-        raw = {
-            "title": "T",
-            "target_duration": 60,
-            "music": "some string",
-            "segments": [
-                {
-                    "name": "S",
-                    "items": [
-                        {
-                            "source_file": "a.jpg",
-                            "media_type": "photo",
-                            "display_duration": 4.0,
-                        }
-                    ],
-                }
-            ],
-        }
-        edl = parse_and_convert_timestamps(json.dumps(raw), [])
-        assert edl.music is None
-
     def test_preview_timestamps_converted(self):
         # offset_table: item 1 starts at 0.0, duration 30s
         offset_table = [(1, 30.0, 0.0)]
@@ -130,27 +109,6 @@ class TestParseAndConvertTimestamps:
         item = edl.all_items()[0]
         # Should not have start_time/end_time set (preview not found)
         assert item.start_time is None
-
-    def test_strips_markdown_fences(self):
-        raw = {
-            "title": "T",
-            "target_duration": 60,
-            "segments": [
-                {
-                    "name": "S",
-                    "items": [
-                        {
-                            "source_file": "a.jpg",
-                            "media_type": "photo",
-                            "display_duration": 4.0,
-                        }
-                    ],
-                }
-            ],
-        }
-        fenced = "```json\n" + json.dumps(raw) + "\n```"
-        edl = parse_and_convert_timestamps(fenced, [])
-        assert edl.title == "T"
 
     def test_minimum_2s_clip_guard(self):
         # Preview range is only 1s → should expand to at least 2s

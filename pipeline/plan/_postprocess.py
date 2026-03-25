@@ -14,7 +14,6 @@ import logging
 from pathlib import Path
 
 from ..edl import EDL, validate_edl
-from ..media_utils import strip_markdown_fences
 from ._prompts import _timestamp_to_secs
 
 logger = logging.getLogger("vlog.plan")
@@ -25,12 +24,7 @@ def parse_and_convert_timestamps(
     preview_offset_table: list[tuple[int, float, float]],
 ) -> EDL:
     """Parse Gemini JSON response and convert preview timestamps to trim points."""
-    edl_content = strip_markdown_fences(edl_content)  # no-op for structured output
     raw = json.loads(edl_content)
-
-    # Gemini sometimes puts a string in "music" instead of object/null
-    if "music" in raw and isinstance(raw["music"], str):
-        raw["music"] = None
 
     # Convert preview_start/preview_end (MM:SS) → start_time/end_time (seconds)
     n_converted = 0
