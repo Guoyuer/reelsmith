@@ -119,7 +119,7 @@ class TestFullCommandWiring:
         captured = {}
 
         def mock_pipeline(
-            run_name, *, stages, fetch=None, prepare=None, plan=None, assemble=None
+            run_name, *, stages, fetch=None, prepare=None, plan=None, assemble=None, cli_params=None
         ):
             captured["run_name"] = run_name
             captured["stages"] = stages
