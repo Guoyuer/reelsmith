@@ -281,17 +281,9 @@ def plan(
     analysis_by_id: dict[str, AnalysisEntry] = {str(a["id"]): a for a in analysis_items}
 
     # Use a copy with effective_focus applied so _plan_visual gets the resolved focus
-    visual_pc = PlanConfig(
-        style=pc.style,
-        target_duration=pc.target_duration,
-        focus=effective_focus,
-        trip_type=pc.trip_type,
-        language=pc.language,
-        model=pc.model,
-        thinking_level=pc.thinking_level,
-        music_file=pc.music_file,
-        force=pc.force,
-    )
+    from dataclasses import replace
+
+    visual_pc = replace(pc, focus=effective_focus)
     edl = _plan_visual(
         cfg,
         preprocessed,
@@ -313,8 +305,7 @@ def plan(
     edl.trip_type = pc.trip_type
     edl.style = pc.style
     edl.language = pc.language  # type: ignore[assignment]  # validated by CLI
-    edl.intro_style = edl.intro_style or "title_card"
-    edl.outro_style = edl.outro_style or "fade_title"
+    # intro_style/outro_style have defaults and both enum values are truthy — no fallback needed
     if not edl.date_range:
         all_dates = sorted(
             {a["taken_iso"][:10] for a in analysis_by_id.values() if a.get("taken_iso")}

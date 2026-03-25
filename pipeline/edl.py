@@ -181,9 +181,9 @@ class EDL(BaseModel):
 
     def estimated_duration(self) -> float:
         total = sum(self._item_output_duration(item) for item in self.all_items())
-        if self.intro_style != "none":
+        if self.intro_style != IntroStyle.NONE:
             total += self.intro_duration
-        if self.outro_style != "none":
+        if self.outro_style != OutroStyle.NONE:
             total += self.outro_duration
         return total
 
@@ -271,7 +271,7 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
             _error(f"{seg_label}: no items")
             continue
 
-        if seg.transition != "cut":
+        if seg.transition != Transition.CUT:
             if seg.transition_duration <= 0 or seg.transition_duration > 3.0:
                 _error(
                     f"{seg_label}: transition_duration {seg.transition_duration}s "
@@ -294,7 +294,7 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
             all_sources.add(src_key)
 
             # Media type checks
-            if item.media_type not in ("photo", "video"):
+            if item.media_type not in (MediaType.PHOTO, MediaType.VIDEO):
                 _error(f"{item_label}: invalid media_type '{item.media_type}'")
 
             # Media type vs file extension mismatch
@@ -335,7 +335,7 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
 
             # Video-specific checks
             if item.media_type == "video":
-                if item.effect not in ("none", "static"):
+                if item.effect not in (Effect.NONE, Effect.STATIC):
                     _error(
                         f"{item_label}: video should have effect='none', "
                         f"got '{item.effect}'"
@@ -384,7 +384,7 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
                     )
 
         # Check transition duration vs shortest clip in segment
-        if seg.transition != "cut" and len(seg.items) > 1:
+        if seg.transition != Transition.CUT and len(seg.items) > 1:
             min_dur = min(it.display_duration for it in seg.items)
             if seg.transition_duration >= min_dur:
                 _error(
