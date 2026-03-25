@@ -110,14 +110,14 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
 9. **Chapter coherence**: Every item must fit its chapter's theme.
    Never dump unrelated leftovers into a chapter just to fill duration.
 
-10. **Text overlays**: Each clip can have its own text overlay, but most should be null.
+10. **Text overlays**: Each clip can have its own text overlay.
     Text overlay is NOT a segment title — the segment already has `name` for that.
     It describes what the viewer SEES on THIS specific clip at THIS moment.
     Only add text when you are confident the visual content matches the words.
     If unsure what a clip shows, set text_overlay to null.
     BAD: put segment theme on item[0] regardless of content. BAD: "Day 1 - Marina Bay".
     GOOD: "Her first time seeing the ocean" on a clip that actually shows a child at the ocean.
-    Keep rare (3-5 per vlog max). Place on the clip whose visual matches — often item[2] or [3], rarely item[0].
+    Place on the clip whose visual matches — often item[2] or [3], rarely item[0].
 
 11. **Language**: {lang_instruction}
 
