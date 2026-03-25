@@ -2,7 +2,7 @@
 
 ## Completed
 
-- **Merge preprocess + analyze → prepare** — single prepare stage (5 stages instead of 6)
+- **Merge preprocess + analyze → prepare** — single `prepare` stage (5 stages instead of 6)
 - **A8. Split monolithic assemble.py** — encoder.py, filters.py, render.py, concat.py, audio.py
 - **A5. Integration tests** — 255 tests covering BPM, beat sync, Timeline, xfade, speech, music, e2e render
 - **A2. Remove global state** — RenderContext dataclass replaces 4 scattered globals
