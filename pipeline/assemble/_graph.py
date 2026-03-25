@@ -71,6 +71,7 @@ def build_segment_graph(
         # HEIC conversion for photos (FFmpeg can't -loop 1 with HEIC)
         if item.media_type == "photo" and source.suffix.lower() in {".heic", ".heif"}:
             from ..image_utils import convert_heic
+
             source = convert_heic(source)
 
         idx = len(inputs)
@@ -80,7 +81,18 @@ def build_segment_graph(
             exact_dur = frames / fps
             # -framerate ensures input generates frames at target fps,
             # so Ken Burns crop expressions using frame number 'n' are correct
-            inputs.append(["-loop", "1", "-framerate", str(fps), "-t", str(exact_dur), "-i", str(source)])
+            inputs.append(
+                [
+                    "-loop",
+                    "1",
+                    "-framerate",
+                    str(fps),
+                    "-t",
+                    str(exact_dur),
+                    "-i",
+                    str(source),
+                ]
+            )
             vf = _photo_filter(idx, item, segment, ctx, fade_in, fade_out, language)
             filters.append(vf)
             filters.append(f"aevalsrc=0:d={exact_dur}:s=48000:c=stereo [a{idx}]")
@@ -96,8 +108,16 @@ def build_segment_graph(
             output_dur = duration / speed
             trim_start = item.start_time or 0.0
             vf = _video_filter(
-                idx, item, segment, ctx, fade_in, fade_out,
-                output_dur, language, trim_start=trim_start, trim_duration=duration,
+                idx,
+                item,
+                segment,
+                ctx,
+                fade_in,
+                fade_out,
+                output_dur,
+                language,
+                trim_start=trim_start,
+                trim_duration=duration,
             )
             filters.append(vf)
 
@@ -110,7 +130,9 @@ def build_segment_graph(
                 filters.append(af)
                 has_speech = True
             else:
-                filters.append(f"aevalsrc=0:d={output_dur:.3f}:s=48000:c=stereo [a{idx}]")
+                filters.append(
+                    f"aevalsrc=0:d={output_dur:.3f}:s=48000:c=stereo [a{idx}]"
+                )
 
         segment_pairs.append((f"[v{idx}]", f"[a{idx}]"))
 
@@ -167,7 +189,11 @@ def compute_fade_params(edl: EDL) -> list[list[tuple[float, float]]]:
                     if next_item_idx == 0:
                         fade_out = next_segment.segment_transition_duration
                     else:
-                        fade_out = next_segment.transition_duration if next_segment.transition != "cut" else 0.0
+                        fade_out = (
+                            next_segment.transition_duration
+                            if next_segment.transition != "cut"
+                            else 0.0
+                        )
 
         seg_fades.append((fade_in, fade_out))
 
@@ -199,8 +225,13 @@ def _fade_expr(duration: float, fade_in: float, fade_out: float) -> str:
 
 
 def _photo_filter(
-    idx: int, item: EditItem, segment: Segment, ctx: RenderContext,
-    fade_in: float, fade_out: float, language: str,
+    idx: int,
+    item: EditItem,
+    segment: Segment,
+    ctx: RenderContext,
+    fade_in: float,
+    fade_out: float,
+    language: str,
 ) -> str:
     """Photo filter: blurred-bg composite + Ken Burns.
 
@@ -213,8 +244,12 @@ def _photo_filter(
     dt = ""
     if item.text_overlay:
         dt = "," + drawtext_filter(
-            item.text_overlay.text, item.text_overlay.position,
-            item.text_overlay.font_size, item.display_duration, language, out_h=h,
+            item.text_overlay.text,
+            item.text_overlay.position,
+            item.text_overlay.font_size,
+            item.display_duration,
+            language,
+            out_h=h,
         )
 
     exact_dur = frames / fps
@@ -223,8 +258,11 @@ def _photo_filter(
     sharpen = ",unsharp=3:3:0.5:3:3:0.0"
 
     direction_map = {
-        "ken_burns_in": "in", "ken_burns_out": "out",
-        "ken_burns_left": "left", "ken_burns_right": "right", "static": "static",
+        "ken_burns_in": "in",
+        "ken_burns_out": "out",
+        "ken_burns_left": "left",
+        "ken_burns_right": "right",
+        "static": "static",
     }
     direction = direction_map.get(item.effect, "in")
     kb = ken_burns_filter(frames, w, h, fps, direction=direction)
@@ -240,21 +278,36 @@ def _photo_filter(
 
 
 def _video_filter(
-    idx: int, item: EditItem, segment: Segment, ctx: RenderContext,
-    fade_in: float, fade_out: float, output_dur: float, language: str,
-    trim_start: float = 0.0, trim_duration: float = 0.0,
+    idx: int,
+    item: EditItem,
+    segment: Segment,
+    ctx: RenderContext,
+    fade_in: float,
+    fade_out: float,
+    output_dur: float,
+    language: str,
+    trim_start: float = 0.0,
+    trim_duration: float = 0.0,
 ) -> str:
     w, h, fps = ctx.w, ctx.h, ctx.fps
     speed = item.playback_speed or 1.0
     speed_vf = f",setpts={1/speed:.4f}*PTS" if speed != 1.0 else ""
     # Trim in filter chain (not -ss/-t on input — FFmpeg 8 filter_complex ignores those)
-    trim_vf = f"trim=start={trim_start}:duration={trim_duration},setpts=PTS-STARTPTS," if trim_duration > 0 else ""
+    trim_vf = (
+        f"trim=start={trim_start}:duration={trim_duration},setpts=PTS-STARTPTS,"
+        if trim_duration > 0
+        else ""
+    )
 
     dt = ""
     if item.text_overlay:
         dt = "," + drawtext_filter(
-            item.text_overlay.text, item.text_overlay.position,
-            item.text_overlay.font_size, item.display_duration, language, out_h=h,
+            item.text_overlay.text,
+            item.text_overlay.position,
+            item.text_overlay.font_size,
+            item.display_duration,
+            language,
+            out_h=h,
         )
 
     src_w, src_h = ctx.probe_dimensions(Path(item.source_file))
@@ -262,12 +315,18 @@ def _video_filter(
     fade = _fade_expr(output_dur, fade_in, fade_out)
 
     # trim_vf trims the source before processing (replaces -ss/-t on input)
-    if is_portrait(src_w, src_h):
+    # Blurred background composite for non-matching aspect ratios (portrait AND
+    # non-16:9 landscape like 2.35:1). Exact 16:9 videos pass through without
+    # visible blur since the foreground covers the entire frame.
+    needs_aspect_fill = is_portrait(src_w, src_h) or (
+        src_w > 0 and src_h > 0 and abs(src_w / src_h - w / h) > 0.05
+    )
+    if needs_aspect_fill:
         return (
             f"[{idx}:v] {trim_vf}format=yuv420p,split [bg{idx}][fg{idx}];"
-            f"[bg{idx}] scale={w}:-1:force_original_aspect_ratio=increase,"
+            f"[bg{idx}] scale={w}:{h}:force_original_aspect_ratio=increase,"
             f"crop={w}:{h},gblur=sigma=60,eq=brightness=-0.15:saturation=0.6 [blurred{idx}];"
-            f"[fg{idx}] scale=-1:{h} [sharp{idx}];"
+            f"[fg{idx}] scale={w}:{h}:force_original_aspect_ratio=decrease [sharp{idx}];"
             f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2,"
             f"{cg}{speed_vf}{dt}{fade},fps={fps} [v{idx}]"
         )
