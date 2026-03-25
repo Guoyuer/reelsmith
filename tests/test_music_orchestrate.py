@@ -66,7 +66,9 @@ class TestSegmentDuration:
 
         seg = Segment(
             name="S",
-            items=[EditItem(source_file="a.jpg", media_type="photo", display_duration=2.0)],
+            items=[
+                EditItem(source_file="a.jpg", media_type="photo", display_duration=2.0)
+            ],
             transition="cut",
         )
         dur = _segment_duration(seg)
@@ -88,7 +90,13 @@ class TestGenerateMusicForEdl:
                 Segment(
                     name="test",
                     music_mood=music_mood,
-                    items=[EditItem(source_file="test.jpg", media_type="photo", display_duration=10.0)],
+                    items=[
+                        EditItem(
+                            source_file="test.jpg",
+                            media_type="photo",
+                            display_duration=10.0,
+                        )
+                    ],
                 )
             ],
         )
@@ -130,7 +138,9 @@ class TestGenerateMusicForEdl:
         fake_track = tmp_path / "track.wav"
         fake_track.write_bytes(b"RIFF" + b"\x00" * 100)
 
-        with patch("pipeline.music._orchestrate.generate_music", return_value=fake_track):
+        with patch(
+            "pipeline.music._orchestrate.generate_music", return_value=fake_track
+        ):
             result = generate_music_for_edl(cfg)
 
         assert result is not None
@@ -145,10 +155,13 @@ class TestGenerateMusicForEdl:
         fake_track.write_bytes(b"RIFF" + b"\x00" * 100)
 
         calls = []
+
         def cb(done, total, detail):
             calls.append((done, total))
 
-        with patch("pipeline.music._orchestrate.generate_music", return_value=fake_track):
+        with patch(
+            "pipeline.music._orchestrate.generate_music", return_value=fake_track
+        ):
             generate_music_for_edl(cfg, progress_callback=cb)
 
         assert len(calls) >= 1

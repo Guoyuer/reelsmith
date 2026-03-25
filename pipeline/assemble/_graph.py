@@ -291,7 +291,7 @@ def _video_filter(
 ) -> str:
     w, h, fps = ctx.w, ctx.h, ctx.fps
     speed = item.playback_speed or 1.0
-    speed_vf = f",setpts={1/speed:.4f}*PTS" if speed != 1.0 else ""
+    speed_vf = f",setpts={1 / speed:.4f}*PTS" if speed != 1.0 else ""
     # Trim in filter chain (not -ss/-t on input — FFmpeg 8 filter_complex ignores those)
     trim_vf = (
         f"trim=start={trim_start}:duration={trim_duration},setpts=PTS-STARTPTS,"

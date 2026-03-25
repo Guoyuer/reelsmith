@@ -216,7 +216,7 @@ def workspace(clean, yes):
                 edl_parts.append(f"lang={r['language']}")
             click.echo(f"    EDL {', '.join(edl_parts)}")
             if r.get("title"):
-                click.echo(f"    \"{r['title'][:60]}\"")
+                click.echo(f'    "{r["title"][:60]}"')
         elif r["edl_versions"] > 0:
             click.echo(f"    EDL: {r['edl_versions']} version(s)")
 

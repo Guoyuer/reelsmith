@@ -85,7 +85,13 @@ class TestEstimatedDuration:
             segments=[
                 Segment(
                     name="Only",
-                    items=[EditItem(source_file="a.jpg", media_type="photo", display_duration=5.0)],
+                    items=[
+                        EditItem(
+                            source_file="a.jpg",
+                            media_type="photo",
+                            display_duration=5.0,
+                        )
+                    ],
                     transition="crossfade",
                     transition_duration=1.0,
                 ),
@@ -105,7 +111,9 @@ class TestJsonRoundtrip:
         assert restored.target_duration == sample_edl.target_duration
         assert len(restored.segments) == len(sample_edl.segments)
         assert len(restored.all_items()) == len(sample_edl.all_items())
-        assert restored.estimated_duration() == pytest.approx(sample_edl.estimated_duration())
+        assert restored.estimated_duration() == pytest.approx(
+            sample_edl.estimated_duration()
+        )
         assert restored.music is not None
         assert restored.music.file == "bg_music.mp3"
 

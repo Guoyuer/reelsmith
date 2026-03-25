@@ -54,6 +54,10 @@ def get_prompt(trip_type: str, style: str) -> str:
         trip_type = "general"
     type_prompts = MUSIC_PROMPTS[trip_type]
     if style not in type_prompts:
-        logger.warning("Unknown style '%s' for trip_type '%s', falling back to 'upbeat'", style, trip_type)
+        logger.warning(
+            "Unknown style '%s' for trip_type '%s', falling back to 'upbeat'",
+            style,
+            trip_type,
+        )
         style = "upbeat"
     return type_prompts[style]

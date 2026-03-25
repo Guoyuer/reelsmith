@@ -180,9 +180,9 @@ All candidates:"""
         **model_kwargs,
     )
 
-    logger.info(f"Gemini response: {len(edl_content)} chars")
+    logger.info("Gemini response: %d chars", len(edl_content))
     for line in edl_content.split("\n"):
-        logger.debug(f"  | {line}")
+        logger.debug("  | %s", line)
 
     # --- Post-processing pipeline ---
     if progress_callback:
@@ -206,10 +206,13 @@ All candidates:"""
         pp_parts.append(f"{n_dedup} duplicates removed")
     if pp_parts:
         logger.info(
-            f"Post-processing: {', '.join(pp_parts)} ({items_before} → {items_after} items)"
+            "Post-processing: %s (%d → %d items)",
+            ", ".join(pp_parts),
+            items_before,
+            items_after,
         )
     else:
-        logger.info(f"Post-processing: no changes ({items_after} items)")
+        logger.info("Post-processing: no changes (%d items)", items_after)
 
     # Rich post-processing diff
     try:
@@ -317,7 +320,7 @@ def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, i
 
     # Store music intent
     if pc.music_file and pc.music_file != "auto" and Path(pc.music_file).exists():
-        logger.info(f"Attaching music file: {pc.music_file}")
+        logger.info("Attaching music file: %s", pc.music_file)
         edl.music = MusicTrack(file=pc.music_file)
         edl.music_mode = "file"
     elif pc.music_file == "auto":

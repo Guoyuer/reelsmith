@@ -65,7 +65,10 @@ class TestConvertHeicCallsSips:
             return result
 
         with (
-            patch("shutil.which", side_effect=lambda x: "/usr/bin/sips" if x == "sips" else None),
+            patch(
+                "shutil.which",
+                side_effect=lambda x: "/usr/bin/sips" if x == "sips" else None,
+            ),
             patch("pipeline.image_utils.run_subprocess", side_effect=mock_run),
             patch.dict("sys.modules", {"pillow_heif": None}),
         ):
@@ -102,7 +105,9 @@ class TestConvertHeicSkipsExisting:
 
 class TestRunSubprocess:
     def test_basic_command(self):
-        result = run_subprocess(["python", "-c", "print('hello')"], capture_output=True, text=True)
+        result = run_subprocess(
+            ["python", "-c", "print('hello')"], capture_output=True, text=True
+        )
         assert result.returncode == 0
         assert "hello" in result.stdout
 

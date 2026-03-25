@@ -274,22 +274,32 @@ def _run_pipeline(
     logger = _setup_logging(run_name, display)
 
     # Log CLI parameters for reproducibility
-    logger.info(f"Run: {run_name} | stages: {', '.join(active)}")
+    logger.info("Run: %s | stages: %s", run_name, ", ".join(active))
     if plan:
         logger.info(
-            f"  Plan: duration={plan.target_duration}s, trip_type={plan.trip_type}, "
-            f"style={plan.style}, lang={plan.language}, model={plan.model}, "
-            f"thinking={plan.thinking_level}, focus={plan.focus!r}"
+            "  Plan: duration=%ds, trip_type=%s, style=%s, lang=%s, model=%s, "
+            "thinking=%s, focus=%r",
+            plan.target_duration,
+            plan.trip_type,
+            plan.style,
+            plan.language,
+            plan.model,
+            plan.thinking_level,
+            plan.focus,
         )
     if assemble:
         logger.info(
-            f"  Assemble: {assemble.w}x{assemble.h}@{assemble.fps} quality={assemble.quality}"
+            "  Assemble: %dx%d@%d quality=%s",
+            assemble.w,
+            assemble.h,
+            assemble.fps,
+            assemble.quality,
         )
     if prepare:
-        logger.info(f"  Prepare: force={prepare.force}")
+        logger.info("  Prepare: force=%s", prepare.force)
     if fetch:
         src = fetch.source_dir or "nas"
-        logger.info(f"  Fetch: source={src}")
+        logger.info("  Fetch: source=%s", src)
 
     pc = _PipelineContext(
         cfg=cfg,
@@ -310,7 +320,7 @@ def _run_pipeline(
                 _STAGE_RUNNERS[stage](pc)
 
         total = round(time.monotonic() - t_start, 1)
-        logger.info(f"Pipeline success in {total:.0f}s")
+        logger.info("Pipeline success in %.0fs", total)
 
     except SystemExit:
         raise
@@ -318,7 +328,7 @@ def _run_pipeline(
         total = round(time.monotonic() - t_start, 1)
         if current_stage:
             display.fail(current_stage, str(e)[:80])
-        logger.error(f"Pipeline failed in {total:.0f}s: {e}", exc_info=True)
+        logger.error("Pipeline failed in %.0fs: %s", total, e, exc_info=True)
         sys.exit(1)
     finally:
         display.stop()

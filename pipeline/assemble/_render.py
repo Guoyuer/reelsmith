@@ -48,16 +48,16 @@ def render_title_card(
     else:
         gradient = (
             f"color=c=0x0f0c29:s={w}x{h}:d={duration}:r={fps}[bg1];"
-            f"color=c=0x302b63:s={w}x{h//2}:d={duration}:r={fps}[bg2];"
+            f"color=c=0x302b63:s={w}x{h // 2}:d={duration}:r={fps}[bg2];"
             f"[bg1][bg2]overlay=0:h/4:format=auto[grad]"
         )
 
-    title_y = f"(h-text_h)/2-{int(h*0.03)}+{int(h*0.02)}*(1-t/{duration})"
+    title_y = f"(h-text_h)/2-{int(h * 0.03)}+{int(h * 0.02)}*(1-t/{duration})"
     title_text = (
         f"drawtext=text='{safe_title}'{font_arg}"
         f":fontsize={title_size}:fontcolor=white"
         f":x=(w-text_w)/2:y={title_y}"
-        f":alpha='if(lt(t,0.5),t/0.5,if(gt(t,{duration-0.8}),(({duration}-t)/0.8),1))'"
+        f":alpha='if(lt(t,0.5),t/0.5,if(gt(t,{duration - 0.8}),(({duration}-t)/0.8),1))'"
     )
 
     line_y = int(h * 0.55)
@@ -66,7 +66,7 @@ def render_title_card(
     separator = (
         f",drawbox=x={line_x}:y={line_y}:w={line_w}:h=2"
         f":color=white@0.4:t=fill"
-        f":enable='between(t,0.8,{duration-0.5})'"
+        f":enable='between(t,0.8,{duration - 0.5})'"
     )
 
     sub_text = ""
@@ -75,8 +75,8 @@ def render_title_card(
         sub_text = (
             f",drawtext=text='{safe_sub}'{font_arg}"
             f":fontsize={int(h * 0.035)}:fontcolor=white@0.6"
-            f":x=(w-text_w)/2:y={int(h*0.59)}"
-            f":alpha='if(lt(t,1.0),max(0,(t-0.7)/0.3),if(gt(t,{duration-0.8}),(({duration}-t)/0.8),1))'"
+            f":x=(w-text_w)/2:y={int(h * 0.59)}"
+            f":alpha='if(lt(t,1.0),max(0,(t-0.7)/0.3),if(gt(t,{duration - 0.8}),(({duration}-t)/0.8),1))'"
         )
 
     fade = f",fade=t=in:d=0.5,fade=t=out:st={duration - 0.8}:d=0.8"

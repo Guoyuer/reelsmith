@@ -10,7 +10,9 @@ import sys
 # On Windows, ensure WinGet tool locations take priority on PATH.
 # Other tools (e.g. ImageMagick) may bundle outdated FFmpeg copies.
 if sys.platform == "win32":
-    _winget_links = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Links")
+    _winget_links = os.path.join(
+        os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Links"
+    )
     if os.path.isdir(_winget_links):
         os.environ["PATH"] = _winget_links + os.pathsep + os.environ.get("PATH", "")
 
@@ -18,7 +20,9 @@ if sys.platform == "win32":
 _ffmpeg_logger = logging.getLogger("vlog.ffmpeg")
 
 
-def run_subprocess(cmd: list[str], timeout: int = 300, **kwargs) -> subprocess.CompletedProcess:
+def run_subprocess(
+    cmd: list[str], timeout: int = 300, **kwargs
+) -> subprocess.CompletedProcess:
     """Run a subprocess that is killed when the parent receives SIGINT/SIGTERM.
 
     Unlike ``subprocess.run``, this uses ``Popen`` so that Python's signal
@@ -57,7 +61,16 @@ def run_subprocess(cmd: list[str], timeout: int = 300, **kwargs) -> subprocess.C
 def probe_duration(path) -> float:
     """Get media file duration via ffprobe (uncached, for simple one-off probes)."""
     result = run_subprocess(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "csv=p=0",
+            str(path),
+        ],
         capture_output=True,
         text=True,
     )

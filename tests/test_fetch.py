@@ -66,8 +66,13 @@ class FakeStreamResponse:
 class FakeClient:
     """Records calls made through httpx.Client."""
 
-    def __init__(self, collect_response=None, meta_response=None,
-                 meta_status=200, stream_response=None):
+    def __init__(
+        self,
+        collect_response=None,
+        meta_response=None,
+        meta_status=200,
+        stream_response=None,
+    ):
         self.calls: list[tuple[str, str, dict]] = []
         self._collect = collect_response or COLLECT_RESPONSE
         self._meta = meta_response or {}
@@ -176,7 +181,9 @@ class TestFetchLivePhotoDownloadsVideo:
         client = FakeClient(collect_response=LIVE_PHOTO_RESPONSE)
 
         with patch("pipeline.fetch._nas.httpx.Client", return_value=client):
-            manifest = fetch(cfg, FetchConfig(from_date="2025-01-01", to_date="2025-01-07"))
+            manifest = fetch(
+                cfg, FetchConfig(from_date="2025-01-01", to_date="2025-01-07")
+            )
 
         # Should have two STREAM calls: one for the photo, one for the video
         stream_calls = [(m, u, p) for m, u, p in client.calls if m == "STREAM"]
@@ -212,7 +219,9 @@ class TestFetchManifestHasLocalPath:
         client = FakeClient()
 
         with patch("pipeline.fetch._nas.httpx.Client", return_value=client):
-            manifest = fetch(cfg, FetchConfig(from_date="2025-01-01", to_date="2025-01-07"))
+            manifest = fetch(
+                cfg, FetchConfig(from_date="2025-01-01", to_date="2025-01-07")
+            )
 
         for entry in manifest:
             assert "local_path" in entry
@@ -227,7 +236,9 @@ class TestFetchHandlesMetaFailure:
         client = FakeClient(meta_status=500)
 
         with patch("pipeline.fetch._nas.httpx.Client", return_value=client):
-            manifest = fetch(cfg, FetchConfig(from_date="2025-01-01", to_date="2025-01-07"))
+            manifest = fetch(
+                cfg, FetchConfig(from_date="2025-01-01", to_date="2025-01-07")
+            )
 
         # metadata should be empty dict for all entries
         for entry in manifest:

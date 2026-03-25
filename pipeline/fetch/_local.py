@@ -112,7 +112,16 @@ def _extract_date(path: Path) -> datetime | None:
             from ..media_utils import run_subprocess
 
             result = run_subprocess(
-                ["ffprobe", "-v", "error", "-show_entries", "format_tags=creation_time", "-of", "csv=p=0", str(path)],
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format_tags=creation_time",
+                    "-of",
+                    "csv=p=0",
+                    str(path),
+                ],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -123,7 +132,9 @@ def _extract_date(path: Path) -> datetime | None:
                 dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                 return dt
         except Exception:
-            logger.debug("Could not extract video date via ffprobe from %s", path, exc_info=True)
+            logger.debug(
+                "Could not extract video date via ffprobe from %s", path, exc_info=True
+            )
         # ffprobe failed — try filename
         return _parse_date_from_filename(path.stem)
 

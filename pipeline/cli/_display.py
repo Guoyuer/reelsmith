@@ -175,7 +175,7 @@ class _PipelineDisplay:
             )
             row.add_row(
                 bar,
-                Text(f"{cur}/{total} {cur/total:.0%}", style="cyan"),
+                Text(f"{cur}/{total} {cur / total:.0%}", style="cyan"),
                 Text(label, style="dim"),
             )
             return row
@@ -205,7 +205,7 @@ class _PipelineDisplay:
             row.add_row(
                 Text(name, style="dim cyan"),
                 bar,
-                Text(f"{cur}/{total} {cur/total:.0%}", style="dim cyan"),
+                Text(f"{cur}/{total} {cur / total:.0%}", style="dim cyan"),
             )
             return row
         return Text(f"  {name}", style="dim cyan")

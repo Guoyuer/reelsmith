@@ -210,7 +210,7 @@ def _concat_previews(
     for item_num, _meta_dur, preview_path in video_entries:
         actual_dur = probe_duration(preview_path)
         if actual_dur <= 0:
-            logger.warning(f"  Skipping preview #{item_num}: could not probe duration")
+            logger.warning("  Skipping preview #%s: could not probe duration", item_num)
             continue
         offset_table.append((item_num, actual_dur, offset))
         valid_entries.append((item_num, actual_dur, preview_path))
@@ -271,7 +271,7 @@ def _concat_previews(
         )
 
     size_mb = output_path.stat().st_size / 1024 / 1024 if output_path.exists() else 0
-    logger.info(f"  Mega-preview: {size_mb:.1f}MB")
+    logger.info("  Mega-preview: %.1fMB", size_mb)
 
     if output_path.exists():
         actual_dur = probe_duration(output_path)
@@ -371,7 +371,7 @@ def _build_mega_preview(
             )
 
     if cached_meta and cached_meta.get("key") == cache_key:
-        logger.info(f"Mega-preview cached ({len(video_entries)} videos)")
+        logger.info("Mega-preview cached (%d videos)", len(video_entries))
         offset_table = [tuple(e) for e in cached_meta["offset_table"]]
     else:
         offset_table, mega_path = _concat_previews(video_entries, mega_path)

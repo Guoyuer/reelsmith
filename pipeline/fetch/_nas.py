@@ -25,7 +25,9 @@ class FetchConfig:
 
     def __post_init__(self) -> None:
         if not self.source_dir and not (self.from_date and self.to_date):
-            raise ValueError("FetchConfig requires either source_dir (local) or from_date+to_date (NAS)")
+            raise ValueError(
+                "FetchConfig requires either source_dir (local) or from_date+to_date (NAS)"
+            )
 
 
 logger = logging.getLogger("vlog.fetch.nas")
@@ -70,7 +72,7 @@ def fetch(cfg: Config, fc: FetchConfig, *, progress_callback=None) -> list[dict]
         resp.raise_for_status()
         data = resp.json()
         items = data["items"]
-        logger.info(f"Found {data['count']} items ({data['total_mb']:.1f} MB)")
+        logger.info("Found %d items (%.1f MB)", data["count"], data["total_mb"])
 
         manifest = []
         meta_cached = 0
@@ -94,21 +96,23 @@ def fetch(cfg: Config, fc: FetchConfig, *, progress_callback=None) -> list[dict]
 
             # Download file (skip if already exists)
             if not filepath.exists():
-                logger.info(f"[{i}/{len(items)}] Downloading {filename}")
-                with client.stream("GET", f"/api/media/{item_id}", timeout=600) as stream:
+                logger.info("[%d/%d] Downloading %s", i, len(items), filename)
+                with client.stream(
+                    "GET", f"/api/media/{item_id}", timeout=600
+                ) as stream:
                     stream.raise_for_status()
                     with open(filepath, "wb") as f:
                         for chunk in stream.iter_bytes(65536):
                             f.write(chunk)
             else:
-                logger.info(f"[{i}/{len(items)}] {filename} (cached)")
+                logger.info("[%d/%d] %s (cached)", i, len(items), filename)
 
             # For live photos (type 3), also download the video companion
             video_path = None
             if item.get("item_type") == 3:
                 video_path = raw_dir / f"{item_id}_{Path(filename).stem}.mov"
                 if not video_path.exists():
-                    logger.info(f"[{i}/{len(items)}] + live photo video")
+                    logger.info("[%d/%d] + live photo video", i, len(items))
                     with client.stream(
                         "GET",
                         f"/api/media/{item_id}",
@@ -135,5 +139,10 @@ def fetch(cfg: Config, fc: FetchConfig, *, progress_callback=None) -> list[dict]
 
     manifest_path.write_text(json.dumps(manifest, indent=2))
     newly_fetched = len(items) - meta_cached
-    logger.info("Manifest saved: %d items (%d metadata cached, %d fetched)", len(manifest), meta_cached, newly_fetched)
+    logger.info(
+        "Manifest saved: %d items (%d metadata cached, %d fetched)",
+        len(manifest),
+        meta_cached,
+        newly_fetched,
+    )
     return manifest
