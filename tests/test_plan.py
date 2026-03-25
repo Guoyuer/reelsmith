@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from pipeline.edl import EDL, EditItem, Segment
-from pipeline.plan import (
+from pipeline.plan._prompts import (
     _default_focus,
     _format_date_range,
     _visual_system_prompt,
@@ -268,7 +268,7 @@ class TestPreGeminiValidation:
         from pathlib import Path
 
         from pipeline.config import Config
-        from pipeline.plan import _build_visual_content_blocks
+        from pipeline.plan._preview import _build_visual_content_blocks
 
         with tempfile.TemporaryDirectory() as td:
             cfg = Config(workspace=Path(td))
@@ -395,7 +395,7 @@ class TestContentBlockValidation:
     def test_valid_blocks_have_text_and_images(self, tmp_path):
         """With valid data, blocks contain text + image parts."""
         from pipeline.config import Config
-        from pipeline.plan import _build_visual_content_blocks
+        from pipeline.plan._preview import _build_visual_content_blocks
 
         cfg = Config(workspace=tmp_path)
         cfg.ensure_dirs()
@@ -433,14 +433,14 @@ class TestContentBlockValidation:
 
 class TestPromptFileLoading:
     def test_load_system_template(self):
-        from pipeline.plan import _load_system_template
+        from pipeline.plan._prompts import _load_system_template
 
         template = _load_system_template()
         assert "{lang_instruction}" in template
         assert len(template) > 1000
 
     def test_load_narrative_guidance(self):
-        from pipeline.plan import _load_narrative_guidance
+        from pipeline.plan._prompts import _load_narrative_guidance
 
         data = _load_narrative_guidance()
         assert "family" in data
@@ -448,7 +448,7 @@ class TestPromptFileLoading:
         assert "_default_focus" in data
 
     def test_load_lang_instructions(self):
-        from pipeline.plan import _load_lang_instructions
+        from pipeline.plan._prompts import _load_lang_instructions
 
         data = _load_lang_instructions()
         assert "en" in data
@@ -465,7 +465,7 @@ class TestPromptFileLoading:
 
     def test_missing_prompt_file_raises(self, tmp_path):
         import pipeline.plan._prompts as prompts_mod
-        from pipeline.plan import _load_json
+        from pipeline.plan._prompts import _load_json
 
         orig = prompts_mod._PROMPTS_DIR
         try:

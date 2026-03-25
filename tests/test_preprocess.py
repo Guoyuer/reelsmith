@@ -8,12 +8,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pipeline.config import Config
-from pipeline.prepare import (
-    PrepareConfig,
-    _detect_family,
-    load_analysis,
-)
+from pipeline.prepare import PrepareConfig, load_analysis
 from pipeline.prepare import prepare as preprocess
+from pipeline.prepare._prepare import _detect_family
 
 # -----------------------------------------------------------------------
 # Helpers

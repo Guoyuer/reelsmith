@@ -8,8 +8,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..media_utils import probe_duration as _probe_duration_uncached
-from ..media_utils import run_subprocess
+from ..utils.media import probe_duration as _probe_duration_uncached
+from ..utils.media import run_subprocess
 
 logger = logging.getLogger("vlog.assemble.encoder")
 

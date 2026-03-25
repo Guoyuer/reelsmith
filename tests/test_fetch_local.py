@@ -186,7 +186,7 @@ class TestExtractDateFallback:
         _create_fake_video(video)
 
         with patch(
-            "pipeline.media_utils.run_subprocess", side_effect=Exception("no ffprobe")
+            "pipeline.utils.media.run_subprocess", side_effect=Exception("no ffprobe")
         ):
             dt = _extract_date(video)
 

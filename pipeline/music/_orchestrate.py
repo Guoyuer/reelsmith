@@ -16,25 +16,6 @@ from ..config import ProgressCallback
 logger = logging.getLogger("vlog.music")
 
 
-def generate_music(
-    trip_type: str,
-    style: str,
-    target_duration: int,
-    cache_dir: Path,
-    mood: str = "",
-) -> Path | None:
-    """Generate background music via Gemini Lyria RealTime API."""
-    from ._gemini import generate_music_gemini
-
-    return generate_music_gemini(
-        trip_type=trip_type,
-        style=style,
-        target_duration=target_duration,
-        cache_dir=cache_dir,
-        mood=mood,
-    )
-
-
 def _segment_duration(seg) -> float:
     """Calculate a segment's screen time from its items and transitions."""
     total = sum(item.display_duration for item in seg.items)
@@ -53,7 +34,7 @@ def _build_composite_music(
     segment_tracks: [(segment_duration, music_wav_path), ...]
     Returns True on success.
     """
-    from ..media_utils import run_subprocess
+    from ..utils.media import run_subprocess
 
     if not segment_tracks:
         return False
@@ -187,7 +168,9 @@ def generate_music_for_edl(
         )
         logger.info("    Mood: %s", mood)
 
-        track = generate_music(
+        from ._gemini import generate_music_gemini
+
+        track = generate_music_gemini(
             trip_type=edl.trip_type,
             style=edl.style,
             target_duration=seg_dur,

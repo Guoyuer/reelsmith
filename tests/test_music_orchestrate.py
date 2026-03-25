@@ -139,7 +139,7 @@ class TestGenerateMusicForEdl:
         fake_track.write_bytes(b"RIFF" + b"\x00" * 100)
 
         with patch(
-            "pipeline.music._orchestrate.generate_music", return_value=fake_track
+            "pipeline.music._gemini.generate_music_gemini", return_value=fake_track
         ):
             result = generate_music_for_edl(cfg)
 
@@ -160,7 +160,7 @@ class TestGenerateMusicForEdl:
             calls.append((done, total))
 
         with patch(
-            "pipeline.music._orchestrate.generate_music", return_value=fake_track
+            "pipeline.music._gemini.generate_music_gemini", return_value=fake_track
         ):
             generate_music_for_edl(cfg, progress_callback=cb)
 

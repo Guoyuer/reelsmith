@@ -20,10 +20,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ._types import AnalysisEntry, ManifestEntry, PreprocessedData
-from .config import Config, ProgressCallback
-from .image_utils import generate_thumbnail
-from .media_utils import run_subprocess
+from .._types import AnalysisEntry, ManifestEntry, PreprocessedData
+from ..config import Config, ProgressCallback
+from ..utils.image import generate_thumbnail
+from ..utils.media import run_subprocess
 
 logger = logging.getLogger("vlog.prepare")
 
@@ -305,7 +305,7 @@ def _generate_video_previews(
     progress_callback: ProgressCallback = None,
 ) -> None:
     """Generate one full-length preview per video (480p 1fps + audio)."""
-    from .parallel import run_parallel
+    from ..utils.parallel import run_parallel
 
     encoder = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "34"]
     max_workers = max(4, (os.cpu_count() or 4) // 2)

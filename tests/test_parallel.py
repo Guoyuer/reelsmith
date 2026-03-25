@@ -1,8 +1,8 @@
-"""Tests for pipeline.parallel — batched ThreadPoolExecutor runner."""
+"""Tests for pipeline.utils.parallel — batched ThreadPoolExecutor runner."""
 
 from __future__ import annotations
 
-from pipeline.parallel import run_parallel
+from pipeline.utils.parallel import run_parallel
 
 
 class TestRunParallel:

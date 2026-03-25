@@ -6,7 +6,7 @@ import logging
 import shutil
 from pathlib import Path
 
-from .media_utils import run_subprocess
+from .media import run_subprocess
 
 logger = logging.getLogger("vlog.image_utils")
 
