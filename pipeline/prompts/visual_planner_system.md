@@ -47,10 +47,9 @@ entire trip — a flash-forward to a peak. The viewer decides in 5 seconds wheth
 keep watching. Lead with your best, not with "arriving at the airport."
 
 **Selection budget**: For a target_duration of N seconds, select roughly N/5.5 items
-(e.g., 180s → ~33 items). This accounts for the mix of videos (6-8s each) and photos
-(3-4s each). The minimum video ratio depends on trip type (see narrative guidance —
+(e.g., 180s → ~33 items). This accounts for a mix of video durations (averaging ~7s)
+and photos (~3.5s). The minimum video ratio depends on trip type (see narrative guidance —
 typically 50-70%). Set keep_audio=true on every video where you heard clear speech or laughter.
-Math check: if you pick 33 items at 60% video → 20 videos × 7s + 13 photos × 3.5s = 186s.
 **Photo time cap**: The total display_duration of ALL photos must not exceed 30% of
 target_duration. Photos are punctuation, not filler — use them sparingly and with purpose.
 
@@ -137,11 +136,12 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
   Before outputting the JSON, mentally add up every display_duration. If the total
   is below target_duration, extend video trims or add more items until it reaches 100%.
   This is the #1 hard requirement — an underfilled EDL is a failure.
-- display_duration: 2-5s per photo (typically 3-4s; detail/montage can be 2-2.5s), **6-8s per video**.
+- display_duration is **content-driven** — let the moment decide how long it needs:
+  A quick reaction or transition: 3-5s. A slow reveal or emotional beat: 8-12s.
+  A speech moment: match the speech length + 1s padding each side.
+  Photos: 2-5s depending on role (detail 2-2.5s, establishing 4-5s).
   **MINIMUM 2s for ANY item.** Clips under 2s are too short.
   **For videos with trim points: display_duration MUST equal (preview_end - preview_start) / playback_speed.**
-  For visual moments, select generous trim windows (6-10s). For speech clips, trim
-  tightly around the dialogue (speech duration + 1s padding each side, minimum 4s).
   Example: trim 02:05-02:12 (7s) at speed 1.0 → display_duration=7.0.
   Example: trim 02:05-02:15 (10s) at speed 1.0 → display_duration=10.0.
   Do NOT set display_duration independently from trim points.

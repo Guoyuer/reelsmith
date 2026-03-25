@@ -98,7 +98,7 @@ decision, and every text overlay should serve this focus. When choosing between 
 items of similar quality, pick the one that better supports this focus.
 
 DURATION: Sum of ALL display_duration MUST be between {pc.target_duration}s and {int(pc.target_duration * 1.2)}s (100-120% of target). Underfilling is a failure.
-Photos = 3-4s each, videos = 6-8s each. Select ~{n_items} items to fill {pc.target_duration}s.
+Select ~{n_items} items to fill {pc.target_duration}s. Duration is content-driven — let each moment decide its length.
 Video ratio: at least {vid_ratio}% videos for this {trip_label}.
 
 **Think step-by-step:**
