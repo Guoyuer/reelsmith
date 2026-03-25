@@ -1,6 +1,6 @@
 """Stage 2: Prepare media for visual planning.
 
-Merges preprocess + analyze into one stage:
+Merges previous preprocess + analyze into one stage:
 - Family member auto-detection + family_count per item
 - Timeline construction (day → time_block → location)
 - Photo thumbnails (400px JPEG, cached — used directly by plan stage)

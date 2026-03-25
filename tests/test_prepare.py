@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from pipeline.config import Config
 from pipeline.prepare import PrepareConfig, load_analysis
-from pipeline.prepare import prepare as preprocess
+from pipeline.prepare import prepare
 from pipeline.prepare._prepare import _detect_family
 
 # -----------------------------------------------------------------------
@@ -52,8 +52,8 @@ def _make_item(
 class TestFamilyCount:
     """Test family_count assignment in prepare()."""
 
-    def _run_preprocess(self, items: list[dict], tmp_path: Path) -> dict:
-        """Write manifest and run preprocess, returning the result."""
+    def _run_prepare(self, items: list[dict], tmp_path: Path) -> dict:
+        """Write manifest and run prepare(), returning the result."""
         ws = tmp_path / "workspace"
         manifest_path = ws / "manifest.json"
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -64,7 +64,7 @@ class TestFamilyCount:
             patch("pipeline.config.load_dotenv"),
         ):
             cfg = Config.load(workspace=str(ws))
-        preprocess(cfg, PrepareConfig(family_names=["Alice", "Bob"]))
+        prepare(cfg, PrepareConfig(family_names=["Alice", "Bob"]))
         from pipeline.prepare import load_analysis
 
         return load_analysis(cfg)
@@ -72,25 +72,25 @@ class TestFamilyCount:
     def test_two_family_members(self, tmp_path: Path):
         """Item with 2 family persons gets family_count=2."""
         items = [_make_item(1, persons=["Alice", "Bob"])]
-        analysis = self._run_preprocess(items, tmp_path)
+        analysis = self._run_prepare(items, tmp_path)
         assert analysis[0]["family_count"] == 2
 
     def test_one_family_member(self, tmp_path: Path):
         """Item with 1 family person gets family_count=1."""
         items = [_make_item(1, persons=["Alice"])]
-        analysis = self._run_preprocess(items, tmp_path)
+        analysis = self._run_prepare(items, tmp_path)
         assert analysis[0]["family_count"] == 1
 
     def test_no_family(self, tmp_path: Path):
         """Item with no family persons gets family_count=0."""
         items = [_make_item(1, persons=["Stranger"])]
-        analysis = self._run_preprocess(items, tmp_path)
+        analysis = self._run_prepare(items, tmp_path)
         assert analysis[0]["family_count"] == 0
 
     def test_no_persons(self, tmp_path: Path):
         """Item with empty persons gets family_count=0."""
         items = [_make_item(1, persons=[])]
-        analysis = self._run_preprocess(items, tmp_path)
+        analysis = self._run_prepare(items, tmp_path)
         assert analysis[0]["family_count"] == 0
 
 
@@ -120,15 +120,15 @@ class TestDetectFamily:
 
 
 # -----------------------------------------------------------------------
-# Full preprocess() integration test
+# Full prepare() integration test
 # -----------------------------------------------------------------------
 
 
-class TestPreprocessIntegration:
+class TestPrepareIntegration:
     def test_writes_preprocessed_json(
         self, tmp_path: Path, sample_manifest: list[dict]
     ):
-        """preprocess() writes preprocessed.json with expected structure."""
+        """prepare() writes preprocessed.json with expected structure."""
         ws = tmp_path / "workspace"
         ws.mkdir(parents=True)
         (ws / "manifest.json").write_text(json.dumps(sample_manifest))
@@ -139,7 +139,7 @@ class TestPreprocessIntegration:
         ):
             cfg = Config.load(workspace=str(ws))
 
-        preprocess(cfg, PrepareConfig(family_names=["Alice", "Bob"]))
+        prepare(cfg, PrepareConfig(family_names=["Alice", "Bob"]))
 
         out_path = ws / "preprocessed.json"
         assert out_path.exists()
@@ -190,7 +190,7 @@ class TestAnalysisCaching:
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "100_photo.jpg")
         _write_manifest(cfg, [_make_analysis_item(100, "photo.jpg", str(img))])
-        preprocess(cfg)
+        prepare(cfg)
         results = load_analysis(cfg)
         assert len(results) == 1
 
@@ -201,7 +201,7 @@ class TestAnalysisCaching:
         (cfg.cache_dir / "101.json").write_text(
             json.dumps({"thumbnail_path": "/cached/thumb.jpg"})
         )
-        preprocess(cfg)
+        prepare(cfg)
         results = load_analysis(cfg)
         assert results[0]["thumbnail_path"] == "/cached/thumb.jpg"
 
@@ -212,7 +212,7 @@ class TestAnalysisCaching:
         (cfg.cache_dir / "102.json").write_text(
             json.dumps({"thumbnail_path": "/fake/thumb.jpg"})
         )
-        preprocess(cfg)
+        prepare(cfg)
         results = load_analysis(cfg)
         assert results[0]["thumbnail_path"] == "/fake/thumb.jpg"
 
@@ -220,7 +220,7 @@ class TestAnalysisCaching:
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "103_photo.jpg")
         _write_manifest(cfg, [_make_analysis_item(103, "photo.jpg", str(img))])
-        preprocess(cfg)
+        prepare(cfg)
         cache_file = cfg.cache_dir / "103.json"
         assert cache_file.exists()
         assert "thumbnail_path" in json.loads(cache_file.read_text())
@@ -229,7 +229,7 @@ class TestAnalysisCaching:
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "200_photo.jpg")
         _write_manifest(cfg, [_make_analysis_item(200, "photo.jpg", str(img))])
-        preprocess(cfg)
+        prepare(cfg)
         assert (cfg.cache_dir / "200.json").exists()
 
     def test_exif_from_cache_used(self, mock_config):
@@ -241,7 +241,7 @@ class TestAnalysisCaching:
             "exif": {"focal_length": 24.0, "aperture": 1.4, "iso": 100},
         }
         (cfg.cache_dir / "201.json").write_text(json.dumps(cache_data))
-        preprocess(cfg)
+        prepare(cfg)
         results = load_analysis(cfg)
         assert results[0].get("exif") == {
             "focal_length": 24.0,
@@ -261,7 +261,7 @@ class TestAnalysisCaching:
             ],
         )
         calls = []
-        preprocess(cfg, progress_callback=lambda c, t, n: calls.append((c, t, n)))
+        prepare(cfg, progress_callback=lambda c, t, n: calls.append((c, t, n)))
         scan_calls = [c for c in calls if c[2] == "scan"]
         photo_calls = [c for c in calls if c[2] == "photos"]
         assert len(scan_calls) == 2
