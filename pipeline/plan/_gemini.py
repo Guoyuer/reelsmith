@@ -309,7 +309,7 @@ def _gemini_call(
     config_kwargs: dict = {
         "system_instruction": system,
         "max_output_tokens": 65536,
-        "temperature": 0.7,
+        "temperature": 1.0,  # Gemini 3 default; lower values degrade reasoning
         "media_resolution": types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
         "response_mime_type": "application/json",
         "response_schema": _edl_response_schema(),
