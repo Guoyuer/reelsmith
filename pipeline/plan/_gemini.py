@@ -215,7 +215,13 @@ def _gemini_call(
     logger.info(
         f"  {n_text_parts} text ({text_chars} chars), {n_images} photos ({img_mb:.0f}MB), {n_videos_count} video ({vid_mb:.0f}MB)"
     )
+    # System prompt at DEBUG
+    logger.debug("  --- SYSTEM PROMPT ---")
+    for line in system.split("\n"):
+        logger.debug(f"    | {line}")
+    logger.debug("  --- END SYSTEM PROMPT ---")
     # Full part details at DEBUG
+    logger.debug("  --- USER PARTS ---")
     for i, p in enumerate(user_parts):
         if isinstance(p, str):
             for line in p.split("\n"):
@@ -224,6 +230,7 @@ def _gemini_call(
             logger.debug(
                 f"  [part {i}] {p.get('type', '?')} {p.get('mime_type', '?')} ({len(p.get('data', b'')) // 1024}KB)"
             )
+    logger.debug("  --- END USER PARTS ---")
 
     if progress_callback:
         progress_callback(0, 0, "calling Gemini API...")
