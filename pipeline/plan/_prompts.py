@@ -51,6 +51,16 @@ def _default_focus(trip_type: str) -> str:
     return defaults.get(trip_type, defaults.get("general", "highlights and memorable moments"))
 
 
+def _trip_guidance(trip_type: str) -> str:
+    """Trip-type specific creative guidance (e.g. family=candid moments)."""
+    data = _load_narrative_guidance()
+    text = data.get(trip_type, data.get("general", ""))
+    # Strip leading principle number artifact (e.g. "2. ")
+    if text and text[0].isdigit() and ". " in text[:5]:
+        text = text[text.index(". ") + 2:]
+    return text
+
+
 def _video_ratio(trip_type: str) -> int:
     """Minimum video percentage for a trip type (e.g. 70 for family)."""
     data = _load_narrative_guidance()
@@ -102,11 +112,9 @@ def _timestamp_to_secs(ts: str) -> float:
 
 def _visual_system_prompt(trip_type: str, language: str = "en") -> str:
     """System prompt for visual planner — loaded from pipeline/prompts/ files."""
-    narrative_data = _load_narrative_guidance()
     lang_data = _load_lang_instructions()
     template = _load_system_template()
 
-    guidance = narrative_data.get(trip_type, narrative_data.get("general", ""))
     lang_instruction = lang_data.get(language, lang_data.get("en", ""))
 
-    return template.format(guidance=guidance, lang_instruction=lang_instruction)
+    return template.format(lang_instruction=lang_instruction)

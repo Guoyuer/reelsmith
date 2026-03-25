@@ -157,9 +157,11 @@ class TestVisualSystemPrompt:
         assert "family" in prompt.lower() or "happiness" in prompt.lower()
 
     def test_different_trip_types(self):
-        family = _visual_system_prompt("family")
-        solo = _visual_system_prompt("solo")
-        assert family != solo
+        # System prompt no longer varies by trip type (guidance moved to user prompt).
+        # Verify different languages produce different system prompts instead.
+        en = _visual_system_prompt("family", language="en")
+        cn = _visual_system_prompt("family", language="cn")
+        assert en != cn
 
     def test_cn_language_instruction(self):
         prompt = _visual_system_prompt("family", language="cn")
@@ -434,7 +436,6 @@ class TestPromptFileLoading:
         from pipeline.plan import _load_system_template
 
         template = _load_system_template()
-        assert "{guidance}" in template
         assert "{lang_instruction}" in template
         assert len(template) > 1000
 
@@ -455,10 +456,12 @@ class TestPromptFileLoading:
         assert "both" in data
 
     def test_unknown_trip_type_falls_back(self):
-        from pipeline.plan import _visual_system_prompt
+        # Guidance moved to user prompt; system prompt no longer contains trip-type text.
+        # Verify _trip_guidance falls back to "general" for unknown trip types.
+        from pipeline.plan._prompts import _trip_guidance
 
-        prompt = _visual_system_prompt("nonexistent", "en")
-        assert "Balanced storytelling" in prompt
+        guidance = _trip_guidance("nonexistent")
+        assert "Balanced storytelling" in guidance
 
     def test_missing_prompt_file_raises(self, tmp_path):
         import pipeline.plan._prompts as prompts_mod
