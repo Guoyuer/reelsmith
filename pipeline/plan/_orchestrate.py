@@ -300,14 +300,13 @@ def plan(
         progress_callback=progress_callback,
     )
 
-    # Post-process: force effect="none" on video items
+    # Fix media_type mismatches first (e.g. photo labeled as video),
+    # then force effect="none" on actual videos.
+    validate_and_fix_edl(edl)
     for seg in edl.segments:
         for item in seg.items:
             if item.media_type == "video" and item.effect != "none":
                 item.effect = "none"
-
-    # Validate AFTER effect fix (avoids noise from effect errors)
-    validate_and_fix_edl(edl)
 
     # Set metadata on the EDL — use user's target, not Gemini's
     edl.target_duration = pc.target_duration
