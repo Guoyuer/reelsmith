@@ -11,7 +11,7 @@ class TestReadExif:
     """Test EXIF extraction from photos."""
 
     def test_returns_dict_for_jpeg(self, tmp_path):
-        from pipeline.prepare import _read_exif
+        from pipeline.prepare._prepare import _read_exif
 
         img_path = tmp_path / "photo.jpg"
         from PIL import Image
@@ -25,7 +25,7 @@ class TestReadExif:
         assert len(exif) == 0
 
     def test_returns_empty_dict_when_exif_missing(self, tmp_path):
-        from pipeline.prepare import _read_exif
+        from pipeline.prepare._prepare import _read_exif
 
         img_path = tmp_path / "photo.png"
         from PIL import Image
@@ -38,7 +38,7 @@ class TestReadExif:
         assert len(exif) == 0
 
     def test_returns_empty_dict_for_nonexistent_file(self, tmp_path):
-        from pipeline.prepare import _read_exif
+        from pipeline.prepare._prepare import _read_exif
 
         exif = _read_exif(tmp_path / "nonexistent.jpg")
         assert exif == {}
@@ -48,7 +48,7 @@ class TestPrepareVideo:
     """Test _prepare_video video analysis."""
 
     def test_probes_video_metadata(self, tmp_path):
-        from pipeline.prepare import _prepare_video
+        from pipeline.prepare._prepare import _prepare_video
 
         entry = {
             "id": 1,
@@ -174,7 +174,7 @@ class TestHasDenseKeyframes:
     """Test keyframe interval detection."""
 
     def test_dense_keyframes_returns_true(self):
-        from pipeline.prepare import _has_dense_keyframes
+        from pipeline.prepare._prepare import _has_dense_keyframes
 
         fake = MagicMock()
         # Keyframes at 0, 1, 2, 3 seconds (1s interval = dense)
@@ -183,7 +183,7 @@ class TestHasDenseKeyframes:
             assert _has_dense_keyframes("/fake/video.mp4") is True
 
     def test_sparse_keyframes_returns_false(self):
-        from pipeline.prepare import _has_dense_keyframes
+        from pipeline.prepare._prepare import _has_dense_keyframes
 
         fake = MagicMock()
         # Keyframes at 0, 5, 10 seconds (5s interval = sparse)
@@ -192,7 +192,7 @@ class TestHasDenseKeyframes:
             assert _has_dense_keyframes("/fake/video.mp4") is False
 
     def test_too_few_keyframes_returns_false(self):
-        from pipeline.prepare import _has_dense_keyframes
+        from pipeline.prepare._prepare import _has_dense_keyframes
 
         fake = MagicMock()
         fake.stdout = "0.000000,K_\n"
@@ -200,7 +200,7 @@ class TestHasDenseKeyframes:
             assert _has_dense_keyframes("/fake/video.mp4") is False
 
     def test_probe_failure_returns_false(self):
-        from pipeline.prepare import _has_dense_keyframes
+        from pipeline.prepare._prepare import _has_dense_keyframes
 
         with patch(
             "pipeline.prepare._prepare.run_subprocess",
@@ -213,7 +213,7 @@ class TestGenerateVideoPreview:
     """Test video preview generation."""
 
     def test_skips_existing_preview(self, tmp_path):
-        from pipeline.prepare import _generate_video_previews
+        from pipeline.prepare._prepare import _generate_video_previews
 
         preview_dir = tmp_path / "previews"
         preview_dir.mkdir()
@@ -231,7 +231,7 @@ class TestGenerateVideoPreview:
         mock_run.assert_not_called()
 
     def test_force_deletes_existing(self, tmp_path):
-        from pipeline.prepare import _generate_video_previews
+        from pipeline.prepare._prepare import _generate_video_previews
 
         preview_dir = tmp_path / "previews"
         preview_dir.mkdir()
