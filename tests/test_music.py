@@ -66,58 +66,6 @@ class TestWriteWav:
 
 
 # ---------------------------------------------------------------------------
-# Unit tests: generate_music dispatcher
-# ---------------------------------------------------------------------------
-
-
-class TestGenerateMusic:
-    def test_dispatches_to_gemini(self, tmp_path: Path):
-        from pipeline.music import generate_music
-
-        with patch(
-            "pipeline.music._gemini.generate_music_gemini",
-            return_value=tmp_path / "track.wav",
-        ) as mock:
-            result = generate_music(
-                "family",
-                "upbeat",
-                30,
-                tmp_path,
-            )
-
-        mock.assert_called_once_with(
-            trip_type="family",
-            style="upbeat",
-            target_duration=30,
-            cache_dir=tmp_path,
-            mood="",
-        )
-        assert result == tmp_path / "track.wav"
-
-    def test_passes_mood(self, tmp_path: Path):
-        from pipeline.music import generate_music
-
-        with patch(
-            "pipeline.music._gemini.generate_music_gemini", return_value=None
-        ) as mock:
-            generate_music(
-                "solo",
-                "cinematic",
-                60,
-                tmp_path,
-                mood="gentle piano",
-            )
-
-        mock.assert_called_once_with(
-            trip_type="solo",
-            style="cinematic",
-            target_duration=60,
-            cache_dir=tmp_path,
-            mood="gentle piano",
-        )
-
-
-# ---------------------------------------------------------------------------
 # Unit tests: generate_music_gemini (mocked API)
 # ---------------------------------------------------------------------------
 
@@ -314,7 +262,7 @@ class TestGenerateMusicForEdl:
         cfg = Config.load(str(ws))
 
         with patch(
-            "pipeline.music._orchestrate.generate_music", return_value=None
+            "pipeline.music._gemini.generate_music_gemini", return_value=None
         ) as mock:
             generate_music_for_edl(cfg)
 
@@ -335,7 +283,7 @@ class TestGenerateMusicForEdl:
         fake_track.write_bytes(b"RIFF" + b"\x00" * 100)
 
         with patch(
-            "pipeline.music._orchestrate.generate_music", return_value=fake_track
+            "pipeline.music._gemini.generate_music_gemini", return_value=fake_track
         ):
             result = generate_music_for_edl(cfg)
 
@@ -352,7 +300,7 @@ class TestGenerateMusicForEdl:
         ws = self._make_workspace(tmp_path, music_mode="auto")
         cfg = Config.load(str(ws))
 
-        with patch("pipeline.music._orchestrate.generate_music", return_value=None):
+        with patch("pipeline.music._gemini.generate_music_gemini", return_value=None):
             result = generate_music_for_edl(cfg)
 
         assert result is None
