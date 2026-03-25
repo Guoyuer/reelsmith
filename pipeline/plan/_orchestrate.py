@@ -27,6 +27,7 @@ from ._prompts import (
     TRIP_TYPES,
     _default_focus,
     _format_date_range,
+    _trip_guidance,
     _video_ratio,
     _visual_system_prompt,
 )
@@ -81,6 +82,7 @@ def _plan_visual(
     n_items = round(pc.target_duration / 5.5)
     vid_ratio = _video_ratio(pc.trip_type)
     trip_label = f"{pc.trip_type} trip" if pc.trip_type != "general" else "trip"
+    guidance_text = _trip_guidance(pc.trip_type)
     family_line = ""
     if pc.trip_type == "family" and preprocessed.get("family_names"):
         family_line = f"\nFamily: {', '.join(preprocessed['family_names'])}"
@@ -97,6 +99,8 @@ Create a {pc.style} {trip_label} vlog EDL from the photos and videos shown below
 decision, and every text overlay should serve this focus. When choosing between two
 items of similar quality, pick the one that better supports this focus.
 
+**Trip style**: {guidance_text}
+
 **Hard constraints:**
 - DURATION: Sum of ALL display_duration MUST equal {pc.target_duration}s (±5%). This is the #1 requirement.
 - Select ~{n_items} items to fill {pc.target_duration}s. Duration is content-driven — let each moment decide its length.
@@ -107,9 +111,14 @@ items of similar quality, pick the one that better supports this focus.
 **Think step-by-step:**
 
 1. **SCAN** — Look at ALL photos carefully. Watch the ENTIRE video preview with audio.
-   Note which moments grab you emotionally, which videos have interesting speech or
-   laughter, which photos have striking composition. Don't rush — your observations
-   here determine the quality of everything that follows.
+   For videos: look for steady camera, interesting action, reveals, reactions. Reject
+   shaky, too dark, static nothing, camera pointing at ground/sky. Prefer landscape
+   over portrait (portrait gets blurred background fill).
+   For audio: listen for speech, laughter, children's reactions — these are POSITIVE
+   signals. A beautiful silent clip still beats a mediocre clip with speech, but between
+   two visually similar videos, prefer the one with interesting speech.
+   For photos: judge composition, emotion, lighting. Most photos should be skipped.
+   Don't rush — your observations here determine the quality of everything that follows.
 
 2. **FIND PEAKS** — Identify 3-5 PEAK MOMENTS: the strongest emotional beats in the
    entire trip. A child's first reaction, family laughing together, an arrival at a
@@ -119,7 +128,9 @@ items of similar quality, pick the one that better supports this focus.
 3. **DESIGN ARC** — Build 4-6 narrative chapters around the peaks (story beats, not
    location buckets, aim for 3-6 items per segment). Shape the emotional arc:
    hook → build → peak → breathe → build → climax → gentle close.
-   Alternate high-energy sequences with breathing room.
+   Alternate high-energy sequences with breathing room — constant intensity exhausts
+   the viewer. Every item must fit its chapter's theme — never dump unrelated
+   leftovers into a chapter just to fill duration.
    **Opening hook**: Your first item plays right after the title card. Make it the
    single most visually striking or emotionally compelling moment — a flash-forward
    to a peak. The viewer decides in 5 seconds. Lead with your best, not "arriving
@@ -127,9 +138,16 @@ items of similar quality, pick the one that better supports this focus.
 
 4. **SELECT & FILL** — For each chapter, select items around the peak: add supporting
    material that builds anticipation before it and lets emotion breathe after it.
-   Fill gaps with variety shots (establishing shots, details, transitions between
-   locations). Apply the narrative principles from your instructions — emotional arc
-   rhythm, video-first selection, speech-aware trimming, visual dedup.
+   Fill gaps with variety shots (establishing shots, details, transitions).
+   **Videos with speech**: If you heard speech/laughter, trim AROUND THAT MOMENT —
+   the speech IS the content. Include 1s padding before and after. Set keep_audio=true.
+   Silent or wind-noise-only → keep_audio=false.
+   **Photos** (be ruthless): Every photo needs a ROLE — establishing shot (4-5s),
+   emotional peak (4-5s), detail bridge between scenes (2-2.5s), breathing room after
+   energetic video (3s), or montage fuel (2-2.5s). SKIP: blurry, dark, generic posed,
+   repetitive. Vary durations (3.5s → 2.5s → 4s) — never 3+ photos at same length.
+   **Dedup**: If two items show the same subject/framing, pick ONE. A segment with
+   5+ items from the same place is almost always wrong.
 
 5. **VERIFY** — Check in PRIORITY ORDER (satisfy earlier items first if conflicts arise):
    □ P1 Duration: total display_duration ≈ {pc.target_duration}s (±5%)?

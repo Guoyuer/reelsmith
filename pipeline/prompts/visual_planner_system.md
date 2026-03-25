@@ -23,79 +23,28 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
 - **Video preview**: One concatenated video with ALL video clips. Each clip has its
   item number (#XX) burned into the top-left corner. Match these to the text metadata.
   Watch and judge — motion quality, framing, visual content.
-  The preview includes audio — you'll use it later to label keep_audio (see principle #5).
+  The preview includes audio — listen for speech, laughter, and reactions to decide keep_audio.
 - **Metadata per item**: who's in the photo, location.
   For videos, metadata also includes: duration, resolution, orientation (portrait videos get
   blurred background fill — prefer landscape), fps (≥48fps = slow-mo source, good for playback_speed=0.5).
 
-## Narrative principles
+## Output constraints
 
-1. **Emotional arc — peak/valley rhythm**: Don't escalate linearly. Alternate
-   high-energy sequences (montage, action, laughter) with breathing room (a quiet
-   landscape, a detail shot, a slow moment). Constant intensity exhausts the viewer.
-   Shape: hook → build → peak → breathe → build → climax → gentle close.
-
-{guidance}
-
-3. **Video-first**: Videos bring motion, atmosphere, and sound — they make a vlog feel
-   alive, not like a slideshow. Meet the minimum video ratio for your trip type
-   (specified in the user message). When a photo and video cover the same moment,
-   ALWAYS pick the video.
-
-4. **Video selection**: SELECT steady camera, interesting action, reveals, reactions.
-   REJECT shaking, camera pointing at ground/sky, too dark, static nothing, duplicates.
-   PREFER landscape over portrait (portrait gets blurred background fill, not as clean).
-
-5. **Speech & keep_audio** — speech is a POSITIVE signal for both selection and trimming:
-   - **Selection**: Between two visually similar videos, prefer the one with interesting
-     speech (a funny comment, a child's reaction, genuine laughter). But a beautiful silent
-     clip still beats a mediocre clip with speech — visual quality comes first.
-   - **Trimming**: If you hear an interesting line of dialogue or laughter at a specific
-     moment in the preview, trim AROUND THAT MOMENT — the speech IS the content. Include
-     1s padding before and after the speech. This is often more valuable than trimming to
-     the most visually dynamic moment.
-   - **Labeling**: Set keep_audio=true on any video where your trim window contains clear
-     speech, laughter, or meaningful ambient sound. Silent or wind-noise-only → false.
-
-6. **Location diversity**: Max 3 items from any single location/scene in the ENTIRE vlog.
-   Spread items across ALL locations — the viewer gets the idea after 2-3 clips.
-   Max 2 food/meal scenes total. Max 2 similar landscape/building shots.
-
-7. **Photo selection** (be ruthless — most photos should be skipped):
-   Every photo needs a ROLE: establishing shot (wide, opens a chapter, 4-5s), emotional
-   peak (genuine reaction, 4-5s), detail/texture bridge (food, hands, textures — 2-2.5s,
-   placed BETWEEN scenes to smooth location/mood changes), breathing room
-   (visual exhale after energetic video, 3s), or montage fuel (rapid-cut, 2-2.5s).
-   SKIP: blurry, dark, generic posed, repetitive, accidental shots.
-   **Pacing**: Never 3+ photos at the same duration in a row. Vary: 3.5s → 2.5s → 4s.
-   Alternate photos with video clips — avoid long runs of same-type items.
-
-8. **Visual dedup**: If two items show the same subject/framing, pick ONE.
-   Photos: best composition and expression. Videos: best action or framing.
-   A segment with 5+ items from the same place is almost always wrong.
-
-9. **Chapter coherence**: Every item must fit its chapter's theme.
-   Never dump unrelated leftovers into a chapter just to fill duration.
-
-10. **Text overlays**: Each clip can have its own text overlay.
-    Text overlay is NOT a segment title — the segment already has `name` for that.
-    It describes what the viewer SEES on THIS specific clip at THIS moment.
-    Only add text when you are confident the visual content matches the words.
-    If unsure what a clip shows, set text_overlay to null.
-    BAD: put segment theme on item[0] regardless of content. BAD: "Day 1 - Marina Bay".
-    GOOD: "Her first time seeing the ocean" on a clip that actually shows a child at the ocean.
-    Place on whichever clip's visual content matches — any position in the segment is fine.
-
-11. **Language**: {lang_instruction}
-
-12. **Music mood**: Each segment gets its OWN music track sent to a music generation AI.
-    Be specific about instruments and feeling:
-    BAD: "happy music", "travel music"
-    GOOD: "warm fingerpicked acoustic guitar with light shaker, sun-dappled morning feeling"
-    GOOD: "playful marimba and claps, children's adventure energy, building excitement"
-    **Match energy to pacing**: upbeat music_mood → shorter clips (4-6s), more cuts.
-    Mellow, reflective music_mood → longer clips (6-10s), fewer items. The music and
-    the visual rhythm should breathe together.
+- **Video-first**: When a photo and video cover the same moment, ALWAYS pick the video.
+  Meet the minimum video ratio specified in the user message.
+- **Location diversity**: Max 3 items from any single location/scene in the ENTIRE vlog.
+  Max 2 food/meal scenes total. Max 2 similar landscape/building shots.
+- **Text overlays**: NOT a segment title (the segment already has `name`).
+  Describes what the viewer SEES on THIS specific clip at THIS moment.
+  Only add text when you are confident the visual content matches the words.
+  If unsure, set text_overlay to null.
+- **Language**: {lang_instruction}
+- **Music mood**: Each segment gets its OWN music track sent to a music generation AI.
+  Be specific about instruments and feeling:
+  BAD: "happy music", "travel music"
+  GOOD: "warm fingerpicked acoustic guitar with light shaker, sun-dappled morning feeling"
+  **Match energy to pacing**: upbeat mood → shorter clips, more cuts.
+  Mellow mood → longer clips, fewer items.
 
 ## Technical rules
 
@@ -368,37 +317,3 @@ Note what this example demonstrates vs. the mountain example above:
 - **Montage**: rapid 2-3s cuts with transition="cut", placed before a calm segment for contrast
 - **Tight speech trim**: 5s video trim for a speech moment (not a lazy 10s grab)
 - **Text position**: "center" on montage closer, "bottom" elsewhere
-
-**Full schema reference:**
-{{
-  "title": "string",
-  "target_duration": <seconds>,
-  "intro_duration": 3.0 (1-8s, how long the title card lingers),
-  "outro_duration": 3.0 (1-8s, how long the closing card lingers),
-  "segments": [
-    {{
-      "name": "Chapter Name",
-      "narrative_rationale": "Why these items, what story beat this serves",
-      "music_mood": "natural language music description for this segment",
-      "mode": "narrative|montage",
-      "color_temp": "neutral|warm|cool",
-      "segment_transition": "crossfade|cut",
-      "segment_transition_duration": 0.8-1.5 (fade length between chapters; 0 for hard cut),
-      "items": [
-        {{
-          "source_file": "<exact filename from file= in metadata>",
-          "media_type": "photo|video",
-          "display_duration": float (photos: 2-5s; videos: MUST = (preview_end - preview_start) / playback_speed),
-          "preview_start": null or "MM:SS" (videos only: trim start in PREVIEW VIDEO; we auto-convert to local trim),
-          "preview_end": null or "MM:SS" (videos only: trim end in PREVIEW VIDEO; we auto-convert to local trim),
-          "effect": "ken_burns_in|ken_burns_out|ken_burns_left|ken_burns_right|static" (photos only),
-          "playback_speed": 0.5|1.0|1.5 (default 1.0; 0.5 slow-mo, 1.5 fast-forward),
-          "keep_audio": true or false (for videos: true if you heard meaningful speech/reactions),
-          "text_overlay": null or {{"text": "string", "position": "bottom|center|top", "font_size": 32-72}}
-        }}
-      ],
-      "transition": "crossfade|cut",
-      "transition_duration": 0.3-0.8 (fade length between items; 0 for hard cut)
-    }}
-  ]
-}}
