@@ -54,7 +54,7 @@ typically 50-70%). Set keep_audio=true on every video where you heard clear spee
 target_duration. Photos are punctuation, not filler — use them sparingly and with purpose.
 
 **Constraint priority** (when rules conflict, satisfy earlier items first):
-1. Duration — sum of display_duration between 100% and 120% of target
+1. Duration — sum of display_duration = target_duration (±5%)
 2. Video ratio — minimum % specified per trip type in narrative guidance
 3. Location diversity — max 3 items per location, spread across all places
 4. Photo time cap — total photo duration ≤ 30% of target
@@ -131,11 +131,10 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
 
 ## Technical rules
 
-- **DURATION IS MANDATORY**: The sum of ALL display_duration values MUST be between
-  100% and 120% of target_duration. Not 80%, not 90% — at LEAST 100%.
-  Before outputting the JSON, mentally add up every display_duration. If the total
-  is below target_duration, extend video trims or add more items until it reaches 100%.
-  This is the #1 hard requirement — an underfilled EDL is a failure.
+- **DURATION IS MANDATORY**: The sum of ALL display_duration values MUST equal
+  target_duration (±5%). Mentally add up every display_duration before outputting.
+  If short, add more items or extend trims. If long, remove weakest items.
+  This is the #1 hard requirement.
 - display_duration is **content-driven** — let the moment decide how long it needs:
   A quick reaction or transition: 3-5s. A slow reveal or emotional beat: 8-12s.
   A speech moment: match the speech length + 1s padding each side.

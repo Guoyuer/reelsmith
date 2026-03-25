@@ -97,17 +97,17 @@ Create a {pc.style} {trip_label} vlog EDL from the photos and videos shown below
 decision, and every text overlay should serve this focus. When choosing between two
 items of similar quality, pick the one that better supports this focus.
 
-DURATION: Sum of ALL display_duration MUST be between {pc.target_duration}s and {int(pc.target_duration * 1.2)}s (100-120% of target). Underfilling is a failure.
+DURATION: Sum of ALL display_duration MUST equal {pc.target_duration}s (±5%). This is the #1 hard requirement.
 Select ~{n_items} items to fill {pc.target_duration}s. Duration is content-driven — let each moment decide its length.
 Video ratio: at least {vid_ratio}% videos for this {trip_label}.
 
 **Think step-by-step:**
 1. Look at ALL photos and watch the video preview. Identify the best moments.
 2. Design a narrative arc — 4-6 chapters based on STORY BEATS (aim for 3-6 items per segment).
-3. Select items for each chapter. Verify: sum of display_duration ≥ {pc.target_duration}s.
+3. Select items for each chapter. Verify: sum of display_duration ≈ {pc.target_duration}s (±5%).
    If short, add more items or extend video trims. If long, remove weakest items.
 4. Self-review — check in PRIORITY ORDER (satisfy earlier items first if conflicts arise):
-   □ P1 Duration: total display_duration between {pc.target_duration}s and {int(pc.target_duration * 1.2)}s?
+   □ P1 Duration: total display_duration ≈ {pc.target_duration}s (±5%)?
    □ P2 Video ratio: videos ≥ {vid_ratio}% of items?
    □ P3 Location diversity: max 3 items per location? Spread across full trip?
    □ P4 Photo cap: total photo duration ≤ {pc.target_duration * 0.3:.0f}s (30%)?
@@ -263,7 +263,8 @@ def plan(cfg: Config, pc: PlanConfig, *, progress_callback=None) -> tuple[EDL, i
     # Validate AFTER effect fix (avoids noise from effect errors)
     validate_and_fix_edl(edl)
 
-    # Set metadata on the EDL
+    # Set metadata on the EDL — use user's target, not Gemini's
+    edl.target_duration = pc.target_duration
     edl.trip_type = pc.trip_type
     edl.style = pc.style
     edl.language = pc.language  # type: ignore[assignment]  # validated by CLI
