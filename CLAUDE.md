@@ -1,12 +1,84 @@
 # Claude Code Notes
 
+## Repository structure
+
+```
+vlog/
+├── pipeline/                  # Main source package
+│   ├── _types.py              # Shared TypedDicts (ManifestEntry, AnalysisEntry, PreprocessedData)
+│   ├── config.py              # Config dataclass (workspace paths, env loading)
+│   ├── edl.py                 # EDL Pydantic model + all enums (MediaType, Effect, Transition, etc.)
+│   ├── fetch/                 # Stage 1: source fetching
+│   │   ├── _local.py          #   Local folder scanner + EXIF extraction
+│   │   └── _nas.py            #   Synology Photos API client
+│   ├── prepare/               # Stage 2: media preprocessing
+│   │   └── _prepare.py        #   Thumbnails, ffprobe, family detection, preview clips
+│   ├── plan/                  # Stage 3: Gemini EDL generation
+│   │   ├── _gemini.py         #   Raw Gemini API interaction + logging
+│   │   ├── _orchestrate.py    #   Plan orchestrator (prepare input → call Gemini → postprocess)
+│   │   ├── _preview.py        #   Mega-preview video builder + inline thumbnails + metadata
+│   │   ├── _postprocess.py    #   Timestamp conversion, fuzzy paths, trim clamping, dedup
+│   │   └── _prompts.py        #   System prompt loading + trip-type/language templating
+│   ├── music/                 # Stage 4: Lyria music generation
+│   │   ├── _gemini.py         #   Lyria RealTime API wrapper
+│   │   ├── _orchestrate.py    #   Per-segment music generation from EDL moods
+│   │   └── _prompts.py        #   Music mood templates
+│   ├── assemble/              # Stage 5: FFmpeg rendering
+│   │   ├── _assemble.py       #   Orchestrator (render → concat → music mix → validation)
+│   │   ├── _encoder.py        #   RenderContext, GPU detection, bitrate calculation
+│   │   ├── _filters.py        #   Ken Burns, color grade, text overlay, portrait filter
+│   │   ├── _graph.py          #   FFmpeg filter graph builder (video/audio chains, concat)
+│   │   ├── _render.py         #   render_photo, render_video, render_title_card
+│   │   └── _audio.py          #   BPM detection, beat sync, music ducking, chapters
+│   ├── cli/                   # CLI package (Click-based)
+│   │   ├── _commands.py       #   CLI group + command definitions (full/prepare/plan/assemble/workspace)
+│   │   ├── _runner.py         #   Pipeline stage orchestration + PipelineContext
+│   │   ├── _display.py        #   Rich UI (progress bars, stage status icons)
+│   │   ├── _config_io.py      #   Run config save/load (YAML persistence)
+│   │   └── _workspace.py      #   Workspace list/clean commands
+│   ├── utils/                 # Shared utilities
+│   │   ├── image.py           #   gen_thumbnail(), extract_exif() (Pillow)
+│   │   ├── media.py           #   probe_video(), gen_preview(), ffmpeg_cmd() (FFmpeg wrappers)
+│   │   └── parallel.py        #   run_parallel() batched ThreadPoolExecutor
+│   └── prompts/               # External prompt templates (editable without code changes)
+│       ├── visual_planner_system.md    # Main Gemini system prompt (templated)
+│       ├── narrative_guidance.json     # Per-trip-type narrative rules
+│       └── lang_instructions.json      # Language directives (en/cn/both)
+├── tests/                     # 28 test files (~6600 LOC)
+├── docs/                      # Architecture decisions, plans, metrics
+├── pyproject.toml             # Dependencies, entry points, tool config
+├── .pre-commit-config.yaml    # Ruff lint/format + pytest hooks
+├── .env.example               # GEMINI_API_KEY, SYNOLOGY_API_BASE, WORKSPACE
+├── CHANGELOG.md               # Version history
+└── workspace/                 # Generated artifacts (gitignored)
+    ├── runs/{name}/           #   Per-run: manifest, EDL, clips, output, logs
+    ├── analysis_cache/        #   Per-item analysis JSON
+    ├── thumbnails/            #   400px JPEG cache
+    ├── preview_clips/         #   480p 1fps preview videos
+    └── music/                 #   Generated music tracks
+```
+
 ## Environment
 
-When installing Python packages, always use the project's virtual environment (e.g., `source venv/bin/activate` or `.venv/Scripts/activate` on Windows), never install to system Python.
+- Python 3.11+ required
+- When installing Python packages, always use the project's virtual environment (e.g., `source venv/bin/activate` or `.venv/Scripts/activate` on Windows), never install to system Python
+- External dependency: FFmpeg (required for prepare + assemble stages)
+- Requires `GEMINI_API_KEY` in `.env` (plan + music stages)
+
+## Dependencies
+
+**Runtime:** httpx, pydantic, click, Pillow, python-dotenv, google-genai, pillow-heif, reverse_geocode, rich
+
+**Dev:** pytest (≥8.0), ruff (≥0.8), pyright (≥1.1), pre-commit (≥4.0)
+
+Entry point: `vlog = "pipeline.cli:cli"` (pyproject.toml)
 
 ## Code Style / General Rules
 
-When making changes, do NOT abbreviate, shorten, or simplify user-provided content (commands, flag names, text strings) unless explicitly asked. Preserve original wording exactly.
+- When making changes, do NOT abbreviate, shorten, or simplify user-provided content (commands, flag names, text strings) unless explicitly asked. Preserve original wording exactly.
+- Use `logger.info("msg", arg)` formatting — no f-strings in log calls (lazy logging).
+- `StrEnum` for all categorical values in `edl.py` — not raw `Literal` types.
+- `TypedDict` for cross-stage data contracts in `_types.py`.
 
 ## Platform Compatibility
 
@@ -14,7 +86,17 @@ This project targets both Mac and Windows. Always consider cross-platform compat
 
 ## Testing
 
-After refactoring or removing code, always run the full test suite (`pytest`) before committing. Removing defensive patterns like `.get()` has previously exposed hidden bugs requiring fixture updates across multiple test files.
+- After refactoring or removing code, always run the full test suite (`pytest`) before committing. Removing defensive patterns like `.get()` has previously exposed hidden bugs requiring fixture updates across multiple test files.
+- Default `pytest` excludes integration tests. Run `pytest -m integration` for FFmpeg tests.
+- Tests are organized by pipeline stage: `test_prepare.py`, `test_plan.py`, `test_assemble.py`, etc.
+- Shared fixtures in `tests/conftest.py` (sample_manifest, sample_edl, mock configs).
+
+## Pre-commit hooks
+
+Configured in `.pre-commit-config.yaml`:
+- **ruff check** — lint with auto-fix (`--fix`)
+- **ruff format** — code formatting
+- **pytest** — runs before commit
 
 ## Workflow Rules
 
