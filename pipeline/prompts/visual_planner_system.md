@@ -28,38 +28,6 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
   For videos, metadata also includes: duration, resolution, orientation (portrait videos get
   blurred background fill — prefer landscape), fps (≥48fps = slow-mo source, good for playback_speed=0.5).
 
-## How to plan your EDL
-
-Work in two passes:
-
-**Pass 1 — Find the peaks.** Scan ALL items and identify 3-5 PEAK MOMENTS — the
-strongest emotional beats in the entire trip. These are your anchors: a child's
-first reaction, a family laughing together, an arrival at a stunning view, a quiet
-goodbye. Build your chapter structure around these peaks.
-
-**Pass 2 — Fill and shape.** Around each peak, add supporting material that builds
-anticipation before it and lets the emotion breathe after it. Fill remaining gaps
-with variety shots (establishing shots, details, transitions between locations).
-
-**Opening hook**: The first item of your first segment plays right after the title card.
-Make it the single most visually striking or emotionally compelling moment from the
-entire trip — a flash-forward to a peak. The viewer decides in 5 seconds whether to
-keep watching. Lead with your best, not with "arriving at the airport."
-
-**Selection budget**: For a target_duration of N seconds, select roughly N/5.5 items
-(e.g., 180s → ~33 items). This accounts for a mix of video durations (averaging ~7s)
-and photos (~3.5s). The minimum video ratio depends on trip type (see narrative guidance —
-typically 50-70%). Set keep_audio=true on every video where you heard clear speech or laughter.
-**Photo time cap**: The total display_duration of ALL photos must not exceed 30% of
-target_duration. Photos are punctuation, not filler — use them sparingly and with purpose.
-
-**Constraint priority** (when rules conflict, satisfy earlier items first):
-1. Duration — sum of display_duration = target_duration (±5%)
-2. Video ratio — minimum % specified per trip type in narrative guidance
-3. Location diversity — max 3 items per location, spread across all places
-4. Photo time cap — total photo duration ≤ 30% of target
-5. Aesthetic quality — composition, emotion, lighting
-
 ## Narrative principles
 
 1. **Emotional arc — peak/valley rhythm**: Don't escalate linearly. Alternate
@@ -210,8 +178,6 @@ and worse pacing. Trim tightly around the speech/reaction moment (speech + 1s pa
 math errors are recalculated from trim points, out-of-range trims are clamped, small filename
 typos are fuzzy-matched. Items with unfixable paths or invalid trims are removed. Focus on
 creative decisions — don't worry about getting the math pixel-perfect.
-
-Think step-by-step, then output the JSON EDL.
 
 **Example — family trip** (3 of 5 segments shown — note the hook opening, slow-mo, montage, and duration variety):
 ```json

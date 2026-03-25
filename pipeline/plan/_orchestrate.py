@@ -97,16 +97,41 @@ Create a {pc.style} {trip_label} vlog EDL from the photos and videos shown below
 decision, and every text overlay should serve this focus. When choosing between two
 items of similar quality, pick the one that better supports this focus.
 
-DURATION: Sum of ALL display_duration MUST equal {pc.target_duration}s (±5%). This is the #1 hard requirement.
-Select ~{n_items} items to fill {pc.target_duration}s. Duration is content-driven — let each moment decide its length.
-Video ratio: at least {vid_ratio}% videos for this {trip_label}.
+**Hard constraints:**
+- DURATION: Sum of ALL display_duration MUST equal {pc.target_duration}s (±5%). This is the #1 requirement.
+- Select ~{n_items} items to fill {pc.target_duration}s. Duration is content-driven — let each moment decide its length.
+- Video ratio: at least {vid_ratio}% videos for this {trip_label}.
+- Photo time cap: total photo duration ≤ {pc.target_duration * 0.3:.0f}s (30% of target). Photos are punctuation, not filler.
+- Location diversity: max 3 items per location, spread across all places visited.
 
 **Think step-by-step:**
-1. Look at ALL photos and watch the video preview. Identify the best moments.
-2. Design a narrative arc — 4-6 chapters based on STORY BEATS (aim for 3-6 items per segment).
-3. Select items for each chapter. Verify: sum of display_duration ≈ {pc.target_duration}s (±5%).
-   If short, add more items or extend video trims. If long, remove weakest items.
-4. Self-review — check in PRIORITY ORDER (satisfy earlier items first if conflicts arise):
+
+1. **SCAN** — Look at ALL photos carefully. Watch the ENTIRE video preview with audio.
+   Note which moments grab you emotionally, which videos have interesting speech or
+   laughter, which photos have striking composition. Don't rush — your observations
+   here determine the quality of everything that follows.
+
+2. **FIND PEAKS** — Identify 3-5 PEAK MOMENTS: the strongest emotional beats in the
+   entire trip. A child's first reaction, family laughing together, an arrival at a
+   stunning view, a quiet goodbye. These are your anchors — every other decision
+   serves them.
+
+3. **DESIGN ARC** — Build 4-6 narrative chapters around the peaks (story beats, not
+   location buckets, aim for 3-6 items per segment). Shape the emotional arc:
+   hook → build → peak → breathe → build → climax → gentle close.
+   Alternate high-energy sequences with breathing room.
+   **Opening hook**: Your first item plays right after the title card. Make it the
+   single most visually striking or emotionally compelling moment — a flash-forward
+   to a peak. The viewer decides in 5 seconds. Lead with your best, not "arriving
+   at the airport."
+
+4. **SELECT & FILL** — For each chapter, select items around the peak: add supporting
+   material that builds anticipation before it and lets emotion breathe after it.
+   Fill gaps with variety shots (establishing shots, details, transitions between
+   locations). Apply the narrative principles from your instructions — emotional arc
+   rhythm, video-first selection, speech-aware trimming, visual dedup.
+
+5. **VERIFY** — Check in PRIORITY ORDER (satisfy earlier items first if conflicts arise):
    □ P1 Duration: total display_duration ≈ {pc.target_duration}s (±5%)?
    □ P2 Video ratio: videos ≥ {vid_ratio}% of items?
    □ P3 Location diversity: max 3 items per location? Spread across full trip?
@@ -114,6 +139,7 @@ Video ratio: at least {vid_ratio}% videos for this {trip_label}.
    □ P5 keep_audio=true on every video where you heard clear speech or laughter?
    □ P6 No duplicate source_file? No more than 2 portrait videos?
    □ P7 Text overlays ≤ 5 total?
+   If short, add more items or extend video trims. If long, remove weakest items.
 
 Output ONE JSON EDL.
 
