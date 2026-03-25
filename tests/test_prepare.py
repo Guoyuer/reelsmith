@@ -205,17 +205,6 @@ class TestAnalysisCaching:
         results = load_analysis(cfg)
         assert results[0]["thumbnail_path"] == "/cached/thumb.jpg"
 
-    def test_uses_shared_cache(self, mock_config):
-        cfg = mock_config
-        img = _make_tiny_image(cfg.media_dir / "102_photo.jpg")
-        _write_manifest(cfg, [_make_analysis_item(102, "photo.jpg", str(img))])
-        (cfg.cache_dir / "102.json").write_text(
-            json.dumps({"thumbnail_path": "/fake/thumb.jpg"})
-        )
-        prepare(cfg)
-        results = load_analysis(cfg)
-        assert results[0]["thumbnail_path"] == "/fake/thumb.jpg"
-
     def test_saves_to_shared_cache(self, mock_config):
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "103_photo.jpg")
@@ -224,13 +213,6 @@ class TestAnalysisCaching:
         cache_file = cfg.cache_dir / "103.json"
         assert cache_file.exists()
         assert "thumbnail_path" in json.loads(cache_file.read_text())
-
-    def test_exif_cached(self, mock_config):
-        cfg = mock_config
-        img = _make_tiny_image(cfg.media_dir / "200_photo.jpg")
-        _write_manifest(cfg, [_make_analysis_item(200, "photo.jpg", str(img))])
-        prepare(cfg)
-        assert (cfg.cache_dir / "200.json").exists()
 
     def test_exif_from_cache_used(self, mock_config):
         cfg = mock_config

@@ -19,40 +19,22 @@ from pipeline.cli import _PLANNING_PRESETS, _RESOLUTION_PRESETS, _resolve_planni
 
 
 class TestResolvePlanning:
-    def test_preset_fast(self):
-        model, thinking = _resolve_planning("fast")
-        assert model == "gemini-3.1-flash-lite-preview"
-        assert thinking == "LOW"
-
-    def test_preset_balanced(self):
-        model, thinking = _resolve_planning("balanced")
-        assert model == "gemini-3-flash-preview"
-        assert thinking == "HIGH"
-
-    def test_preset_quality(self):
-        model, thinking = _resolve_planning("quality")
-        assert model == "gemini-3.1-pro-preview"
-        assert thinking == "HIGH"
-
-    def test_raw_model_defaults_to_high(self):
-        model, thinking = _resolve_planning("gemini-2.5-flash")
-        assert model == "gemini-2.5-flash"
-        assert thinking == "HIGH"
-
-    def test_model_colon_thinking(self):
-        model, thinking = _resolve_planning("gemini-2.5-flash:low")
-        assert model == "gemini-2.5-flash"
-        assert thinking == "LOW"
-
-    def test_model_colon_off(self):
-        model, thinking = _resolve_planning("gemini-3-pro-preview:off")
-        assert model == "gemini-3-pro-preview"
-        assert thinking == "OFF"
-
-    def test_model_colon_medium(self):
-        model, thinking = _resolve_planning("gemini-2.5-pro:medium")
-        assert model == "gemini-2.5-pro"
-        assert thinking == "MEDIUM"
+    @pytest.mark.parametrize(
+        "input_str, expected_model, expected_thinking",
+        [
+            ("fast", "gemini-3.1-flash-lite-preview", "LOW"),
+            ("balanced", "gemini-3-flash-preview", "HIGH"),
+            ("quality", "gemini-3.1-pro-preview", "HIGH"),
+            ("gemini-2.5-flash", "gemini-2.5-flash", "HIGH"),
+            ("gemini-2.5-flash:low", "gemini-2.5-flash", "LOW"),
+            ("gemini-3-pro-preview:off", "gemini-3-pro-preview", "OFF"),
+            ("gemini-2.5-pro:medium", "gemini-2.5-pro", "MEDIUM"),
+        ],
+    )
+    def test_resolve_planning(self, input_str, expected_model, expected_thinking):
+        model, thinking = _resolve_planning(input_str)
+        assert model == expected_model
+        assert thinking == expected_thinking
 
     def test_all_presets_resolve(self):
         """Every preset key must return a valid (model, thinking) tuple."""
@@ -316,91 +298,34 @@ class TestAssembleCommandWiring:
 
 
 class TestRequiredParams:
+    """Verify that missing required args cause non-zero exit."""
+
+    ALL_ARGS = [
+        "full", "-n", "t", "-s", "local", "-p", ".",
+        "--duration", "60", "--model", "fast", "-r", "720p30",
+    ]
+
     @pytest.fixture
     def runner(self):
         return CliRunner()
 
-    def test_full_missing_name(self, runner):
-        result = runner.invoke(
-            cli,
-            [
-                "full",
-                "-s",
-                "local",
-                "-p",
-                ".",
-                "--duration",
-                "60",
-                "--model",
-                "fast",
-                "-r",
-                "720p30",
-            ],
-        )
-        assert result.exit_code != 0
-
-    def test_full_missing_source(self, runner):
-        result = runner.invoke(
-            cli,
-            ["full", "-n", "t", "--duration", "60", "--model", "fast", "-r", "720p30"],
-        )
-        assert result.exit_code != 0
-
-    def test_full_missing_duration(self, runner):
-        result = runner.invoke(
-            cli,
-            [
-                "full",
-                "-n",
-                "t",
-                "-s",
-                "local",
-                "-p",
-                ".",
-                "--model",
-                "fast",
-                "-r",
-                "720p30",
-            ],
-        )
-        assert result.exit_code != 0
-
-    def test_full_missing_model(self, runner):
-        result = runner.invoke(
-            cli,
-            [
-                "full",
-                "-n",
-                "t",
-                "-s",
-                "local",
-                "-p",
-                ".",
-                "--duration",
-                "60",
-                "-r",
-                "720p30",
-            ],
-        )
-        assert result.exit_code != 0
-
-    def test_full_missing_resolution(self, runner):
-        result = runner.invoke(
-            cli,
-            [
-                "full",
-                "-n",
-                "t",
-                "-s",
-                "local",
-                "-p",
-                ".",
-                "--duration",
-                "60",
-                "--model",
-                "fast",
-            ],
-        )
+    @pytest.mark.parametrize(
+        "omit_flags",
+        [
+            (["-n", "t"]),
+            (["-s", "local", "-p", "."]),
+            (["--duration", "60"]),
+            (["--model", "fast"]),
+            (["-r", "720p30"]),
+        ],
+        ids=["name", "source", "duration", "model", "resolution"],
+    )
+    def test_full_missing_required_param(self, runner, omit_flags):
+        args = list(self.ALL_ARGS)
+        for flag in omit_flags:
+            if flag in args:
+                args.remove(flag)
+        result = runner.invoke(cli, args)
         assert result.exit_code != 0
 
     def test_full_local_missing_path(self, runner):
@@ -409,17 +334,8 @@ class TestRequiredParams:
             result = runner.invoke(
                 cli,
                 [
-                    "full",
-                    "-n",
-                    "t",
-                    "-s",
-                    "local",
-                    "--duration",
-                    "60",
-                    "--model",
-                    "fast",
-                    "-r",
-                    "720p30",
+                    "full", "-n", "t", "-s", "local",
+                    "--duration", "60", "--model", "fast", "-r", "720p30",
                 ],
             )
         assert result.exit_code != 0
