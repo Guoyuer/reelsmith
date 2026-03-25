@@ -303,6 +303,196 @@ Think step-by-step, then output valid JSON only.
 }}
 ```
 
+**Example 2 — family trip** (3 of 5 segments shown — note the hook opening, slow-mo, montage, and duration variety):
+```json
+{{
+  "title": "Singapore with the Whole Family",
+  "target_duration": 180,
+  "intro_duration": 3.0,
+  "outro_duration": 3.0,
+  "segments": [
+    {{
+      "name": "When the Trees Come Alive",
+      "narrative_rationale": "HOOK: flash-forward to the trip's most magical moment — supertree light show at night. Then ease into daytime arrival to ground the viewer.",
+      "music_mood": "dreamy electronic pads with gentle piano arpeggios, wonder and discovery, nighttime magic",
+      "mode": "narrative",
+      "color_temp": "cool",
+      "segment_transition": "crossfade",
+      "segment_transition_duration": 1.0,
+      "items": [
+        {{
+          "source_file": "VID_20250614_195618.mp4",
+          "media_type": "video",
+          "display_duration": 8.0,
+          "preview_start": "12:30",
+          "preview_end": "12:38",
+          "effect": "none",
+          "playback_speed": 1.0,
+          "keep_audio": false,
+          "text_overlay": {{"text": "When the trees come alive", "position": "bottom", "font_size": 48}}
+        }},
+        {{
+          "source_file": "IMG_20250613_084512.heic",
+          "media_type": "photo",
+          "display_duration": 3.5,
+          "preview_start": null,
+          "preview_end": null,
+          "effect": "ken_burns_out",
+          "playback_speed": 1.0,
+          "keep_audio": false,
+          "text_overlay": null
+        }},
+        {{
+          "source_file": "VID_20250613_134429.mp4",
+          "media_type": "video",
+          "display_duration": 5.0,
+          "preview_start": "03:22",
+          "preview_end": "03:27",
+          "effect": "none",
+          "playback_speed": 1.0,
+          "keep_audio": true,
+          "text_overlay": null
+        }},
+        {{
+          "source_file": "IMG_20250613_125427.heic",
+          "media_type": "photo",
+          "display_duration": 2.5,
+          "preview_start": null,
+          "preview_end": null,
+          "effect": "ken_burns_left",
+          "playback_speed": 1.0,
+          "keep_audio": false,
+          "text_overlay": null
+        }}
+      ],
+      "transition": "crossfade",
+      "transition_duration": 0.5
+    }},
+    {{
+      "name": "Making Waves",
+      "narrative_rationale": "Family energy peak — pool time with genuine laughter and a slow-mo splash moment. Ends with a breathing-room photo.",
+      "music_mood": "upbeat ukulele with handclaps and shaker, playful summer energy, building joy",
+      "mode": "narrative",
+      "color_temp": "warm",
+      "segment_transition": "crossfade",
+      "segment_transition_duration": 1.2,
+      "items": [
+        {{
+          "source_file": "VID_20250616_163719.mp4",
+          "media_type": "video",
+          "display_duration": 6.0,
+          "preview_start": "18:05",
+          "preview_end": "18:11",
+          "effect": "none",
+          "playback_speed": 1.0,
+          "keep_audio": true,
+          "text_overlay": null
+        }},
+        {{
+          "source_file": "VID_20250616_163807.mp4",
+          "media_type": "video",
+          "display_duration": 6.0,
+          "preview_start": "18:45",
+          "preview_end": "18:48",
+          "effect": "none",
+          "playback_speed": 0.5,
+          "keep_audio": false,
+          "text_overlay": null
+        }},
+        {{
+          "source_file": "VID_20250615_180708.mp4",
+          "media_type": "video",
+          "display_duration": 7.0,
+          "preview_start": "15:20",
+          "preview_end": "15:27",
+          "effect": "none",
+          "playback_speed": 1.0,
+          "keep_audio": true,
+          "text_overlay": {{"text": "Her first splash", "position": "bottom", "font_size": 48}}
+        }},
+        {{
+          "source_file": "IMG_20250615_183209.heic",
+          "media_type": "photo",
+          "display_duration": 3.0,
+          "preview_start": null,
+          "preview_end": null,
+          "effect": "ken_burns_out",
+          "playback_speed": 1.0,
+          "keep_audio": false,
+          "text_overlay": null
+        }}
+      ],
+      "transition": "crossfade",
+      "transition_duration": 0.3
+    }},
+    {{
+      "name": "Hawker Feast",
+      "narrative_rationale": "Quick energy burst — food textures and reactions at hawker centers. Montage mode for rapid cuts, then the next segment (not shown) slows down.",
+      "music_mood": "funky bass with light percussion and wok sizzle texture, street food energy, playful",
+      "mode": "montage",
+      "color_temp": "warm",
+      "segment_transition": "crossfade",
+      "segment_transition_duration": 0.8,
+      "items": [
+        {{
+          "source_file": "IMG_20250613_120415.heic",
+          "media_type": "photo",
+          "display_duration": 2.5,
+          "preview_start": null,
+          "preview_end": null,
+          "effect": "ken_burns_in",
+          "playback_speed": 1.0,
+          "keep_audio": false,
+          "text_overlay": null
+        }},
+        {{
+          "source_file": "VID_20250613_125919.mp4",
+          "media_type": "video",
+          "display_duration": 3.0,
+          "preview_start": "04:10",
+          "preview_end": "04:13",
+          "effect": "none",
+          "playback_speed": 1.0,
+          "keep_audio": true,
+          "text_overlay": null
+        }},
+        {{
+          "source_file": "IMG_20250614_131718.heic",
+          "media_type": "photo",
+          "display_duration": 2.0,
+          "preview_start": null,
+          "preview_end": null,
+          "effect": "ken_burns_right",
+          "playback_speed": 1.0,
+          "keep_audio": false,
+          "text_overlay": null
+        }},
+        {{
+          "source_file": "VID_20250614_213914.mp4",
+          "media_type": "video",
+          "display_duration": 3.0,
+          "preview_start": "22:30",
+          "preview_end": "22:33",
+          "effect": "none",
+          "playback_speed": 1.0,
+          "keep_audio": false,
+          "text_overlay": {{"text": "Taste buds, activated", "position": "center", "font_size": 56}}
+        }}
+      ],
+      "transition": "cut",
+      "transition_duration": 0.0
+    }}
+  ]
+}}
+```
+Note what this example demonstrates vs. the mountain example above:
+- **Hook opening**: first item is a nighttime flash-forward, not chronological arrival
+- **Duration variety**: photos at 2.0, 2.5, 3.0, 3.5s — NOT all 4.0s. Videos at 3.0, 5.0, 6.0, 7.0, 8.0s — NOT all 9-10s
+- **Slow-mo**: 0.5x on a 3s splash clip → 6s display (preview_end - preview_start = 3s, ÷ 0.5 = 6s)
+- **Montage**: rapid 2-3s cuts with transition="cut", placed before a calm segment for contrast
+- **Tight speech trim**: 5s video trim for a speech moment (not a lazy 10s grab)
+- **Text position**: "center" on montage closer, "bottom" elsewhere
+
 **Full schema reference:**
 {{
   "title": "string",
