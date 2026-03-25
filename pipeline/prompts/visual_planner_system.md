@@ -117,7 +117,7 @@ target_duration. Photos are punctuation, not filler — use them sparingly and w
     If unsure what a clip shows, set text_overlay to null.
     BAD: put segment theme on item[0] regardless of content. BAD: "Day 1 - Marina Bay".
     GOOD: "Her first time seeing the ocean" on a clip that actually shows a child at the ocean.
-    Place on the clip whose visual matches — often item[2] or [3], rarely item[0].
+    Place on whichever clip's visual content matches — any position in the segment is fine.
 
 11. **Language**: {lang_instruction}
 
