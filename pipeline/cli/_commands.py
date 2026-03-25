@@ -65,20 +65,17 @@ class _CfgAwareCommand(click.Command):
     def parse_args(self, ctx, args):
         # Peek: if --use-cfg-file is in args, temporarily disable required checks
         # on all params except run_name (which is always required).
+        restored = []
         if "--use-cfg-file" in args:
             for param in self.params:
                 if param.name != "run_name" and getattr(param, "required", False):
                     param.required = False
-                    if not hasattr(self, "_restored_required"):
-                        self._restored_required = []
-                    self._restored_required.append(param)
+                    restored.append(param)
         try:
             return super().parse_args(ctx, args)
         finally:
-            # Restore required flags for help text / subsequent invocations
-            for param in getattr(self, "_restored_required", []):
+            for param in restored:
                 param.required = True
-            self._restored_required = []
 
 
 @click.group(cls=_CliGroup)
@@ -320,6 +317,40 @@ def _build_cli_params(**kwargs) -> dict:
     return params
 
 
+def _load_source_fields(saved: dict) -> tuple:
+    """Extract source-related fields from saved config. Returns 7-tuple."""
+    return (
+        saved["source"],
+        saved.get("path"),
+        saved.get("from_date"),
+        saved.get("to_date"),
+        saved.get("country"),
+        saved.get("district"),
+        saved.get("item_types"),
+    )
+
+
+def _load_plan_fields(saved: dict) -> tuple:
+    """Extract plan-related fields from saved config. Returns 7-tuple."""
+    return (
+        saved["duration"],
+        saved["model"],
+        saved.get("lang", "en"),
+        saved.get("trip_type", "family"),
+        saved.get("style", "upbeat"),
+        saved.get("focus", ""),
+        saved.get("music", "auto"),
+    )
+
+
+def _load_assemble_fields(saved: dict) -> tuple:
+    """Extract assemble-related fields from saved config. Returns (resolution, quality)."""
+    return (
+        _parse_resolution(None, None, saved["resolution"]),
+        saved.get("bitrate", 1.0),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Shared source options (--source local|nas, --path, NAS filters)
 # ---------------------------------------------------------------------------
@@ -413,13 +444,7 @@ def prepare(
     if use_cfg_file:
         _validate_use_cfg(ctx)
         saved = load_run_config(use_cfg_file)
-        source = saved["source"]
-        path = saved.get("path")
-        from_date = saved.get("from_date")
-        to_date = saved.get("to_date")
-        country = saved.get("country")
-        district = saved.get("district")
-        item_types = saved.get("item_types")
+        source, path, from_date, to_date, country, district, item_types = _load_source_fields(saved)
 
     cli_params = _build_cli_params(
         source=source, path=path, from_date=from_date, to_date=to_date,
@@ -480,22 +505,9 @@ def full(
     if use_cfg_file:
         _validate_use_cfg(ctx)
         saved = load_run_config(use_cfg_file)
-        source = saved["source"]
-        path = saved.get("path")
-        from_date = saved.get("from_date")
-        to_date = saved.get("to_date")
-        country = saved.get("country")
-        district = saved.get("district")
-        item_types = saved.get("item_types")
-        duration = saved["duration"]
-        model = saved["model"]
-        resolution = _parse_resolution(None, None, saved["resolution"])
-        lang = saved.get("lang", "en")
-        trip_type = saved.get("trip_type", "family")
-        style = saved.get("style", "upbeat")
-        focus = saved.get("focus", "")
-        music = saved.get("music", "auto")
-        quality = saved.get("bitrate", 1.0)
+        source, path, from_date, to_date, country, district, item_types = _load_source_fields(saved)
+        duration, model, lang, trip_type, style, focus, music = _load_plan_fields(saved)
+        resolution, quality = _load_assemble_fields(saved)
 
     resolved_model, resolved_thinking = _resolve_planning(model)
     w, h, fps = resolution
@@ -549,13 +561,7 @@ def plan(ctx, run_name, use_cfg_file, duration, trip_type, style, focus, lang, m
     if use_cfg_file:
         _validate_use_cfg(ctx)
         saved = load_run_config(use_cfg_file)
-        duration = saved["duration"]
-        model = saved["model"]
-        lang = saved.get("lang", "en")
-        trip_type = saved.get("trip_type", "family")
-        style = saved.get("style", "upbeat")
-        focus = saved.get("focus", "")
-        music = saved.get("music", "auto")
+        duration, model, lang, trip_type, style, focus, music = _load_plan_fields(saved)
 
     resolved_model, resolved_thinking = _resolve_planning(model)
     music_file = None if music == "none" else music
@@ -605,8 +611,7 @@ def assemble(ctx, run_name, use_cfg_file, version, resolution, quality):
     if use_cfg_file:
         _validate_use_cfg(ctx)
         saved = load_run_config(use_cfg_file)
-        resolution = _parse_resolution(None, None, saved["resolution"])
-        quality = saved.get("bitrate", 1.0)
+        resolution, quality = _load_assemble_fields(saved)
 
     w, h, fps = resolution
 
@@ -634,11 +639,12 @@ def show_config(run_name):
     ws = Config.run_workspace(run_name=run_name)
     cfg = Config.load(ws)
     cfg_path = config_path_for(cfg.workspace)
-    if not cfg_path.exists():
+    try:
+        saved = json.loads(cfg_path.read_text())
+    except FileNotFoundError:
         raise click.UsageError(
             f"No saved config at {cfg_path}.\n"
             "Run the pipeline with full parameters first."
         )
-    saved = load_run_config(str(cfg_path))
     click.echo(f"# {cfg_path}")
     click.echo(json.dumps(saved, indent=2, ensure_ascii=False))

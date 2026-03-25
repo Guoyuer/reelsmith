@@ -55,7 +55,7 @@ def load_run_config(cfg_file: str) -> dict[str, Any]:
     """Read a config JSON file and return the stored parameters.
 
     *cfg_file* is the path passed via ``--use-cfg-file``.
-    Click's ``type=click.Path(exists=True)`` already ensures the file exists
-    before this function is called.
+    When called from CLI commands, Click's ``type=click.Path(exists=True)``
+    validates existence before this function runs.
     """
     return json.loads(Path(cfg_file).read_text())
