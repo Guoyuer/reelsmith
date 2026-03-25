@@ -15,7 +15,9 @@ from pathlib import Path
 logger = logging.getLogger("vlog.plan")
 
 
-def _prepare_parts(user_parts: list, client, progress_callback=None) -> tuple[list, int]:
+def _prepare_parts(
+    user_parts: list, client, progress_callback=None
+) -> tuple[list, int]:
     """Convert *user_parts* (str/dict) into Gemini API Part objects.
 
     Videos are uploaded via the Files API; images are inlined.
@@ -182,25 +184,49 @@ def _gemini_call(
     parts, n_uploaded = _prepare_parts(user_parts, client, progress_callback)
 
     # Log call details
-    n_images = sum(1 for p in user_parts if isinstance(p, dict) and p.get("type") == "image_bytes")
-    n_videos_count = sum(1 for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes")
-    img_mb = sum(len(p.get("data", b"")) for p in user_parts if isinstance(p, dict) and p.get("type") == "image_bytes") / 1024 / 1024
-    vid_mb = sum(len(p.get("data", b"")) for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes") / 1024 / 1024
+    n_images = sum(
+        1 for p in user_parts if isinstance(p, dict) and p.get("type") == "image_bytes"
+    )
+    n_videos_count = sum(
+        1 for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes"
+    )
+    img_mb = (
+        sum(
+            len(p.get("data", b""))
+            for p in user_parts
+            if isinstance(p, dict) and p.get("type") == "image_bytes"
+        )
+        / 1024
+        / 1024
+    )
+    vid_mb = (
+        sum(
+            len(p.get("data", b""))
+            for p in user_parts
+            if isinstance(p, dict) and p.get("type") == "video_bytes"
+        )
+        / 1024
+        / 1024
+    )
     n_text_parts = sum(1 for p in user_parts if isinstance(p, str))
     text_chars = sum(len(p) for p in user_parts if isinstance(p, str))
     logger.info(f"Gemini API call: {label}")
     logger.info(f"  Model: {model}, thinking: {thinking_level}")
-    logger.info(f"  {n_text_parts} text ({text_chars} chars), {n_images} photos ({img_mb:.0f}MB), {n_videos_count} video ({vid_mb:.0f}MB)")
+    logger.info(
+        f"  {n_text_parts} text ({text_chars} chars), {n_images} photos ({img_mb:.0f}MB), {n_videos_count} video ({vid_mb:.0f}MB)"
+    )
     # Full part details at DEBUG
     for i, p in enumerate(user_parts):
         if isinstance(p, str):
             for line in p.split("\n"):
                 logger.debug(f"    | {line}")
         elif isinstance(p, dict):
-            logger.debug(f"  [part {i}] {p.get('type', '?')} {p.get('mime_type', '?')} ({len(p.get('data', b'')) // 1024}KB)")
+            logger.debug(
+                f"  [part {i}] {p.get('type', '?')} {p.get('mime_type', '?')} ({len(p.get('data', b'')) // 1024}KB)"
+            )
 
     if progress_callback:
-        progress_callback(0, 0, "request sent, waiting for gemini...")
+        progress_callback(0, 0, "calling Gemini API...")
     t0 = time.monotonic()
 
     # Build config and call API
@@ -294,6 +320,8 @@ def _gemini_call(
 
     # Report cost via callback metadata
     if progress_callback:
-        progress_callback(0, 0, f"~${cost_est:.2f} ({input_tokens:,} in, {output_tokens:,} out)")
+        progress_callback(
+            0, 0, f"~${cost_est:.2f} ({input_tokens:,} in, {output_tokens:,} out)"
+        )
 
     return content
