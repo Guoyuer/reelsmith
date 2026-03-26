@@ -248,14 +248,10 @@ class TestPromptFileLoading:
         guidance = _trip_guidance("nonexistent")
         assert "Balanced storytelling" in guidance
 
-    def test_missing_prompt_file_raises(self, tmp_path):
+    def test_missing_prompt_file_raises(self, tmp_path, monkeypatch):
         import pipeline.plan._prompts as prompts_mod
         from pipeline.plan._prompts import _load_json
 
-        orig = prompts_mod._PROMPTS_DIR
-        try:
-            prompts_mod._PROMPTS_DIR = tmp_path / "nonexistent"
-            with pytest.raises(FileNotFoundError):
-                _load_json("anything.json")
-        finally:
-            prompts_mod._PROMPTS_DIR = orig
+        monkeypatch.setattr(prompts_mod, "_PROMPTS_DIR", tmp_path / "nonexistent")
+        with pytest.raises(FileNotFoundError):
+            _load_json("anything.json")

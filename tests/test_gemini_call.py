@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 from unittest.mock import MagicMock, patch
 
@@ -56,25 +57,46 @@ def _mock_genai_module(
     return google_mock, genai, types, client
 
 
-class TestGeminiCall:
-    def test_returns_response_text(self, monkeypatch):
-        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-        google_mock, genai, types, client = _mock_genai_module("hello world")
+@pytest.fixture
+def gemini_env(monkeypatch):
+    """Fixture providing a mocked genai environment and reloaded module."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
 
-        with patch.dict(
+    def _setup(response_text="response text", **kwargs):
+        google_mock, genai, types, client = _mock_genai_module(response_text, **kwargs)
+        ctx = patch.dict(
             "sys.modules",
             {"google": google_mock, "google.genai": genai, "google.genai.types": types},
-        ):
-            # Force re-import so the mock is used
-            import importlib
+        )
+        ctx.start()
 
-            import pipeline.plan._gemini as mod
+        import pipeline.plan._gemini as mod
 
-            importlib.reload(mod)
-            result = mod._gemini_call(
-                system="sys", user_parts=["hi"], label="test", model="m"
-            )
+        importlib.reload(mod)
+        return mod, client, types
 
+    return _setup
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_genai_module():
+    """Ensure sys.modules patches are cleaned up after each test."""
+    yield
+    # Restore by reloading if the module was loaded
+    try:
+        import pipeline.plan._gemini as mod
+
+        importlib.reload(mod)
+    except Exception:
+        pass
+
+
+class TestGeminiCall:
+    def test_returns_response_text(self, gemini_env):
+        mod, client, _ = gemini_env("hello world")
+        result = mod._gemini_call(
+            system="sys", user_parts=["hi"], label="test", model="m"
+        )
         assert result == "hello world"
         client.models.generate_content.assert_called_once()
 
@@ -85,92 +107,53 @@ class TestGeminiCall:
         with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
             _gemini_call(system="test", user_parts=["hello"])
 
-    def test_empty_response(self, monkeypatch):
-        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-        google_mock, genai, types, client = _mock_genai_module("")
+    def test_empty_response(self, gemini_env):
+        mod, _, _ = gemini_env("")
+        assert mod._gemini_call(system="s", user_parts=["h"], model="m") == ""
 
-        with patch.dict(
-            "sys.modules",
-            {"google": google_mock, "google.genai": genai, "google.genai.types": types},
-        ):
-            import importlib
-
-            import pipeline.plan._gemini as mod
-
-            importlib.reload(mod)
-            result = mod._gemini_call(system="s", user_parts=["h"], model="m")
-
-        assert result == ""
-
-    def test_handles_image_parts(self, monkeypatch):
-        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-        google_mock, genai, types, client = _mock_genai_module("ok")
-
-        with patch.dict(
-            "sys.modules",
-            {"google": google_mock, "google.genai": genai, "google.genai.types": types},
-        ):
-            import importlib
-
-            import pipeline.plan._gemini as mod
-
-            importlib.reload(mod)
-            result = mod._gemini_call(
-                system="s",
-                user_parts=[
-                    "text part",
-                    {
-                        "type": "image_bytes",
-                        "mime_type": "image/jpeg",
-                        "data": b"\xff\xd8" * 10,
-                    },
-                ],
-                model="m",
-            )
-
+    def test_handles_image_parts(self, gemini_env):
+        mod, _, _ = gemini_env("ok")
+        result = mod._gemini_call(
+            system="s",
+            user_parts=[
+                "text part",
+                {
+                    "type": "image_bytes",
+                    "mime_type": "image/jpeg",
+                    "data": b"\xff\xd8" * 10,
+                },
+            ],
+            model="m",
+        )
         assert result == "ok"
 
-    def test_handles_video_parts_with_upload(self, monkeypatch):
-        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-        google_mock, genai, types, client = _mock_genai_module("ok")
+    def test_handles_video_parts_with_upload(self, gemini_env):
+        mod, client, _ = gemini_env("ok")
 
-        # Mock Files API upload
         uploaded = MagicMock()
         uploaded.state.name = "ACTIVE"
         uploaded.name = "files/abc123"
         uploaded.uri = "https://genai.google.com/files/abc123"
         client.files.upload.return_value = uploaded
 
-        with patch.dict(
-            "sys.modules",
-            {"google": google_mock, "google.genai": genai, "google.genai.types": types},
-        ):
-            import importlib
-
-            import pipeline.plan._gemini as mod
-
-            importlib.reload(mod)
-            result = mod._gemini_call(
-                system="s",
-                user_parts=[
-                    {
-                        "type": "video_bytes",
-                        "mime_type": "video/mp4",
-                        "data": b"\x00" * 1000,
-                    },
-                ],
-                model="m",
-            )
-
+        result = mod._gemini_call(
+            system="s",
+            user_parts=[
+                {
+                    "type": "video_bytes",
+                    "mime_type": "video/mp4",
+                    "data": b"\x00" * 1000,
+                },
+            ],
+            model="m",
+        )
         assert result == "ok"
         client.files.upload.assert_called_once()
 
-    def test_config_includes_response_schema(self, monkeypatch):
+    def test_config_includes_response_schema(self, gemini_env):
         """Structured output: response_mime_type and response_schema are passed."""
-        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-        google_mock, genai, types, client = _mock_genai_module("ok")
+        mod, _, types = gemini_env("ok")
 
-        # Track kwargs passed to GenerateContentConfig
         config_kwargs_captured = {}
         original_config = types.GenerateContentConfig
 
@@ -179,17 +162,7 @@ class TestGeminiCall:
             return original_config(**kwargs)
 
         types.GenerateContentConfig = capture_config
-
-        with patch.dict(
-            "sys.modules",
-            {"google": google_mock, "google.genai": genai, "google.genai.types": types},
-        ):
-            import importlib
-
-            import pipeline.plan._gemini as mod
-
-            importlib.reload(mod)
-            mod._gemini_call(system="s", user_parts=["h"], model="m")
+        mod._gemini_call(system="s", user_parts=["h"], model="m")
 
         assert config_kwargs_captured.get("response_mime_type") == "application/json"
         assert "response_schema" in config_kwargs_captured
@@ -197,21 +170,10 @@ class TestGeminiCall:
         assert schema["type"] == "OBJECT"
         assert "segments" in schema["properties"]
 
-    def test_uses_vlog_model_env_var(self, monkeypatch):
-        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    def test_uses_vlog_model_env_var(self, gemini_env, monkeypatch):
         monkeypatch.setenv("VLOG_MODEL", "custom-model")
-        google_mock, genai, types, client = _mock_genai_module("ok")
-
-        with patch.dict(
-            "sys.modules",
-            {"google": google_mock, "google.genai": genai, "google.genai.types": types},
-        ):
-            import importlib
-
-            import pipeline.plan._gemini as mod
-
-            importlib.reload(mod)
-            mod._gemini_call(system="s", user_parts=["h"])
+        mod, client, _ = gemini_env("ok")
+        mod._gemini_call(system="s", user_parts=["h"])
 
         call_args = client.models.generate_content.call_args
         assert (
@@ -223,100 +185,77 @@ class TestGeminiCall:
 class TestEdlResponseSchema:
     """Tests for _edl_response_schema — structured output schema validation."""
 
-    def test_schema_is_valid_structure(self):
+    @pytest.fixture
+    def schema(self):
         from pipeline.plan._gemini import _edl_response_schema
 
-        schema = _edl_response_schema()
+        return _edl_response_schema()
+
+    def test_top_level_structure(self, schema):
         assert schema["type"] == "OBJECT"
         assert "title" in schema["properties"]
         assert "target_duration" in schema["properties"]
         assert "segments" in schema["properties"]
         assert set(schema["required"]) == {"title", "target_duration", "segments"}
 
-    def test_segment_schema_has_required_fields(self):
-        from pipeline.plan._gemini import _edl_response_schema
-
-        schema = _edl_response_schema()
+    def test_segment_has_required_fields(self, schema):
         seg_schema = schema["properties"]["segments"]["items"]
         assert seg_schema["type"] == "OBJECT"
-        assert "name" in seg_schema["properties"]
-        assert "items" in seg_schema["properties"]
-        assert "music_mood" in seg_schema["properties"]
-        assert "mode" in seg_schema["properties"]
-        assert "color_temp" in seg_schema["properties"]
+        for field in ("name", "items", "music_mood", "mode", "color_temp"):
+            assert field in seg_schema["properties"]
         assert set(seg_schema["required"]) == {"name", "items"}
 
-    def test_item_schema_has_preview_timestamps(self):
+    def test_item_uses_preview_timestamps(self, schema):
         """Schema uses preview_start/preview_end (not start_time/end_time)."""
-        from pipeline.plan._gemini import _edl_response_schema
-
-        schema = _edl_response_schema()
         item_schema = schema["properties"]["segments"]["items"]["properties"]["items"][
             "items"
         ]
         assert "preview_start" in item_schema["properties"]
         assert "preview_end" in item_schema["properties"]
         assert item_schema["properties"]["preview_start"]["nullable"] is True
-        # Should NOT have start_time/end_time — those are postprocessing fields
         assert "start_time" not in item_schema["properties"]
         assert "end_time" not in item_schema["properties"]
 
-    def test_item_schema_has_all_creative_fields(self):
-        from pipeline.plan._gemini import _edl_response_schema
-
-        schema = _edl_response_schema()
+    def test_item_has_all_creative_fields(self, schema):
         item_schema = schema["properties"]["segments"]["items"]["properties"]["items"][
             "items"
         ]
         props = item_schema["properties"]
-        assert "source_file" in props
-        assert "media_type" in props
-        assert "display_duration" in props
-        assert "effect" in props
-        assert "playback_speed" in props
-        assert "keep_audio" in props
-        assert "text_overlay" in props
+        for field in (
+            "source_file",
+            "media_type",
+            "display_duration",
+            "effect",
+            "playback_speed",
+            "keep_audio",
+            "text_overlay",
+        ):
+            assert field in props
 
-    def test_effect_enum_matches_code(self):
-        from pipeline.plan._gemini import _edl_response_schema
-
-        schema = _edl_response_schema()
+    def test_effect_enum_matches_code(self, schema):
         item_schema = schema["properties"]["segments"]["items"]["properties"]["items"][
             "items"
         ]
         effect_enum = item_schema["properties"]["effect"]["enum"]
-        assert "ken_burns_in" in effect_enum
-        assert "ken_burns_out" in effect_enum
-        assert "ken_burns_left" in effect_enum
-        assert "ken_burns_right" in effect_enum
-        assert "static" in effect_enum
-        assert "none" in effect_enum
+        for effect in (
+            "ken_burns_in",
+            "ken_burns_out",
+            "ken_burns_left",
+            "ken_burns_right",
+            "static",
+            "none",
+        ):
+            assert effect in effect_enum
 
-    def test_transition_enum_simplified(self):
-        """Only crossfade and cut — matches prompt simplification."""
-        from pipeline.plan._gemini import _edl_response_schema
-
-        schema = _edl_response_schema()
+    def test_transition_enum_simplified(self, schema):
         seg_schema = schema["properties"]["segments"]["items"]
-        transition_enum = seg_schema["properties"]["transition"]["enum"]
-        assert transition_enum == ["crossfade", "cut"]
+        assert seg_schema["properties"]["transition"]["enum"] == ["crossfade", "cut"]
 
-    def test_text_overlay_nullable(self):
-        from pipeline.plan._gemini import _edl_response_schema
-
-        schema = _edl_response_schema()
+    def test_text_overlay_nullable_with_position_enum(self, schema):
         item_schema = schema["properties"]["segments"]["items"]["properties"]["items"][
             "items"
         ]
         assert item_schema["properties"]["text_overlay"]["nullable"] is True
-
-    def test_text_overlay_position_enum(self):
-        from pipeline.plan._gemini import _edl_response_schema
-
-        schema = _edl_response_schema()
-        item_schema = schema["properties"]["segments"]["items"]["properties"]["items"][
-            "items"
-        ]
         to_props = item_schema["properties"]["text_overlay"]["properties"]
         assert to_props["position"]["enum"] == ["bottom", "center", "top"]
 
@@ -325,10 +264,8 @@ class TestStructuredOutputParsing:
     """Test that schema-conforming JSON parses through postprocessing."""
 
     def test_structured_response_parses_to_edl(self):
-        """A valid structured response can be parsed and converted."""
         from pipeline.plan._postprocess import parse_and_convert_timestamps
 
-        # Simulate a clean JSON response (no markdown fences — structured output)
         response = json.dumps(
             {
                 "title": "Test Trip",
@@ -379,19 +316,15 @@ class TestStructuredOutputParsing:
             }
         )
 
-        # Offset table: item #1 at offset 0s, 30s duration
         offset_table = [(1, 30.0, 0.0)]
-
         edl = parse_and_convert_timestamps(response, offset_table)
 
         assert edl.title == "Test Trip"
         assert edl.target_duration == 120
         assert len(edl.segments) == 1
         assert len(edl.segments[0].items) == 2
-        # Photo: no timestamp conversion
         assert edl.segments[0].items[0].source_file == "IMG_001.jpg"
         assert edl.segments[0].items[0].start_time is None
-        # Video: preview timestamps converted
         vid = edl.segments[0].items[1]
         assert vid.source_file == "VID_001.mp4"
         assert vid.keep_audio is True

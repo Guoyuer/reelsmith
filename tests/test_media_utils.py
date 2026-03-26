@@ -23,23 +23,20 @@ def _reset_heic_dir():
 # ---------------------------------------------------------------------------
 
 
-class TestStripFencesJson:
-    def test_strip_fences_json(self):
-        """Fences with ```json prefix should be stripped, returning inner content."""
-        inner = '{"key": "value"}'
-        fenced = f"```json\n{inner}\n```"
-        result = strip_markdown_fences(fenced)
-        # The fence prefix line is removed; content between first \n and last ``` is kept
-        assert inner in result
-        assert not result.startswith("```")
-
-
-class TestStripFencesPlain:
-    def test_strip_fences_plain(self):
-        """Plain text without fences should be returned as-is (after strip)."""
-        text = '{"key": "value"}'
-        assert strip_markdown_fences(text) == text
-        assert strip_markdown_fences(f"  {text}  ") == text
+class TestStripMarkdownFences:
+    @pytest.mark.parametrize(
+        "input_text, expected_substring, no_fences",
+        [
+            ('```json\n{"key": "value"}\n```', '{"key": "value"}', True),
+            ('{"key": "value"}', '{"key": "value"}', True),
+            ('  {"key": "value"}  ', '{"key": "value"}', True),
+        ],
+    )
+    def test_strips_fences_and_whitespace(self, input_text, expected_substring, no_fences):
+        result = strip_markdown_fences(input_text)
+        assert expected_substring in result
+        if no_fences:
+            assert not result.startswith("```")
 
 
 # ---------------------------------------------------------------------------
@@ -47,8 +44,8 @@ class TestStripFencesPlain:
 # ---------------------------------------------------------------------------
 
 
-class TestConvertHeicCallsSips:
-    def test_convert_heic_calls_sips(self, tmp_path: Path):
+class TestConvertHeic:
+    def test_calls_sips_when_pillow_heif_unavailable(self, tmp_path: Path):
         """convert_heic should fall back to sips when pillow-heif fails."""
         heic_file = tmp_path / "photo.heic"
         heic_file.write_bytes(b"\x00" * 100)
@@ -66,7 +63,6 @@ class TestConvertHeicCallsSips:
                 out_path.write_bytes(b"\xff\xd8" + b"\x00" * 50)
             return result
 
-        # Force the pillow_heif import to raise ImportError
         import sys
 
         saved = sys.modules.pop("pillow_heif", None)
@@ -90,17 +86,13 @@ class TestConvertHeicCallsSips:
         assert jpeg.suffix == ".jpg"
         assert jpeg.exists()
 
-
-class TestConvertHeicSkipsExisting:
-    def test_convert_heic_skips_existing(self, tmp_path: Path):
+    def test_skips_existing_jpeg(self, tmp_path: Path):
         """If the JPEG already exists, sips should not be called."""
         heic_file = tmp_path / "photo.heic"
         heic_file.write_bytes(b"\x00" * 100)
 
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
-
-        # Pre-create the expected output jpeg in the cache dir
         jpeg_path = cache_dir / f"_converted_{heic_file.stem}.jpg"
         jpeg_path.write_bytes(b"\xff\xd8" + b"\x00" * 50)
 
@@ -130,7 +122,7 @@ class TestRunSubprocess:
             timeout=1,
             capture_output=True,
         )
-        assert result.returncode == 1  # killed by timeout
+        assert result.returncode == 1
 
     def test_nonexistent_command_raises(self):
         with pytest.raises(FileNotFoundError):
@@ -143,20 +135,16 @@ class TestRunSubprocess:
 
 
 class TestProbeDuration:
-    def test_returns_duration(self):
+    @pytest.mark.parametrize(
+        "stdout, expected",
+        [
+            ("123.45\n", 123.45),
+            ("\n", 0.0),
+            ("not a number\n", 0.0),
+        ],
+    )
+    def test_probe_duration(self, stdout, expected):
         fake = MagicMock()
-        fake.stdout = "123.45\n"
+        fake.stdout = stdout
         with patch("pipeline.utils.media.run_subprocess", return_value=fake):
-            assert probe_duration(Path("/fake.mp4")) == 123.45
-
-    def test_handles_empty_output(self):
-        fake = MagicMock()
-        fake.stdout = "\n"
-        with patch("pipeline.utils.media.run_subprocess", return_value=fake):
-            assert probe_duration(Path("/fake.mp4")) == 0.0
-
-    def test_handles_bad_output(self):
-        fake = MagicMock()
-        fake.stdout = "not a number\n"
-        with patch("pipeline.utils.media.run_subprocess", return_value=fake):
-            assert probe_duration(Path("/fake.mp4")) == 0.0
+            assert probe_duration(Path("/fake.mp4")) == expected

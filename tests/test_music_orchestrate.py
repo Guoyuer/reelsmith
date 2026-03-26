@@ -4,8 +4,56 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from pipeline.config import Config
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def music_workspace(tmp_path):
+    """Minimal workspace with music-related directories."""
+    ws = tmp_path / "workspace"
+    for d in ("media", "clips", "output", "music"):
+        (ws / d).mkdir(parents=True)
+    return ws
+
+
+def _write_edl(ws, music_mode="auto", music_mood="gentle piano", music=None):
+    """Write an EDL to the workspace and return the Config."""
+    edl = EDL(
+        title="Test",
+        target_duration=30.0,
+        music_mode=music_mode,
+        trip_type="family",
+        style="upbeat",
+        segments=[
+            Segment(
+                name="test",
+                music_mood=music_mood,
+                items=[
+                    EditItem(
+                        source_file="test.jpg",
+                        media_type="photo",
+                        display_duration=10.0,
+                    )
+                ],
+            )
+        ],
+        music=music,
+    )
+    (ws / "edl_v1.json").write_text(edl.model_dump_json(indent=2))
+    return Config.load(str(ws))
+
+
+# ---------------------------------------------------------------------------
+# _build_composite_music
+# ---------------------------------------------------------------------------
 
 
 class TestBuildCompositeMusic:
@@ -15,189 +63,127 @@ class TestBuildCompositeMusic:
         track = tmp_path / "track.wav"
         track.write_bytes(b"RIFF" + b"\x00" * 100)
         out = tmp_path / "composite.wav"
-
-        result = _build_composite_music([(10.0, track)], out)
-        assert result is True
+        assert _build_composite_music([(10.0, track)], out) is True
         assert out.exists()
 
     def test_empty_returns_false(self, tmp_path):
         from pipeline.music._orchestrate import _build_composite_music
 
-        out = tmp_path / "composite.wav"
-        result = _build_composite_music([], out)
-        assert result is False
+        assert _build_composite_music([], tmp_path / "composite.wav") is False
+
+
+# ---------------------------------------------------------------------------
+# _segment_duration
+# ---------------------------------------------------------------------------
 
 
 class TestSegmentDuration:
-    def test_narrative_with_transitions(self):
+    @pytest.mark.parametrize(
+        "items, transition, trans_dur, expected",
+        [
+            (
+                [("a.jpg", 4.0), ("b.jpg", 3.0), ("c.jpg", 5.0)],
+                "crossfade",
+                0.5,
+                11.0,  # 4+3+5 - 2*0.5
+            ),
+            (
+                [("a.jpg", 4.0), ("b.jpg", 3.0)],
+                "cut",
+                0.0,
+                7.0,
+            ),
+            (
+                [("a.jpg", 2.0)],
+                "cut",
+                0.0,
+                5.0,  # minimum 5s
+            ),
+        ],
+        ids=["crossfade_with_transitions", "cut_no_subtraction", "minimum_5s"],
+    )
+    def test_duration(self, items, transition, trans_dur, expected):
         from pipeline.music._orchestrate import _segment_duration
 
         seg = Segment(
             name="S",
             items=[
-                EditItem(source_file="a.jpg", media_type="photo", display_duration=4.0),
-                EditItem(source_file="b.jpg", media_type="photo", display_duration=3.0),
-                EditItem(source_file="c.jpg", media_type="photo", display_duration=5.0),
+                EditItem(source_file=f, media_type="photo", display_duration=d)
+                for f, d in items
             ],
-            transition="crossfade",
-            transition_duration=0.5,
+            transition=transition,
+            transition_duration=trans_dur,
         )
-        dur = _segment_duration(seg)
-        # 4 + 3 + 5 - 2*0.5 = 11.0
-        assert abs(dur - 11.0) < 0.1
+        assert abs(_segment_duration(seg) - expected) < 0.1
 
-    def test_cut_no_subtraction(self):
-        from pipeline.music._orchestrate import _segment_duration
 
-        seg = Segment(
-            name="S",
-            items=[
-                EditItem(source_file="a.jpg", media_type="photo", display_duration=4.0),
-                EditItem(source_file="b.jpg", media_type="photo", display_duration=3.0),
-            ],
-            transition="cut",
-            transition_duration=0.0,
-        )
-        dur = _segment_duration(seg)
-        assert abs(dur - 7.0) < 0.1
-
-    def test_minimum_5s(self):
-        from pipeline.music._orchestrate import _segment_duration
-
-        seg = Segment(
-            name="S",
-            items=[
-                EditItem(source_file="a.jpg", media_type="photo", display_duration=2.0)
-            ],
-            transition="cut",
-        )
-        dur = _segment_duration(seg)
-        assert abs(dur - 5.0) < 0.01  # minimum 5s
+# ---------------------------------------------------------------------------
+# generate_music_for_edl
+# ---------------------------------------------------------------------------
 
 
 class TestGenerateMusicForEdl:
-    def _make_workspace(self, tmp_path, music_mode="auto", music_mood="gentle piano"):
-        ws = tmp_path / "workspace"
-        for d in ("media", "clips", "output", "music"):
-            (ws / d).mkdir(parents=True)
-        edl = EDL(
-            title="Test",
-            target_duration=30.0,
-            music_mode=music_mode,
-            trip_type="family",
-            style="upbeat",
-            segments=[
-                Segment(
-                    name="test",
-                    music_mood=music_mood,
-                    items=[
-                        EditItem(
-                            source_file="test.jpg",
-                            media_type="photo",
-                            display_duration=10.0,
-                        )
-                    ],
-                )
-            ],
-        )
-        (ws / "edl_v1.json").write_text(edl.model_dump_json(indent=2))
-        return ws
-
-    def test_skips_when_music_mode_none(self, tmp_path):
+    @pytest.mark.parametrize("music_mode", ["none", "file"])
+    def test_skips_non_auto_modes(self, music_workspace, music_mode):
         from pipeline.music import generate_music_for_edl
 
-        ws = self._make_workspace(tmp_path, music_mode="none")
-        cfg = Config.load(str(ws))
-        result = generate_music_for_edl(cfg)
-        assert result is None
+        cfg = _write_edl(music_workspace, music_mode=music_mode)
+        assert generate_music_for_edl(cfg) is None
 
-    def test_skips_when_music_mode_file(self, tmp_path):
-        from pipeline.music import generate_music_for_edl
-
-        ws = self._make_workspace(tmp_path, music_mode="file")
-        cfg = Config.load(str(ws))
-        result = generate_music_for_edl(cfg)
-        assert result is None
-
-    def test_returns_existing_music_file(self, tmp_path):
+    def test_returns_existing_music_file(self, music_workspace, tmp_path):
         from pipeline.music import generate_music_for_edl
 
         music_file = tmp_path / "existing.wav"
         music_file.write_bytes(b"RIFF" + b"\x00" * 100)
+        cfg = _write_edl(music_workspace, music=MusicTrack(file=str(music_file)))
+        assert generate_music_for_edl(cfg) == music_file
 
-        ws = self._make_workspace(tmp_path)
-        cfg = Config.load(str(ws))
-
-        # Manually set music on the EDL
-        edl_path = ws / "edl_v1.json"
-        edl = EDL.model_validate_json(edl_path.read_text())
-        edl.music = MusicTrack(file=str(music_file))
-        edl_path.write_text(edl.model_dump_json(indent=2))
-
-        result = generate_music_for_edl(cfg)
-        assert result == music_file
-
-    def test_calls_generate_per_segment(self, tmp_path):
+    def test_calls_generate_per_segment(self, music_workspace, tmp_path):
         from pipeline.music import generate_music_for_edl
 
-        ws = self._make_workspace(tmp_path)
-        cfg = Config.load(str(ws))
-
+        cfg = _write_edl(music_workspace)
         fake_track = tmp_path / "track.wav"
         fake_track.write_bytes(b"RIFF" + b"\x00" * 100)
 
         with patch(
             "pipeline.music._gemini.generate_music_gemini", return_value=fake_track
         ):
-            result = generate_music_for_edl(cfg)
+            assert generate_music_for_edl(cfg) is not None
 
-        assert result is not None
-
-    def test_updates_edl_on_success(self, tmp_path):
+    def test_updates_edl_on_success(self, music_workspace, tmp_path):
         from pipeline.music import generate_music_for_edl
 
-        ws = self._make_workspace(tmp_path)
-        cfg = Config.load(str(ws))
+        cfg = _write_edl(music_workspace)
         fake_track = tmp_path / "track.wav"
         fake_track.write_bytes(b"RIFF" + b"\x00" * 100)
 
         with patch(
             "pipeline.music._gemini.generate_music_gemini", return_value=fake_track
         ):
-            result = generate_music_for_edl(cfg)
+            generate_music_for_edl(cfg)
 
-        assert result is not None
-        edl = EDL.model_validate_json((ws / "edl_v1.json").read_text())
+        edl = EDL.model_validate_json((music_workspace / "edl_v1.json").read_text())
         assert edl.music is not None
 
-    def test_handles_generation_failure(self, tmp_path):
+    def test_handles_generation_failure(self, music_workspace):
         from pipeline.music import generate_music_for_edl
 
-        ws = self._make_workspace(tmp_path)
-        cfg = Config.load(str(ws))
-
+        cfg = _write_edl(music_workspace)
         with patch("pipeline.music._gemini.generate_music_gemini", return_value=None):
-            result = generate_music_for_edl(cfg)
+            assert generate_music_for_edl(cfg) is None
 
-        assert result is None
-
-    def test_progress_callback(self, tmp_path):
+    def test_progress_callback(self, music_workspace, tmp_path):
         from pipeline.music import generate_music_for_edl
 
-        ws = self._make_workspace(tmp_path)
-        cfg = Config.load(str(ws))
-
+        cfg = _write_edl(music_workspace)
         fake_track = tmp_path / "track.wav"
         fake_track.write_bytes(b"RIFF" + b"\x00" * 100)
 
         calls = []
-
-        def cb(done, total, detail):
-            calls.append((done, total))
-
         with patch(
             "pipeline.music._gemini.generate_music_gemini", return_value=fake_track
         ):
-            generate_music_for_edl(cfg, progress_callback=cb)
-
+            generate_music_for_edl(
+                cfg, progress_callback=lambda done, total, detail: calls.append((done, total))
+            )
         assert len(calls) >= 1
