@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from pipeline.edl import EditItem, Segment
+from pipeline.edl import EDL, EditItem, Segment
 from pipeline.plan._prompts import (
     _default_focus,
     _format_date_range,
@@ -64,7 +64,6 @@ SAMPLE_ANALYSIS = {
         "family_count": 0,
         "persons": [],
         "video_duration": 45.3,
-        "duration_ms": 45300,
     },
     "3": {
         "id": 3,

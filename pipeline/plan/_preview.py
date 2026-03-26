@@ -174,7 +174,7 @@ def _build_item_text(idx: int, a: AnalysisEntry) -> tuple[str, Path | None]:
 
     photo_path = None
     if media == "video":
-        dur = a.get("video_duration") or ((a.get("duration_ms") or 0) / 1000)
+        dur = a.get("video_duration", 0)
         dur_s = f"{dur:.0f}s" if dur else "?"
         vw = a.get("video_width", 0)
         vh = a.get("video_height", 0)

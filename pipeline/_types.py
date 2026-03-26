@@ -49,10 +49,6 @@ class ManifestEntry(_ManifestRequired, total=False):
     first_level: str  # region/state
     district: str
 
-    # Video
-    duration: int  # video duration in ms
-    live_video_path: str  # companion video for live photos
-
     # Added by prepare (family detection pass)
     family_count: int
     family_names: list[str]
@@ -89,7 +85,6 @@ class AnalysisEntry(_AnalysisRequired, total=False):
     """
 
     # From manifest
-    duration_ms: int | None
     family_count: int
     persons: list[str]
 

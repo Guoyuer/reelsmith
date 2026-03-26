@@ -63,9 +63,7 @@ def sample_manifest() -> list[dict]:
             filesize=30000000,
         ),
         _item(4, "IMG_004.jpg", base_time + 30, filesize=6000000),
-        _item(
-            5, "Screenshot_20231114.png", base_time + 40, item_type=3, filesize=1000000
-        ),
+        _item(5, "Screenshot_20231114.png", base_time + 40, filesize=1000000),
         _item(
             6,
             "IMG_006.jpg",

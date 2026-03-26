@@ -66,7 +66,7 @@ vlog/
 
 ## Dependencies
 
-**Runtime:** httpx, pydantic, click, Pillow, python-dotenv, google-genai, pillow-heif, reverse_geocode, rich
+**Runtime:** pydantic, click, Pillow, python-dotenv, google-genai, pillow-heif, reverse_geocode, rich, pyyaml
 
 **Dev:** pytest (≥8.0), ruff (≥0.8), pyright (≥1.1), pre-commit (≥4.0)
 
