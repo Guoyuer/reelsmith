@@ -71,21 +71,16 @@ class TestBuildVisualContentBlocks:
         thumb = cfg.thumbnails_dir / "photo_thumb.jpg"
         Image.new("RGB", (50, 50), "red").save(thumb, "JPEG")
 
-        preprocessed = {"family_names": []}
         analysis = {
             "1": {
                 "id": 1,
                 "filename": "photo.jpg",
                 "local_path": str(photo),
                 "media_type": "photo",
-                "family_count": 0,
-                "persons": [],
             }
         }
 
-        blocks, offset_table, _, _ = _build_visual_content_blocks(
-            preprocessed, analysis, cfg
-        )
+        blocks, offset_table, _, _ = _build_visual_content_blocks(analysis, cfg)
 
         texts = [b for b in blocks if isinstance(b, str)]
         images = [
@@ -105,7 +100,6 @@ class TestBuildVisualContentBlocks:
         Image.new("RGB", (100, 100), "red").save(photo, "JPEG")
         # Don't create thumbnail
 
-        preprocessed = {"family_names": []}
         analysis = {
             "1": {
                 "id": 1,
@@ -116,16 +110,14 @@ class TestBuildVisualContentBlocks:
         }
 
         with pytest.raises(FileNotFoundError, match="Thumbnail missing"):
-            _build_visual_content_blocks(preprocessed, analysis, cfg)
+            _build_visual_content_blocks(analysis, cfg)
 
     def test_empty_chapter_skipped(self, tmp_path):
         cfg = Config(workspace=tmp_path)
         cfg.ensure_dirs()
 
-        preprocessed = {"family_names": []}
-
         with pytest.raises(RuntimeError, match="No photos"):
-            _build_visual_content_blocks(preprocessed, {}, cfg)
+            _build_visual_content_blocks({}, cfg)
 
     def test_video_entries_collected(self, tmp_path):
         cfg = Config(workspace=tmp_path)
@@ -144,7 +136,6 @@ class TestBuildVisualContentBlocks:
         preview = cfg.preview_clips_dir / "preview_2.mp4"
         preview.write_bytes(b"\x00" * 1000)
 
-        preprocessed = {"family_names": []}
         analysis = {
             "1": {
                 "id": 1,
@@ -163,9 +154,7 @@ class TestBuildVisualContentBlocks:
 
         with patch("pipeline.plan._preview._concat_previews") as mock_concat:
             mock_concat.return_value = ([(2, 30.0, 0.0)], preview)
-            blocks, offset_table, _, _ = _build_visual_content_blocks(
-                preprocessed, analysis, cfg
-            )
+            blocks, offset_table, _, _ = _build_visual_content_blocks(analysis, cfg)
 
         # Should have text + image + video preview instruction + video bytes
         videos = [

@@ -60,10 +60,6 @@ class Config:
     def manifest_path(self) -> Path:
         return self.workspace / "manifest.json"
 
-    @property
-    def preprocessed_path(self) -> Path:
-        return self.workspace / "preprocessed.json"
-
     def edl_path(self, version: int) -> Path:
         return self.workspace / f"edl_v{version}.json"
 

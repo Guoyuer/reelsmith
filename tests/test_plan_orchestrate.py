@@ -55,8 +55,6 @@ def _setup_workspace(tmp_path, n_photos=2):
             "id": i,
             "filename": f"photo_{i}.jpg",
             "local_path": photo_paths[i - 1],
-            "metadata": {"persons": ["Alice"]},
-            "family_count": 1,
             "taken_iso": f"2025-06-13T{10 + i}:30:00",
         }
         for i in range(1, n_photos + 1)
@@ -71,12 +69,6 @@ def _setup_workspace(tmp_path, n_photos=2):
                 }
             )
         )
-
-    # Create preprocessed.json
-    preprocessed = {
-        "family_names": ["Alice"],
-    }
-    cfg.preprocessed_path.write_text(json.dumps(preprocessed))
 
     return cfg, photo_paths
 

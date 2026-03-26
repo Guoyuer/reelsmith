@@ -121,13 +121,11 @@ class TestPrepareFullFlow:
                 "takentime": 1700000000,
                 "taken_iso": "2023-11-14T14:13:20+00:00",
                 "filesize": 5000,
-                "metadata": {"persons": []},
             }
         ]
         cfg.manifest_path.write_text(json.dumps(manifest))
 
         prepare(cfg, PrepareConfig())
-        assert cfg.preprocessed_path.exists()
         # Per-item cache should exist
         assert (cfg.cache_dir / "1.json").exists()
 
@@ -154,7 +152,6 @@ class TestPrepareFullFlow:
                 "takentime": 1700000000,
                 "taken_iso": "2023-11-14T14:13:20+00:00",
                 "filesize": 5000,
-                "metadata": {"persons": []},
             }
         ]
         cfg.manifest_path.write_text(json.dumps(manifest))

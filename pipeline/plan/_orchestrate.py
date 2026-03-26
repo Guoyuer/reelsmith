@@ -6,13 +6,12 @@ single public `plan()` entry point.
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .._types import AnalysisEntry, PreprocessedData
+from .._types import AnalysisEntry
 from ..config import Config, ProgressCallback
 from ..edl import EDL, MusicTrack, find_latest_version, save_edl
 from ._gemini import _gemini_call
@@ -62,7 +61,6 @@ class PlanConfig:
 
 def _plan_visual(
     cfg: Config,
-    preprocessed: PreprocessedData,
     analysis_by_id: dict[str, AnalysisEntry],
     pc: PlanConfig,
     *,
@@ -74,7 +72,7 @@ def _plan_visual(
     designs narrative arc + selects items + self-reviews in one call.
     """
     content_blocks, preview_offset_table, n_photos, n_videos = (
-        _build_visual_content_blocks(preprocessed, analysis_by_id, cfg, force=pc.force)
+        _build_visual_content_blocks(analysis_by_id, cfg, force=pc.force)
     )
     n_candidates = n_photos + n_videos
 
@@ -85,9 +83,6 @@ def _plan_visual(
     vid_ratio = _video_ratio(pc.trip_type)
     trip_label = f"{pc.trip_type} trip" if pc.trip_type != "general" else "trip"
     guidance_text = _trip_guidance(pc.trip_type)
-    family_line = ""
-    if pc.trip_type == "family" and preprocessed.get("family_names"):
-        family_line = f"\nFamily: {', '.join(preprocessed['family_names'])}"
 
     if progress_callback:
         progress_callback(0, 0, f"{n_photos} photos, {n_videos} videos → Gemini")
@@ -95,7 +90,7 @@ def _plan_visual(
     intro_text = f"""\
 Create a {pc.style} {trip_label} vlog EDL from the photos and videos shown below.
 
-{trip_summary}{family_line}
+{trip_summary}
 
 **FOCUS: {pc.focus}** — This is the creative direction. Every chapter, every selection
 decision, and every text overlay should serve this focus. When choosing between two
@@ -293,16 +288,10 @@ All candidates:"""
 def plan(
     cfg: Config, pc: PlanConfig, *, progress_callback: ProgressCallback = None
 ) -> tuple[EDL, int]:
-    """Generate an EDL from preprocessed + analysis data using the visual planner."""
-    if not cfg.preprocessed_path.exists():
-        raise FileNotFoundError(
-            f"Preprocessed data not found: {cfg.preprocessed_path}\n"
-            "Run the prepare stage first (e.g. vlog prepare -p ./photos)"
-        )
+    """Generate an EDL from analysis data using the visual planner."""
     from ..prepare import load_analysis
 
     effective_focus = pc.focus or _default_focus(pc.trip_type)
-    preprocessed = json.loads(cfg.preprocessed_path.read_text())
     analysis_items = load_analysis(cfg)
     analysis_by_id: dict[str, AnalysisEntry] = {str(a["id"]): a for a in analysis_items}
 
@@ -312,7 +301,6 @@ def plan(
     visual_pc = replace(pc, focus=effective_focus)
     edl = _plan_visual(
         cfg,
-        preprocessed,
         analysis_by_id,
         visual_pc,
         progress_callback=progress_callback,

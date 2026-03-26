@@ -13,7 +13,7 @@ import math
 import re
 from pathlib import Path
 
-from .._types import AnalysisEntry, PreprocessedData
+from .._types import AnalysisEntry
 from ..config import Config
 from ..utils.media import probe_duration, run_subprocess
 from ._prompts import _secs_to_timestamp
@@ -54,7 +54,7 @@ def _dedup_burst_photos(
     """Remove near-identical burst photos before sending to Gemini.
 
     Two-pass: group by 10s time window, then compare histograms within each
-    group. Keeps the photo with highest family_count (then largest file).
+    group. Keeps the photo with the largest file size.
     Videos pass through untouched.
     """
     photos = []
@@ -117,13 +117,10 @@ def _dedup_burst_photos(
                         cluster.append(j)
                         used[j] = True
 
-            # Keep best from cluster
+            # Keep best from cluster (largest file)
             best = max(
                 cluster,
-                key=lambda k: (
-                    burst[k].get("family_count", 0),
-                    burst[k].get("filesize", 0),
-                ),
+                key=lambda k: burst[k].get("filesize", 0),
             )
             kept.append(burst[best])
             if len(cluster) > 1:
@@ -152,21 +149,9 @@ def _build_item_text(idx: int, a: AnalysisEntry) -> tuple[str, Path | None]:
     """Build text metadata for one item. Returns (text_line, photo_path_or_None)."""
     local_path = a.get("local_path", "")
     media = a.get("media_type", "photo")
-    persons = a.get("persons", [])
 
     label = f"#{idx:02d}:"
     parts = [label]
-    if a.get("family_count", 0) >= 2:
-        who = (
-            f"family together ({','.join(persons[:3])})"
-            if persons
-            else "family together"
-        )
-        parts.append(who)
-    elif a.get("family_count", 0) == 1:
-        parts.append(f"{persons[0]}" if persons else "one family member")
-    elif persons:
-        parts.append(f"people: {','.join(persons[:3])}")
 
     item_loc = a.get("district") or a.get("first_level") or a.get("country")
     if item_loc:
@@ -394,7 +379,6 @@ def _build_mega_preview(
 
 
 def _build_visual_content_blocks(
-    preprocessed: PreprocessedData,
     analysis_by_id: dict[str, AnalysisEntry],
     cfg: Config,
     *,

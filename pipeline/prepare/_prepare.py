@@ -1,7 +1,6 @@
 """Stage 2: Prepare media for visual planning.
 
 Merges previous preprocess + analyze into one stage:
-- Family member auto-detection + family_count per item
 - Timeline construction (day → time_block → location)
 - Photo thumbnails (400px JPEG, cached — used directly by plan stage)
 - EXIF extraction (cached)
@@ -15,12 +14,11 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .._types import AnalysisEntry, ManifestEntry, PreprocessedData
+from .._types import AnalysisEntry
 from ..config import Config, ProgressCallback
 from ..utils.image import generate_thumbnail
 from ..utils.media import run_subprocess
@@ -31,13 +29,12 @@ logger = logging.getLogger("vlog.prepare")
 @dataclass
 class PrepareConfig:
     force: bool = False
-    family_names: list[str] | None = None
 
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
-def _base_analysis_entry(item: dict, *, is_video: bool, family_count: int) -> dict:
+def _base_analysis_entry(item: dict, *, is_video: bool) -> dict:
     """Build the common analysis entry dict from a manifest item."""
     return {
         "id": item["id"],
@@ -45,8 +42,6 @@ def _base_analysis_entry(item: dict, *, is_video: bool, family_count: int) -> di
         "local_path": item.get("local_path", ""),
         "media_type": "video" if is_video else "photo",
         "taken_iso": item["taken_iso"],
-        "family_count": family_count,
-        "persons": item.get("metadata", {}).get("persons", []),
         "country": item.get("country"),
         "first_level": item.get("first_level"),
         "district": item.get("district") or item.get("city"),
@@ -62,12 +57,6 @@ def load_analysis(cfg: Config) -> list[AnalysisEntry]:
         )
     manifest = json.loads(cfg.manifest_path.read_text())
 
-    # Reload family names from preprocessed.json (computed during prepare)
-    family_names: list[str] = []
-    if cfg.preprocessed_path.exists():
-        pp = json.loads(cfg.preprocessed_path.read_text())
-        family_names = pp.get("family_names", [])
-
     cache_dir = cfg.cache_dir
     results = []
     for item in manifest:
@@ -76,12 +65,7 @@ def load_analysis(cfg: Config) -> list[AnalysisEntry]:
         suffix = Path(local_path_str).suffix.lower() if local_path_str else ""
         is_video = suffix in VIDEO_EXTENSIONS
 
-        persons = item.get("metadata", {}).get("persons", [])
-        family_in_photo = [p for p in persons if p in family_names]
-
-        entry = _base_analysis_entry(
-            item, is_video=is_video, family_count=len(family_in_photo)
-        )
+        entry = _base_analysis_entry(item, is_video=is_video)
 
         cache_file = cache_dir / f"{item_id}.json"
         if cache_file.exists():
@@ -100,10 +84,10 @@ def prepare(
     pc: PrepareConfig | None = None,
     *,
     progress_callback: ProgressCallback = None,
-) -> PreprocessedData:
+) -> None:
     """Prepare all media for Gemini visual planning.
 
-    1. Read manifest, detect family
+    1. Read manifest
     2. Generate thumbnails + EXIF for photos, probe duration for videos
     3. Generate video previews (360p 1fps)
     """
@@ -116,24 +100,6 @@ def prepare(
             "Run the fetch stage first (e.g. vlog full -p ./photos ...)"
         )
     manifest = json.loads(cfg.manifest_path.read_text())
-
-    # --- Family detection ---
-    family_names = pc.family_names
-    if not family_names:
-        family_names = _detect_family(manifest)
-    logger.info("Family members: %s", family_names)
-
-    for item in manifest:
-        persons = item.get("metadata", {}).get("persons", [])
-        family_in_photo = [p for p in persons if p in family_names]
-        item["family_count"] = len(family_in_photo)
-        item["family_names"] = family_in_photo
-
-    preprocessed: PreprocessedData = {
-        "family_names": family_names,
-    }
-    pp_path = cfg.preprocessed_path
-    pp_path.write_text(json.dumps(preprocessed, indent=2))
 
     # --- Analyze: thumbnails, EXIF, video duration ---
     cache_dir = cfg.cache_dir
@@ -167,9 +133,7 @@ def prepare(
                     "Corrupt cache for item %s, re-analyzing: %s", item_id, e
                 )
 
-        entry = _base_analysis_entry(
-            item, is_video=is_video, family_count=item.get("family_count", 0)
-        )
+        entry = _base_analysis_entry(item, is_video=is_video)
 
         if is_video:
             uncached_videos.append((entry, item_id, local_path, cache_file))
@@ -245,8 +209,6 @@ def prepare(
             force=pc.force,
             progress_callback=progress_callback,
         )
-
-    return preprocessed
 
 
 # ---------------------------------------------------------------------------
@@ -411,17 +373,6 @@ def _generate_video_previews(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-
-def _detect_family(manifest: list[ManifestEntry], top_n: int = 5) -> list[str]:
-    """Auto-detect the most frequent persons as family members."""
-    counts: dict[str, int] = defaultdict(int)
-    for item in manifest:
-        for name in item.get("metadata", {}).get("persons", []):
-            counts[name] += 1
-    ranked = sorted(counts.items(), key=lambda x: -x[1])
-    threshold = max(len(manifest) * 0.03, 5)
-    return [name for name, c in ranked[:top_n] if c >= threshold]
 
 
 def _prepare_video(

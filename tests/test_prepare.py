@@ -1,16 +1,11 @@
-"""Tests for pipeline.prepare — family detection, analysis caching, integration."""
+"""Tests for pipeline.prepare — analysis caching, integration."""
 
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-from unittest.mock import patch
 
-from pipeline.config import Config
-from pipeline.prepare import PrepareConfig, load_analysis
-from pipeline.prepare import prepare
-from pipeline.prepare._prepare import _detect_family
+from pipeline.prepare import load_analysis, prepare
 
 # -----------------------------------------------------------------------
 # Helpers
@@ -21,7 +16,6 @@ def _make_item(
     item_id: int,
     filename: str = "IMG_{:04d}.jpg",
     takentime: int = 1700000000,
-    persons: list[str] | None = None,
     district: str | None = None,
     country: str | None = None,
     first_level: str | None = None,
@@ -40,112 +34,7 @@ def _make_item(
         "district": district,
         "country": country,
         "first_level": first_level,
-        "metadata": {"persons": persons or []},
     }
-
-
-# -----------------------------------------------------------------------
-# Family count tests
-# -----------------------------------------------------------------------
-
-
-class TestFamilyCount:
-    """Test family_count assignment in prepare()."""
-
-    def _run_prepare(self, items: list[dict], tmp_path: Path) -> dict:
-        """Write manifest and run prepare(), returning the result."""
-        ws = tmp_path / "workspace"
-        manifest_path = ws / "manifest.json"
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text(json.dumps(items))
-
-        with (
-            patch.dict(os.environ, {}, clear=True),
-            patch("pipeline.config.load_dotenv"),
-        ):
-            cfg = Config.load(workspace=str(ws))
-        prepare(cfg, PrepareConfig(family_names=["Alice", "Bob"]))
-        from pipeline.prepare import load_analysis
-
-        return load_analysis(cfg)
-
-    def test_two_family_members(self, tmp_path: Path):
-        """Item with 2 family persons gets family_count=2."""
-        items = [_make_item(1, persons=["Alice", "Bob"])]
-        analysis = self._run_prepare(items, tmp_path)
-        assert analysis[0]["family_count"] == 2
-
-    def test_one_family_member(self, tmp_path: Path):
-        """Item with 1 family person gets family_count=1."""
-        items = [_make_item(1, persons=["Alice"])]
-        analysis = self._run_prepare(items, tmp_path)
-        assert analysis[0]["family_count"] == 1
-
-    def test_no_family(self, tmp_path: Path):
-        """Item with no family persons gets family_count=0."""
-        items = [_make_item(1, persons=["Stranger"])]
-        analysis = self._run_prepare(items, tmp_path)
-        assert analysis[0]["family_count"] == 0
-
-    def test_no_persons(self, tmp_path: Path):
-        """Item with empty persons gets family_count=0."""
-        items = [_make_item(1, persons=[])]
-        analysis = self._run_prepare(items, tmp_path)
-        assert analysis[0]["family_count"] == 0
-
-
-# -----------------------------------------------------------------------
-# _detect_family tests
-# -----------------------------------------------------------------------
-
-
-class TestDetectFamily:
-    def test_returns_top_persons(self):
-        """Most frequently appearing persons should be detected as family."""
-        items = [_make_item(i, persons=["Alice", "Bob"]) for i in range(20)] + [
-            _make_item(99, persons=["Stranger"])
-        ]
-        result = _detect_family(items)
-        assert "Alice" in result
-        assert "Bob" in result
-        assert "Stranger" not in result
-
-    def test_empty_manifest(self):
-        assert _detect_family([]) == []
-
-    def test_respects_top_n(self):
-        items = [_make_item(i, persons=[f"P{i % 6}"]) for i in range(60)]
-        result = _detect_family(items, top_n=3)
-        assert len(result) <= 3
-
-
-# -----------------------------------------------------------------------
-# Full prepare() integration test
-# -----------------------------------------------------------------------
-
-
-class TestPrepareIntegration:
-    def test_writes_preprocessed_json(
-        self, tmp_path: Path, sample_manifest: list[dict]
-    ):
-        """prepare() writes preprocessed.json with expected structure."""
-        ws = tmp_path / "workspace"
-        ws.mkdir(parents=True)
-        (ws / "manifest.json").write_text(json.dumps(sample_manifest))
-
-        with (
-            patch.dict(os.environ, {}, clear=True),
-            patch("pipeline.config.load_dotenv"),
-        ):
-            cfg = Config.load(workspace=str(ws))
-
-        prepare(cfg, PrepareConfig(family_names=["Alice", "Bob"]))
-
-        out_path = ws / "preprocessed.json"
-        assert out_path.exists()
-
-        saved = json.loads(out_path.read_text())
-        assert saved["family_names"] == ["Alice", "Bob"]
 
 
 # -----------------------------------------------------------------------
@@ -164,7 +53,6 @@ def _make_tiny_image(path: Path, size=(160, 90)) -> Path:
 
 def _write_manifest(cfg, items: list[dict]) -> None:
     for item in items:
-        item.setdefault("metadata", {"persons": []})
         item.setdefault("takentime", 1700000000)
         item.setdefault("item_type", 0)
     cfg.manifest_path.write_text(json.dumps(items))
@@ -175,11 +63,9 @@ def _make_analysis_item(item_id: int, filename: str, local_path: str, **extra) -
         "id": item_id,
         "filename": filename,
         "local_path": local_path,
-        "family_count": 0,
         "item_type": 0,
         "taken_iso": "2025-01-01T00:00:00+00:00",
         "takentime": 1735689600,
-        "metadata": {"persons": []},
     }
     item.update(extra)
     return item

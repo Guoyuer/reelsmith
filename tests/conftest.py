@@ -31,7 +31,6 @@ def sample_manifest() -> list[dict]:
             "taken_iso": iso,
             "local_path": f"/fake/media/{item_id}_{filename}",
             "filesize": kw.pop("filesize", 5000000),
-            "metadata": {"persons": kw.pop("persons", [])},
             **kw,
         }
 
@@ -42,7 +41,6 @@ def sample_manifest() -> list[dict]:
             base_time,
             district="Marina Bay",
             country="Singapore",
-            persons=["Alice", "Bob"],
         ),
         _item(
             2,
@@ -50,7 +48,6 @@ def sample_manifest() -> list[dict]:
             base_time + 5,
             district="Marina Bay",
             country="Singapore",
-            persons=["Alice"],
             filesize=4000000,
         ),
         _item(
@@ -70,7 +67,6 @@ def sample_manifest() -> list[dict]:
             base_time + 86400,
             district="Orchard",
             country="Singapore",
-            persons=["Alice", "Bob", "Charlie"],
             filesize=7000000,
         ),
     ]

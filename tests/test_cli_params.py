@@ -387,7 +387,6 @@ class TestRunPrepareNoAnalysisPath:
                 "id": 1,
                 "filename": "p.jpg",
                 "local_path": str(tmp_path / "p.jpg"),
-                "metadata": {"persons": []},
                 "taken_iso": "2025-01-01T00:00:00",
                 "takentime": 1700000000,
             }
@@ -395,7 +394,6 @@ class TestRunPrepareNoAnalysisPath:
         cfg.manifest_path.write_text(json.dumps(manifest))
         cfg.cache_dir.mkdir(parents=True, exist_ok=True)
         (cfg.cache_dir / "1.json").write_text(json.dumps({"thumbnail_path": "/t.jpg"}))
-        cfg.preprocessed_path.write_text(json.dumps({"family_names": []}))
 
         # Build a minimal _PipelineContext
         from pipeline.cli import _PipelineDisplay

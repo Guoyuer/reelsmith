@@ -76,7 +76,6 @@ def fetch_local(
             "taken_iso": taken_iso,
             "filesize": src_path.stat().st_size,
             "local_path": str(src_path),
-            "metadata": {"persons": []},
         }
 
         # Extract GPS location and reverse geocode

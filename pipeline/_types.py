@@ -14,12 +14,6 @@ from typing import TypedDict
 # ---------------------------------------------------------------------------
 
 
-class ManifestMetadata(TypedDict, total=False):
-    """Metadata sub-dict (persons detected in media)."""
-
-    persons: list[str]
-
-
 class _ManifestRequired(TypedDict):
     """Keys always present in manifest entries."""
 
@@ -27,14 +21,12 @@ class _ManifestRequired(TypedDict):
     filename: str
     taken_iso: str
     local_path: str
-    metadata: ManifestMetadata
 
 
 class ManifestEntry(_ManifestRequired, total=False):
     """One item in manifest.json (fetch → prepare).
 
-    Optional keys are present when EXIF GPS data is available,
-    or added by the prepare stage (family detection).
+    Optional keys are present when EXIF GPS data is available.
     """
 
     # From fetch_local
@@ -49,10 +41,6 @@ class ManifestEntry(_ManifestRequired, total=False):
     country: str
     first_level: str  # region/state
     district: str
-
-    # Added by prepare (family detection pass)
-    family_count: int
-    family_names: list[str]
 
 
 # ---------------------------------------------------------------------------
@@ -85,10 +73,6 @@ class AnalysisEntry(_AnalysisRequired, total=False):
     The plan stage reads these via analysis_by_id: dict[str, AnalysisEntry].
     """
 
-    # From manifest
-    family_count: int
-    persons: list[str]
-
     # Location
     country: str | None
     first_level: str | None
@@ -104,14 +88,3 @@ class AnalysisEntry(_AnalysisRequired, total=False):
     video_height: int
     video_fps: float
     video_orientation: str  # "landscape" or "portrait"
-
-
-# ---------------------------------------------------------------------------
-# Preprocessed data — produced by prepare, consumed by plan
-# ---------------------------------------------------------------------------
-
-
-class PreprocessedData(TypedDict):
-    """Output of prepare(), saved to preprocessed.json."""
-
-    family_names: list[str]
