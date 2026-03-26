@@ -386,7 +386,7 @@ def _gemini_call(
     logger.info(
         "  Model: %s | Thinking: %s | Time: %.1fs", model, thinking_level, elapsed
     )
-    logger.info("  Finish: %s | Response: %d chars", finish, len(content))
+    logger.info("  Finish: %s | Response: %d chars", _short_enum(finish), len(content))
     if cand and cand.finish_message:
         logger.info("  Finish detail: %s", cand.finish_message)
     if finish != "STOP":
@@ -528,7 +528,9 @@ def _gemini_call(
             # Status line: finish + confidence + safety
             status_parts = []
             finish_style = "green" if finish == "STOP" else "red bold"
-            status_parts.append(f"Finish: [{finish_style}]{finish}[/{finish_style}]")
+            status_parts.append(
+                f"Finish: [{finish_style}]{_short_enum(finish)}[/{finish_style}]"
+            )
             if cand and cand.avg_logprobs is not None:
                 lp = cand.avg_logprobs
                 conf_style = "green" if lp > -0.5 else "yellow" if lp > -1.0 else "red"
