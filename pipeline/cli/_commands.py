@@ -320,51 +320,58 @@ def _collect_defaults(ctx: click.Context) -> set[str]:
 
 
 def _build_cli_params(**kwargs) -> dict:
-    """Build a cli_params dict, converting resolution tuple to string."""
+    """Build a cli_params dict, converting resolution tuple and quality key."""
     params = {}
     for k, v in kwargs.items():
         if k == "resolution" and isinstance(v, tuple):
             params[k] = _format_resolution(v)
+        elif k == "quality":
+            params["bitrate"] = v
         else:
             params[k] = v
     return params
 
 
-def _load_source_fields(saved: dict) -> tuple:
-    """Extract source-related fields from grouped config. Returns 7-tuple."""
-    src = saved["source"]
-    return (
-        src["type"],
-        src.get("path"),
-        src.get("from_date"),
-        src.get("to_date"),
-        src.get("country"),
-        src.get("district"),
-        src.get("item_types"),
+_CFG_SKIP_PARAMS = frozenset({"run_name", "use_cfg_file", "force", "version"})
+
+
+def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
+    """Handle --use-cfg-file overrides, build cli_params and defaults.
+
+    Returns *(params, cli_params, defaults)* where *params* is a dict of all
+    resolved parameter values (cfg-file overrides applied).
+    """
+    p = dict(ctx.params)
+    use_cfg_file = p.get("use_cfg_file")
+
+    if use_cfg_file:
+        _validate_use_cfg(ctx)
+        saved = load_run_config(use_cfg_file)
+        if "source" in saved and "source" in p:
+            src = saved["source"]
+            p["source"] = src["type"]
+            for key in ("path", "from_date", "to_date", "country", "district", "item_types"):
+                if key in p:
+                    p[key] = src.get(key)
+        if "plan" in saved and "duration" in p:
+            pl = saved["plan"]
+            p["duration"] = pl["duration"]
+            p["model"] = pl["model"]
+            p["lang"] = pl.get("lang", "en")
+            p["trip_type"] = pl.get("trip_type", "family")
+            p["style"] = pl.get("style", "upbeat")
+            p["focus"] = pl.get("focus", "")
+            p["music"] = pl.get("music", "auto")
+        if "assemble" in saved and "resolution" in p:
+            a = saved["assemble"]
+            p["resolution"] = _parse_resolution(None, None, a["resolution"])
+            p["quality"] = a.get("bitrate", 1.0)
+
+    defaults = _collect_defaults(ctx) if not use_cfg_file else set()
+    cli_params = _build_cli_params(
+        **{k: v for k, v in p.items() if k not in _CFG_SKIP_PARAMS}
     )
-
-
-def _load_plan_fields(saved: dict) -> tuple:
-    """Extract plan-related fields from grouped config. Returns 7-tuple."""
-    p = saved["plan"]
-    return (
-        p["duration"],
-        p["model"],
-        p.get("lang", "en"),
-        p.get("trip_type", "family"),
-        p.get("style", "upbeat"),
-        p.get("focus", ""),
-        p.get("music", "auto"),
-    )
-
-
-def _load_assemble_fields(saved: dict) -> tuple:
-    """Extract assemble-related fields from grouped config. Returns (resolution, quality)."""
-    a = saved["assemble"]
-    return (
-        _parse_resolution(None, None, a["resolution"]),
-        a.get("bitrate", 1.0),
-    )
+    return p, cli_params, defaults
 
 
 # ---------------------------------------------------------------------------
@@ -407,25 +414,24 @@ _source_options = [
 ]
 
 
-def _build_fetch_config(
-    source, path, from_date, to_date, country, district, item_types
-):
-    """Build FetchConfig from CLI source options with validation."""
+def _build_fetch_config(p: dict):
+    """Build FetchConfig from resolved params dict with validation."""
     from pipeline.fetch import FetchConfig
 
-    if source == "local":
-        if not path:
+    if p["source"] == "local":
+        if not p.get("path"):
             raise click.UsageError("--path is required when --source is local")
-        return FetchConfig(source_dir=path)
-    if not from_date or not to_date:
+        return FetchConfig(source_dir=p["path"])
+    if not p.get("from_date") or not p.get("to_date"):
         raise click.UsageError(
             "--from-date and --to-date are required when --source is nas"
         )
+    item_types = p.get("item_types")
     return FetchConfig(
-        from_date=from_date,
-        to_date=to_date,
-        country=country,
-        district=district,
+        from_date=p["from_date"],
+        to_date=p["to_date"],
+        country=p.get("country"),
+        district=p.get("district"),
         item_types=_parse_item_types(item_types) if item_types else None,
     )
 
@@ -441,45 +447,14 @@ def _build_fetch_config(
 @_use_cfg_option
 @_apply_options(_source_options)
 @_force_option
-def prepare(
-    ctx,
-    run_name,
-    use_cfg_file,
-    source,
-    path,
-    from_date,
-    to_date,
-    country,
-    district,
-    item_types,
-    force,
-):
+def prepare(ctx, run_name, use_cfg_file, source, path, from_date, to_date, country, district, item_types, force):
     """Fetch media and generate thumbnails + video previews (cached, use --force to regenerate)."""
     from pipeline.prepare import PrepareConfig
 
-    if use_cfg_file:
-        _validate_use_cfg(ctx)
-        saved = load_run_config(use_cfg_file)
-        source, path, from_date, to_date, country, district, item_types = (
-            _load_source_fields(saved)
-        )
-
-    defaults = _collect_defaults(ctx) if not use_cfg_file else set()
-    cli_params = _build_cli_params(
-        source=source,
-        path=path,
-        from_date=from_date,
-        to_date=to_date,
-        country=country,
-        district=district,
-        item_types=item_types,
-    )
-
+    p, cli_params, defaults = _resolve_params(ctx)
     _run_pipeline(
         run_name,
-        fetch=_build_fetch_config(
-            source, path, from_date, to_date, country, district, item_types
-        ),
+        fetch=_build_fetch_config(p),
         prepare=PrepareConfig(force=force),
         stages=["fetch", "prepare"],
         cli_params=cli_params,
@@ -500,88 +475,38 @@ def prepare(
 @_force_option
 @_apply_options(_plan_options)
 @_apply_options(_assemble_options)
-def full(
-    ctx,
-    run_name,
-    use_cfg_file,
-    source,
-    path,
-    from_date,
-    to_date,
-    country,
-    district,
-    item_types,
-    force,
-    duration,
-    trip_type,
-    style,
-    focus,
-    lang,
-    model,
-    music,
-    resolution,
-    quality,
-):
+def full(ctx, run_name, use_cfg_file, source, path, from_date, to_date, country, district, item_types, force, duration, trip_type, style, focus, lang, model, music, resolution, quality):
     """Run the full pipeline end-to-end."""
     from pipeline.assemble import AssembleConfig
     from pipeline.plan import PlanConfig
     from pipeline.prepare import PrepareConfig
 
-    if use_cfg_file:
-        _validate_use_cfg(ctx)
-        saved = load_run_config(use_cfg_file)
-        source, path, from_date, to_date, country, district, item_types = (
-            _load_source_fields(saved)
-        )
-        duration, model, lang, trip_type, style, focus, music = _load_plan_fields(saved)
-        resolution, quality = _load_assemble_fields(saved)
-
-    resolved_model, resolved_thinking = _resolve_planning(model)
-    w, h, fps = resolution
+    p, cli_params, defaults = _resolve_params(ctx)
+    resolved_model, resolved_thinking = _resolve_planning(p["model"])
+    w, h, fps = p["resolution"]
+    music_val = p["music"]
     stages = ["fetch", "prepare", "plan"]
-    music_file = None if music == "none" else music
-    if music != "none":
+    music_file = None if music_val == "none" else music_val
+    if music_val != "none":
         stages.append("generate_music")
     stages.append("assemble")
 
-    defaults = _collect_defaults(ctx) if not use_cfg_file else set()
-    cli_params = _build_cli_params(
-        source=source,
-        path=path,
-        from_date=from_date,
-        to_date=to_date,
-        country=country,
-        district=district,
-        item_types=item_types,
-        duration=duration,
-        model=model,
-        resolution=resolution,
-        lang=lang,
-        trip_type=trip_type,
-        style=style,
-        focus=focus,
-        music=music,
-        bitrate=quality,
-    )
-
     _run_pipeline(
         run_name,
-        fetch=_build_fetch_config(
-            source, path, from_date, to_date, country, district, item_types
-        ),
+        fetch=_build_fetch_config(p),
         prepare=PrepareConfig(force=force),
         plan=PlanConfig(
-            style=style,
-            target_duration=duration,
-            focus=focus,
-            trip_type=trip_type,
-            language=lang,
+            style=p["style"],
+            target_duration=p["duration"],
+            focus=p["focus"],
+            trip_type=p["trip_type"],
+            language=p["lang"],
             model=resolved_model,
             thinking_level=resolved_thinking,
             music_file=music_file,
             force=force,
         ),
-        assemble=AssembleConfig(w=w, h=h, fps=fps, quality=quality),
+        assemble=AssembleConfig(w=w, h=h, fps=fps, quality=p["quality"]),
         stages=stages,
         cli_params=cli_params,
         cli_defaults=defaults,
@@ -594,52 +519,26 @@ def full(
 @_use_cfg_option
 @_apply_options(_plan_options)
 @_force_option
-def plan(
-    ctx,
-    run_name,
-    use_cfg_file,
-    duration,
-    trip_type,
-    style,
-    focus,
-    lang,
-    model,
-    music,
-    force,
-):
+def plan(ctx, run_name, use_cfg_file, duration, trip_type, style, focus, lang, model, music, force):
     """Call Gemini to generate a new EDL (increments version). Requires prepare to have run first."""
     from pipeline.plan import PlanConfig
 
-    if use_cfg_file:
-        _validate_use_cfg(ctx)
-        saved = load_run_config(use_cfg_file)
-        duration, model, lang, trip_type, style, focus, music = _load_plan_fields(saved)
-
-    resolved_model, resolved_thinking = _resolve_planning(model)
-    music_file = None if music == "none" else music
+    p, cli_params, defaults = _resolve_params(ctx)
+    resolved_model, resolved_thinking = _resolve_planning(p["model"])
+    music_val = p["music"]
+    music_file = None if music_val == "none" else music_val
     stages = ["plan"]
-    if music != "none":
+    if music_val != "none":
         stages.append("generate_music")
-
-    defaults = _collect_defaults(ctx) if not use_cfg_file else set()
-    cli_params = _build_cli_params(
-        duration=duration,
-        model=model,
-        lang=lang,
-        trip_type=trip_type,
-        style=style,
-        focus=focus,
-        music=music,
-    )
 
     _run_pipeline(
         run_name,
         plan=PlanConfig(
-            style=style,
-            target_duration=duration,
-            focus=focus,
-            trip_type=trip_type,
-            language=lang,
+            style=p["style"],
+            target_duration=p["duration"],
+            focus=p["focus"],
+            trip_type=p["trip_type"],
+            language=p["lang"],
             model=resolved_model,
             thinking_level=resolved_thinking,
             music_file=music_file,
@@ -667,19 +566,12 @@ def assemble(ctx, run_name, use_cfg_file, version, resolution, quality):
     """Render video from EDL. Uses latest version unless -v specified."""
     from pipeline.assemble import AssembleConfig
 
-    if use_cfg_file:
-        _validate_use_cfg(ctx)
-        saved = load_run_config(use_cfg_file)
-        resolution, quality = _load_assemble_fields(saved)
-
-    w, h, fps = resolution
-
-    defaults = _collect_defaults(ctx) if not use_cfg_file else set()
-    cli_params = _build_cli_params(resolution=resolution, bitrate=quality)
+    p, cli_params, defaults = _resolve_params(ctx)
+    w, h, fps = p["resolution"]
 
     _run_pipeline(
         run_name,
-        assemble=AssembleConfig(w=w, h=h, fps=fps, quality=quality, version=version),
+        assemble=AssembleConfig(w=w, h=h, fps=fps, quality=p["quality"], version=version),
         stages=["assemble"],
         cli_params=cli_params,
         cli_defaults=defaults,
