@@ -75,8 +75,17 @@ def assemble(
     res_label = f"{ac.h}p{ac.fps}"
     output_path = cfg.output_dir / f"vlog_v{version}_{res_label}.mp4"
 
+    # Music file check
+    has_music = edl.music and Path(edl.music.file).exists()
+    if edl.music_mode == "auto" and not has_music:
+        logger.warning(
+            "music_mode=auto but music file missing: %s — "
+            "run 'vlog plan' with --music auto to generate, or use --music none",
+            edl.music.file if edl.music else "(not set)",
+        )
+
     # Beat sync
-    if edl.music and Path(edl.music.file).exists():
+    if has_music:
         beat_snap_edl(edl, Path(edl.music.file))
 
     t_start = time.monotonic()
