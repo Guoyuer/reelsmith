@@ -260,15 +260,8 @@ def load_latest_edl(cfg: Config) -> tuple[EDL, int]:
 # ---------------------------------------------------------------------------
 
 
-def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
-    """Validate an EDL for correctness before rendering.
-
-    Returns a list of issue dicts with keys: level ("error"/"warning"), message.
-    Empty list means the EDL is valid.
-
-    When strict=True, warnings are promoted to errors.
-    """
-    issues: list[dict] = []
+def _validate_top_level(edl: EDL, issues: list[dict], strict: bool) -> None:
+    """Validate top-level EDL fields (title, target_duration, intro/outro)."""
 
     def _error(msg: str) -> None:
         issues.append({"level": "error", "message": msg})
@@ -276,7 +269,6 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
     def _warn(msg: str) -> None:
         issues.append({"level": "warning" if not strict else "error", "message": msg})
 
-    # --- Top-level fields ---
     if not edl.title:
         _warn("EDL has no title")
 
@@ -288,10 +280,100 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
     if edl.outro_duration <= 0 or edl.outro_duration > _MAX_INTRO_DURATION:
         _error(f"Invalid outro_duration: {edl.outro_duration}")
 
-    # --- Segments ---
-    if not edl.segments:
-        _error("No segments")
-        return issues
+
+def _validate_item(
+    item: EditItem, item_label: str, issues: list[dict], strict: bool
+) -> float:
+    """Validate a single EditItem. Returns item.display_duration for accumulation."""
+
+    def _error(msg: str) -> None:
+        issues.append({"level": "error", "message": msg})
+
+    def _warn(msg: str) -> None:
+        issues.append({"level": "warning" if not strict else "error", "message": msg})
+
+    # Media type checks
+    src = Path(item.source_file)
+    if item.media_type not in (MediaType.PHOTO, MediaType.VIDEO):
+        _error(f"{item_label}: invalid media_type '{item.media_type}'")
+
+    # Media type vs file extension mismatch
+    if src.exists():
+        ext = src.suffix.lower()
+        photo_exts = PHOTO_EXTENSIONS_ALL
+        video_exts = VIDEO_EXTENSIONS_ALL
+        if item.media_type == "video" and ext in photo_exts:
+            _error(f"{item_label}: media_type='video' but file is a photo ({ext})")
+        elif item.media_type == "photo" and ext in video_exts:
+            _error(f"{item_label}: media_type='photo' but file is a video ({ext})")
+
+    # Duration
+    if item.display_duration <= 0:
+        _error(f"{item_label}: display_duration <= 0 ({item.display_duration})")
+    elif item.display_duration < _MIN_DISPLAY_DURATION:
+        _warn(
+            f"{item_label}: display_duration too short ({item.display_duration}s, min {_MIN_DISPLAY_DURATION}s)"
+        )
+    elif item.display_duration > _WARN_DISPLAY_DURATION:
+        _warn(f"{item_label}: display_duration very long ({item.display_duration}s)")
+
+    # Video-specific checks
+    if item.media_type == "video":
+        if item.effect not in (Effect.NONE, Effect.STATIC):
+            _error(
+                f"{item_label}: video should have effect='none', "
+                f"got '{item.effect}'"
+            )
+        if item.start_time is not None and item.end_time is not None:
+            if item.start_time >= item.end_time:
+                _error(
+                    f"{item_label}: start_time ({item.start_time}) "
+                    f">= end_time ({item.end_time})"
+                )
+            trim_dur = item.end_time - item.start_time
+            if (
+                abs(trim_dur - item.display_duration) > _TRIM_TOLERANCE
+                and item.playback_speed == 1.0
+            ):
+                _warn(
+                    f"{item_label}: trim duration ({trim_dur:.1f}s) "
+                    f"differs from display_duration ({item.display_duration:.1f}s)"
+                )
+        if item.start_time is not None and item.start_time < 0:
+            _error(f"{item_label}: negative start_time ({item.start_time})")
+        if item.playback_speed <= 0 or item.playback_speed > _MAX_PLAYBACK_SPEED:
+            _error(f"{item_label}: invalid playback_speed ({item.playback_speed})")
+
+    # Photo-specific checks
+    if item.media_type == "photo":
+        if item.effect == "none":
+            _warn(f"{item_label}: photo with effect='none' will be static")
+        if item.keep_audio:
+            _error(f"{item_label}: photo cannot have keep_audio=True")
+        if item.start_time is not None or item.end_time is not None:
+            _error(f"{item_label}: photo should not have start_time/end_time")
+
+    # Text overlay checks
+    if item.text_overlay:
+        if not item.text_overlay.text:
+            _warn(f"{item_label}: empty text overlay")
+        if (
+            item.text_overlay.font_size <= 0
+            or item.text_overlay.font_size > _MAX_FONT_SIZE
+        ):
+            _error(f"{item_label}: invalid font_size ({item.text_overlay.font_size})")
+
+    return item.display_duration
+
+
+def _validate_segments(edl: EDL, issues: list[dict], strict: bool) -> tuple[float, int]:
+    """Validate all segments and their items. Returns (total_display, total_items)."""
+
+    def _error(msg: str) -> None:
+        issues.append({"level": "error", "message": msg})
+
+    def _warn(msg: str) -> None:
+        issues.append({"level": "warning" if not strict else "error", "message": msg})
 
     total_display = 0.0
     all_sources: set[str] = set()
@@ -318,100 +400,17 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
             item_label = f"{seg_label} item[{ii}]"
             total_items += 1
 
-            # Source file existence
+            # Source file existence + duplicate check (needs cross-item state)
             src = Path(item.source_file)
             if not src.exists():
                 _error(f"{item_label}: source file not found: {src}")
 
-            # Duplicate check
             src_key = str(src.resolve()) if src.exists() else item.source_file
             if src_key in all_sources:
                 _warn(f"{item_label}: duplicate source: {src.name}")
             all_sources.add(src_key)
 
-            # Media type checks
-            if item.media_type not in (MediaType.PHOTO, MediaType.VIDEO):
-                _error(f"{item_label}: invalid media_type '{item.media_type}'")
-
-            # Media type vs file extension mismatch
-            if src.exists():
-                ext = src.suffix.lower()
-                photo_exts = PHOTO_EXTENSIONS_ALL
-                video_exts = VIDEO_EXTENSIONS_ALL
-                if item.media_type == "video" and ext in photo_exts:
-                    _error(
-                        f"{item_label}: media_type='video' but file is a photo ({ext})"
-                    )
-                elif item.media_type == "photo" and ext in video_exts:
-                    _error(
-                        f"{item_label}: media_type='photo' but file is a video ({ext})"
-                    )
-
-            # Duration
-            if item.display_duration <= 0:
-                _error(f"{item_label}: display_duration <= 0 ({item.display_duration})")
-            elif item.display_duration < _MIN_DISPLAY_DURATION:
-                _warn(
-                    f"{item_label}: display_duration too short ({item.display_duration}s, min {_MIN_DISPLAY_DURATION}s)"
-                )
-            elif item.display_duration > _WARN_DISPLAY_DURATION:
-                _warn(
-                    f"{item_label}: display_duration very long ({item.display_duration}s)"
-                )
-            total_display += item.display_duration
-
-            # Video-specific checks
-            if item.media_type == "video":
-                if item.effect not in (Effect.NONE, Effect.STATIC):
-                    _error(
-                        f"{item_label}: video should have effect='none', "
-                        f"got '{item.effect}'"
-                    )
-                if item.start_time is not None and item.end_time is not None:
-                    if item.start_time >= item.end_time:
-                        _error(
-                            f"{item_label}: start_time ({item.start_time}) "
-                            f">= end_time ({item.end_time})"
-                        )
-                    trim_dur = item.end_time - item.start_time
-                    if (
-                        abs(trim_dur - item.display_duration) > _TRIM_TOLERANCE
-                        and item.playback_speed == 1.0
-                    ):
-                        _warn(
-                            f"{item_label}: trim duration ({trim_dur:.1f}s) "
-                            f"differs from display_duration ({item.display_duration:.1f}s)"
-                        )
-                if item.start_time is not None and item.start_time < 0:
-                    _error(f"{item_label}: negative start_time ({item.start_time})")
-                if (
-                    item.playback_speed <= 0
-                    or item.playback_speed > _MAX_PLAYBACK_SPEED
-                ):
-                    _error(
-                        f"{item_label}: invalid playback_speed ({item.playback_speed})"
-                    )
-
-            # Photo-specific checks
-            if item.media_type == "photo":
-                if item.effect == "none":
-                    _warn(f"{item_label}: photo with effect='none' will be static")
-                if item.keep_audio:
-                    _error(f"{item_label}: photo cannot have keep_audio=True")
-                if item.start_time is not None or item.end_time is not None:
-                    _error(f"{item_label}: photo should not have start_time/end_time")
-
-            # Text overlay checks
-            if item.text_overlay:
-                if not item.text_overlay.text:
-                    _warn(f"{item_label}: empty text overlay")
-                if (
-                    item.text_overlay.font_size <= 0
-                    or item.text_overlay.font_size > _MAX_FONT_SIZE
-                ):
-                    _error(
-                        f"{item_label}: invalid font_size ({item.text_overlay.font_size})"
-                    )
+            total_display += _validate_item(item, item_label, issues, strict)
 
         # Check transition duration vs shortest clip in segment
         if seg.transition != Transition.CUT and len(seg.items) > 1:
@@ -422,7 +421,24 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
                     f">= shortest clip ({min_dur}s)"
                 )
 
-    # --- Global checks ---
+    return total_display, total_items
+
+
+def _validate_global(
+    edl: EDL,
+    total_display: float,
+    total_items: int,
+    issues: list[dict],
+    strict: bool,
+) -> None:
+    """Validate global constraints (totals, duration ratio, music)."""
+
+    def _error(msg: str) -> None:
+        issues.append({"level": "error", "message": msg})
+
+    def _warn(msg: str) -> None:
+        issues.append({"level": "warning" if not strict else "error", "message": msg})
+
     if total_items == 0:
         _error("EDL has no items")
 
@@ -447,5 +463,25 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
             _warn(f"Music file not found: {edl.music.file}")
         if edl.music.volume < 0 or edl.music.volume > 1.0:
             _error(f"Music volume out of range: {edl.music.volume}")
+
+
+def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
+    """Validate an EDL for correctness before rendering.
+
+    Returns a list of issue dicts with keys: level ("error"/"warning"), message.
+    Empty list means the EDL is valid.
+
+    When strict=True, warnings are promoted to errors.
+    """
+    issues: list[dict] = []
+
+    _validate_top_level(edl, issues, strict)
+
+    if not edl.segments:
+        issues.append({"level": "error", "message": "No segments"})
+        return issues
+
+    total_display, total_items = _validate_segments(edl, issues, strict)
+    _validate_global(edl, total_display, total_items, issues, strict)
 
     return issues
