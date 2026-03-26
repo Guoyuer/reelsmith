@@ -95,14 +95,14 @@ def parse_and_convert_timestamps(
             ps = item.pop("preview_start", None)
             pe = item.pop("preview_end", None)
             if ps and pe and preview_offset_table:
-                ps_secs = _timestamp_to_secs(ps)
-                pe_secs = _timestamp_to_secs(pe)
-                window = pe_secs - ps_secs
+                preview_start_secs = _timestamp_to_secs(ps)
+                preview_end_secs = _timestamp_to_secs(pe)
+                window = preview_end_secs - preview_start_secs
 
                 # Match by finding which clip's offset range contains the
                 # MIDPOINT of the selected window (robust against Gemini
                 # using clip-end as preview_start)
-                mid_secs = (ps_secs + pe_secs) / 2
+                mid_secs = (preview_start_secs + preview_end_secs) / 2
                 matched = None
                 for item_num, dur, offset in preview_offset_table:
                     if offset <= mid_secs < offset + dur:
@@ -113,15 +113,19 @@ def parse_and_convert_timestamps(
                     # Fallback: best overlap
                     best_overlap = 0.0
                     for item_num, dur, offset in preview_offset_table:
-                        ov = max(0, min(pe_secs, offset + dur) - max(ps_secs, offset))
+                        ov = max(
+                            0,
+                            min(preview_end_secs, offset + dur)
+                            - max(preview_start_secs, offset),
+                        )
                         if ov > best_overlap:
                             best_overlap = ov
                             matched = (item_num, dur, offset)
 
                 if matched:
                     _, dur, offset = matched
-                    local_start = max(0, ps_secs - offset)
-                    local_end = min(pe_secs - offset, dur)
+                    local_start = max(0, preview_start_secs - offset)
+                    local_end = min(preview_end_secs - offset, dur)
                     # If window fell mostly outside this clip (Gemini used
                     # clip-end as start), treat as "select from start"
                     if local_end - local_start < window * 0.5:

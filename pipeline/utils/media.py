@@ -18,6 +18,7 @@ if sys.platform == "win32":
 
 
 _ffmpeg_logger = logging.getLogger("vlog.ffmpeg")
+logger = logging.getLogger("vlog.media")
 
 
 def run_subprocess(
@@ -77,6 +78,9 @@ def probe_duration(path) -> float:
     try:
         return float(result.stdout.strip().split("\n")[0])
     except (ValueError, IndexError):
+        logger.debug(
+            "ffprobe returned unparseable output for %s: %r", path, result.stdout
+        )
         return 0.0
 
 

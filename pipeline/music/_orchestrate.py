@@ -15,43 +15,35 @@ from ..config import ProgressCallback
 
 logger = logging.getLogger("vlog.music")
 
+_MIN_SEGMENT_DURATION = 5  # seconds; floor for per-segment music
+_DEFAULT_CROSSFADE = 2.0  # seconds; crossfade between segments
+
 
 def _segment_duration(seg) -> float:
     """Calculate a segment's screen time from its items and transitions."""
     total = sum(item.display_duration for item in seg.items)
     if seg.transition != "cut" and len(seg.items) > 1:
         total -= (len(seg.items) - 1) * seg.transition_duration
-    return max(total, 5)  # at least 5s per segment
+    return max(
+        total, _MIN_SEGMENT_DURATION
+    )  # at least _MIN_SEGMENT_DURATION per segment
 
 
-def _build_composite_music(
+def _trim_music_segments(
     segment_tracks: list[tuple[float, Path]],
-    output_path: Path,
-    crossfade: float = 2.0,
-) -> bool:
-    """Build composite music from per-segment tracks with crossfades.
+    output_dir: Path,
+    crossfade: float,
+) -> list[Path]:
+    """Trim each segment's music to its duration + crossfade overlap.
 
-    segment_tracks: [(segment_duration, music_wav_path), ...]
-    Returns True on success.
+    Returns a list of trimmed file paths (only those that were successfully created).
     """
     from ..utils.media import run_subprocess
 
-    if not segment_tracks:
-        return False
-
-    if len(segment_tracks) == 1:
-        # Single segment — just copy
-        import shutil
-
-        shutil.copy(str(segment_tracks[0][1]), str(output_path))
-        return True
-
-    # Trim each segment's music to its duration + crossfade overlap, then chain acrossfade
     trimmed: list[Path] = []
-    inputs: list[str] = []
     for i, (duration, track) in enumerate(segment_tracks):
         trim_duration = duration + (crossfade if i < len(segment_tracks) - 1 else 0)
-        trimmed_path = output_path.parent / f"_seg_music_{i}.wav"
+        trimmed_path = output_dir / f"_seg_music_{i}.wav"
         result = run_subprocess(
             [
                 "ffmpeg",
@@ -76,7 +68,49 @@ def _build_composite_music(
             continue
         if trimmed_path.exists():
             trimmed.append(trimmed_path)
-            inputs += ["-i", str(trimmed_path)]
+
+    return trimmed
+
+
+def _build_crossfade_filter(n_tracks: int, crossfade: float) -> str:
+    """Build the acrossfade filter chain string for *n_tracks* inputs.
+
+    Returns the filter string (semicolon-joined acrossfade steps).
+    """
+    filter_parts = []
+    for i in range(1, n_tracks):
+        in_label = "[0:a]" if i == 1 else f"[a{i - 1}]"
+        out_label = f"[a{i}]" if i < n_tracks - 1 else "[out]"
+        filter_parts.append(
+            f"{in_label}[{i}:a]acrossfade=d={crossfade}:c1=tri:c2=tri{out_label}"
+        )
+    return ";".join(filter_parts)
+
+
+def _build_composite_music(
+    segment_tracks: list[tuple[float, Path]],
+    output_path: Path,
+    crossfade: float = _DEFAULT_CROSSFADE,
+) -> bool:
+    """Build composite music from per-segment tracks with crossfades.
+
+    segment_tracks: [(segment_duration, music_wav_path), ...]
+    Returns True on success.
+    """
+    from ..utils.media import run_subprocess
+
+    if not segment_tracks:
+        return False
+
+    if len(segment_tracks) == 1:
+        # Single segment — just copy
+        import shutil
+
+        shutil.copy(str(segment_tracks[0][1]), str(output_path))
+        return True
+
+    # Trim each segment's music to its duration + crossfade overlap, then chain acrossfade
+    trimmed = _trim_music_segments(segment_tracks, output_path.parent, crossfade)
 
     if len(trimmed) < 2:
         if trimmed:
@@ -88,21 +122,19 @@ def _build_composite_music(
             return True
         return False
 
+    inputs: list[str] = []
+    for t in trimmed:
+        inputs += ["-i", str(t)]
+
     # Chain acrossfade filters
-    filter_parts = []
-    for i in range(1, len(trimmed)):
-        in_label = "[0:a]" if i == 1 else f"[a{i - 1}]"
-        out_label = f"[a{i}]" if i < len(trimmed) - 1 else "[out]"
-        filter_parts.append(
-            f"{in_label}[{i}:a]acrossfade=d={crossfade}:c1=tri:c2=tri{out_label}"
-        )
+    filter_str = _build_crossfade_filter(len(trimmed), crossfade)
 
     cmd = (
         ["ffmpeg", "-y"]
         + inputs
         + [
             "-filter_complex",
-            ";".join(filter_parts),
+            filter_str,
             "-map",
             "[out]",
             "-c:a",
@@ -205,7 +237,9 @@ def generate_music_for_edl(
         music_cache
         / f"composite_{edl.trip_type}_{edl.style}_{int(edl.estimated_duration())}s.wav"
     )
-    if not _build_composite_music(segment_tracks, composite_path, crossfade=2.0):
+    if not _build_composite_music(
+        segment_tracks, composite_path, crossfade=_DEFAULT_CROSSFADE
+    ):
         # Fallback: use first segment's track
         logger.warning("Composite build failed, using first segment track")
         composite_path = segment_tracks[0][1]

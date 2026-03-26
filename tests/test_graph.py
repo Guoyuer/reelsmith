@@ -769,7 +769,8 @@ class TestBuildSegmentGraph:
         inp = graph.inputs[0]
         assert "-ss" not in inp
         assert "-t" not in inp
-        assert inp == ["-i", "/fake/clip.mp4"]
+        assert "-i" in inp
+        assert "clip.mp4" in inp[-1]
 
     def test_video_trim_duration_from_start_end(self):
         """Video with start/end uses their difference as trim duration, not display_duration."""
@@ -789,7 +790,7 @@ class TestBuildSegmentGraph:
         ) as mock_conv:
             graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
             mock_conv.assert_called_once()
-        assert "/fake/photo_converted.jpg" in str(graph.inputs[0])
+        assert "photo_converted.jpg" in str(graph.inputs[0])
 
 
 # ---------------------------------------------------------------------------

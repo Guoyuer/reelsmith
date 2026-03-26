@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import TypedDict
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict
 
 logger = logging.getLogger("vlog.types")
 
@@ -20,6 +20,10 @@ logger = logging.getLogger("vlog.types")
 
 PHOTO_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"})
 VIDEO_EXTENSIONS = frozenset({".mp4", ".mov", ".avi", ".mkv", ".m4v"})
+
+# Extended sets — accepted by validation but not processed in the main pipeline
+PHOTO_EXTENSIONS_ALL = PHOTO_EXTENSIONS | frozenset({".bmp", ".tiff"})
+VIDEO_EXTENSIONS_ALL = VIDEO_EXTENSIONS | frozenset({".webm", ".mts"})
 
 # ---------------------------------------------------------------------------
 # Manifest entry — produced by fetch, consumed by prepare
@@ -107,12 +111,8 @@ class AnalysisEntry(_AnalysisRequired, total=False):
 # ---------------------------------------------------------------------------
 
 
-class AnalysisEntryModel(BaseModel):
-    """Runtime-validated version of AnalysisEntry.
-
-    Used by load_analysis() to catch corrupted cache data at the
-    prepare → plan boundary. Extra keys from cache files are tolerated.
-    """
+class _AnalysisEntryValidator(BaseModel):
+    """Internal Pydantic validator for analysis entries. Use AnalysisEntry TypedDict for type annotations."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -138,21 +138,3 @@ class AnalysisEntryModel(BaseModel):
     video_height: int | None = None
     video_fps: float | None = None
     video_orientation: str | None = None
-
-
-def validate_analysis_entry(entry: dict) -> dict | None:
-    """Validate an analysis entry dict at the prepare → plan boundary.
-
-    Returns the validated dict (with extra keys stripped) on success,
-    or None if validation fails (with a warning logged).
-    """
-    try:
-        validated = AnalysisEntryModel.model_validate(entry)
-        return validated.model_dump(exclude_none=False)
-    except ValidationError as e:
-        logger.warning(
-            "Invalid analysis entry for item %s: %s",
-            entry.get("id", "?"),
-            e,
-        )
-        return None

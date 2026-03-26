@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import logging
 import math
 import struct as _struct
@@ -11,6 +12,15 @@ from pathlib import Path
 from ..edl import EDL
 
 logger = logging.getLogger("vlog.assemble.audio")
+
+_SAMPLE_RATE = 48000
+_ENERGY_WINDOW_MS = 10  # ms; window size for BPM energy envelope
+_MIN_ENERGY_WINDOWS = 200  # minimum energy windows for reliable BPM
+_MAX_BEAT_SHIFT = 0.4  # seconds; max transition snap distance
+_MONTAGE_MAX_SHIFT = 0.2  # seconds; tighter snap for montage segments
+_MIN_PHOTO_DURATION = 2.0  # seconds; floor after beat snap
+_MIN_VIDEO_DURATION = 3.0  # seconds; floor after beat snap
+_BEAT_SNAP_PRECISION = 3  # decimal places for snapped durations
 
 
 # ---------------------------------------------------------------------------
@@ -50,17 +60,17 @@ def estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int |
     if len(samples) < sample_rate * 2:
         return None
 
-    win = sample_rate // 100
+    win = sample_rate // (1000 // _ENERGY_WINDOW_MS)
     energy = []
     for i in range(0, len(samples), win):
         chunk = samples[i : i + win]
         if chunk:
             energy.append(math.sqrt(sum(s * s for s in chunk) / len(chunk)))
 
-    if len(energy) < 200:
+    if len(energy) < _MIN_ENERGY_WINDOWS:
         return None
 
-    windows_per_sec = 100
+    windows_per_sec = 1000 // _ENERGY_WINDOW_MS
     min_lag = int(60 / max_bpm * windows_per_sec)
     max_lag = int(60 / min_bpm * windows_per_sec)
     max_lag = min(max_lag, len(energy) // 2)
@@ -85,35 +95,28 @@ def estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int |
     return bpm
 
 
-def beat_snap_edl(edl: EDL, music_path: Path) -> int:
-    """Snap EDL transition points to music beats. Modifies edl in place.
+def _build_beat_grid(music_path: Path) -> tuple[list[float], int] | None:
+    """Build a half-beat timestamp grid from a music file.
 
-    Improvements over naive approach:
-    - #5: Segment boundaries are snapped (not just intra-segment transitions).
-    - #4: Speech skip is per-item, not per-segment. Only the item whose duration
-      would change is checked — if it has keep_audio=true, that transition is
-      skipped, but other transitions in the same segment are still eligible.
-
-    Returns the number of transitions snapped.
+    Returns (beats, bpm) or None if BPM cannot be estimated.
     """
-    import bisect
-
     bpm = estimate_bpm(music_path)
     if not bpm:
-        logger.info("Beat sync: could not estimate BPM, skipping")
-        return 0
-
-    logger.info("Beat sync: detected ~%d BPM", bpm)
+        return None
 
     beat_interval = 60.0 / bpm
     half_beat = beat_interval / 2
-    total_duration = edl.estimated_duration() + 10
-    beats = [i * half_beat for i in range(int(total_duration / half_beat) + 1)]
+    beats = [i * half_beat for i in range(int(3600 / half_beat) + 1)]
+    return beats, bpm
 
-    max_shift = 0.4
-    min_photo_dur = 2.0
-    min_video_dur = 3.0
 
+def _snap_transitions(edl: EDL, beats: list[float]) -> tuple[int, int]:
+    """Snap EDL transition points to the nearest beat in *beats*.
+
+    Modifies edl items' display_duration in place.
+
+    Returns (snapped_count, total_transitions_count).
+    """
     offset = 0.0
     if edl.intro_style == "title_card":
         offset += edl.intro_duration
@@ -123,7 +126,7 @@ def beat_snap_edl(edl: EDL, music_path: Path) -> int:
     n_segments = len(edl.segments)
 
     for seg_idx, seg in enumerate(edl.segments):
-        seg_max_shift = 0.2 if seg.mode == "montage" else max_shift
+        seg_max_shift = _MONTAGE_MAX_SHIFT if seg.mode == "montage" else _MAX_BEAT_SHIFT
 
         for i, item in enumerate(seg.items):
             offset += item.display_duration
@@ -158,15 +161,40 @@ def beat_snap_edl(edl: EDL, music_path: Path) -> int:
             if abs(shift) > seg_max_shift:
                 continue
 
-            min_dur = min_photo_dur if item.media_type == "photo" else min_video_dur
+            min_dur = (
+                _MIN_PHOTO_DURATION
+                if item.media_type == "photo"
+                else _MIN_VIDEO_DURATION
+            )
             new_dur = item.display_duration + shift
             if new_dur < min_dur:
                 continue
 
-            item.display_duration = round(new_dur, 3)
+            item.display_duration = round(new_dur, _BEAT_SNAP_PRECISION)
             offset = offset + shift
             snapped += 1
 
+    return snapped, total_transitions
+
+
+def beat_snap_edl(edl: EDL, music_path: Path) -> int:
+    """Snap EDL transition points to music beats. Modifies edl in place.
+
+    Improvements over naive approach:
+    - #5: Segment boundaries are snapped (not just intra-segment transitions).
+    - #4: Speech skip is per-item, not per-segment. Only the item whose duration
+      would change is checked — if it has keep_audio=true, that transition is
+      skipped, but other transitions in the same segment are still eligible.
+
+    Returns the number of transitions snapped.
+    """
+    result = _build_beat_grid(music_path)
+    if result is None:
+        logger.info("Beat sync: could not estimate BPM, skipping")
+        return 0
+    beats, bpm = result
+    logger.info("Beat sync: detected ~%d BPM", bpm)
+    snapped, total_transitions = _snap_transitions(edl, beats)
     if total_transitions > 0:
         pct = int(snapped / total_transitions * 100)
         logger.info(
@@ -176,7 +204,6 @@ def beat_snap_edl(edl: EDL, music_path: Path) -> int:
             pct,
             bpm,
         )
-
     return snapped
 
 

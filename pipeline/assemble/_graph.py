@@ -46,6 +46,12 @@ _EFFECT_DIRECTIONS = {
     "static": "static",
 }
 
+_SAMPLE_RATE = 48000
+_ASPECT_RATIO_TOLERANCE = 0.05  # 5%; threshold for aspect fill
+_PHOTO_BLUR_SIGMA = 50  # gaussian blur for photo blurred backgrounds
+_VIDEO_BLUR_SIGMA = 60  # gaussian blur for video blurred backgrounds
+_UNSHARP_PARAMS = "3:3:0.5:3:3:0.0"  # luma:size:amount:chroma:size:amount
+
 
 @dataclass
 class SegmentGraph:
@@ -205,7 +211,7 @@ def _next_item(edl: EDL, seg_idx: int, item_idx: int) -> tuple[Segment | None, i
 
 def _silence(duration: float) -> str:
     """Stereo silence source at 48kHz for the given duration."""
-    return f"aevalsrc=0:d={duration}:s=48000:c=stereo"
+    return f"aevalsrc=0:d={duration}:s={_SAMPLE_RATE}:c=stereo"
 
 
 def _add_static_card(
@@ -305,7 +311,9 @@ def _add_video(
         filters.append(",".join(p for p in parts if p))
         return True
     else:
-        filters.append(f"aevalsrc=0:d={output_dur:.3f}:s=48000:c=stereo [a{idx}]")
+        filters.append(
+            f"aevalsrc=0:d={output_dur:.3f}:s={_SAMPLE_RATE}:c=stereo [a{idx}]"
+        )
         return False
 
 
@@ -348,10 +356,14 @@ def _blurred_bg(idx: int, w: int, h: int, sigma: int) -> str:
     Returns the bg/fg/overlay filter lines (without the leading split or
     trailing post-composite filters).
     """
+    bg_parts = [
+        f"scale={w}:{h}:force_original_aspect_ratio=increase",
+        f"crop={w}:{h}",
+        f"gblur=sigma={sigma}",
+        "eq=brightness=-0.15:saturation=0.6",
+    ]
     return (
-        f"[bg{idx}] scale={w}:{h}:force_original_aspect_ratio=increase,"
-        f"crop={w}:{h},gblur=sigma={sigma},"
-        f"eq=brightness=-0.15:saturation=0.6 [blurred{idx}];"
+        f"[bg{idx}] {','.join(bg_parts)} [blurred{idx}];"
         f"[fg{idx}] scale={w}:{h}:force_original_aspect_ratio=decrease [sharp{idx}];"
         f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2"
     )
@@ -378,14 +390,14 @@ def _photo_filter(
     exact_dur = frames / fps
     fade = _fade_expr(exact_dur, fade_in, fade_out)
     color_vf = color_grade(segment.color_temp)
-    sharpen = ",unsharp=3:3:0.5:3:3:0.0"
+    sharpen = f",unsharp={_UNSHARP_PARAMS}"
 
     direction = _EFFECT_DIRECTIONS.get(item.effect, "in")
     ken_burns_vf = ken_burns_filter(frames, w, h, fps, direction=direction)
 
     return (
         f"[{idx}:v] split [bg{idx}][fg{idx}];"
-        f"{_blurred_bg(idx, w, h, 50)},"
+        f"{_blurred_bg(idx, w, h, _PHOTO_BLUR_SIGMA)},"
         f"{ken_burns_vf},{color_vf}{sharpen}{overlay_vf}{fade} [v{idx}]"
     )
 
@@ -422,17 +434,20 @@ def _video_filter(
     # non-16:9 landscape like 2.35:1). Exact 16:9 videos pass through without
     # visible blur since the foreground covers the entire frame.
     needs_aspect_fill = is_portrait(src_w, src_h) or (
-        src_w > 0 and src_h > 0 and abs(src_w / src_h - w / h) > 0.05
+        src_w > 0 and src_h > 0 and abs(src_w / src_h - w / h) > _ASPECT_RATIO_TOLERANCE
     )
     if needs_aspect_fill:
         return (
             f"[{idx}:v] {trim_vf}format=yuv420p,split [bg{idx}][fg{idx}];"
-            f"{_blurred_bg(idx, w, h, 60)},"
+            f"{_blurred_bg(idx, w, h, _VIDEO_BLUR_SIGMA)},"
             f"{color_vf}{speed_vf}{overlay_vf}{fade},fps={fps} [v{idx}]"
         )
     else:
+        direct_parts = [
+            f"scale={w}:{h}:force_original_aspect_ratio=decrease",
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
+        ]
         return (
-            f"[{idx}:v] {trim_vf}format=yuv420p,scale={w}:{h}:force_original_aspect_ratio=decrease,"
-            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,"
+            f"[{idx}:v] {trim_vf}format=yuv420p,{','.join(direct_parts)},"
             f"{color_vf}{speed_vf}{overlay_vf}{fade},fps={fps} [v{idx}]"
         )

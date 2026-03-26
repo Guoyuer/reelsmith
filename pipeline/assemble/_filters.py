@@ -10,6 +10,11 @@ logger = logging.getLogger("vlog.assemble.filters")
 
 _VALID_COLOR_TEMPS = {"neutral", "warm", "cool"}
 
+_FONT_SCALE_FACTOR = 0.055  # font size relative to output height
+_LONG_TEXT_THRESHOLD = 20  # characters; reduce font size above this
+_FADE_RATIO = 0.6  # text visible for this fraction of clip duration
+_BOTTOM_PADDING = 60  # pixels; drawtext bottom offset
+
 
 def escape_drawtext(text: str) -> str:
     """Escape text for FFmpeg drawtext filter (handles : [ ] = ' \\)."""
@@ -73,15 +78,19 @@ def drawtext_filter(
     out_h: int = 0,
 ) -> str:
     """Build a drawtext filter string for text overlay (no leading comma)."""
-    y_positions = {"top": "50", "center": "(h-text_h)/2", "bottom": "h-text_h-60"}
+    y_positions = {
+        "top": "50",
+        "center": "(h-text_h)/2",
+        "bottom": f"h-text_h-{_BOTTOM_PADDING}",
+    }
     y_expr = y_positions.get(position, y_positions["bottom"])
     safe_text = escape_drawtext(text)
     # Scale font to output height; base=48 at 1080p
     if out_h > 0:
-        font_size = max(font_size, int(out_h * 0.055))
-    if len(text) > 20:
-        font_size = int(font_size * 20 / len(text))
-    end_time = max(1.0, clip_duration * 0.6)
+        font_size = max(font_size, int(out_h * _FONT_SCALE_FACTOR))
+    if len(text) > _LONG_TEXT_THRESHOLD:
+        font_size = int(font_size * _LONG_TEXT_THRESHOLD / len(text))
+    end_time = max(1.0, clip_duration * _FADE_RATIO)
     font = find_font(language)
     font_arg = f":fontfile='{font}'" if font else ""
     return (

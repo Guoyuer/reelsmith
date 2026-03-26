@@ -26,6 +26,9 @@ _PRICING: dict[str, tuple[float, float]] = {
     "gemini-3-pro-preview": (2.00, 12.00),
 }
 
+_MAX_OUTPUT_TOKENS = 65536
+_DEFAULT_TEMPERATURE = 1.0  # Gemini 3 default; lower values degrade reasoning
+
 
 def _short_enum(val) -> str:
     """Strip enum class prefix: 'HarmCategory.HARM_CATEGORY_X' → 'X'."""
@@ -415,7 +418,7 @@ def _gemini_call(
     n_images = sum(
         1 for p in user_parts if isinstance(p, dict) and p.get("type") == "image_bytes"
     )
-    n_videos_count = sum(
+    n_videos = sum(
         1 for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes"
     )
     img_mb = (
@@ -446,7 +449,7 @@ def _gemini_call(
         text_chars,
         n_images,
         img_mb,
-        n_videos_count,
+        n_videos,
         vid_mb,
     )
     # System prompt at DEBUG
@@ -477,8 +480,8 @@ def _gemini_call(
     # Build config and call API
     config_kwargs: dict[str, Any] = {
         "system_instruction": system,
-        "max_output_tokens": 65536,
-        "temperature": 1.0,  # Gemini 3 default; lower values degrade reasoning
+        "max_output_tokens": _MAX_OUTPUT_TOKENS,
+        "temperature": _DEFAULT_TEMPERATURE,
         "media_resolution": types.MediaResolution.MEDIA_RESOLUTION_LOW,
         "response_mime_type": "application/json",
         "response_schema": _edl_response_schema(),
