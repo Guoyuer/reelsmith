@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import TypedDict
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict
 
 logger = logging.getLogger("vlog.types")
 
@@ -138,21 +138,3 @@ class _AnalysisEntryValidator(BaseModel):
     video_height: int | None = None
     video_fps: float | None = None
     video_orientation: str | None = None
-
-
-def validate_analysis_entry(entry: dict) -> dict | None:
-    """Validate an analysis entry dict at the prepare → plan boundary.
-
-    Returns the validated dict (with extra keys stripped) on success,
-    or None if validation fails (with a warning logged).
-    """
-    try:
-        validated = _AnalysisEntryValidator.model_validate(entry)
-        return validated.model_dump(exclude_none=False)
-    except ValidationError as e:
-        logger.warning(
-            "Invalid analysis entry for item %s: %s",
-            entry.get("id", "?"),
-            e,
-        )
-        return None

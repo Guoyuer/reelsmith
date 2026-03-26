@@ -18,7 +18,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .._types import VIDEO_EXTENSIONS, AnalysisEntry, validate_analysis_entry
+from pydantic import ValidationError
+
+from .._types import VIDEO_EXTENSIONS, AnalysisEntry, _AnalysisEntryValidator
 from ..config import Config, ProgressCallback
 from ..utils.image import generate_thumbnail
 from ..utils.media import run_subprocess
@@ -77,10 +79,13 @@ def load_analysis(cfg: Config) -> list[AnalysisEntry]:
             except (json.JSONDecodeError, KeyError):
                 pass
 
-        validated = validate_analysis_entry(entry)
-        if validated is not None:
-            results.append(validated)
-        else:
+        try:
+            validated = _AnalysisEntryValidator.model_validate(entry)
+            results.append(validated.model_dump(exclude_none=False))
+        except ValidationError as e:
+            logger.warning(
+                "Invalid analysis entry for item %s: %s", entry.get("id", "?"), e
+            )
             n_skipped += 1
 
     if n_skipped:
