@@ -15,7 +15,10 @@ from ._commands import (
     cli,
 )
 from ._config_io import (
-    SAVED_FIELDS,
+    LANG_CHOICES,
+    SOURCE_CHOICES,
+    STYLE_CHOICES,
+    TRIP_TYPE_CHOICES,
     config_path_for,
     load_run_config,
     save_run_config,
@@ -34,7 +37,10 @@ __all__ = [
     "cli",
     "STAGES",
     "ITEM_TYPE_NAMES",
-    "SAVED_FIELDS",
+    "LANG_CHOICES",
+    "SOURCE_CHOICES",
+    "STYLE_CHOICES",
+    "TRIP_TYPE_CHOICES",
     "_PLANNING_PRESETS",
     "_RESOLUTION_PRESETS",
     "_format_resolution",

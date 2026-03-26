@@ -6,7 +6,14 @@ import json
 
 import click
 
-from ._config_io import config_path_for, load_run_config
+from ._config_io import (
+    LANG_CHOICES,
+    SOURCE_CHOICES,
+    STYLE_CHOICES,
+    TRIP_TYPE_CHOICES,
+    config_path_for,
+    load_run_config,
+)
 from ._runner import _run_pipeline
 
 # ---------------------------------------------------------------------------
@@ -130,15 +137,13 @@ _plan_options = [
     click.option(
         "--trip-type",
         default="family",
-        type=click.Choice(
-            ["family", "solo", "food", "adventure", "architecture", "general"]
-        ),
+        type=click.Choice(TRIP_TYPE_CHOICES),
         help="Narrative style: family=close-ups+laughter, solo=landscapes+wonder, food=dishes+markets, etc.",
     ),
     click.option(
         "--style",
         default="upbeat",
-        type=click.Choice(["upbeat", "cinematic", "reflective", "energetic"]),
+        type=click.Choice(STYLE_CHOICES),
         help="Pacing and mood: upbeat=lively, cinematic=dramatic, reflective=calm, energetic=fast-cut",
     ),
     click.option(
@@ -149,7 +154,7 @@ _plan_options = [
     click.option(
         "--lang",
         default="en",
-        type=click.Choice(["en", "cn", "both"]),
+        type=click.Choice(LANG_CHOICES),
         help="Text language: en=English, cn=Chinese, both=bilingual (title cards, text overlays, chapters)",
     ),
     click.option(
@@ -318,36 +323,39 @@ def _build_cli_params(**kwargs) -> dict:
 
 
 def _load_source_fields(saved: dict) -> tuple:
-    """Extract source-related fields from saved config. Returns 7-tuple."""
+    """Extract source-related fields from grouped config. Returns 7-tuple."""
+    src = saved["source"]
     return (
-        saved["source"],
-        saved.get("path"),
-        saved.get("from_date"),
-        saved.get("to_date"),
-        saved.get("country"),
-        saved.get("district"),
-        saved.get("item_types"),
+        src["type"],
+        src.get("path"),
+        src.get("from_date"),
+        src.get("to_date"),
+        src.get("country"),
+        src.get("district"),
+        src.get("item_types"),
     )
 
 
 def _load_plan_fields(saved: dict) -> tuple:
-    """Extract plan-related fields from saved config. Returns 7-tuple."""
+    """Extract plan-related fields from grouped config. Returns 7-tuple."""
+    p = saved["plan"]
     return (
-        saved["duration"],
-        saved["model"],
-        saved.get("lang", "en"),
-        saved.get("trip_type", "family"),
-        saved.get("style", "upbeat"),
-        saved.get("focus", ""),
-        saved.get("music", "auto"),
+        p["duration"],
+        p["model"],
+        p.get("lang", "en"),
+        p.get("trip_type", "family"),
+        p.get("style", "upbeat"),
+        p.get("focus", ""),
+        p.get("music", "auto"),
     )
 
 
 def _load_assemble_fields(saved: dict) -> tuple:
-    """Extract assemble-related fields from saved config. Returns (resolution, quality)."""
+    """Extract assemble-related fields from grouped config. Returns (resolution, quality)."""
+    a = saved["assemble"]
     return (
-        _parse_resolution(None, None, saved["resolution"]),
-        saved.get("bitrate", 1.0),
+        _parse_resolution(None, None, a["resolution"]),
+        a.get("bitrate", 1.0),
     )
 
 
@@ -361,7 +369,7 @@ _source_options = [
         "-s",
         required=True,
         cls=_RequiredPrefixOption,
-        type=click.Choice(["local", "nas"]),
+        type=click.Choice(SOURCE_CHOICES),
         help="Media source: local folder or Synology NAS",
     ),
     click.option(
@@ -444,11 +452,18 @@ def prepare(
     if use_cfg_file:
         _validate_use_cfg(ctx)
         saved = load_run_config(use_cfg_file)
-        source, path, from_date, to_date, country, district, item_types = _load_source_fields(saved)
+        source, path, from_date, to_date, country, district, item_types = (
+            _load_source_fields(saved)
+        )
 
     cli_params = _build_cli_params(
-        source=source, path=path, from_date=from_date, to_date=to_date,
-        country=country, district=district, item_types=item_types,
+        source=source,
+        path=path,
+        from_date=from_date,
+        to_date=to_date,
+        country=country,
+        district=district,
+        item_types=item_types,
     )
 
     _run_pipeline(
@@ -505,7 +520,9 @@ def full(
     if use_cfg_file:
         _validate_use_cfg(ctx)
         saved = load_run_config(use_cfg_file)
-        source, path, from_date, to_date, country, district, item_types = _load_source_fields(saved)
+        source, path, from_date, to_date, country, district, item_types = (
+            _load_source_fields(saved)
+        )
         duration, model, lang, trip_type, style, focus, music = _load_plan_fields(saved)
         resolution, quality = _load_assemble_fields(saved)
 
@@ -518,11 +535,22 @@ def full(
     stages.append("assemble")
 
     cli_params = _build_cli_params(
-        source=source, path=path, from_date=from_date, to_date=to_date,
-        country=country, district=district, item_types=item_types,
-        duration=duration, model=model, resolution=resolution,
-        lang=lang, trip_type=trip_type, style=style, focus=focus,
-        music=music, bitrate=quality,
+        source=source,
+        path=path,
+        from_date=from_date,
+        to_date=to_date,
+        country=country,
+        district=district,
+        item_types=item_types,
+        duration=duration,
+        model=model,
+        resolution=resolution,
+        lang=lang,
+        trip_type=trip_type,
+        style=style,
+        focus=focus,
+        music=music,
+        bitrate=quality,
     )
 
     _run_pipeline(
@@ -554,7 +582,19 @@ def full(
 @_use_cfg_option
 @_apply_options(_plan_options)
 @_force_option
-def plan(ctx, run_name, use_cfg_file, duration, trip_type, style, focus, lang, model, music, force):
+def plan(
+    ctx,
+    run_name,
+    use_cfg_file,
+    duration,
+    trip_type,
+    style,
+    focus,
+    lang,
+    model,
+    music,
+    force,
+):
     """Call Gemini to generate a new EDL (increments version). Requires prepare to have run first."""
     from pipeline.plan import PlanConfig
 
@@ -570,8 +610,13 @@ def plan(ctx, run_name, use_cfg_file, duration, trip_type, style, focus, lang, m
         stages.append("generate_music")
 
     cli_params = _build_cli_params(
-        duration=duration, model=model, lang=lang, trip_type=trip_type,
-        style=style, focus=focus, music=music,
+        duration=duration,
+        model=model,
+        lang=lang,
+        trip_type=trip_type,
+        style=style,
+        focus=focus,
+        music=music,
     )
 
     _run_pipeline(
