@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -260,14 +261,23 @@ def load_latest_edl(cfg: Config) -> tuple[EDL, int]:
 # ---------------------------------------------------------------------------
 
 
-def _validate_top_level(edl: EDL, issues: list[dict], strict: bool) -> None:
-    """Validate top-level EDL fields (title, target_duration, intro/outro)."""
+def _issue_reporters(
+    issues: list[dict], strict: bool
+) -> tuple[Callable[[str], None], Callable[[str], None]]:
+    """Create _error/_warn closures that append to *issues*."""
 
     def _error(msg: str) -> None:
         issues.append({"level": "error", "message": msg})
 
     def _warn(msg: str) -> None:
         issues.append({"level": "warning" if not strict else "error", "message": msg})
+
+    return _error, _warn
+
+
+def _validate_top_level(edl: EDL, issues: list[dict], strict: bool) -> None:
+    """Validate top-level EDL fields (title, target_duration, intro/outro)."""
+    _error, _warn = _issue_reporters(issues, strict)
 
     if not edl.title:
         _warn("EDL has no title")
@@ -285,29 +295,19 @@ def _validate_item(
     item: EditItem, item_label: str, issues: list[dict], strict: bool
 ) -> float:
     """Validate a single EditItem. Returns item.display_duration for accumulation."""
+    _error, _warn = _issue_reporters(issues, strict)
 
-    def _error(msg: str) -> None:
-        issues.append({"level": "error", "message": msg})
-
-    def _warn(msg: str) -> None:
-        issues.append({"level": "warning" if not strict else "error", "message": msg})
-
-    # Media type checks
     src = Path(item.source_file)
     if item.media_type not in (MediaType.PHOTO, MediaType.VIDEO):
         _error(f"{item_label}: invalid media_type '{item.media_type}'")
 
-    # Media type vs file extension mismatch
     if src.exists():
         ext = src.suffix.lower()
-        photo_exts = PHOTO_EXTENSIONS_ALL
-        video_exts = VIDEO_EXTENSIONS_ALL
-        if item.media_type == "video" and ext in photo_exts:
+        if item.media_type == "video" and ext in PHOTO_EXTENSIONS_ALL:
             _error(f"{item_label}: media_type='video' but file is a photo ({ext})")
-        elif item.media_type == "photo" and ext in video_exts:
+        elif item.media_type == "photo" and ext in VIDEO_EXTENSIONS_ALL:
             _error(f"{item_label}: media_type='photo' but file is a video ({ext})")
 
-    # Duration
     if item.display_duration <= 0:
         _error(f"{item_label}: display_duration <= 0 ({item.display_duration})")
     elif item.display_duration < _MIN_DISPLAY_DURATION:
@@ -317,7 +317,6 @@ def _validate_item(
     elif item.display_duration > _WARN_DISPLAY_DURATION:
         _warn(f"{item_label}: display_duration very long ({item.display_duration}s)")
 
-    # Video-specific checks
     if item.media_type == "video":
         if item.effect not in (Effect.NONE, Effect.STATIC):
             _error(
@@ -344,7 +343,6 @@ def _validate_item(
         if item.playback_speed <= 0 or item.playback_speed > _MAX_PLAYBACK_SPEED:
             _error(f"{item_label}: invalid playback_speed ({item.playback_speed})")
 
-    # Photo-specific checks
     if item.media_type == "photo":
         if item.effect == "none":
             _warn(f"{item_label}: photo with effect='none' will be static")
@@ -353,7 +351,6 @@ def _validate_item(
         if item.start_time is not None or item.end_time is not None:
             _error(f"{item_label}: photo should not have start_time/end_time")
 
-    # Text overlay checks
     if item.text_overlay:
         if not item.text_overlay.text:
             _warn(f"{item_label}: empty text overlay")
@@ -368,12 +365,7 @@ def _validate_item(
 
 def _validate_segments(edl: EDL, issues: list[dict], strict: bool) -> tuple[float, int]:
     """Validate all segments and their items. Returns (total_display, total_items)."""
-
-    def _error(msg: str) -> None:
-        issues.append({"level": "error", "message": msg})
-
-    def _warn(msg: str) -> None:
-        issues.append({"level": "warning" if not strict else "error", "message": msg})
+    _error, _warn = _issue_reporters(issues, strict)
 
     total_display = 0.0
     all_sources: set[str] = set()
@@ -432,12 +424,7 @@ def _validate_global(
     strict: bool,
 ) -> None:
     """Validate global constraints (totals, duration ratio, music)."""
-
-    def _error(msg: str) -> None:
-        issues.append({"level": "error", "message": msg})
-
-    def _warn(msg: str) -> None:
-        issues.append({"level": "warning" if not strict else "error", "message": msg})
+    _error, _warn = _issue_reporters(issues, strict)
 
     if total_items == 0:
         _error("EDL has no items")

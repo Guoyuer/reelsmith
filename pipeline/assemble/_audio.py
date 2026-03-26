@@ -117,10 +117,6 @@ def _snap_transitions(edl: EDL, beats: list[float]) -> tuple[int, int]:
 
     Returns (snapped_count, total_transitions_count).
     """
-    max_shift = _MAX_BEAT_SHIFT
-    min_photo_dur = _MIN_PHOTO_DURATION
-    min_video_dur = _MIN_VIDEO_DURATION
-
     offset = 0.0
     if edl.intro_style == "title_card":
         offset += edl.intro_duration
@@ -130,7 +126,7 @@ def _snap_transitions(edl: EDL, beats: list[float]) -> tuple[int, int]:
     n_segments = len(edl.segments)
 
     for seg_idx, seg in enumerate(edl.segments):
-        seg_max_shift = _MONTAGE_MAX_SHIFT if seg.mode == "montage" else max_shift
+        seg_max_shift = _MONTAGE_MAX_SHIFT if seg.mode == "montage" else _MAX_BEAT_SHIFT
 
         for i, item in enumerate(seg.items):
             offset += item.display_duration
@@ -165,7 +161,11 @@ def _snap_transitions(edl: EDL, beats: list[float]) -> tuple[int, int]:
             if abs(shift) > seg_max_shift:
                 continue
 
-            min_dur = min_photo_dur if item.media_type == "photo" else min_video_dur
+            min_dur = (
+                _MIN_PHOTO_DURATION
+                if item.media_type == "photo"
+                else _MIN_VIDEO_DURATION
+            )
             new_dur = item.display_duration + shift
             if new_dur < min_dur:
                 continue
