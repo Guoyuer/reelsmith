@@ -399,9 +399,14 @@ def _concat_and_mix(
     seg_durations = [ctx.probe_duration(f) or 0.0 for f in segment_files]
     write_chapters(edl, seg_durations, chapters_path)
 
-    # Clean up segment files
+    # Clean up transient intermediates
     for seg_file in segment_files:
         seg_file.unlink(missing_ok=True)
+    for i in range(len(edl.segments)):
+        (output_dir / f"_seg_{i}_{res_label}.txt").unlink(missing_ok=True)
+    list_path.unlink(missing_ok=True)
+    for tc in cfg.clips_dir.glob(f"*_title_{res_label}.mp4"):
+        tc.unlink(missing_ok=True)
 
     return output_path
 

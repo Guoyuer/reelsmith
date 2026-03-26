@@ -11,7 +11,7 @@ vlog/
 │   ├── fetch/                 # Stage 1: source fetching
 │   │   └── _local.py          #   Local folder scanner + EXIF extraction
 │   ├── prepare/               # Stage 2: media preprocessing
-│   │   └── _prepare.py        #   Thumbnails, ffprobe, family detection, preview clips
+│   │   └── _prepare.py        #   Thumbnails, ffprobe, preview clips
 │   ├── plan/                  # Stage 3: Gemini EDL generation
 │   │   ├── _gemini.py         #   Raw Gemini API interaction + logging
 │   │   ├── _orchestrate.py    #   Plan orchestrator (prepare input → call Gemini → postprocess)
@@ -176,10 +176,9 @@ degradation, not crashes.
 - Generate preview clip (480p 1fps WITH AUDIO, mono 64kbps AAC, via parallel workers)
 
 **What it does globally:**
-- Family detection: top 5 persons appearing in ≥3% of items
 - Cache all results in `workspace/analysis_cache/{item_id}.json`
 
-**Output:** `preprocessed.json` + per-item analysis cache + thumbnails + preview clips.
+**Output:** Per-item analysis cache + thumbnails + preview clips.
 
 **Critical implication:** Gemini is the ONLY component in the entire pipeline that hears video
 audio. There is no speech-to-text, no audio segmentation, no "speech at 5s-12s" metadata.
@@ -317,7 +316,6 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 
 ## What's still hard-coded
 
-- **Family detection** — top 5 persons appearing in ≥3% of items
 - **FFmpeg rendering** — parallel segment rendering from EDL (3 NVENC workers, 2 VideoToolbox workers)
 - **Ken Burns effects** — cosine-eased crop + lanczos scale per EDL effect field (photos only; videos use a separate render path)
 - **Thumbnail/keyframe generation** — Pillow resize, FFmpeg extraction
@@ -354,7 +352,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - ffprobe results cached per assemble run via RenderContext (dimensions + duration)
 - Text overlays baked into clips via drawtext filter with drop shadow (no separate encode pass)
 - Title card uses first EDL photo as blurred background (fallback: purple gradient)
-- CLI `prepare` = fetch + prepare (family detection, thumbnails, EXIF, video probing); CLI `plan` = plan + generate_music (when `--music` is not `none`); CLI `assemble` = render. `full` = all stages
+- CLI `prepare` = fetch + prepare (thumbnails, EXIF, video probing); CLI `plan` = plan + generate_music (when `--music` is not `none`); CLI `assemble` = render. `full` = all stages
 - `--path PATH` is required for `prepare` and `full` commands
 - `--resolution` / `-r` is required for both `full` and `assemble` — no default. Presets: 4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30, or custom WxHxFPS
 - Clips cached per resolution (`seg00_item00_1080p30.mp4`); switching resolution doesn't re-render existing clips
