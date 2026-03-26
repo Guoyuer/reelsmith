@@ -143,4 +143,5 @@ def mock_config(tmp_path: Path) -> Config:
         workspace=tmp_path / "workspace",
     )
     cfg.ensure_dirs()
+    cfg.media_dir.mkdir(parents=True, exist_ok=True)
     return cfg

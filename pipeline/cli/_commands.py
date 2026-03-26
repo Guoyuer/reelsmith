@@ -372,13 +372,6 @@ _source_options = [
 ]
 
 
-def _build_fetch_config(p: dict):
-    """Build FetchConfig from resolved params dict."""
-    from pipeline.fetch import FetchConfig
-
-    return FetchConfig(source_dir=p["path"])
-
-
 # ---------------------------------------------------------------------------
 # prepare: fetch + media processing
 # ---------------------------------------------------------------------------
@@ -397,7 +390,7 @@ def prepare(ctx, run_name, use_cfg_file, path, force):
     p, cli_params, defaults = _resolve_params(ctx)
     _run_pipeline(
         run_name,
-        fetch=_build_fetch_config(p),
+        fetch=p["path"],
         prepare=PrepareConfig(force=force),
         stages=["fetch", "prepare"],
         cli_params=cli_params,
@@ -451,7 +444,7 @@ def full(
 
     _run_pipeline(
         run_name,
-        fetch=_build_fetch_config(p),
+        fetch=p["path"],
         prepare=PrepareConfig(force=force),
         plan=PlanConfig(
             style=p["style"],

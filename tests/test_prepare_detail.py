@@ -84,7 +84,9 @@ class TestPrepareVideo:
         cache_file = tmp_path / "cache" / "1.json"
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         with patch("pipeline.prepare._prepare.run_subprocess", side_effect=fake_run):
-            with patch("pipeline.prepare._prepare._has_dense_keyframes", return_value=True):
+            with patch(
+                "pipeline.prepare._prepare._has_dense_keyframes", return_value=True
+            ):
                 _prepare_video(entry, 1, str(tmp_path / "video.mp4"), cache_file, 1, 1)
 
         assert (
@@ -102,6 +104,7 @@ class TestPrepareFullFlow:
 
         cfg = Config(workspace=tmp_path)
         cfg.ensure_dirs()
+        cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
         # Create manifest
         from PIL import Image
@@ -135,6 +138,7 @@ class TestPrepareFullFlow:
 
         cfg = Config(workspace=tmp_path)
         cfg.ensure_dirs()
+        cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
         from PIL import Image
 
@@ -253,5 +257,7 @@ class TestGenerateVideoPreview:
             return result
 
         with patch("pipeline.prepare._prepare.run_subprocess", side_effect=fake_run):
-            with patch("pipeline.prepare._prepare._has_dense_keyframes", return_value=False):
+            with patch(
+                "pipeline.prepare._prepare._has_dense_keyframes", return_value=False
+            ):
                 _generate_video_previews(video_items, preview_dir, force=True)

@@ -37,12 +37,28 @@ class PrepareConfig:
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
+def _base_analysis_entry(item: dict, *, is_video: bool, family_count: int) -> dict:
+    """Build the common analysis entry dict from a manifest item."""
+    return {
+        "id": item["id"],
+        "filename": item["filename"],
+        "local_path": item.get("local_path", ""),
+        "media_type": "video" if is_video else "photo",
+        "taken_iso": item["taken_iso"],
+        "family_count": family_count,
+        "persons": item.get("metadata", {}).get("persons", []),
+        "country": item.get("country"),
+        "first_level": item.get("first_level"),
+        "district": item.get("district") or item.get("city"),
+    }
+
+
 def load_analysis(cfg: Config) -> list[AnalysisEntry]:
     """Reconstruct analysis data from manifest + per-item caches."""
     if not cfg.manifest_path.exists():
         raise FileNotFoundError(
             f"Manifest not found: {cfg.manifest_path}\n"
-            "Run the prepare stage first (e.g. vlog prepare -s local -p ./photos)"
+            "Run the prepare stage first (e.g. vlog prepare -p ./photos)"
         )
     manifest = json.loads(cfg.manifest_path.read_text())
 
@@ -63,18 +79,9 @@ def load_analysis(cfg: Config) -> list[AnalysisEntry]:
         persons = item.get("metadata", {}).get("persons", [])
         family_in_photo = [p for p in persons if p in family_names]
 
-        entry = {
-            "id": item_id,
-            "filename": item["filename"],
-            "local_path": local_path_str,
-            "media_type": "video" if is_video else "photo",
-            "taken_iso": item["taken_iso"],
-            "family_count": len(family_in_photo),
-            "persons": persons,
-            "country": item.get("country"),
-            "first_level": item.get("first_level"),
-            "district": item.get("district") or item.get("city"),
-        }
+        entry = _base_analysis_entry(
+            item, is_video=is_video, family_count=len(family_in_photo)
+        )
 
         cache_file = cache_dir / f"{item_id}.json"
         if cache_file.exists():
@@ -106,7 +113,7 @@ def prepare(
     if not cfg.manifest_path.exists():
         raise FileNotFoundError(
             f"Manifest not found: {cfg.manifest_path}\n"
-            "Run the fetch stage first (e.g. vlog full -s local -p ./photos ...)"
+            "Run the fetch stage first (e.g. vlog full -p ./photos ...)"
         )
     manifest = json.loads(cfg.manifest_path.read_text())
 
@@ -160,18 +167,9 @@ def prepare(
                     "Corrupt cache for item %s, re-analyzing: %s", item_id, e
                 )
 
-        entry = {
-            "id": item_id,
-            "filename": item["filename"],
-            "local_path": local_path_str,
-            "media_type": "video" if is_video else "photo",
-            "taken_iso": item["taken_iso"],
-            "family_count": item.get("family_count", 0),
-            "persons": item.get("metadata", {}).get("persons", []),
-            "country": item.get("country"),
-            "first_level": item.get("first_level"),
-            "district": item.get("district") or item.get("city"),
-        }
+        entry = _base_analysis_entry(
+            item, is_video=is_video, family_count=item.get("family_count", 0)
+        )
 
         if is_video:
             uncached_videos.append((entry, item_id, local_path, cache_file))

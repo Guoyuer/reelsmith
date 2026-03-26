@@ -75,7 +75,6 @@ class TestEnsureDirs:
         cfg.ensure_dirs()
         assert (Path(ws) / "clips").is_dir()
         assert (Path(ws) / "output").is_dir()
-        assert cfg.media_dir.is_dir()
         assert cfg.cache_dir.is_dir()
         assert cfg.thumbnails_dir.is_dir()
         assert cfg.preview_clips_dir.is_dir()

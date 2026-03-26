@@ -398,7 +398,8 @@ class TestRunPrepareNoAnalysisPath:
         cfg.preprocessed_path.write_text(json.dumps({"family_names": []}))
 
         # Build a minimal _PipelineContext
-        from pipeline.cli import _PipelineDisplay, _run_prepare
+        from pipeline.cli import _PipelineDisplay
+        from pipeline.cli._runner import _run_prepare
 
         display = MagicMock(spec=_PipelineDisplay)
         pc = MagicMock()

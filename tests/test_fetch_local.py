@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 import pytest
 
-from pipeline.fetch import FetchConfig
 from pipeline.fetch._local import (
     _extract_date,
     _parse_date_from_filename,
@@ -64,8 +63,8 @@ class TestIdDeterminism:
         _create_fake_image(source_dir / "IMG_001.jpg")
 
         with patch("pipeline.fetch._local._extract_date", return_value=None):
-            result1 = fetch_local(mock_config, FetchConfig(source_dir=str(source_dir)))
-            result2 = fetch_local(mock_config, FetchConfig(source_dir=str(source_dir)))
+            result1 = fetch_local(mock_config, str(source_dir))
+            result2 = fetch_local(mock_config, str(source_dir))
 
         assert result1[0]["id"] == result2[0]["id"]
 
@@ -74,7 +73,7 @@ class TestIdDeterminism:
         _create_fake_image(source_dir / "IMG_001.jpg")
 
         with patch("pipeline.fetch._local._extract_date", return_value=None):
-            result = fetch_local(mock_config, FetchConfig(source_dir=str(source_dir)))
+            result = fetch_local(mock_config, str(source_dir))
 
         assert result[0]["id"] == _expected_id("IMG_001.jpg")
 
@@ -84,7 +83,7 @@ class TestIdDeterminism:
         _create_fake_image(source_dir / "IMG_002.jpg")
 
         with patch("pipeline.fetch._local._extract_date", return_value=None):
-            result = fetch_local(mock_config, FetchConfig(source_dir=str(source_dir)))
+            result = fetch_local(mock_config, str(source_dir))
 
         ids = [r["id"] for r in result]
         assert len(set(ids)) == 2, "Expected two distinct IDs"
@@ -99,8 +98,8 @@ class TestIdDeterminism:
         _create_fake_image(dir_b / "IMG_001.jpg")
 
         with patch("pipeline.fetch._local._extract_date", return_value=None):
-            result_a = fetch_local(mock_config, FetchConfig(source_dir=str(dir_a)))
-            result_b = fetch_local(mock_config, FetchConfig(source_dir=str(dir_b)))
+            result_a = fetch_local(mock_config, str(dir_a))
+            result_b = fetch_local(mock_config, str(dir_b))
 
         assert result_a[0]["id"] == result_b[0]["id"]
 
@@ -218,7 +217,7 @@ class TestFileFiltering:
         _create_fake_image(source_dir / "real_photo.jpg")
 
         with patch("pipeline.fetch._local._extract_date", return_value=None):
-            result = fetch_local(mock_config, FetchConfig(source_dir=str(source_dir)))
+            result = fetch_local(mock_config, str(source_dir))
 
         assert len(result) == 1
         assert result[0]["filename"] == "real_photo.jpg"
@@ -230,7 +229,7 @@ class TestFileFiltering:
         _create_fake_image(source_dir / "photo.jpg")
 
         with patch("pipeline.fetch._local._extract_date", return_value=None):
-            result = fetch_local(mock_config, FetchConfig(source_dir=str(source_dir)))
+            result = fetch_local(mock_config, str(source_dir))
 
         assert len(result) == 1
 
@@ -256,7 +255,5 @@ class TestReverseGeocode:
         _create_fake_image(source_dir / "no_gps.jpg")
         with patch("pipeline.fetch._local._extract_date", return_value=None):
             with patch("pipeline.fetch._local._extract_gps", return_value=(None, None)):
-                result = fetch_local(
-                    mock_config, FetchConfig(source_dir=str(source_dir))
-                )
+                result = fetch_local(mock_config, str(source_dir))
         assert "city" not in result[0]

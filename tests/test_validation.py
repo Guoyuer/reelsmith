@@ -7,7 +7,6 @@ import pytest
 from pipeline.assemble._assemble import AssembleConfig
 from pipeline.assemble._encoder import RenderContext
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment, validate_edl
-from pipeline.fetch import FetchConfig
 from pipeline.plan import PlanConfig
 
 # ---------------------------------------------------------------------------
@@ -102,17 +101,6 @@ class TestPlanConfigValidation:
         for tt in ["family", "solo", "food", "adventure", "architecture", "general"]:
             pc = PlanConfig(target_duration=60, trip_type=tt)
             assert pc.trip_type == tt
-
-
-# ---------------------------------------------------------------------------
-# FetchConfig validation
-# ---------------------------------------------------------------------------
-
-
-class TestFetchConfigValidation:
-    def test_local_source_valid(self):
-        fc = FetchConfig(source_dir="/some/path")
-        assert fc.source_dir == "/some/path"
 
 
 # ---------------------------------------------------------------------------

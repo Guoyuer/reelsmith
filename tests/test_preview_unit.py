@@ -63,6 +63,7 @@ class TestBuildVisualContentBlocks:
     def test_builds_blocks_with_photos(self, tmp_path):
         cfg = Config(workspace=tmp_path)
         cfg.ensure_dirs()
+        cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
         # Create photo + thumbnail
         photo = cfg.media_dir / "photo.jpg"
@@ -98,6 +99,7 @@ class TestBuildVisualContentBlocks:
     def test_missing_thumbnail_raises(self, tmp_path):
         cfg = Config(workspace=tmp_path)
         cfg.ensure_dirs()
+        cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
         photo = cfg.media_dir / "photo.jpg"
         Image.new("RGB", (100, 100), "red").save(photo, "JPEG")
@@ -128,6 +130,7 @@ class TestBuildVisualContentBlocks:
     def test_video_entries_collected(self, tmp_path):
         cfg = Config(workspace=tmp_path)
         cfg.ensure_dirs()
+        cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
         # Create photo + thumb + video preview
         photo = cfg.media_dir / "photo.jpg"

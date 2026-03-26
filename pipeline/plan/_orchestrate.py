@@ -297,7 +297,7 @@ def plan(
     if not cfg.preprocessed_path.exists():
         raise FileNotFoundError(
             f"Preprocessed data not found: {cfg.preprocessed_path}\n"
-            "Run the prepare stage first (e.g. vlog prepare -s local -p ./photos)"
+            "Run the prepare stage first (e.g. vlog prepare -p ./photos)"
         )
     from ..prepare import load_analysis
 

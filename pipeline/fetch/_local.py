@@ -11,18 +11,11 @@ import hashlib
 import json
 import logging
 import re
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .._types import ManifestEntry
 from ..config import Config, ProgressCallback
-
-
-@dataclass
-class FetchConfig:
-    source_dir: str
-
 
 logger = logging.getLogger("vlog.fetch.local")
 
@@ -31,7 +24,7 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
 def fetch_local(
-    cfg: Config, fc: FetchConfig, *, progress_callback: ProgressCallback = None
+    cfg: Config, source_dir: str, *, progress_callback: ProgressCallback = None
 ) -> list[ManifestEntry]:
     """Scan a local folder for photos/videos and build a manifest.
 
@@ -40,8 +33,7 @@ def fetch_local(
     Points directly to source files (no copying or linking).
     """
     cfg.ensure_dirs()
-    assert fc.source_dir is not None
-    source = Path(fc.source_dir)
+    source = Path(source_dir)
     if not source.is_dir():
         raise FileNotFoundError(f"Source directory not found: {source}")
 

@@ -82,7 +82,6 @@ class Config:
         for d in [
             self.clips_dir,
             self.output_dir,
-            self.media_dir,
             self.cache_dir,
             self.thumbnails_dir,
             self.preview_clips_dir,

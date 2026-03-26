@@ -28,7 +28,6 @@ from ._display import (
 from ._runner import (
     _PipelineContext,
     _run_pipeline,
-    _run_prepare,
 )
 
 __all__ = [
@@ -45,7 +44,6 @@ __all__ = [
     "_run_pipeline",
     "_PipelineDisplay",
     "_PipelineContext",
-    "_run_prepare",
     "list_configs",
     "load_run_config",
     "save_run_config",

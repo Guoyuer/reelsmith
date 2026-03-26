@@ -21,7 +21,7 @@ class ManifestMetadata(TypedDict, total=False):
 
 
 class _ManifestRequired(TypedDict):
-    """Keys always present from both fetch sources."""
+    """Keys always present in manifest entries."""
 
     id: int
     filename: str
@@ -33,7 +33,8 @@ class _ManifestRequired(TypedDict):
 class ManifestEntry(_ManifestRequired, total=False):
     """One item in manifest.json (fetch → prepare).
 
-    Optional keys depend on the source (GPS, etc.).
+    Optional keys are present when EXIF GPS data is available,
+    or added by the prepare stage (family detection).
     """
 
     # From fetch_local
