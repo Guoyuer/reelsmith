@@ -23,6 +23,11 @@ _FADE_IN_DURATION = 0.5  # seconds
 _FADE_OUT_DURATION = 0.8  # seconds
 
 
+def _base_encode_args(ctx: RenderContext) -> list[str]:
+    """Common encoding arguments for title card rendering."""
+    return [*ctx.get_encoder(), "-pix_fmt", "yuv420p", "-r", str(ctx.fps), "-an"]
+
+
 def render_title_card(
     title: str,
     subtitle: str,
@@ -92,8 +97,6 @@ def render_title_card(
 
     fade = f",fade=t=in:d={_FADE_IN_DURATION},fade=t=out:st={duration - _FADE_OUT_DURATION}:d={_FADE_OUT_DURATION}"
 
-    enc = ctx.get_encoder()
-
     if use_photo_bg:
         cmd = [
             "ffmpeg",
@@ -108,12 +111,7 @@ def render_title_card(
             str(duration),
             "-filter_complex",
             f"{photo_bg}[bg];[bg]{title_text}{separator}{sub_text}{fade}",
-            *enc,
-            "-pix_fmt",
-            "yuv420p",
-            "-r",
-            str(fps),
-            "-an",
+            *_base_encode_args(ctx),
             str(output_path),
         ]
     else:
@@ -122,12 +120,7 @@ def render_title_card(
             "-y",
             "-filter_complex",
             f"{gradient};[grad]{title_text}{separator}{sub_text}{fade}",
-            *enc,
-            "-pix_fmt",
-            "yuv420p",
-            "-r",
-            str(fps),
-            "-an",
+            *_base_encode_args(ctx),
             str(output_path),
         ]
     result = run_subprocess(cmd, capture_output=True, text=True)
