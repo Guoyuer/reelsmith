@@ -356,10 +356,14 @@ def _blurred_bg(idx: int, w: int, h: int, sigma: int) -> str:
     Returns the bg/fg/overlay filter lines (without the leading split or
     trailing post-composite filters).
     """
+    bg_parts = [
+        f"scale={w}:{h}:force_original_aspect_ratio=increase",
+        f"crop={w}:{h}",
+        f"gblur=sigma={sigma}",
+        "eq=brightness=-0.15:saturation=0.6",
+    ]
     return (
-        f"[bg{idx}] scale={w}:{h}:force_original_aspect_ratio=increase,"
-        f"crop={w}:{h},gblur=sigma={sigma},"
-        f"eq=brightness=-0.15:saturation=0.6 [blurred{idx}];"
+        f"[bg{idx}] {','.join(bg_parts)} [blurred{idx}];"
         f"[fg{idx}] scale={w}:{h}:force_original_aspect_ratio=decrease [sharp{idx}];"
         f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2"
     )
@@ -439,8 +443,11 @@ def _video_filter(
             f"{color_vf}{speed_vf}{overlay_vf}{fade},fps={fps} [v{idx}]"
         )
     else:
+        direct_parts = [
+            f"scale={w}:{h}:force_original_aspect_ratio=decrease",
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
+        ]
         return (
-            f"[{idx}:v] {trim_vf}format=yuv420p,scale={w}:{h}:force_original_aspect_ratio=decrease,"
-            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,"
+            f"[{idx}:v] {trim_vf}format=yuv420p,{','.join(direct_parts)},"
             f"{color_vf}{speed_vf}{overlay_vf}{fade},fps={fps} [v{idx}]"
         )
