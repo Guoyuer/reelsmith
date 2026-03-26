@@ -75,14 +75,24 @@ def assemble(
     res_label = f"{ac.h}p{ac.fps}"
     output_path = cfg.output_dir / f"vlog_v{version}_{res_label}.mp4"
 
-    # Music file check
+    # Auto-generate music if music_mode=auto but file is missing
     has_music = edl.music and Path(edl.music.file).exists()
     if edl.music_mode == "auto" and not has_music:
         logger.warning(
-            "music_mode=auto but music file missing: %s — "
-            "run 'vlog plan' with --music auto to generate, or use --music none",
-            edl.music.file if edl.music else "(not set)",
+            "=== Music file missing (music_mode=auto) — auto-generating for EDL v%d... ===",
+            version,
         )
+        from ..music import generate_music_for_edl
+
+        music_path = generate_music_for_edl(cfg, progress_callback=progress_callback)
+        if music_path:
+            logger.info("=== Music generated: %s ===", music_path.name)
+            # Reload EDL — generate_music_for_edl saved the music path into it
+            edl_path = cfg.edl_path(version)
+            edl = EDL.model_validate_json(edl_path.read_text())
+            has_music = edl.music and Path(edl.music.file).exists()
+        else:
+            logger.warning("=== Music generation failed — rendering without music ===")
 
     # Beat sync
     if has_music:
