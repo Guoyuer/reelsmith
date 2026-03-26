@@ -26,6 +26,172 @@ _PRICING: dict[str, tuple[float, float]] = {
 }
 
 
+def _short_enum(val) -> str:
+    """Strip enum class prefix: 'HarmCategory.HARM_CATEGORY_X' → 'X'."""
+    s = str(val)
+    return s.rsplit(".", 1)[-1].removeprefix("HARM_CATEGORY_")
+
+
+# ---------------------------------------------------------------------------
+# Rich terminal display helpers (no-op when not a TTY or Rich unavailable)
+# ---------------------------------------------------------------------------
+
+
+def _display_thinking(text: str) -> None:
+    """Render Gemini thinking block as a Rich Markdown panel."""
+    try:
+        import sys
+
+        if not sys.stderr.isatty():
+            return
+        from rich.console import Console
+        from rich.markdown import Markdown
+        from rich.panel import Panel
+    except ImportError:
+        return
+    Console(stderr=True).print(
+        Panel(Markdown(text), title="\U0001f4ad Thinking", border_style="dim")
+    )
+
+
+def _display_api_summary(
+    *,
+    label: str,
+    model: str,
+    thinking_level: str,
+    elapsed: float,
+    content_len: int,
+    prompt_tokens: int,
+    content_tokens: int,
+    thinking_tokens: int,
+    total_tokens: int,
+    cached_tokens: int,
+    tool_use_tokens: int,
+    in_rate: float,
+    out_rate: float,
+    cost_est: float,
+    finish: str,
+    usage: Any,
+    candidate: Any,
+) -> None:
+    """Render Gemini API call summary (token table + status) to terminal."""
+    try:
+        import sys
+
+        if not sys.stderr.isatty():
+            return
+        from rich.console import Console
+        from rich.table import Table
+    except ImportError:
+        return
+
+    console = Console(stderr=True)
+
+    # Token & cost table
+    t = Table(
+        title=f"\U0001f4ca Gemini API — {label}",
+        border_style="dim",
+        title_style="bold",
+        caption=f"Model: {model} | Thinking: {thinking_level} | {elapsed:.0f}s",
+        caption_style="dim",
+    )
+    t.add_column("", style="dim", min_width=10)
+    t.add_column("Tokens", justify="right")
+    t.add_column("$/M", justify="right", style="dim")
+    t.add_column("Cost", justify="right")
+    t.add_column("Modality", style="dim")
+
+    # Prompt row with modality breakdown
+    prompt_modality = ""
+    if usage and usage.prompt_tokens_details:
+        parts = [
+            f"{_short_enum(d.modality)}: {d.token_count:,}"
+            for d in usage.prompt_tokens_details
+            if d.token_count
+        ]
+        prompt_modality = " | ".join(parts)
+    t.add_row(
+        "Prompt",
+        f"{prompt_tokens:,}",
+        f"${in_rate}",
+        f"${prompt_tokens * in_rate / 1e6:.3f}",
+        prompt_modality,
+    )
+    if cached_tokens:
+        t.add_row("  cached", f"[dim]{cached_tokens:,}", "", "", "")
+    if tool_use_tokens:
+        t.add_row("  tool use", f"[dim]{tool_use_tokens:,}", "", "", "")
+
+    # Output rows
+    output_modality = ""
+    if usage and usage.candidates_tokens_details:
+        parts = [
+            f"{_short_enum(d.modality)}: {d.token_count:,}"
+            for d in usage.candidates_tokens_details
+            if d.token_count
+        ]
+        output_modality = " | ".join(parts)
+    t.add_row(
+        "Content",
+        f"{content_tokens:,}",
+        f"${out_rate}",
+        f"${content_tokens * out_rate / 1e6:.3f}",
+        output_modality,
+    )
+    t.add_row(
+        "Thinking",
+        f"{thinking_tokens:,}",
+        f"${out_rate}",
+        f"${thinking_tokens * out_rate / 1e6:.3f}",
+        "",
+    )
+
+    t.add_section()
+    t.add_row(
+        "[bold]Total",
+        f"[bold]{total_tokens:,}",
+        "",
+        f"[bold]${cost_est:.3f}",
+        "",
+    )
+    console.print(t)
+
+    # Status line: finish + confidence + safety
+    status_parts = []
+    finish_style = "green" if finish == "STOP" else "red bold"
+    status_parts.append(
+        f"Finish: [{finish_style}]{_short_enum(finish)}[/{finish_style}]"
+    )
+    if candidate and candidate.avg_logprobs is not None:
+        lp = candidate.avg_logprobs
+        conf_style = "green" if lp > -0.5 else "yellow" if lp > -1.0 else "red"
+        status_parts.append(
+            f"Confidence: [{conf_style}]{lp:.4f}[/{conf_style}]"
+        )
+    status_parts.append(f"Output: {content_len:,} chars")
+    if candidate and candidate.safety_ratings:
+        blocked = [
+            r for r in candidate.safety_ratings if getattr(r, "blocked", False)
+        ]
+        if blocked:
+            status_parts.append(
+                f"[red bold]BLOCKED: {len(blocked)} categories[/red bold]"
+            )
+    console.print("  " + "  │  ".join(status_parts), highlight=False)
+
+    if candidate and candidate.safety_ratings:
+        safety_parts = [
+            f"{_short_enum(r.category)}=[dim]{_short_enum(r.probability)}[/dim]"
+            for r in candidate.safety_ratings
+        ]
+        console.print(f"  Safety: {', '.join(safety_parts)}", highlight=False)
+
+
+# ---------------------------------------------------------------------------
+# Gemini API helpers
+# ---------------------------------------------------------------------------
+
+
 def _prepare_parts(
     user_parts: list, client, progress_callback: ProgressCallback = None
 ) -> tuple[list, int]:
@@ -100,24 +266,7 @@ def _parse_response(response) -> str:
                 logger.info("  [Thinking] %d chars", len(part.text))
                 for line in part.text.split("\n"):
                     logger.info("  [Thinking] %s", line)
-                # Rich Markdown to terminal
-                try:
-                    import sys
-
-                    if sys.stderr.isatty():
-                        from rich.console import Console
-                        from rich.markdown import Markdown
-                        from rich.panel import Panel
-
-                        Console(stderr=True).print(
-                            Panel(
-                                Markdown(part.text),
-                                title="\U0001f4ad Thinking",
-                                border_style="dim",
-                            )
-                        )
-                except ImportError:
-                    pass
+                _display_thinking(part.text)
             if getattr(part, "executable_code", None):
                 ec = part.executable_code  # type: ignore[union-attr]
                 code = ec.code or "" if ec else ""
@@ -359,11 +508,6 @@ def _gemini_call(
     content = _parse_response(response)
 
     # --- Collect all response metadata into a structured summary ---
-    def _short_enum(val) -> str:
-        """Strip enum class prefix: 'HarmCategory.HARM_CATEGORY_X' → 'X'."""
-        s = str(val)
-        return s.rsplit(".", 1)[-1].removeprefix("HARM_CATEGORY_")
-
     usage = response.usage_metadata
     prompt_tokens = (usage.prompt_token_count or 0) if usage else 0
     content_tokens = (usage.candidates_token_count or 0) if usage else 0
@@ -445,117 +589,25 @@ def _gemini_call(
         logger.info("  Safety: %s", ", ".join(parts))
     logger.info("--- End Response Summary ---")
 
-    # --- Rich terminal display ---
-    try:
-        import sys
-
-        if sys.stderr.isatty():
-            from rich.console import Console
-            from rich.table import Table
-
-            console = Console(stderr=True)
-
-            # Token & cost table
-            t = Table(
-                title=f"\U0001f4ca Gemini API — {label}",
-                border_style="dim",
-                title_style="bold",
-                caption=f"Model: {model} | Thinking: {thinking_level} | {elapsed:.0f}s",
-                caption_style="dim",
-            )
-            t.add_column("", style="dim", min_width=10)
-            t.add_column("Tokens", justify="right")
-            t.add_column("$/M", justify="right", style="dim")
-            t.add_column("Cost", justify="right")
-            t.add_column("Modality", style="dim")
-
-            # Prompt row with modality breakdown
-            prompt_modality = ""
-            if usage and usage.prompt_tokens_details:
-                parts = [
-                    f"{_short_enum(d.modality)}: {d.token_count:,}"
-                    for d in usage.prompt_tokens_details
-                    if d.token_count
-                ]
-                prompt_modality = " | ".join(parts)
-            t.add_row(
-                "Prompt",
-                f"{prompt_tokens:,}",
-                f"${in_rate}",
-                f"${prompt_tokens * in_rate / 1e6:.3f}",
-                prompt_modality,
-            )
-            if cached_tokens:
-                t.add_row("  cached", f"[dim]{cached_tokens:,}", "", "", "")
-            if tool_use_tokens:
-                t.add_row("  tool use", f"[dim]{tool_use_tokens:,}", "", "", "")
-
-            # Output rows
-            output_modality = ""
-            if usage and usage.candidates_tokens_details:
-                parts = [
-                    f"{_short_enum(d.modality)}: {d.token_count:,}"
-                    for d in usage.candidates_tokens_details
-                    if d.token_count
-                ]
-                output_modality = " | ".join(parts)
-            t.add_row(
-                "Content",
-                f"{content_tokens:,}",
-                f"${out_rate}",
-                f"${content_tokens * out_rate / 1e6:.3f}",
-                output_modality,
-            )
-            t.add_row(
-                "Thinking",
-                f"{thinking_tokens:,}",
-                f"${out_rate}",
-                f"${thinking_tokens * out_rate / 1e6:.3f}",
-                "",
-            )
-
-            t.add_section()
-            t.add_row(
-                "[bold]Total",
-                f"[bold]{total_tokens:,}",
-                "",
-                f"[bold]${cost_est:.3f}",
-                "",
-            )
-
-            console.print(t)
-
-            # Status line: finish + confidence + safety
-            status_parts = []
-            finish_style = "green" if finish == "STOP" else "red bold"
-            status_parts.append(
-                f"Finish: [{finish_style}]{_short_enum(finish)}[/{finish_style}]"
-            )
-            if cand and cand.avg_logprobs is not None:
-                lp = cand.avg_logprobs
-                conf_style = "green" if lp > -0.5 else "yellow" if lp > -1.0 else "red"
-                status_parts.append(
-                    f"Confidence: [{conf_style}]{lp:.4f}[/{conf_style}]"
-                )
-            status_parts.append(f"Output: {len(content):,} chars")
-            if cand and cand.safety_ratings:
-                blocked = [
-                    r for r in cand.safety_ratings if getattr(r, "blocked", False)
-                ]
-                if blocked:
-                    status_parts.append(
-                        f"[red bold]BLOCKED: {len(blocked)} categories[/red bold]"
-                    )
-            console.print("  " + "  │  ".join(status_parts), highlight=False)
-
-            if cand and cand.safety_ratings:
-                safety_parts = [
-                    f"{_short_enum(r.category)}=[dim]{_short_enum(r.probability)}[/dim]"
-                    for r in cand.safety_ratings
-                ]
-                console.print(f"  Safety: {', '.join(safety_parts)}", highlight=False)
-    except ImportError:
-        pass
+    _display_api_summary(
+        label=label,
+        model=model,
+        thinking_level=thinking_level,
+        elapsed=elapsed,
+        content_len=len(content),
+        prompt_tokens=prompt_tokens,
+        content_tokens=content_tokens,
+        thinking_tokens=thinking_tokens,
+        total_tokens=total_tokens,
+        cached_tokens=cached_tokens,
+        tool_use_tokens=tool_use_tokens,
+        in_rate=in_rate,
+        out_rate=out_rate,
+        cost_est=cost_est,
+        finish=finish,
+        usage=usage,
+        candidate=cand,
+    )
 
     # Report cost via callback metadata
     if progress_callback:
