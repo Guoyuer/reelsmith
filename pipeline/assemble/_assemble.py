@@ -330,8 +330,8 @@ def _concat_and_mix(
     if result.returncode != 0:
         raise RuntimeError(f"Concat failed: {result.stderr}")
 
-    total_dur = ctx.probe_duration(nomix_path) or 0.0
-    logger.info("  Concat: %.1fs", total_dur)
+    total_duration = ctx.probe_duration(nomix_path) or 0.0
+    logger.info("  Concat: %.1fs", total_duration)
 
     # Music overlay
     if has_music:
@@ -339,19 +339,21 @@ def _concat_and_mix(
         if progress_callback:
             progress_callback(0, 0, "mixing music...")
         music_path = Path(edl.music.file)
-        music_dur = ctx.probe_duration(music_path) or total_dur
+        music_duration = ctx.probe_duration(music_path) or total_duration
         vol = edl.music.volume
         fade_in = edl.music.fade_in
         fade_out = edl.music.fade_out
 
         music_chain = "[1:a] "
-        if music_dur < total_dur:
-            loops = int(total_dur / music_dur) + 1
-            samples = int(music_dur * 48000)
-            music_chain += f"aloop=loop={loops}:size={samples},atrim=0:{total_dur:.3f},"
+        if music_duration < total_duration:
+            loops = int(total_duration / music_duration) + 1
+            samples = int(music_duration * 48000)
+            music_chain += (
+                f"aloop=loop={loops}:size={samples},atrim=0:{total_duration:.3f},"
+            )
         music_chain += f"volume={vol:.3f},"
         music_chain += f"afade=t=in:d={fade_in},"
-        fade_out_start = max(0, total_dur - fade_out)
+        fade_out_start = max(0, total_duration - fade_out)
         music_chain += f"afade=t=out:st={fade_out_start:.3f}:d={fade_out} [bg]"
 
         fc = (
@@ -453,10 +455,10 @@ def _find_first_photo(edl: EDL) -> str | None:
     for seg in edl.segments:
         for item in seg.items:
             if item.media_type == "photo":
-                p = Path(item.source_file)
-                if p.suffix.lower() in {".heic", ".heif"}:
-                    p = convert_heic(p)
-                return str(p)
+                photo_path = Path(item.source_file)
+                if photo_path.suffix.lower() in {".heic", ".heif"}:
+                    photo_path = convert_heic(photo_path)
+                return str(photo_path)
     return None
 
 

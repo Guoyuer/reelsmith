@@ -198,6 +198,6 @@ class RenderContext:
         key = str(path)
         if key in self._dur_cache:
             return self._dur_cache[key]
-        dur = _probe_duration_uncached(path)
-        self._dur_cache[key] = dur
-        return dur
+        duration = _probe_duration_uncached(path)
+        self._dur_cache[key] = duration
+        return duration

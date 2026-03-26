@@ -88,17 +88,17 @@ def _run_fetch(pc: _PipelineContext):
 
     if manifest_path.exists():
         items = json.loads(manifest_path.read_text())
-        dur = time.monotonic() - t0
+        elapsed = time.monotonic() - t0
         pc.logger.info(f"Fetch: {len(items)} items (cached)")
-        pc.display.done("fetch", f"{len(items)} items", dur)
+        pc.display.done("fetch", f"{len(items)} items", elapsed)
     else:
         cb = _progress_cb(pc.logger, pc.display, "fetch", t0)
         from pipeline.fetch import fetch_local
 
         items = fetch_local(pc.cfg, pc.fetch, progress_callback=cb)
-        dur = time.monotonic() - t0
-        pc.logger.info(f"Fetch: {len(items)} items in {dur:.0f}s")
-        pc.display.done("fetch", f"{len(items)} items", dur)
+        elapsed = time.monotonic() - t0
+        pc.logger.info(f"Fetch: {len(items)} items in {elapsed:.0f}s")
+        pc.display.done("fetch", f"{len(items)} items", elapsed)
 
 
 def _run_prepare(pc: _PipelineContext):
@@ -114,12 +114,12 @@ def _run_prepare(pc: _PipelineContext):
         pc.prepare,
         progress_callback=_progress_cb(pc.logger, pc.display, "prepare", t0),
     )
-    dur = time.monotonic() - t0
+    elapsed = time.monotonic() - t0
 
     results = load_analysis(pc.cfg)
     n_photos = sum(1 for r in results if r.get("media_type") == "photo")
     n_videos = len(results) - n_photos
-    pc.display.done("prepare", f"{n_photos} photos, {n_videos} videos", dur)
+    pc.display.done("prepare", f"{n_photos} photos, {n_videos} videos", elapsed)
 
 
 def _run_plan(pc: _PipelineContext):
@@ -138,19 +138,19 @@ def _run_plan(pc: _PipelineContext):
     )
 
     s = edl.summary()
-    dur = time.monotonic() - t0
+    elapsed = time.monotonic() - t0
 
     plan_detail = (
         f"v{version}: {s['n_photos']}p({s['photo_time']:.0f}s)"
         f"+{s['n_videos']}v({s['vid_time']:.0f}s), "
         f"~{s['estimated_duration']:.0f}s"
     )
-    pc.display.done("plan", plan_detail, dur)
+    pc.display.done("plan", plan_detail, elapsed)
 
     pc.logger.info(
         f"Plan: EDL v{version} \u2014 {len(edl.segments)} segments, "
         f"{s['n_photos']} photos + {s['n_videos']} videos ({s['vid_pct']}% video), "
-        f"duration ~{s['estimated_duration']:.0f}s (target {edl.target_duration:.0f}s), planned in {dur:.0f}s"
+        f"duration ~{s['estimated_duration']:.0f}s (target {edl.target_duration:.0f}s), planned in {elapsed:.0f}s"
     )
     if s["n_keep_audio"]:
         pc.logger.info(f"  Speech preserved: {s['n_keep_audio']} clips")
@@ -174,13 +174,13 @@ def _run_generate_music(pc: _PipelineContext):
         progress_callback=_progress_cb(pc.logger, pc.display, "generate_music", t0),
     )
 
-    dur = time.monotonic() - t0
+    elapsed = time.monotonic() - t0
     if track:
-        pc.logger.info(f"Music: generated {track.name} in {dur:.0f}s")
-        pc.display.done("generate_music", track.name, dur)
+        pc.logger.info(f"Music: generated {track.name} in {elapsed:.0f}s")
+        pc.display.done("generate_music", track.name, elapsed)
     else:
         pc.logger.info("Music: skipped")
-        pc.display.done("generate_music", "skipped", dur)
+        pc.display.done("generate_music", "skipped", elapsed)
 
 
 def _run_assemble(pc: _PipelineContext):
@@ -206,11 +206,11 @@ def _run_assemble(pc: _PipelineContext):
         progress_callback=_progress_cb(pc.logger, pc.display, "assemble", t0),
     )
 
-    dur = time.monotonic() - t0
+    elapsed = time.monotonic() - t0
     size_mb = round(out.stat().st_size / 1024 / 1024, 1) if out.exists() else 0
-    pc.logger.info(f"Assemble: {out.name} ({size_mb}MB) in {dur:.0f}s")
+    pc.logger.info(f"Assemble: {out.name} ({size_mb}MB) in {elapsed:.0f}s")
     pc.display.output_file = str(out)
-    pc.display.done("assemble", f"{out.name} ({size_mb}MB)", dur)
+    pc.display.done("assemble", f"{out.name} ({size_mb}MB)", elapsed)
 
     for issue in issues:
         level = issue.get("level", "warning")

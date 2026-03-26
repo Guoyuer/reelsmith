@@ -22,35 +22,35 @@ def estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int |
     """Estimate BPM from WAV using energy envelope autocorrelation. Stdlib only."""
     try:
         with wave.open(str(wav_path)) as w:
-            sr = w.getframerate()
-            nc = w.getnchannels()
-            sw = w.getsampwidth()
+            sample_rate = w.getframerate()
+            num_channels = w.getnchannels()
+            sample_width = w.getsampwidth()
             n_frames = w.getnframes()
-            max_frames = min(n_frames, sr * 30)
+            max_frames = min(n_frames, sample_rate * 30)
             raw = w.readframes(max_frames)
     except (OSError, wave.Error) as e:
         logger.warning("BPM estimation: could not read %s: %s", wav_path, e)
         return None
 
-    n_samples = len(raw) // sw
-    if sw == 2:
+    n_samples = len(raw) // sample_width
+    if sample_width == 2:
         samples = _struct.unpack(f"<{n_samples}h", raw)
-    elif sw == 4:
+    elif sample_width == 4:
         samples = _struct.unpack(f"<{n_samples}i", raw)
     else:
         return None
 
-    if nc == 2:
+    if num_channels == 2:
         samples = [
             (samples[i] + samples[i + 1]) / 2 for i in range(0, n_samples - 1, 2)
         ]
-    elif nc > 2:
+    elif num_channels > 2:
         return None
 
-    if len(samples) < sr * 2:
+    if len(samples) < sample_rate * 2:
         return None
 
-    win = sr // 100
+    win = sample_rate // 100
     energy = []
     for i in range(0, len(samples), win):
         chunk = samples[i : i + win]
@@ -107,8 +107,8 @@ def beat_snap_edl(edl: EDL, music_path: Path) -> int:
 
     beat_interval = 60.0 / bpm
     half_beat = beat_interval / 2
-    total_dur = edl.estimated_duration() + 10
-    beats = [i * half_beat for i in range(int(total_dur / half_beat) + 1)]
+    total_duration = edl.estimated_duration() + 10
+    beats = [i * half_beat for i in range(int(total_duration / half_beat) + 1)]
 
     max_shift = 0.4
     min_photo_dur = 2.0

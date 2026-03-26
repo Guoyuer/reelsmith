@@ -49,8 +49,8 @@ def _build_composite_music(
     # Trim each segment's music to its duration + crossfade overlap, then chain acrossfade
     trimmed: list[Path] = []
     inputs: list[str] = []
-    for i, (dur, track) in enumerate(segment_tracks):
-        trim_dur = dur + (crossfade if i < len(segment_tracks) - 1 else 0)
+    for i, (duration, track) in enumerate(segment_tracks):
+        trim_duration = duration + (crossfade if i < len(segment_tracks) - 1 else 0)
         trimmed_path = output_path.parent / f"_seg_music_{i}.wav"
         result = run_subprocess(
             [
@@ -59,7 +59,7 @@ def _build_composite_music(
                 "-i",
                 str(track),
                 "-t",
-                str(trim_dur),
+                str(trim_duration),
                 "-c:a",
                 "pcm_s16le",
                 "-ar",
@@ -167,10 +167,14 @@ def generate_music_for_edl(
     segment_tracks: list[tuple[float, Path]] = []
 
     for i, seg in enumerate(edl.segments):
-        seg_dur = int(_segment_duration(seg))
+        segment_duration = int(_segment_duration(seg))
         mood = seg.music_mood or f"{edl.style} travel vlog background music"
         logger.info(
-            '  Segment %d/%d: "%s" (%ds)', i + 1, len(edl.segments), seg.name, seg_dur
+            '  Segment %d/%d: "%s" (%ds)',
+            i + 1,
+            len(edl.segments),
+            seg.name,
+            segment_duration,
         )
         logger.info("    Mood: %s", mood)
 
@@ -179,12 +183,12 @@ def generate_music_for_edl(
         track = generate_music_gemini(
             trip_type=edl.trip_type,
             style=edl.style,
-            target_duration=seg_dur,
+            target_duration=segment_duration,
             cache_dir=music_cache,
             mood=mood,
         )
         if track:
-            segment_tracks.append((seg_dur, track))
+            segment_tracks.append((segment_duration, track))
             logger.info("    Generated: %s", track.name)
         else:
             logger.warning("    FAILED — segment will be silent")

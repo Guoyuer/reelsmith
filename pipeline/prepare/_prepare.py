@@ -292,8 +292,8 @@ def _generate_video_previews(
     for vi in video_items:
         vid_id = vi["id"]
         source = Path(vi.get("local_path", ""))
-        dur = vi.get("video_duration", 0)
-        if not source.exists() or dur <= 0:
+        duration = vi.get("video_duration", 0)
+        if not source.exists() or duration <= 0:
             continue
         preview_path = preview_dir / f"preview_{vid_id}.mp4"
         if not preview_path.exists():
@@ -396,13 +396,13 @@ def _prepare_video(
         capture_output=True,
         text=True,
     )
-    total_dur = 10.0
+    total_duration = 10.0
     video_width = 0
     video_height = 0
     video_fps = 0.0
     try:
         probe_data = json.loads(probe.stdout)
-        total_dur = float(probe_data.get("format", {}).get("duration", 10.0))
+        total_duration = float(probe_data.get("format", {}).get("duration", 10.0))
         streams = probe_data.get("streams", [])
         if streams:
             video_width = int(streams[0].get("width", 0))
@@ -417,14 +417,14 @@ def _prepare_video(
     if video_width > 0 and video_height > 0 and video_height > video_width:
         orientation = "portrait"
 
-    entry["video_duration"] = round(total_dur, 1)
+    entry["video_duration"] = round(total_duration, 1)
     entry["video_width"] = video_width
     entry["video_height"] = video_height
     entry["video_fps"] = video_fps
     entry["video_orientation"] = orientation
 
     cache_entry = {
-        "video_duration": round(total_dur, 1),
+        "video_duration": round(total_duration, 1),
         "video_width": video_width,
         "video_height": video_height,
         "video_fps": video_fps,
@@ -438,7 +438,7 @@ def _prepare_video(
         i,
         total,
         entry["filename"],
-        total_dur,
+        total_duration,
         res_str,
         video_fps,
         orientation,
@@ -462,19 +462,19 @@ def _read_exif(path: str | Path) -> dict[str, Any]:
         if exif_sub:
             exif.update({TAGS.get(k, k): v for k, v in exif_sub.items()})
         result = {}
-        fl = exif.get("FocalLength")
-        if fl:
+        focal_length = exif.get("FocalLength")
+        if focal_length:
             result["focal_length"] = (
-                float(fl)
-                if not hasattr(fl, "numerator")
-                else fl.numerator / fl.denominator
+                float(focal_length)
+                if not hasattr(focal_length, "numerator")
+                else focal_length.numerator / focal_length.denominator
             )
-        fn = exif.get("FNumber")
-        if fn:
+        f_number = exif.get("FNumber")
+        if f_number:
             result["aperture"] = (
-                float(fn)
-                if not hasattr(fn, "numerator")
-                else fn.numerator / fn.denominator
+                float(f_number)
+                if not hasattr(f_number, "numerator")
+                else f_number.numerator / f_number.denominator
             )
         iso = exif.get("ISOSpeedRatings")
         if iso:

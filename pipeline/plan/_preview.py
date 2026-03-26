@@ -57,12 +57,12 @@ def _dedup_burst_photos(
     """
     photos = []
     others = []
-    for a in items:
-        suffix = Path(a.get("local_path", "")).suffix.lower()
-        if suffix not in VIDEO_EXTENSIONS and a.get("media_type") != "video":
-            photos.append(a)
+    for entry in items:
+        suffix = Path(entry.get("local_path", "")).suffix.lower()
+        if suffix not in VIDEO_EXTENSIONS and entry.get("media_type") != "video":
+            photos.append(entry)
         else:
-            others.append(a)
+            others.append(entry)
 
     if len(photos) < 2:
         return items
@@ -71,9 +71,9 @@ def _dedup_burst_photos(
 
     # Group consecutive photos within 10s (by filename timestamp as proxy)
     bursts: list[list[AnalysisEntry]] = [[photos[0]]]
-    for p in photos[1:]:
+    for photo in photos[1:]:
         prev_t = bursts[-1][-1].get("taken_iso", "") or ""
-        curr_t = p.get("taken_iso", "") or ""
+        curr_t = photo.get("taken_iso", "") or ""
         # Compare ISO timestamps: if within 10s, same burst
         try:
             from datetime import datetime
@@ -81,11 +81,11 @@ def _dedup_burst_photos(
             t1 = datetime.fromisoformat(prev_t.replace("Z", "+00:00"))
             t2 = datetime.fromisoformat(curr_t.replace("Z", "+00:00"))
             if abs((t2 - t1).total_seconds()) <= 10:
-                bursts[-1].append(p)
+                bursts[-1].append(photo)
             else:
-                bursts.append([p])
+                bursts.append([photo])
         except (ValueError, TypeError):
-            bursts.append([p])
+            bursts.append([photo])
 
     kept = []
     removed_total = 0
@@ -96,8 +96,10 @@ def _dedup_burst_photos(
 
         # Load histograms from thumbnails (fast — 400px already cached)
         hists = []
-        for p in burst:
-            thumb = thumbnails_dir / f"{Path(p.get('local_path', '')).stem}_thumb.jpg"
+        for photo in burst:
+            thumb = (
+                thumbnails_dir / f"{Path(photo.get('local_path', '')).stem}_thumb.jpg"
+            )
             hists.append(_photo_histogram(thumb) if thumb.exists() else None)
 
         # Cluster similar photos
@@ -143,41 +145,43 @@ def _dedup_burst_photos(
     return kept + others
 
 
-def _build_item_text(idx: int, a: AnalysisEntry) -> tuple[str, Path | None]:
+def _build_item_text(idx: int, entry: AnalysisEntry) -> tuple[str, Path | None]:
     """Build text metadata for one item. Returns (text_line, photo_path_or_None)."""
-    local_path = a.get("local_path", "")
-    media = a.get("media_type", "photo")
+    local_path = entry.get("local_path", "")
+    media = entry.get("media_type", "photo")
 
     label = f"#{idx:02d}:"
     parts = [label]
 
-    item_loc = a.get("district") or a.get("first_level") or a.get("country")
+    item_loc = entry.get("district") or entry.get("first_level") or entry.get("country")
     if item_loc:
         parts.append(f"at={item_loc}")
 
     photo_path = None
     if media == "video":
-        dur = a.get("video_duration", 0)
-        dur_s = f"{dur:.0f}s" if dur else "?"
-        vw = a.get("video_width", 0)
-        vh = a.get("video_height", 0)
-        res_str = f" {vw}x{vh}" if vw and vh else ""
-        orient = a.get("video_orientation", "")
+        duration = entry.get("video_duration", 0)
+        duration_str = f"{duration:.0f}s" if duration else "?"
+        video_width = entry.get("video_width", 0)
+        video_height = entry.get("video_height", 0)
+        res_str = (
+            f" {video_width}x{video_height}" if video_width and video_height else ""
+        )
+        orient = entry.get("video_orientation", "")
         orient_str = f"({orient})" if orient == "portrait" else ""
-        vfps = a.get("video_fps", 0)
-        fps_str = f" {vfps}fps" if vfps and vfps >= 48 else ""
-        parts.append(f"video={dur_s}{res_str}{orient_str}{fps_str}")
+        video_fps = entry.get("video_fps", 0)
+        fps_str = f" {video_fps}fps" if video_fps and video_fps >= 48 else ""
+        parts.append(f"video={duration_str}{res_str}{orient_str}{fps_str}")
     else:
-        exif_data = a.get("exif", {})
+        exif_data = entry.get("exif", {})
         if exif_data:
             exif_parts = []
-            fl = exif_data.get("focal_length")
-            ap = exif_data.get("aperture")
+            focal_length = exif_data.get("focal_length")
+            aperture = exif_data.get("aperture")
             iso = exif_data.get("iso")
-            if fl:
-                exif_parts.append(f"{fl:.0f}mm")
-            if ap:
-                exif_parts.append(f"f/{ap:.1f}")
+            if focal_length:
+                exif_parts.append(f"{focal_length:.0f}mm")
+            if aperture:
+                exif_parts.append(f"f/{aperture:.1f}")
             if iso:
                 exif_parts.append(f"ISO{iso}")
             if exif_parts:
@@ -199,27 +203,27 @@ def _concat_previews(
     offset = 0.0
     offset_table = []
     valid_entries = []
-    for item_num, _meta_dur, preview_path in video_entries:
-        actual_dur = probe_duration(preview_path)
-        if actual_dur <= 0:
+    for item_num, _meta_duration, preview_path in video_entries:
+        actual_duration = probe_duration(preview_path)
+        if actual_duration <= 0:
             logger.warning("  Skipping preview #%s: could not probe duration", item_num)
             continue
-        offset_table.append((item_num, actual_dur, offset))
-        valid_entries.append((item_num, actual_dur, preview_path))
-        offset += actual_dur
+        offset_table.append((item_num, actual_duration, offset))
+        valid_entries.append((item_num, actual_duration, preview_path))
+        offset += actual_duration
 
     with tempfile.TemporaryDirectory() as td:
         concat_file = Path(td) / "concat.txt"
         with open(concat_file, "w") as f:
-            for _, dur, preview_path in valid_entries:
+            for _, duration, preview_path in valid_entries:
                 safe = str(preview_path.resolve()).replace("\\", "/")
                 f.write(f"file '{safe}'\n")
-                f.write(f"duration {dur}\n")
+                f.write(f"duration {duration}\n")
 
         drawtext_parts = []
-        for item_num, dur, seg_offset in offset_table:
+        for item_num, duration, seg_offset in offset_table:
             label = f"\\\\\\#{item_num}"
-            end = seg_offset + dur
+            end = seg_offset + duration
             drawtext_parts.append(
                 f"drawtext=text='{label}'"
                 f":fontsize=36:fontcolor=yellow"
@@ -266,16 +270,16 @@ def _concat_previews(
     logger.info("  Mega-preview: %.1fMB", size_mb)
 
     if output_path.exists():
-        actual_dur = probe_duration(output_path)
-        if offset > 0 and actual_dur / offset < 0.5:
+        actual_duration = probe_duration(output_path)
+        if offset > 0 and actual_duration / offset < 0.5:
             raise RuntimeError(
-                f"Mega-preview duration mismatch: expected ~{offset:.0f}s, got {actual_dur:.0f}s (<50%)"
+                f"Mega-preview duration mismatch: expected ~{offset:.0f}s, got {actual_duration:.0f}s (<50%)"
             )
-        if abs(actual_dur - offset) > 5:
+        if abs(actual_duration - offset) > 5:
             logger.warning(
                 "Mega-preview duration drift: expected %.0fs, got %.0fs",
                 offset,
-                actual_dur,
+                actual_duration,
             )
 
     return offset_table, output_path
@@ -290,7 +294,7 @@ def _collect_items(
 
     Returns (text_block, photo_paths, video_entries, n_photos, n_videos).
     """
-    all_items = sorted(analysis_by_id.values(), key=lambda a: a.get("id", 0))
+    all_items = sorted(analysis_by_id.values(), key=lambda entry: entry.get("id", 0))
     all_items = _dedup_burst_photos(all_items, cfg.thumbnails_dir)
 
     lines: list[str] = []
@@ -300,12 +304,12 @@ def _collect_items(
     n_photos = 0
     n_videos = 0
 
-    for a in all_items:
-        local_path = a.get("local_path", "")
+    for entry in all_items:
+        local_path = entry.get("local_path", "")
         if not local_path or not Path(local_path).exists():
             continue
 
-        text_line, photo_path = _build_item_text(idx, a)
+        text_line, photo_path = _build_item_text(idx, entry)
         lines.append(text_line)
 
         if photo_path:
@@ -313,12 +317,12 @@ def _collect_items(
             n_photos += 1
         else:
             # Video — collect for mega-preview
-            vid_id = a["id"]
-            dur = a.get("video_duration", 0)
-            if dur > 0:
+            vid_id = entry["id"]
+            duration = entry.get("video_duration", 0)
+            if duration > 0:
                 preview_path = preview_dir / f"preview_{vid_id}.mp4"
                 if preview_path.exists() and preview_path.stat().st_size > 500:
-                    video_entries.append((idx, dur, preview_path))
+                    video_entries.append((idx, duration, preview_path))
             n_videos += 1
 
         idx += 1
@@ -399,11 +403,11 @@ def _build_visual_content_blocks(
     blocks.append(text_block)
 
     # --- Phase 2: add photo thumbnails inline ---
-    for p in photo_paths:
-        thumb = cfg.thumbnails_dir / f"{p.stem}_thumb.jpg"
+    for photo in photo_paths:
+        thumb = cfg.thumbnails_dir / f"{photo.stem}_thumb.jpg"
         if not thumb.exists():
             raise FileNotFoundError(
-                f"Thumbnail missing for {p.name} — run prepare first"
+                f"Thumbnail missing for {photo.name} — run prepare first"
             )
         blocks.append(
             {
@@ -457,16 +461,18 @@ def _build_visual_content_blocks(
 
     # --- Phase 4: validate ---
     n_images = sum(
-        1 for b in blocks if isinstance(b, dict) and b.get("type") == "image_bytes"
+        1
+        for block in blocks
+        if isinstance(block, dict) and block.get("type") == "image_bytes"
     )
 
     if n_images == 0:
         raise RuntimeError("No photos generated — check source files")
 
     text_item_nums = set()
-    for b in blocks:
-        if isinstance(b, str):
-            text_item_nums.update(int(m) for m in re.findall(r"#(\d+):", b))
+    for block in blocks:
+        if isinstance(block, str):
+            text_item_nums.update(int(m) for m in re.findall(r"#(\d+):", block))
     if len(text_item_nums) == 0:
         raise RuntimeError("No items (#XX) found in text metadata")
 
@@ -482,16 +488,16 @@ def _build_visual_content_blocks(
 
     file_pattern = re.compile(r"file=(\S+)")
     n_files = 0
-    for b in blocks:
-        if isinstance(b, str):
-            n_files += len(file_pattern.findall(b))
+    for block in blocks:
+        if isinstance(block, str):
+            n_files += len(file_pattern.findall(block))
     if n_files == 0 and len(text_item_nums) > 0:
         raise RuntimeError("No file= references found in text metadata")
 
     inline_bytes = sum(
-        len(b.get("data", b""))
-        for b in blocks
-        if isinstance(b, dict) and b.get("type") == "image_bytes"
+        len(block.get("data", b""))
+        for block in blocks
+        if isinstance(block, dict) and block.get("type") == "image_bytes"
     )
     if inline_bytes > 75 * 1024 * 1024:
         raise RuntimeError(
