@@ -5,16 +5,14 @@ from __future__ import annotations
 import pytest
 
 from pipeline.config import Config
-from pipeline.prepare import PrepareConfig
 
 
 class TestPreparePrerequisites:
     def test_missing_manifest_raises(self, tmp_path):
-        from pipeline.prepare import prepare
+        from pipeline.prepare import PrepareConfig, prepare
 
         cfg = Config(workspace=tmp_path)
         cfg.ensure_dirs()
-        # Don't create manifest.json
         with pytest.raises(FileNotFoundError, match="Manifest not found"):
             prepare(cfg, PrepareConfig())
 
@@ -25,7 +23,6 @@ class TestPlanPrerequisites:
 
         cfg = Config(workspace=tmp_path)
         cfg.ensure_dirs()
-        # Don't create manifest.json
         with pytest.raises(FileNotFoundError, match="Manifest not found"):
             plan(cfg, PlanConfig(target_duration=60))
 
