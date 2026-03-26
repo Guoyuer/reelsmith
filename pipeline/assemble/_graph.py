@@ -21,6 +21,15 @@ from ._filters import (
 
 logger = logging.getLogger("vlog.assemble.graph")
 
+# Effect enum value → ken_burns direction string
+_EFFECT_DIRECTIONS = {
+    "ken_burns_in": "in",
+    "ken_burns_out": "out",
+    "ken_burns_left": "left",
+    "ken_burns_right": "right",
+    "static": "static",
+}
+
 
 @dataclass
 class SegmentGraph:
@@ -224,6 +233,20 @@ def _fade_expr(duration: float, fade_in: float, fade_out: float) -> str:
     return "," + ",".join(parts)
 
 
+def _overlay_vf(item: EditItem, language: str, out_h: int) -> str:
+    """Return drawtext filter fragment for text_overlay, or empty string."""
+    if not item.text_overlay:
+        return ""
+    return "," + drawtext_filter(
+        item.text_overlay.text,
+        item.text_overlay.position,
+        item.text_overlay.font_size,
+        item.display_duration,
+        language,
+        out_h=out_h,
+    )
+
+
 def _photo_filter(
     idx: int,
     item: EditItem,
@@ -241,30 +264,13 @@ def _photo_filter(
     w, h, fps = ctx.w, ctx.h, ctx.fps
     frames = int(item.display_duration * fps)
 
-    dt = ""
-    if item.text_overlay:
-        dt = "," + drawtext_filter(
-            item.text_overlay.text,
-            item.text_overlay.position,
-            item.text_overlay.font_size,
-            item.display_duration,
-            language,
-            out_h=h,
-        )
-
+    dt = _overlay_vf(item, language, h)
     exact_dur = frames / fps
     fade = _fade_expr(exact_dur, fade_in, fade_out)
     cg = color_grade(segment.color_temp)
     sharpen = ",unsharp=3:3:0.5:3:3:0.0"
 
-    direction_map = {
-        "ken_burns_in": "in",
-        "ken_burns_out": "out",
-        "ken_burns_left": "left",
-        "ken_burns_right": "right",
-        "static": "static",
-    }
-    direction = direction_map.get(item.effect, "in")
+    direction = _EFFECT_DIRECTIONS.get(item.effect, "in")
     kb = ken_burns_filter(frames, w, h, fps, direction=direction)
 
     return (
@@ -299,17 +305,7 @@ def _video_filter(
         else ""
     )
 
-    dt = ""
-    if item.text_overlay:
-        dt = "," + drawtext_filter(
-            item.text_overlay.text,
-            item.text_overlay.position,
-            item.text_overlay.font_size,
-            item.display_duration,
-            language,
-            out_h=h,
-        )
-
+    dt = _overlay_vf(item, language, h)
     src_w, src_h = ctx.probe_dimensions(Path(item.source_file))
     cg = color_grade(segment.color_temp)
     fade = _fade_expr(output_dur, fade_in, fade_out)
