@@ -15,7 +15,6 @@ class TestConfigLoadDefaults:
         """Config.load() without arguments uses sensible defaults."""
         with patch("pipeline.config.load_dotenv"):
             cfg = Config.load()
-        assert cfg.api_base == "http://localhost:8000"
         assert cfg.workspace == Path("./workspace")
 
     @patch.dict(os.environ, {}, clear=True)
@@ -47,7 +46,6 @@ class TestConfigLoadDefaults:
 class TestConfigLoadEnvVars:
     def test_env_var_overrides(self, tmp_path: Path):
         env = {
-            "SYNOLOGY_API_BASE": "http://nas:5000",
             "WORKSPACE": str(tmp_path),
         }
         with (
@@ -55,7 +53,6 @@ class TestConfigLoadEnvVars:
             patch("pipeline.config.load_dotenv"),
         ):
             cfg = Config.load()
-        assert cfg.api_base == "http://nas:5000"
         assert cfg.workspace == tmp_path
 
     def test_workspace_arg_overrides_env(self, tmp_path: Path):

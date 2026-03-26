@@ -3,7 +3,6 @@
 Config is stored in grouped format with ``# default`` comments::
 
     source:
-      type: local
       path: /photos
 
     plan:
@@ -31,21 +30,12 @@ import yaml
 logger = logging.getLogger("vlog.plan")
 
 # Shared choice constants — used by Click options (_commands.py) and config validation.
-SOURCE_CHOICES = ("local", "nas")
 TRIP_TYPE_CHOICES = ("family", "solo", "food", "adventure", "architecture", "general")
 STYLE_CHOICES = ("upbeat", "cinematic", "reflective", "energetic")
 LANG_CHOICES = ("en", "cn", "both")
 
 # Which flat CLI params belong to which config group.
-_SOURCE_FIELDS = {
-    "source",
-    "path",
-    "from_date",
-    "to_date",
-    "country",
-    "district",
-    "item_types",
-}
+_SOURCE_FIELDS = {"path"}
 _PLAN_FIELDS = {"duration", "model", "lang", "trip_type", "style", "focus", "music"}
 _ASSEMBLE_FIELDS = {"resolution", "bitrate"}
 
@@ -60,13 +50,7 @@ _VALID_GROUPS = {"source", "plan", "assemble"}
 
 _GROUP_SCHEMA: dict[str, dict[str, dict[str, Any]]] = {
     "source": {
-        "type": {"type": str, "required": True, "choices": SOURCE_CHOICES},
-        "path": {"type": str},
-        "from_date": {"type": str},
-        "to_date": {"type": str},
-        "country": {"type": str},
-        "district": {"type": str},
-        "item_types": {"type": str},
+        "path": {"type": str, "required": True},
     },
     "plan": {
         "duration": {"type": int, "required": True},
@@ -161,8 +145,7 @@ def _dump_yaml_with_comments(grouped: dict[str, Any], defaults: set[str]) -> str
     """
     lines: list[str] = []
     # Map from grouped key back to flat param name for default detection.
-    # "source.type" → flat "source", rest are identity.
-    _GROUP_KEY_TO_FLAT = {"source": {"type": "source"}}
+    _GROUP_KEY_TO_FLAT: dict[str, dict[str, str]] = {}
 
     for group_name in ("source", "plan", "assemble"):
         group = grouped.get(group_name)
@@ -213,8 +196,6 @@ def save_run_config(
     grouped: dict[str, Any] = {}
     source_cfg = _pick(_SOURCE_FIELDS)
     if source_cfg:
-        if "source" in source_cfg:
-            source_cfg["type"] = source_cfg.pop("source")
         grouped["source"] = source_cfg
     plan_cfg = _pick(_PLAN_FIELDS)
     if plan_cfg:

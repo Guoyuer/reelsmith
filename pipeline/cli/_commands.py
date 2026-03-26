@@ -6,7 +6,6 @@ import click
 
 from ._config_io import (
     LANG_CHOICES,
-    SOURCE_CHOICES,
     STYLE_CHOICES,
     TRIP_TYPE_CHOICES,
     list_configs,
@@ -30,20 +29,6 @@ class _RequiredPrefixOption(click.Option):
             help_text = f"[required] {help_text}"
             return name, help_text
         return record
-
-
-ITEM_TYPE_NAMES = {"photo": 0, "video": 1, "live": 3, "motion": 6}
-
-
-def _parse_item_types(value: str) -> list[int]:
-    result = []
-    for part in value.split(","):
-        part = part.strip().lower()
-        if part in ITEM_TYPE_NAMES:
-            result.append(ITEM_TYPE_NAMES[part])
-        else:
-            result.append(int(part))
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +74,7 @@ def cli() -> None:
 
     \b
     Examples:
-      vlog full -n trip -s local -p ./photos -r 4k60 --duration 300 --model balanced
+      vlog full -n trip -p ./photos -r 4k60 --duration 300 --model balanced
       vlog plan -n trip --duration 300 --model quality --force
       vlog assemble -n trip -r 1080p30
     """
@@ -347,12 +332,9 @@ def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
     if use_cfg_file:
         _validate_use_cfg(ctx)
         saved = load_run_config(use_cfg_file)
-        if "source" in saved and "source" in p:
+        if "source" in saved and "path" in p:
             src = saved["source"]
-            p["source"] = src["type"]
-            for key in ("path", "from_date", "to_date", "country", "district", "item_types"):
-                if key in p:
-                    p[key] = src.get(key)
+            p["path"] = src.get("path")
         if "plan" in saved and "duration" in p:
             pl = saved["plan"]
             p["duration"] = pl["duration"]
@@ -375,65 +357,26 @@ def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
 
 
 # ---------------------------------------------------------------------------
-# Shared source options (--source local|nas, --path, NAS filters)
+# Shared source option (--path for local folder)
 # ---------------------------------------------------------------------------
 
 _source_options = [
     click.option(
-        "--source",
-        "-s",
-        required=True,
-        cls=_RequiredPrefixOption,
-        type=click.Choice(SOURCE_CHOICES),
-        help="Media source: local folder or Synology NAS",
-    ),
-    click.option(
         "--path",
         "-p",
-        default=None,
+        required=True,
+        cls=_RequiredPrefixOption,
         type=click.Path(exists=True),
-        help="Local folder path (required when --source local)",
-    ),
-    click.option(
-        "-f",
-        "--from-date",
-        default=None,
-        help="NAS start date YYYY-MM-DD (required when --source nas)",
-    ),
-    click.option(
-        "-t",
-        "--to-date",
-        default=None,
-        help="NAS end date YYYY-MM-DD (required when --source nas)",
-    ),
-    click.option("--country", default=None, help="NAS filter: country"),
-    click.option("--district", default=None, help="NAS filter: district/city"),
-    click.option(
-        "--item-types", default=None, help="NAS filter: photo,video,live,motion"
+        help="Local folder path containing photos/videos",
     ),
 ]
 
 
 def _build_fetch_config(p: dict):
-    """Build FetchConfig from resolved params dict with validation."""
+    """Build FetchConfig from resolved params dict."""
     from pipeline.fetch import FetchConfig
 
-    if p["source"] == "local":
-        if not p.get("path"):
-            raise click.UsageError("--path is required when --source is local")
-        return FetchConfig(source_dir=p["path"])
-    if not p.get("from_date") or not p.get("to_date"):
-        raise click.UsageError(
-            "--from-date and --to-date are required when --source is nas"
-        )
-    item_types = p.get("item_types")
-    return FetchConfig(
-        from_date=p["from_date"],
-        to_date=p["to_date"],
-        country=p.get("country"),
-        district=p.get("district"),
-        item_types=_parse_item_types(item_types) if item_types else None,
-    )
+    return FetchConfig(source_dir=p["path"])
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +390,7 @@ def _build_fetch_config(p: dict):
 @_use_cfg_option
 @_apply_options(_source_options)
 @_force_option
-def prepare(ctx, run_name, use_cfg_file, source, path, from_date, to_date, country, district, item_types, force):
+def prepare(ctx, run_name, use_cfg_file, path, force):
     """Fetch media and generate thumbnails + video previews (cached, use --force to regenerate)."""
     from pipeline.prepare import PrepareConfig
 
@@ -475,7 +418,22 @@ def prepare(ctx, run_name, use_cfg_file, source, path, from_date, to_date, count
 @_force_option
 @_apply_options(_plan_options)
 @_apply_options(_assemble_options)
-def full(ctx, run_name, use_cfg_file, source, path, from_date, to_date, country, district, item_types, force, duration, trip_type, style, focus, lang, model, music, resolution, quality):
+def full(
+    ctx,
+    run_name,
+    use_cfg_file,
+    path,
+    force,
+    duration,
+    trip_type,
+    style,
+    focus,
+    lang,
+    model,
+    music,
+    resolution,
+    quality,
+):
     """Run the full pipeline end-to-end."""
     from pipeline.assemble import AssembleConfig
     from pipeline.plan import PlanConfig
@@ -519,7 +477,19 @@ def full(ctx, run_name, use_cfg_file, source, path, from_date, to_date, country,
 @_use_cfg_option
 @_apply_options(_plan_options)
 @_force_option
-def plan(ctx, run_name, use_cfg_file, duration, trip_type, style, focus, lang, model, music, force):
+def plan(
+    ctx,
+    run_name,
+    use_cfg_file,
+    duration,
+    trip_type,
+    style,
+    focus,
+    lang,
+    model,
+    music,
+    force,
+):
     """Call Gemini to generate a new EDL (increments version). Requires prepare to have run first."""
     from pipeline.plan import PlanConfig
 
@@ -571,7 +541,9 @@ def assemble(ctx, run_name, use_cfg_file, version, resolution, quality):
 
     _run_pipeline(
         run_name,
-        assemble=AssembleConfig(w=w, h=h, fps=fps, quality=p["quality"], version=version),
+        assemble=AssembleConfig(
+            w=w, h=h, fps=fps, quality=p["quality"], version=version
+        ),
         stages=["assemble"],
         cli_params=cli_params,
         cli_defaults=defaults,

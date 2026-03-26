@@ -84,8 +84,6 @@ class TestFullCommandWiring:
             "full",
             "-n",
             "test-run",
-            "-s",
-            "local",
             "-p",
             ".",
             "--duration",
@@ -312,8 +310,6 @@ class TestRequiredParams:
         "full",
         "-n",
         "t",
-        "-s",
-        "local",
         "-p",
         ".",
         "--duration",
@@ -332,12 +328,12 @@ class TestRequiredParams:
         "omit_flags",
         [
             (["-n", "t"]),
-            (["-s", "local", "-p", "."]),
+            (["-p", "."]),
             (["--duration", "60"]),
             (["--model", "fast"]),
             (["-r", "720p30"]),
         ],
-        ids=["name", "source", "duration", "model", "resolution"],
+        ids=["name", "path", "duration", "model", "resolution"],
     )
     def test_full_missing_required_param(self, runner, omit_flags):
         args = list(self.ALL_ARGS)
@@ -347,8 +343,8 @@ class TestRequiredParams:
         result = runner.invoke(cli, args)
         assert result.exit_code != 0
 
-    def test_full_local_missing_path(self, runner):
-        """--source local without --path should fail."""
+    def test_full_missing_path(self, runner):
+        """--path is required and omitting it should fail."""
         with patch("pipeline.cli._commands._run_pipeline"):
             result = runner.invoke(
                 cli,
@@ -356,8 +352,6 @@ class TestRequiredParams:
                     "full",
                     "-n",
                     "t",
-                    "-s",
-                    "local",
                     "--duration",
                     "60",
                     "--model",

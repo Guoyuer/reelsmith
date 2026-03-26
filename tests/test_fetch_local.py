@@ -113,7 +113,7 @@ class TestIdDeterminism:
 class TestParseDateFromFilename:
     """Test the filename date extraction for all documented patterns."""
 
-    def test_nas_id_prefix_with_date_time(self):
+    def test_id_prefix_with_date_time(self):
         """Pattern: 87462_20250617_191756"""
         dt = _parse_date_from_filename("87462_20250617_191756")
         assert dt == datetime(2025, 6, 17, 19, 17, 56, tzinfo=timezone.utc)

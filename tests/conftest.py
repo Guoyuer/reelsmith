@@ -142,7 +142,6 @@ def sample_edl() -> EDL:
 def mock_config(tmp_path: Path) -> Config:
     """Config with fake URLs pointed at tmp_path, directories created."""
     cfg = Config(
-        api_base="http://fake:8000",
         workspace=tmp_path / "workspace",
     )
     cfg.ensure_dirs()

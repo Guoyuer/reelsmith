@@ -98,14 +98,9 @@ def _run_fetch(pc: _PipelineContext):
     else:
         fc = pc.fetch
         cb = _progress_cb(pc.logger, pc.display, "fetch", t0)
-        if fc.source_dir:
-            from pipeline.fetch import fetch_local
+        from pipeline.fetch import fetch_local
 
-            items = fetch_local(pc.cfg, fc, progress_callback=cb)
-        else:
-            from pipeline.fetch import fetch
-
-            items = fetch(pc.cfg, fc, progress_callback=cb)
+        items = fetch_local(pc.cfg, fc, progress_callback=cb)
         dur = time.monotonic() - t0
         pc.log(f"Fetch: {len(items)} items in {dur:.0f}s")
         pc.display.done("fetch", f"{len(items)} items", dur)
@@ -307,7 +302,7 @@ def _run_pipeline(
     if prepare:
         logger.info("  Prepare: force=%s", prepare.force)
     if fetch:
-        src = fetch.source_dir or "nas"
+        src = fetch.source_dir
         logger.info("  Fetch: source=%s", src)
 
     pc = _PipelineContext(

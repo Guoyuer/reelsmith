@@ -8,7 +8,6 @@ from . import _workspace  # noqa: F401
 from ._commands import (
     _PLANNING_PRESETS,
     _RESOLUTION_PRESETS,
-    ITEM_TYPE_NAMES,
     _format_resolution,
     _parse_resolution,
     _resolve_planning,
@@ -16,7 +15,6 @@ from ._commands import (
 )
 from ._config_io import (
     LANG_CHOICES,
-    SOURCE_CHOICES,
     STYLE_CHOICES,
     TRIP_TYPE_CHOICES,
     list_configs,
@@ -36,9 +34,7 @@ from ._runner import (
 __all__ = [
     "cli",
     "STAGES",
-    "ITEM_TYPE_NAMES",
     "LANG_CHOICES",
-    "SOURCE_CHOICES",
     "STYLE_CHOICES",
     "TRIP_TYPE_CHOICES",
     "_PLANNING_PRESETS",

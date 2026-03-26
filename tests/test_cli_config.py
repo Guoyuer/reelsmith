@@ -40,7 +40,6 @@ def runner():
 class TestSaveRunConfig:
     def test_saves_yaml_to_workspace(self, tmp_path):
         params = {
-            "source": "local",
             "path": "/photos",
             "duration": 180,
             "model": "balanced",
@@ -50,35 +49,34 @@ class TestSaveRunConfig:
         assert dest.name.startswith("run_config_")
         assert list_configs(tmp_path)[-1] == dest
         loaded = yaml.safe_load(dest.read_text())
-        assert loaded["source"]["type"] == "local"
         assert loaded["source"]["path"] == "/photos"
         assert loaded["plan"]["duration"] == 180
         assert loaded["plan"]["model"] == "balanced"
 
     def test_omits_none_values(self, tmp_path):
-        params = {"source": "local", "path": None, "duration": 60}
+        params = {"path": None, "duration": 60}
         save_run_config(tmp_path, params)
         loaded = yaml.safe_load(list_configs(tmp_path)[-1].read_text())
-        assert "path" not in loaded["source"]
+        assert "source" not in loaded
 
     def test_omits_unsaved_fields(self, tmp_path):
-        params = {"source": "local", "force": True, "version": 2, "run_name": "test"}
+        params = {"path": "/photos", "force": True, "version": 2, "run_name": "test"}
         save_run_config(tmp_path, params)
         loaded = yaml.safe_load(list_configs(tmp_path)[-1].read_text())
         assert "force" not in loaded
         assert "version" not in loaded
         assert "run_name" not in loaded
-        assert loaded["source"]["type"] == "local"
+        assert loaded["source"]["path"] == "/photos"
 
     def test_overwrites_existing(self, tmp_path):
-        save_run_config(tmp_path, {"source": "local", "duration": 60})
-        save_run_config(tmp_path, {"source": "nas", "duration": 180})
+        save_run_config(tmp_path, {"path": "/photos", "duration": 60})
+        save_run_config(tmp_path, {"path": "/other", "duration": 180})
         loaded = yaml.safe_load(list_configs(tmp_path)[-1].read_text())
-        assert loaded["source"]["type"] == "nas"
+        assert loaded["source"]["path"] == "/other"
         assert loaded["plan"]["duration"] == 180
 
     def test_empty_groups_omitted(self, tmp_path):
-        params = {"source": "local"}
+        params = {"path": "/photos"}
         save_run_config(tmp_path, params)
         loaded = yaml.safe_load(list_configs(tmp_path)[-1].read_text())
         assert "plan" not in loaded
@@ -86,7 +84,7 @@ class TestSaveRunConfig:
 
     def test_default_annotations(self, tmp_path):
         params = {
-            "source": "local",
+            "path": "/photos",
             "duration": 300,
             "model": "balanced",
             "trip_type": "family",
@@ -103,7 +101,7 @@ class TestSaveRunConfig:
                 assert "# default" not in line
 
     def test_config_filename_has_timestamp(self, tmp_path):
-        dest = save_run_config(tmp_path, {"source": "local"})
+        dest = save_run_config(tmp_path, {"path": "/photos"})
         assert dest.name.startswith("run_config_")
         assert dest.name.endswith(".yaml")
 
@@ -136,8 +134,6 @@ class TestFullSavesConfig:
             "full",
             "-n",
             "test-run",
-            "-s",
-            "local",
             "-p",
             ".",
             "--duration",
@@ -175,7 +171,7 @@ class TestFullSavesConfig:
         c = self._run_full(runner)
         params = c["cli_params"]
         assert params is not None
-        assert params["source"] == "local"
+        assert params["path"] == "."
         assert params["duration"] == 60
         assert params["model"] == "balanced"
         assert params["resolution"] == "1080p30"
@@ -187,8 +183,8 @@ class TestFullSavesConfig:
         assert "trip_type" in defaults
         assert "style" in defaults
         assert "music" in defaults
-        # source, duration, model explicitly passed → not defaults
-        assert "source" not in defaults
+        # path, duration, model explicitly passed → not defaults
+        assert "path" not in defaults
         assert "duration" not in defaults
         assert "model" not in defaults
 
@@ -261,7 +257,6 @@ class TestUseCfgFile:
         """Create a grouped config YAML file and return its path."""
         text = """\
 source:
-  type: local
   path: .
 
 plan:
@@ -412,7 +407,7 @@ class TestConfigValidation:
 
     def test_valid_config_passes(self, tmp_path):
         data = {
-            "source": {"type": "local", "path": "/photos"},
+            "source": {"path": "/photos"},
             "plan": {"duration": 300, "model": "balanced"},
             "assemble": {"resolution": "4k60"},
         }
@@ -420,7 +415,7 @@ class TestConfigValidation:
         assert result == data
 
     def test_unknown_top_level_key(self, tmp_path):
-        data = {"source": {"type": "local"}, "bogus": 123}
+        data = {"source": {"path": "/photos"}, "bogus": 123}
         with pytest.raises(click.UsageError, match="unknown top-level keys.*bogus"):
             self._write_and_load(tmp_path, data)
 
@@ -439,9 +434,9 @@ class TestConfigValidation:
         with pytest.raises(click.UsageError, match="'plan.duration' must be int"):
             self._write_and_load(tmp_path, data)
 
-    def test_invalid_choice(self, tmp_path):
-        data = {"source": {"type": "ftp"}}
-        with pytest.raises(click.UsageError, match="'source.type'.*must be one of"):
+    def test_unknown_key_in_source(self, tmp_path):
+        data = {"source": {"path": "/photos", "type": "local"}}
+        with pytest.raises(click.UsageError, match="'source'.*unknown keys.*type"):
             self._write_and_load(tmp_path, data)
 
     def test_group_not_object(self, tmp_path):
@@ -483,7 +478,7 @@ class TestConfigCommand:
     def test_prints_saved_config(self, runner, tmp_path):
         ws = tmp_path / "workspace" / "runs" / "myrun"
         ws.mkdir(parents=True)
-        cfg_text = "source:\n  type: local\n  path: /photos\n\nplan:\n  duration: 120\n"
+        cfg_text = "source:\n  path: /photos\n\nplan:\n  duration: 120\n"
         (ws / "run_config_20260325_120000.yaml").write_text(cfg_text)
 
         with patch("pipeline.config.Config.run_workspace", return_value=str(ws)):
@@ -495,7 +490,7 @@ class TestConfigCommand:
                 )
 
         assert result.exit_code == 0, result.output
-        assert "type: local" in result.output
+        assert "path: /photos" in result.output
         assert "duration: 120" in result.output
 
     def test_missing_config_errors(self, runner, tmp_path):

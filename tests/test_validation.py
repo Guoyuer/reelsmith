@@ -114,18 +114,6 @@ class TestFetchConfigValidation:
         fc = FetchConfig(source_dir="/some/path")
         assert fc.source_dir == "/some/path"
 
-    def test_nas_source_valid(self):
-        fc = FetchConfig(from_date="2025-01-01", to_date="2025-01-07")
-        assert fc.from_date == "2025-01-01"
-
-    def test_no_source_raises(self):
-        with pytest.raises(ValueError, match="requires either"):
-            FetchConfig()
-
-    def test_only_from_date_raises(self):
-        with pytest.raises(ValueError, match="requires either"):
-            FetchConfig(from_date="2025-01-01")
-
 
 # ---------------------------------------------------------------------------
 # validate_edl — comprehensive tests

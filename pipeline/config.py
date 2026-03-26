@@ -16,7 +16,6 @@ ProgressCallback = Callable[[int, int, str], None] | None
 @dataclass
 class Config:
     workspace: Path = Path("./workspace")
-    api_base: str = "http://localhost:8000"
 
     @property
     def _base(self) -> Path:
@@ -77,10 +76,7 @@ class Config:
     def load(cls, workspace: str | None = None) -> Config:
         load_dotenv()
         ws = Path(workspace or os.getenv("WORKSPACE", "./workspace"))
-        return cls(
-            workspace=ws,
-            api_base=os.getenv("SYNOLOGY_API_BASE", cls.api_base),
-        )
+        return cls(workspace=ws)
 
     def ensure_dirs(self) -> None:
         for d in [

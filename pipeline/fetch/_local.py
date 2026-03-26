@@ -1,8 +1,8 @@
-"""Fetch media from a local folder — no NAS required.
+"""Fetch media from a local folder.
 
 Scans a directory for photos and videos, extracts metadata from EXIF
 (date, GPS), and builds a manifest.json compatible with the rest of
-the pipeline. Alternative to fetch.py (Synology NAS).
+the pipeline.
 """
 
 from __future__ import annotations
@@ -11,12 +11,18 @@ import hashlib
 import json
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .._types import ManifestEntry
 from ..config import Config, ProgressCallback
-from ._nas import FetchConfig
+
+
+@dataclass
+class FetchConfig:
+    source_dir: str
+
 
 logger = logging.getLogger("vlog.fetch.local")
 
@@ -78,7 +84,7 @@ def fetch_local(
             "taken_iso": taken_iso,
             "filesize": src_path.stat().st_size,
             "local_path": str(src_path),
-            "metadata": {"persons": []},  # no face recognition without NAS
+            "metadata": {"persons": []},
         }
 
         # Extract GPS location and reverse geocode
@@ -159,7 +165,7 @@ def _extract_date(path: Path) -> datetime | None:
 
 
 _DATE_PATTERNS = [
-    # 87462_20250617_191756 (NAS ID prefix + date + time)
+    # 87462_20250617_191756 (ID prefix + date + time)
     re.compile(r"(?:^\d+_)?(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})"),
     # IMG20250613085912 or DJI_20250613120415_0072_D
     re.compile(r"(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})"),

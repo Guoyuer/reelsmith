@@ -15,7 +15,7 @@ from typing import TypedDict
 
 
 class ManifestMetadata(TypedDict, total=False):
-    """Metadata sub-dict from NAS API or local stub."""
+    """Metadata sub-dict (persons detected in media)."""
 
     persons: list[str]
 
@@ -33,8 +33,7 @@ class _ManifestRequired(TypedDict):
 class ManifestEntry(_ManifestRequired, total=False):
     """One item in manifest.json (fetch → prepare).
 
-    Required keys are set by both fetch_local and fetch_nas.
-    Optional keys depend on the source (GPS, NAS metadata, etc.).
+    Optional keys depend on the source (GPS, etc.).
     """
 
     # From fetch_local
@@ -42,7 +41,7 @@ class ManifestEntry(_ManifestRequired, total=False):
     takentime: int
     filesize: int
 
-    # Location (from EXIF GPS or NAS)
+    # Location (from EXIF GPS)
     latitude: float
     longitude: float
     city: str
@@ -50,8 +49,8 @@ class ManifestEntry(_ManifestRequired, total=False):
     first_level: str  # region/state
     district: str
 
-    # NAS-specific
-    duration: int  # video duration in ms (from NAS API)
+    # Video
+    duration: int  # video duration in ms
     live_video_path: str  # companion video for live photos
 
     # Added by prepare (family detection pass)
