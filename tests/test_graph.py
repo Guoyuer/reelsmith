@@ -14,7 +14,9 @@ import pytest
 from pipeline.assemble._encoder import RenderContext
 from pipeline.assemble._graph import (
     SegmentGraph,
+    _blurred_bg,
     _fade_expr,
+    _next_item,
     _overlay_vf,
     _photo_filter,
     _video_filter,
@@ -370,6 +372,75 @@ class TestVideoFilter:
 
 
 # ---------------------------------------------------------------------------
+# _blurred_bg
+# ---------------------------------------------------------------------------
+
+
+class TestBlurredBg:
+    def test_contains_blur_and_overlay(self):
+        result = _blurred_bg(0, 1920, 1080, 50)
+        assert "gblur=sigma=50" in result
+        assert "overlay=(W-w)/2:(H-h)/2" in result
+        assert "[blurred0]" in result
+        assert "[sharp0]" in result
+
+    def test_sigma_parameterized(self):
+        r50 = _blurred_bg(0, 1920, 1080, 50)
+        r60 = _blurred_bg(0, 1920, 1080, 60)
+        assert "sigma=50" in r50
+        assert "sigma=60" in r60
+        assert "sigma=50" not in r60
+
+    def test_index_propagated(self):
+        result = _blurred_bg(3, 1920, 1080, 50)
+        assert "[bg3]" in result
+        assert "[fg3]" in result
+        assert "[blurred3]" in result
+        assert "[sharp3]" in result
+
+    def test_no_trailing_comma(self):
+        """Caller adds the comma — _blurred_bg should not end with one."""
+        result = _blurred_bg(0, 1920, 1080, 50)
+        assert not result.endswith(",")
+
+
+# ---------------------------------------------------------------------------
+# _next_item
+# ---------------------------------------------------------------------------
+
+
+class TestNextItem:
+    def test_next_in_same_segment(self):
+        s = _seg([_photo(), _photo(), _photo()])
+        edl = _edl([s])
+        seg, idx = _next_item(edl, 0, 0)
+        assert seg is edl.segments[0]
+        assert idx == 1
+
+    def test_cross_segment_boundary(self):
+        s1 = _seg([_photo()], name="S1")
+        s2 = _seg([_photo()], name="S2")
+        edl = _edl([s1, s2])
+        seg, idx = _next_item(edl, 0, 0)
+        assert seg is edl.segments[1]
+        assert idx == 0
+
+    def test_last_item_returns_none(self):
+        s = _seg([_photo()])
+        edl = _edl([s])
+        seg, idx = _next_item(edl, 0, 0)
+        assert seg is None
+        assert idx == 0
+
+    def test_middle_of_segment(self):
+        s = _seg([_photo(), _photo(), _photo()])
+        edl = _edl([s])
+        seg, idx = _next_item(edl, 0, 1)
+        assert seg is edl.segments[0]
+        assert idx == 2
+
+
+# ---------------------------------------------------------------------------
 # compute_fade_params
 # ---------------------------------------------------------------------------
 
@@ -505,10 +576,8 @@ class TestComputeFadeParams:
     def test_empty_edl(self):
         """EDL with no segments returns empty list."""
         edl = _edl([])
-        # compute_fade_params appends seg_fades at the end; for empty edl
-        # the flat list is empty, so seg_fades is [] and gets appended
         fades = compute_fade_params(edl)
-        assert fades == [[]]
+        assert fades == []
 
     def test_mixed_items_per_segment(self):
         """Verify fade counts match item counts per segment."""
