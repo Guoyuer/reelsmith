@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 from .._types import PHOTO_EXTENSIONS, AnalysisEntry
@@ -18,6 +19,66 @@ from ..edl import EDL, validate_edl
 from ._prompts import _timestamp_to_secs
 
 logger = logging.getLogger("vlog.plan")
+
+# ---------------------------------------------------------------------------
+# Post-processing report — tracks repair counts for threshold alerting
+# ---------------------------------------------------------------------------
+
+# Thresholds: warn at 30% removal, hard-fail at 50%
+_WARN_REMOVAL_RATE = 0.3
+_FAIL_REMOVAL_RATE = 0.5
+_WARN_PATH_RATE = 0.2
+
+
+@dataclass
+class PostprocessReport:
+    """Aggregated repair counts from post-processing pipeline."""
+
+    items_before: int
+    items_after: int = 0
+    path_removed: int = 0
+    trim_clamped: int = 0
+    trim_removed: int = 0
+    dedup_removed: int = 0
+    dur_fixed: int = 0
+    dur_delta: float = 0.0
+
+    @property
+    def total_removed(self) -> int:
+        return self.path_removed + self.trim_removed + self.dedup_removed
+
+    @property
+    def removal_rate(self) -> float:
+        return self.total_removed / self.items_before if self.items_before else 0.0
+
+    def check_thresholds(self) -> None:
+        """Log warnings or raise if repair counts exceed thresholds."""
+        if self.items_before == 0:
+            return
+
+        if self.removal_rate > _FAIL_REMOVAL_RATE:
+            raise RuntimeError(
+                f"Post-processing removed {self.removal_rate:.0%} of items "
+                f"({self.total_removed}/{self.items_before}). "
+                f"Gemini output is likely severely broken — aborting."
+            )
+
+        if self.removal_rate > _WARN_REMOVAL_RATE:
+            logger.warning(
+                "Post-processing removed %.0f%% of items (%d/%d). "
+                "Gemini output may be severely wrong.",
+                self.removal_rate * 100,
+                self.total_removed,
+                self.items_before,
+            )
+
+        if self.path_removed > self.items_before * _WARN_PATH_RATE:
+            logger.warning(
+                "Over 20%% of items had hallucinated paths (%d/%d). "
+                "Consider re-running with --force to refresh media cache.",
+                self.path_removed,
+                self.items_before,
+            )
 
 
 def parse_and_convert_timestamps(

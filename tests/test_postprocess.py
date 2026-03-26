@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from pipeline.edl import EDL, EditItem, Segment
 from pipeline.plan._postprocess import (
+    PostprocessReport,
     deduplicate_items,
     fix_hallucinated_paths,
     log_edl_summary,
@@ -431,3 +434,52 @@ class TestLogEdlSummary:
         assert "Test" in log_text  # title
         assert "1 photos" in log_text or "photo" in log_text
         assert "1 videos" in log_text or "video" in log_text
+
+
+# ---------------------------------------------------------------------------
+# PostprocessReport threshold alerting
+# ---------------------------------------------------------------------------
+
+
+class TestPostprocessReport:
+    def test_removal_rate(self):
+        r = PostprocessReport(
+            items_before=10, items_after=7, path_removed=2, dedup_removed=1
+        )
+        assert r.total_removed == 3
+        assert r.removal_rate == pytest.approx(0.3)
+
+    def test_no_items_safe(self):
+        r = PostprocessReport(items_before=0, items_after=0)
+        r.check_thresholds()  # should not raise
+
+    def test_below_threshold_ok(self):
+        r = PostprocessReport(
+            items_before=20, items_after=18, path_removed=1, trim_removed=1
+        )
+        r.check_thresholds()  # should not raise
+
+    def test_warn_at_30_percent(self, caplog):
+        import logging
+
+        r = PostprocessReport(
+            items_before=10, items_after=6, path_removed=3, trim_removed=1
+        )
+        with caplog.at_level(logging.WARNING, logger="vlog.plan"):
+            r.check_thresholds()
+        assert "severely wrong" in caplog.text
+
+    def test_fail_at_50_percent(self):
+        r = PostprocessReport(
+            items_before=10, items_after=4, path_removed=5, trim_removed=1
+        )
+        with pytest.raises(RuntimeError, match="severely broken"):
+            r.check_thresholds()
+
+    def test_path_hallucination_warning(self, caplog):
+        import logging
+
+        r = PostprocessReport(items_before=10, items_after=8, path_removed=3)
+        with caplog.at_level(logging.WARNING, logger="vlog.plan"):
+            r.check_thresholds()
+        assert "hallucinated paths" in caplog.text

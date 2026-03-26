@@ -323,6 +323,15 @@ _CFG_SKIP_PARAMS = frozenset({"run_name", "use_cfg_file", "force", "version"})
 def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
     """Handle --use-cfg-file overrides, build cli_params and defaults.
 
+    Resolution order for each parameter:
+
+    1. If ``--use-cfg-file`` is set: cfg-file value wins (CLI explicit
+       params other than -n/--force raise an error via ``_validate_use_cfg``).
+    2. Otherwise: CLI value (explicit or default, tracked via
+       ``_collect_defaults``).
+
+    Defaults are annotated in saved ``run_config_*.yaml`` with ``# default``.
+
     Returns *(params, cli_params, defaults)* where *params* is a dict of all
     resolved parameter values (cfg-file overrides applied).
     """

@@ -16,6 +16,7 @@ from ..config import Config, ProgressCallback
 from ..edl import EDL, MusicTrack, find_latest_version, save_edl
 from ._gemini import _gemini_call
 from ._postprocess import (
+    PostprocessReport,
     deduplicate_items,
     fix_hallucinated_paths,
     log_edl_summary,
@@ -193,6 +194,18 @@ All candidates:"""
     n_dedup = deduplicate_items(edl)
     items_after = len(edl.all_items())
 
+    # Build report and check thresholds
+    report = PostprocessReport(
+        items_before=items_before,
+        items_after=items_after,
+        path_removed=n_path_removed,
+        trim_clamped=n_trim_fixed,
+        trim_removed=n_trim_removed,
+        dedup_removed=n_dedup,
+        dur_fixed=n_dur_fixed,
+        dur_delta=dur_delta,
+    )
+
     # Log post-processing summary at INFO
     pp_parts = []
     if n_path_removed:
@@ -214,6 +227,9 @@ All candidates:"""
         )
     else:
         logger.info("Post-processing: no changes (%d items)", items_after)
+
+    # Check removal thresholds (raises RuntimeError if >50% removed)
+    report.check_thresholds()
 
     # Rich post-processing diff
     from ..utils import stderr_console
