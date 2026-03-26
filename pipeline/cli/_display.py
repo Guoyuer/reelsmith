@@ -320,8 +320,8 @@ class _PipelineDisplay:
 
             p = Path(self.output_file)
             if p.exists():
-                size_mb = p.stat().st_size / 1024 / 1024
-                footer_detail.append(f"{p.name} ({size_mb:.0f}MB)")
+                size_mb = round(p.stat().st_size / 1024 / 1024, 1)
+                footer_detail.append(f"{p.name} ({size_mb}MB)")
             else:
                 footer_detail.append(p.name)
         table.add_row(
