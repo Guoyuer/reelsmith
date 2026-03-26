@@ -15,6 +15,22 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
+# Validation thresholds
+# ---------------------------------------------------------------------------
+
+_MAX_INTRO_DURATION = 15  # seconds
+_MAX_TRANSITION_DURATION = 3.0  # seconds
+_MIN_DISPLAY_DURATION = 2.0  # seconds; items shorter than this get a warning
+_WARN_DISPLAY_DURATION = 120  # seconds; items longer than this get a warning
+_MAX_FONT_SIZE = 200  # pixels
+_DURATION_RATIO_WARN = 2.0  # warn if estimated > 2x target
+_DURATION_RATIO_FAIL = 0.3  # warn if estimated < 30% of target
+_TRIM_TOLERANCE = 0.5  # seconds; trim vs display mismatch tolerance
+_MIN_TOTAL_DISPLAY = 5  # seconds; minimum total display duration
+_MAX_PLAYBACK_SPEED = 4.0
+
+
+# ---------------------------------------------------------------------------
 # Enumerations — single source of truth for valid string values
 # ---------------------------------------------------------------------------
 
@@ -267,9 +283,9 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
     if edl.target_duration <= 0:
         _error(f"Invalid target_duration: {edl.target_duration}")
 
-    if edl.intro_duration <= 0 or edl.intro_duration > 15:
+    if edl.intro_duration <= 0 or edl.intro_duration > _MAX_INTRO_DURATION:
         _error(f"Invalid intro_duration: {edl.intro_duration}")
-    if edl.outro_duration <= 0 or edl.outro_duration > 15:
+    if edl.outro_duration <= 0 or edl.outro_duration > _MAX_INTRO_DURATION:
         _error(f"Invalid outro_duration: {edl.outro_duration}")
 
     # --- Segments ---
@@ -289,10 +305,13 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
             continue
 
         if seg.transition != Transition.CUT:
-            if seg.transition_duration <= 0 or seg.transition_duration > 3.0:
+            if (
+                seg.transition_duration <= 0
+                or seg.transition_duration > _MAX_TRANSITION_DURATION
+            ):
                 _error(
                     f"{seg_label}: transition_duration {seg.transition_duration}s "
-                    f"out of range (0, 3.0]"
+                    f"out of range (0, {_MAX_TRANSITION_DURATION}]"
                 )
 
         for ii, item in enumerate(seg.items):
@@ -331,11 +350,11 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
             # Duration
             if item.display_duration <= 0:
                 _error(f"{item_label}: display_duration <= 0 ({item.display_duration})")
-            elif item.display_duration < 2.0:
+            elif item.display_duration < _MIN_DISPLAY_DURATION:
                 _warn(
-                    f"{item_label}: display_duration too short ({item.display_duration}s, min 2s)"
+                    f"{item_label}: display_duration too short ({item.display_duration}s, min {_MIN_DISPLAY_DURATION}s)"
                 )
-            elif item.display_duration > 120:
+            elif item.display_duration > _WARN_DISPLAY_DURATION:
                 _warn(
                     f"{item_label}: display_duration very long ({item.display_duration}s)"
                 )
@@ -356,7 +375,7 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
                         )
                     trim_dur = item.end_time - item.start_time
                     if (
-                        abs(trim_dur - item.display_duration) > 0.5
+                        abs(trim_dur - item.display_duration) > _TRIM_TOLERANCE
                         and item.playback_speed == 1.0
                     ):
                         _warn(
@@ -365,7 +384,10 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
                         )
                 if item.start_time is not None and item.start_time < 0:
                     _error(f"{item_label}: negative start_time ({item.start_time})")
-                if item.playback_speed <= 0 or item.playback_speed > 4.0:
+                if (
+                    item.playback_speed <= 0
+                    or item.playback_speed > _MAX_PLAYBACK_SPEED
+                ):
                     _error(
                         f"{item_label}: invalid playback_speed ({item.playback_speed})"
                     )
@@ -385,7 +407,7 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
                     _warn(f"{item_label}: empty text overlay")
                 if (
                     item.text_overlay.font_size <= 0
-                    or item.text_overlay.font_size > 200
+                    or item.text_overlay.font_size > _MAX_FONT_SIZE
                 ):
                     _error(
                         f"{item_label}: invalid font_size ({item.text_overlay.font_size})"
@@ -404,19 +426,19 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
     if total_items == 0:
         _error("EDL has no items")
 
-    if total_display < 5:
+    if total_display < _MIN_TOTAL_DISPLAY:
         _warn(f"Total display duration very short: {total_display:.1f}s")
 
     estimated = edl.estimated_duration()
     if edl.target_duration > 0 and estimated > 0:
         ratio = estimated / edl.target_duration
-        if ratio > 2.0:
+        if ratio > _DURATION_RATIO_WARN:
             _warn(
-                f"Estimated duration ({estimated:.0f}s) is >2x target ({edl.target_duration:.0f}s)"
+                f"Estimated duration ({estimated:.0f}s) is >{_DURATION_RATIO_WARN}x target ({edl.target_duration:.0f}s)"
             )
-        elif ratio < 0.3:
+        elif ratio < _DURATION_RATIO_FAIL:
             _warn(
-                f"Estimated duration ({estimated:.0f}s) is <30% of target ({edl.target_duration:.0f}s)"
+                f"Estimated duration ({estimated:.0f}s) is <{int(_DURATION_RATIO_FAIL * 100)}% of target ({edl.target_duration:.0f}s)"
             )
 
     # Music checks
