@@ -20,6 +20,10 @@ from ._prompts import _secs_to_timestamp
 
 logger = logging.getLogger("vlog.plan")
 
+_BURST_SIMILARITY_THRESHOLD = 0.92  # cosine similarity for burst dedup
+_BURST_WINDOW_SECS = 10  # seconds; burst grouping time window
+_DEDUP_THUMB_SIZE = 64  # pixels; thumbnail size for histogram comparison
+
 
 # ---------------------------------------------------------------------------
 # Burst photo dedup (HSV histogram similarity)
@@ -31,7 +35,12 @@ def _photo_histogram(path: Path) -> list[int] | None:
     try:
         from PIL import Image
 
-        return Image.open(path).convert("HSV").resize((64, 64)).histogram()
+        return (
+            Image.open(path)
+            .convert("HSV")
+            .resize((_DEDUP_THUMB_SIZE, _DEDUP_THUMB_SIZE))
+            .histogram()
+        )
     except Exception:
         return None
 
@@ -47,7 +56,9 @@ def _histogram_similarity(h1: list[int], h2: list[int]) -> float:
 
 
 def _dedup_burst_photos(
-    items: list[AnalysisEntry], thumbnails_dir: Path, threshold: float = 0.92
+    items: list[AnalysisEntry],
+    thumbnails_dir: Path,
+    threshold: float = _BURST_SIMILARITY_THRESHOLD,
 ) -> list[AnalysisEntry]:
     """Remove near-identical burst photos before sending to Gemini.
 
@@ -80,7 +91,7 @@ def _dedup_burst_photos(
 
             t1 = datetime.fromisoformat(prev_t.replace("Z", "+00:00"))
             t2 = datetime.fromisoformat(curr_t.replace("Z", "+00:00"))
-            if abs((t2 - t1).total_seconds()) <= 10:
+            if abs((t2 - t1).total_seconds()) <= _BURST_WINDOW_SECS:
                 bursts[-1].append(photo)
             else:
                 bursts.append([photo])

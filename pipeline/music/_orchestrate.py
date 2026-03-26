@@ -15,19 +15,24 @@ from ..config import ProgressCallback
 
 logger = logging.getLogger("vlog.music")
 
+_MIN_SEGMENT_DURATION = 5  # seconds; floor for per-segment music
+_DEFAULT_CROSSFADE = 2.0  # seconds; crossfade between segments
+
 
 def _segment_duration(seg) -> float:
     """Calculate a segment's screen time from its items and transitions."""
     total = sum(item.display_duration for item in seg.items)
     if seg.transition != "cut" and len(seg.items) > 1:
         total -= (len(seg.items) - 1) * seg.transition_duration
-    return max(total, 5)  # at least 5s per segment
+    return max(
+        total, _MIN_SEGMENT_DURATION
+    )  # at least _MIN_SEGMENT_DURATION per segment
 
 
 def _build_composite_music(
     segment_tracks: list[tuple[float, Path]],
     output_path: Path,
-    crossfade: float = 2.0,
+    crossfade: float = _DEFAULT_CROSSFADE,
 ) -> bool:
     """Build composite music from per-segment tracks with crossfades.
 
@@ -205,7 +210,9 @@ def generate_music_for_edl(
         music_cache
         / f"composite_{edl.trip_type}_{edl.style}_{int(edl.estimated_duration())}s.wav"
     )
-    if not _build_composite_music(segment_tracks, composite_path, crossfade=2.0):
+    if not _build_composite_music(
+        segment_tracks, composite_path, crossfade=_DEFAULT_CROSSFADE
+    ):
         # Fallback: use first segment's track
         logger.warning("Composite build failed, using first segment track")
         composite_path = segment_tracks[0][1]
