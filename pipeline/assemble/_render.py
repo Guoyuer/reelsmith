@@ -11,6 +11,17 @@ from ._filters import escape_drawtext, find_font
 
 logger = logging.getLogger("vlog.assemble.render")
 
+_TITLE_SCALE = 0.08  # title font size as fraction of output height
+_TITLE_LONG_THRESHOLD = 25  # characters; reduce size above this
+_SUBTITLE_Y_RATIO = 0.59  # subtitle vertical position as fraction of height
+_SEPARATOR_WIDTH_RATIO = 0.15  # separator line width as fraction of output width
+_SEPARATOR_Y_RATIO = 0.55  # separator Y position as fraction of height
+_GRADIENT_START = "0x0f0c29"  # fallback gradient dark purple
+_GRADIENT_END = "0x302b63"  # fallback gradient lighter purple
+_BG_BLUR_SIGMA = 40  # blur for photo background
+_FADE_IN_DURATION = 0.5  # seconds
+_FADE_OUT_DURATION = 0.8  # seconds
+
 
 def render_title_card(
     title: str,
@@ -32,9 +43,9 @@ def render_title_card(
     font = find_font(language)
     font_arg = f":fontfile='{font}'" if font else ""
 
-    title_size = int(h * 0.08)
-    if len(title) > 25:
-        title_size = int(title_size * 25 / len(title))
+    title_size = int(h * _TITLE_SCALE)
+    if len(title) > _TITLE_LONG_THRESHOLD:
+        title_size = int(title_size * _TITLE_LONG_THRESHOLD / len(title))
 
     # Decide background: hero photo or gradient fallback
     use_photo_bg = background_photo is not None and Path(background_photo).exists()
@@ -42,13 +53,13 @@ def render_title_card(
     if use_photo_bg:
         photo_bg = (
             f"scale={w}:{h}:force_original_aspect_ratio=increase,"
-            f"crop={w}:{h},gblur=sigma=40,"
+            f"crop={w}:{h},gblur=sigma={_BG_BLUR_SIGMA},"
             f"eq=brightness=-0.3:saturation=0.7,vignette=PI/5"
         )
     else:
         gradient = (
-            f"color=c=0x0f0c29:s={w}x{h}:d={duration}:r={fps}[bg1];"
-            f"color=c=0x302b63:s={w}x{h // 2}:d={duration}:r={fps}[bg2];"
+            f"color=c={_GRADIENT_START}:s={w}x{h}:d={duration}:r={fps}[bg1];"
+            f"color=c={_GRADIENT_END}:s={w}x{h // 2}:d={duration}:r={fps}[bg2];"
             f"[bg1][bg2]overlay=0:h/4:format=auto[grad]"
         )
 
@@ -57,16 +68,16 @@ def render_title_card(
         f"drawtext=text='{safe_title}'{font_arg}"
         f":fontsize={title_size}:fontcolor=white"
         f":x=(w-text_w)/2:y={title_y}"
-        f":alpha='if(lt(t,0.5),t/0.5,if(gt(t,{duration - 0.8}),(({duration}-t)/0.8),1))'"
+        f":alpha='if(lt(t,{_FADE_IN_DURATION}),t/{_FADE_IN_DURATION},if(gt(t,{duration - _FADE_OUT_DURATION}),(({duration}-t)/{_FADE_OUT_DURATION}),1))'"
     )
 
-    line_y = int(h * 0.55)
-    line_w = int(w * 0.15)
+    line_y = int(h * _SEPARATOR_Y_RATIO)
+    line_w = int(w * _SEPARATOR_WIDTH_RATIO)
     line_x = (w - line_w) // 2
     separator = (
         f",drawbox=x={line_x}:y={line_y}:w={line_w}:h=2"
         f":color=white@0.4:t=fill"
-        f":enable='between(t,0.8,{duration - 0.5})'"
+        f":enable='between(t,{_FADE_OUT_DURATION},{duration - _FADE_IN_DURATION})'"
     )
 
     sub_text = ""
@@ -75,11 +86,11 @@ def render_title_card(
         sub_text = (
             f",drawtext=text='{safe_sub}'{font_arg}"
             f":fontsize={int(h * 0.035)}:fontcolor=white@0.6"
-            f":x=(w-text_w)/2:y={int(h * 0.59)}"
-            f":alpha='if(lt(t,1.0),max(0,(t-0.7)/0.3),if(gt(t,{duration - 0.8}),(({duration}-t)/0.8),1))'"
+            f":x=(w-text_w)/2:y={int(h * _SUBTITLE_Y_RATIO)}"
+            f":alpha='if(lt(t,1.0),max(0,(t-0.7)/0.3),if(gt(t,{duration - _FADE_OUT_DURATION}),(({duration}-t)/{_FADE_OUT_DURATION}),1))'"
         )
 
-    fade = f",fade=t=in:d=0.5,fade=t=out:st={duration - 0.8}:d=0.8"
+    fade = f",fade=t=in:d={_FADE_IN_DURATION},fade=t=out:st={duration - _FADE_OUT_DURATION}:d={_FADE_OUT_DURATION}"
 
     enc = ctx.get_encoder()
 

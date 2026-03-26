@@ -22,6 +22,8 @@ from ._render import render_title_card
 
 logger = logging.getLogger("vlog.assemble")
 
+_SAMPLE_RATE = 48000
+
 
 @dataclass
 class AssembleConfig:
@@ -347,7 +349,7 @@ def _concat_and_mix(
         music_chain = "[1:a] "
         if music_duration < total_duration:
             loops = int(total_duration / music_duration) + 1
-            samples = int(music_duration * 48000)
+            samples = int(music_duration * _SAMPLE_RATE)
             music_chain += (
                 f"aloop=loop={loops}:size={samples},atrim=0:{total_duration:.3f},"
             )

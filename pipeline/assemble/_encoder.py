@@ -13,6 +13,16 @@ from ..utils.media import run_subprocess
 
 logger = logging.getLogger("vlog.assemble.encoder")
 
+_BITRATE_TIERS: list[tuple[int, int]] = [
+    (3840 * 2160, 45),
+    (2560 * 1440, 16),
+    (1920 * 1080, 8),
+    (1280 * 720, 5),
+    (0, 3),
+]
+_HFR_MULTIPLIER = 1.5  # bitrate bump for fps > 30
+_HEVC_RATIO = 0.65  # HEVC bitrate as fraction of H.264
+
 
 # ---------------------------------------------------------------------------
 # Bitrate & encoder detection
@@ -22,19 +32,10 @@ logger = logging.getLogger("vlog.assemble.encoder")
 def target_bitrate(width: int, height: int, fps: int, quality: float = 1.0) -> str:
     """Calculate target video bitrate based on resolution, fps, and quality."""
     pixels = width * height
-    if pixels >= 3840 * 2160:
-        base = 45
-    elif pixels >= 2560 * 1440:
-        base = 16
-    elif pixels >= 1920 * 1080:
-        base = 8
-    elif pixels >= 1280 * 720:
-        base = 5
-    else:
-        base = 3
+    base = next(mbps for threshold, mbps in _BITRATE_TIERS if pixels >= threshold)
 
     if fps > 30:
-        base = int(base * 1.5)
+        base = int(base * _HFR_MULTIPLIER)
     base = int(base * quality)
     return f"{max(base, 1)}M"
 
@@ -46,7 +47,7 @@ def detect_hw_encoder(
     import sys
 
     h264_br = target_bitrate(width, height, fps, quality)
-    hevc_br = f"{max(int(int(h264_br.rstrip('M')) * 0.65), 1)}M"
+    hevc_br = f"{max(int(int(h264_br.rstrip('M')) * _HEVC_RATIO), 1)}M"
 
     _test_cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", "nullsrc=s=640x360:d=0.1:r=15"]
 
