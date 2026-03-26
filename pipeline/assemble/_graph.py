@@ -264,14 +264,14 @@ def _photo_filter(
     w, h, fps = ctx.w, ctx.h, ctx.fps
     frames = int(item.display_duration * fps)
 
-    dt = _overlay_vf(item, language, h)
+    overlay_vf = _overlay_vf(item, language, h)
     exact_dur = frames / fps
     fade = _fade_expr(exact_dur, fade_in, fade_out)
-    cg = color_grade(segment.color_temp)
+    color_vf = color_grade(segment.color_temp)
     sharpen = ",unsharp=3:3:0.5:3:3:0.0"
 
     direction = _EFFECT_DIRECTIONS.get(item.effect, "in")
-    kb = ken_burns_filter(frames, w, h, fps, direction=direction)
+    ken_burns_vf = ken_burns_filter(frames, w, h, fps, direction=direction)
 
     return (
         f"[{idx}:v] split [bg{idx}][fg{idx}];"
@@ -279,7 +279,7 @@ def _photo_filter(
         f"crop={w}:{h},gblur=sigma=50,eq=brightness=-0.15:saturation=0.6 [blurred{idx}];"
         f"[fg{idx}] scale={w}:{h}:force_original_aspect_ratio=decrease [sharp{idx}];"
         f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2,"
-        f"{kb},{cg}{sharpen}{dt}{fade} [v{idx}]"
+        f"{ken_burns_vf},{color_vf}{sharpen}{overlay_vf}{fade} [v{idx}]"
     )
 
 
@@ -305,9 +305,9 @@ def _video_filter(
         else ""
     )
 
-    dt = _overlay_vf(item, language, h)
+    overlay_vf = _overlay_vf(item, language, h)
     src_w, src_h = ctx.probe_dimensions(Path(item.source_file))
-    cg = color_grade(segment.color_temp)
+    color_vf = color_grade(segment.color_temp)
     fade = _fade_expr(output_dur, fade_in, fade_out)
 
     # trim_vf trims the source before processing (replaces -ss/-t on input)
@@ -324,11 +324,11 @@ def _video_filter(
             f"crop={w}:{h},gblur=sigma=60,eq=brightness=-0.15:saturation=0.6 [blurred{idx}];"
             f"[fg{idx}] scale={w}:{h}:force_original_aspect_ratio=decrease [sharp{idx}];"
             f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2,"
-            f"{cg}{speed_vf}{dt}{fade},fps={fps} [v{idx}]"
+            f"{color_vf}{speed_vf}{overlay_vf}{fade},fps={fps} [v{idx}]"
         )
     else:
         return (
             f"[{idx}:v] {trim_vf}format=yuv420p,scale={w}:{h}:force_original_aspect_ratio=decrease,"
             f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,"
-            f"{cg}{speed_vf}{dt}{fade},fps={fps} [v{idx}]"
+            f"{color_vf}{speed_vf}{overlay_vf}{fade},fps={fps} [v{idx}]"
         )
