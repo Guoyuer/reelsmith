@@ -5,33 +5,10 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+import pytest
+
 from pipeline.config import Config
 from pipeline.plan import PlanConfig
-
-FAKE_EDL_JSON = json.dumps(
-    {
-        "title": "Test Trip",
-        "target_duration": 60,
-        "segments": [
-            {
-                "name": "Morning Stroll",
-                "music_mood": "gentle acoustic",
-                "items": [
-                    {
-                        "source_file": "PLACEHOLDER",
-                        "media_type": "photo",
-                        "display_duration": 4.0,
-                    },
-                    {
-                        "source_file": "PLACEHOLDER2",
-                        "media_type": "photo",
-                        "display_duration": 3.0,
-                    },
-                ],
-            }
-        ],
-    }
-)
 
 
 def _setup_workspace(tmp_path, n_photos=2):
@@ -40,7 +17,6 @@ def _setup_workspace(tmp_path, n_photos=2):
     cfg.ensure_dirs()
     cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create photos and thumbnails
     photo_paths = []
     for i in range(1, n_photos + 1):
         photo = cfg.media_dir / f"photo_{i}.jpg"
@@ -49,7 +25,6 @@ def _setup_workspace(tmp_path, n_photos=2):
         thumb.write_bytes(b"\xff\xd8" + b"\x00" * 50)
         photo_paths.append(str(photo))
 
-    # Create manifest.json + per-item caches (replaces old analysis.json)
     manifest = [
         {
             "id": i,
@@ -73,209 +48,116 @@ def _setup_workspace(tmp_path, n_photos=2):
     return cfg, photo_paths
 
 
+def _fake_edl_json(photo_paths, title="Test Trip", segment_name="Morning"):
+    """Build a fake EDL response JSON using the given photo paths."""
+    return json.dumps(
+        {
+            "title": title,
+            "target_duration": 60,
+            "segments": [
+                {
+                    "name": segment_name,
+                    "music_mood": "gentle",
+                    "items": [
+                        {
+                            "source_file": path,
+                            "media_type": "photo",
+                            "display_duration": 30.0 + i * 10,
+                        }
+                        for i, path in enumerate(photo_paths)
+                    ],
+                }
+            ],
+        }
+    )
+
+
 def _patch_gemini(return_value):
-    """Patch _gemini_call in _orchestrate."""
     return patch("pipeline.plan._orchestrate._gemini_call", return_value=return_value)
 
 
 class TestPlanOrchestration:
-    def test_plan_creates_edl_file(self, tmp_path, monkeypatch):
-        """plan() should create edl_v1.json in workspace."""
+    @pytest.fixture(autouse=True)
+    def _setup(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-        cfg, photo_paths = _setup_workspace(tmp_path)
+        self.cfg, self.photo_paths = _setup_workspace(tmp_path)
 
-        # Build fake EDL response with actual photo paths
-        fake_edl = {
-            "title": "Test Trip",
-            "target_duration": 60,
-            "segments": [
-                {
-                    "name": "Morning",
-                    "music_mood": "gentle",
-                    "items": [
-                        {
-                            "source_file": photo_paths[0],
-                            "media_type": "photo",
-                            "display_duration": 30.0,
-                        },
-                        {
-                            "source_file": photo_paths[1],
-                            "media_type": "photo",
-                            "display_duration": 40.0,
-                        },
-                    ],
-                }
-            ],
-        }
+    def _plan(self, **kwargs):
+        from pipeline.plan import plan
 
-        with _patch_gemini(json.dumps(fake_edl)):
-            from pipeline.plan import plan
+        return plan(self.cfg, PlanConfig(target_duration=60, **kwargs))
 
-            edl, version = plan(cfg, PlanConfig(target_duration=60))
+    def test_creates_edl_file(self):
+        with _patch_gemini(_fake_edl_json(self.photo_paths)):
+            edl, version = self._plan()
 
         assert version == 1
-        assert cfg.edl_path(1).exists()
+        assert self.cfg.edl_path(1).exists()
         assert edl.title == "Test Trip"
         assert len(edl.all_items()) == 2
 
-    def test_plan_forces_video_effect_none(self, tmp_path, monkeypatch):
-        """plan() should set effect='none' on all video items."""
-        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-        cfg, photo_paths = _setup_workspace(tmp_path)
-
-        # Create a .mp4 file so validate_and_fix_edl doesn't auto-correct to photo
-        video_file = cfg.media_dir / "clip.mp4"
+    def test_forces_video_effect_none(self):
+        video_file = self.cfg.media_dir / "clip.mp4"
         video_file.write_bytes(b"\x00" * 200)
 
-        fake_edl = {
-            "title": "T",
-            "target_duration": 60,
-            "segments": [
-                {
-                    "name": "S",
-                    "music_mood": "m",
-                    "items": [
-                        {
-                            "source_file": str(video_file),
-                            "media_type": "video",
-                            "display_duration": 60.0,
-                            "effect": "ken_burns_in",
-                        },
-                    ],
-                }
-            ],
-        }
+        fake = json.dumps(
+            {
+                "title": "T",
+                "target_duration": 60,
+                "segments": [
+                    {
+                        "name": "S",
+                        "music_mood": "m",
+                        "items": [
+                            {
+                                "source_file": str(video_file),
+                                "media_type": "video",
+                                "display_duration": 60.0,
+                                "effect": "ken_burns_in",
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
 
-        with _patch_gemini(json.dumps(fake_edl)):
-            from pipeline.plan import plan
-
-            edl, _ = plan(cfg, PlanConfig(target_duration=60))
+        with _patch_gemini(fake):
+            edl, _ = self._plan()
 
         assert edl.all_items()[0].effect == "none"
 
-    def test_plan_sets_metadata(self, tmp_path, monkeypatch):
-        """plan() should set trip_type, style, language on the EDL."""
-        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-        cfg, photo_paths = _setup_workspace(tmp_path)
-
-        fake_edl = {
-            "title": "T",
-            "target_duration": 60,
-            "segments": [
-                {
-                    "name": "S",
-                    "music_mood": "m",
-                    "items": [
-                        {
-                            "source_file": photo_paths[0],
-                            "media_type": "photo",
-                            "display_duration": 30.0,
-                        },
-                        {
-                            "source_file": photo_paths[1],
-                            "media_type": "photo",
-                            "display_duration": 40.0,
-                        },
-                    ],
-                }
-            ],
-        }
-
-        with _patch_gemini(json.dumps(fake_edl)):
-            from pipeline.plan import plan
-
-            edl, _ = plan(
-                cfg,
-                PlanConfig(
-                    target_duration=60,
-                    style="cinematic",
-                    trip_type="solo",
-                    language="cn",
-                ),
-            )
+    def test_sets_metadata(self):
+        with _patch_gemini(_fake_edl_json(self.photo_paths)):
+            edl, _ = self._plan(style="cinematic", trip_type="solo", language="cn")
 
         assert edl.style == "cinematic"
         assert edl.trip_type == "solo"
         assert edl.language == "cn"
 
-    def test_plan_increments_version(self, tmp_path, monkeypatch):
-        """Second plan() call should create v2."""
-        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-        cfg, photo_paths = _setup_workspace(tmp_path)
-
-        fake_edl = {
-            "title": "T",
-            "target_duration": 60,
-            "segments": [
-                {
-                    "name": "S",
-                    "music_mood": "m",
-                    "items": [
-                        {
-                            "source_file": photo_paths[0],
-                            "media_type": "photo",
-                            "display_duration": 30.0,
-                        },
-                        {
-                            "source_file": photo_paths[1],
-                            "media_type": "photo",
-                            "display_duration": 40.0,
-                        },
-                    ],
-                }
-            ],
-        }
-
-        with _patch_gemini(json.dumps(fake_edl)):
-            from pipeline.plan import plan
-
-            _, v1 = plan(cfg, PlanConfig(target_duration=60))
-            _, v2 = plan(cfg, PlanConfig(target_duration=60))
+    def test_increments_version(self):
+        with _patch_gemini(_fake_edl_json(self.photo_paths)):
+            _, v1 = self._plan()
+            _, v2 = self._plan()
 
         assert v1 == 1
         assert v2 == 2
 
-    def test_plan_progress_callback(self, tmp_path, monkeypatch):
-        """plan() should call progress_callback at milestones."""
-        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-        cfg, photo_paths = _setup_workspace(tmp_path)
-
-        fake_edl = {
-            "title": "T",
-            "target_duration": 60,
-            "segments": [
-                {
-                    "name": "S",
-                    "music_mood": "m",
-                    "items": [
-                        {
-                            "source_file": photo_paths[0],
-                            "media_type": "photo",
-                            "display_duration": 30.0,
-                        },
-                        {
-                            "source_file": photo_paths[1],
-                            "media_type": "photo",
-                            "display_duration": 40.0,
-                        },
-                    ],
-                }
-            ],
-        }
-
+    def test_progress_callback(self):
         calls = []
 
-        def cb(done, total, detail):
-            calls.append((done, total, detail))
-
-        with _patch_gemini(json.dumps(fake_edl)):
+        with _patch_gemini(_fake_edl_json(self.photo_paths)):
+            self._plan()
             from pipeline.plan import plan
 
-            plan(cfg, PlanConfig(target_duration=60), progress_callback=cb)
+            plan(
+                self.cfg,
+                PlanConfig(target_duration=60),
+                progress_callback=lambda done, total, detail: calls.append(
+                    (done, total, detail)
+                ),
+            )
 
-        assert len(calls) >= 2  # at least content-ready + done
-        # Verify progress is monotonically increasing
+        assert len(calls) >= 2
         dones = [c[0] for c in calls]
         assert dones == sorted(dones)
-        # Last call should have done == total
         assert calls[-1][0] == calls[-1][1]

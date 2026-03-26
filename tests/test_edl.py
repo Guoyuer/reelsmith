@@ -12,15 +12,17 @@ from pipeline.edl import EDL, EditItem, Segment
 
 
 class TestEditItemDefaults:
-    def test_default_display_duration(self):
-        """EditItem default display_duration is 4.0s."""
+    @pytest.mark.parametrize(
+        "field, expected",
+        [
+            ("display_duration", 4.0),
+            ("effect", "ken_burns_in"),
+            ("text_overlay", None),
+        ],
+    )
+    def test_defaults(self, field, expected):
         item = EditItem(source_file="photo.jpg", media_type="photo")
-        assert item.display_duration == 4.0
-
-    def test_default_effect(self):
-        """EditItem default effect is 'ken_burns_in'."""
-        item = EditItem(source_file="photo.jpg", media_type="photo")
-        assert item.effect == "ken_burns_in"
+        assert getattr(item, field) == expected
 
     def test_default_trim_times(self):
         """start_time and end_time default to None."""
@@ -28,22 +30,18 @@ class TestEditItemDefaults:
         assert item.start_time is None
         assert item.end_time is None
 
-    def test_default_text_overlay(self):
-        """text_overlay defaults to None."""
-        item = EditItem(source_file="photo.jpg", media_type="photo")
-        assert item.text_overlay is None
-
 
 class TestSegmentDefaults:
-    def test_default_transition(self):
-        """Segment default transition is 'crossfade'."""
+    @pytest.mark.parametrize(
+        "field, expected",
+        [
+            ("transition", "crossfade"),
+            ("transition_duration", 0.4),
+        ],
+    )
+    def test_defaults(self, field, expected):
         seg = Segment(name="test", items=[])
-        assert seg.transition == "crossfade"
-
-    def test_default_transition_duration(self):
-        """Segment default transition_duration is 0.4s."""
-        seg = Segment(name="test", items=[])
-        assert seg.transition_duration == 0.4
+        assert getattr(seg, field) == expected
 
 
 class TestAllItems:
@@ -105,8 +103,7 @@ class TestEstimatedDuration:
 class TestJsonRoundtrip:
     def test_roundtrip(self, sample_edl: EDL):
         """EDL -> JSON -> EDL should produce an equivalent object."""
-        json_str = sample_edl.model_dump_json()
-        restored = EDL.model_validate_json(json_str)
+        restored = EDL.model_validate_json(sample_edl.model_dump_json())
         assert restored.title == sample_edl.title
         assert restored.target_duration == sample_edl.target_duration
         assert len(restored.segments) == len(sample_edl.segments)
