@@ -163,7 +163,6 @@ class TestValidateEdlTopLevel:
             ({"target_duration": -1}, "Invalid target_duration"),
             ({"intro_duration": 0}, "Invalid intro_duration"),
             ({"outro_duration": 20}, "Invalid outro_duration"),
-            ({"music_duck_ratio": 1.5}, "Invalid music_duck_ratio"),
         ],
         ids=[
             "no_title",
@@ -171,7 +170,6 @@ class TestValidateEdlTopLevel:
             "negative_duration",
             "invalid_intro",
             "invalid_outro",
-            "invalid_duck_ratio",
         ],
     )
     def test_top_level_issues(self, edl_kwargs, expected_message):

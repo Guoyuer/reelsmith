@@ -10,6 +10,7 @@ import logging
 import os
 import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -52,26 +53,30 @@ def _display_thinking(text: str) -> None:
     )
 
 
-def _display_api_summary(
-    *,
-    label: str,
-    model: str,
-    thinking_level: str,
-    elapsed: float,
-    content_len: int,
-    prompt_tokens: int,
-    content_tokens: int,
-    thinking_tokens: int,
-    total_tokens: int,
-    cached_tokens: int,
-    tool_use_tokens: int,
-    in_rate: float,
-    out_rate: float,
-    cost_est: float,
-    finish: str,
-    usage: Any,
-    candidate: Any,
-) -> None:
+@dataclass
+class _ApiStats:
+    """Aggregated stats from a Gemini API call — passed to display/logging."""
+
+    label: str
+    model: str
+    thinking_level: str
+    elapsed: float
+    content_len: int
+    prompt_tokens: int
+    content_tokens: int
+    thinking_tokens: int
+    total_tokens: int
+    cached_tokens: int
+    tool_use_tokens: int
+    in_rate: float
+    out_rate: float
+    cost_est: float
+    finish: str
+    usage: Any  # google.genai UsageMetadata
+    candidate: Any  # google.genai Candidate
+
+
+def _display_api_summary(stats: _ApiStats) -> None:
     """Render Gemini API call summary (token table + status) to terminal."""
     from ..utils import stderr_console
 
@@ -82,10 +87,10 @@ def _display_api_summary(
 
     # Token & cost table
     t = Table(
-        title=f"\U0001f4ca Gemini API — {label}",
+        title=f"\U0001f4ca Gemini API — {stats.label}",
         border_style="dim",
         title_style="bold",
-        caption=f"Model: {model} | Thinking: {thinking_level} | {elapsed:.0f}s",
+        caption=f"Model: {stats.model} | Thinking: {stats.thinking_level} | {stats.elapsed:.0f}s",
         caption_style="dim",
     )
     t.add_column("", style="dim", min_width=10)
@@ -96,82 +101,84 @@ def _display_api_summary(
 
     # Prompt row with modality breakdown
     prompt_modality = ""
-    if usage and usage.prompt_tokens_details:
+    if stats.usage and stats.usage.prompt_tokens_details:
         parts = [
             f"{_short_enum(d.modality)}: {d.token_count:,}"
-            for d in usage.prompt_tokens_details
+            for d in stats.usage.prompt_tokens_details
             if d.token_count
         ]
         prompt_modality = " | ".join(parts)
     t.add_row(
         "Prompt",
-        f"{prompt_tokens:,}",
-        f"${in_rate}",
-        f"${prompt_tokens * in_rate / 1e6:.3f}",
+        f"{stats.prompt_tokens:,}",
+        f"${stats.in_rate}",
+        f"${stats.prompt_tokens * stats.in_rate / 1e6:.3f}",
         prompt_modality,
     )
-    if cached_tokens:
-        t.add_row("  cached", f"[dim]{cached_tokens:,}", "", "", "")
-    if tool_use_tokens:
-        t.add_row("  tool use", f"[dim]{tool_use_tokens:,}", "", "", "")
+    if stats.cached_tokens:
+        t.add_row("  cached", f"[dim]{stats.cached_tokens:,}", "", "", "")
+    if stats.tool_use_tokens:
+        t.add_row("  tool use", f"[dim]{stats.tool_use_tokens:,}", "", "", "")
 
     # Output rows
     output_modality = ""
-    if usage and usage.candidates_tokens_details:
+    if stats.usage and stats.usage.candidates_tokens_details:
         parts = [
             f"{_short_enum(d.modality)}: {d.token_count:,}"
-            for d in usage.candidates_tokens_details
+            for d in stats.usage.candidates_tokens_details
             if d.token_count
         ]
         output_modality = " | ".join(parts)
     t.add_row(
         "Content",
-        f"{content_tokens:,}",
-        f"${out_rate}",
-        f"${content_tokens * out_rate / 1e6:.3f}",
+        f"{stats.content_tokens:,}",
+        f"${stats.out_rate}",
+        f"${stats.content_tokens * stats.out_rate / 1e6:.3f}",
         output_modality,
     )
     t.add_row(
         "Thinking",
-        f"{thinking_tokens:,}",
-        f"${out_rate}",
-        f"${thinking_tokens * out_rate / 1e6:.3f}",
+        f"{stats.thinking_tokens:,}",
+        f"${stats.out_rate}",
+        f"${stats.thinking_tokens * stats.out_rate / 1e6:.3f}",
         "",
     )
 
     t.add_section()
     t.add_row(
         "[bold]Total",
-        f"[bold]{total_tokens:,}",
+        f"[bold]{stats.total_tokens:,}",
         "",
-        f"[bold]${cost_est:.3f}",
+        f"[bold]${stats.cost_est:.3f}",
         "",
     )
     console.print(t)
 
     # Status line: finish + confidence + safety
     status_parts = []
-    finish_style = "green" if finish == "STOP" else "red bold"
+    finish_style = "green" if stats.finish == "STOP" else "red bold"
     status_parts.append(
-        f"Finish: [{finish_style}]{_short_enum(finish)}[/{finish_style}]"
+        f"Finish: [{finish_style}]{_short_enum(stats.finish)}[/{finish_style}]"
     )
-    if candidate and candidate.avg_logprobs is not None:
-        lp = candidate.avg_logprobs
+    if stats.candidate and stats.candidate.avg_logprobs is not None:
+        lp = stats.candidate.avg_logprobs
         conf_style = "green" if lp > -0.5 else "yellow" if lp > -1.0 else "red"
         status_parts.append(f"Confidence: [{conf_style}]{lp:.4f}[/{conf_style}]")
-    status_parts.append(f"Output: {content_len:,} chars")
-    if candidate and candidate.safety_ratings:
-        blocked = [r for r in candidate.safety_ratings if getattr(r, "blocked", False)]
+    status_parts.append(f"Output: {stats.content_len:,} chars")
+    if stats.candidate and stats.candidate.safety_ratings:
+        blocked = [
+            r for r in stats.candidate.safety_ratings if getattr(r, "blocked", False)
+        ]
         if blocked:
             status_parts.append(
                 f"[red bold]BLOCKED: {len(blocked)} categories[/red bold]"
             )
     console.print("  " + "  │  ".join(status_parts), highlight=False)
 
-    if candidate and candidate.safety_ratings:
+    if stats.candidate and stats.candidate.safety_ratings:
         safety_parts = [
             f"{_short_enum(r.category)}=[dim]{_short_enum(r.probability)}[/dim]"
-            for r in candidate.safety_ratings
+            for r in stats.candidate.safety_ratings
         ]
         console.print(f"  Safety: {', '.join(safety_parts)}", highlight=False)
 
@@ -578,7 +585,7 @@ def _gemini_call(
         logger.info("  Safety: %s", ", ".join(parts))
     logger.info("--- End Response Summary ---")
 
-    _display_api_summary(
+    api_stats = _ApiStats(
         label=label,
         model=model,
         thinking_level=thinking_level,
@@ -597,6 +604,7 @@ def _gemini_call(
         usage=usage,
         candidate=cand,
     )
+    _display_api_summary(api_stats)
 
     # Report cost via callback metadata
     if progress_callback:
