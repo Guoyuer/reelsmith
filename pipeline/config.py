@@ -1,4 +1,15 @@
-"""Pipeline configuration — workspace paths, shared directories, environment loading."""
+"""Pipeline configuration — workspace paths, shared directories, environment loading.
+
+Configuration resolution priority (highest wins):
+
+1. CLI explicit arguments (e.g. ``--duration 300``)
+2. ``--use-cfg-file`` values (run_config_*.yaml)
+3. CLI defaults (Click ``default=`` values)
+4. Environment variables (``WORKSPACE`` via ``.env``)
+5. Hardcoded defaults (``./workspace``)
+
+See also ``_commands.py:_resolve_params()`` for CLI-level resolution.
+"""
 
 from __future__ import annotations
 
@@ -70,8 +81,13 @@ class Config:
 
     @classmethod
     def load(cls, workspace: str | None = None) -> Config:
+        """Load config. Priority: workspace arg > WORKSPACE env > default.
+
+        .env is loaded first so WORKSPACE can come from there.
+        Empty-string WORKSPACE is treated as unset (falls through to default).
+        """
         load_dotenv()
-        ws = Path(workspace or os.getenv("WORKSPACE", "./workspace"))
+        ws = Path(workspace or os.getenv("WORKSPACE") or "./workspace")
         return cls(workspace=ws)
 
     def ensure_dirs(self) -> None:

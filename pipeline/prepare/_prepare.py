@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .._types import VIDEO_EXTENSIONS, AnalysisEntry
+from .._types import VIDEO_EXTENSIONS, AnalysisEntry, validate_analysis_entry
 from ..config import Config, ProgressCallback
 from ..utils.image import generate_thumbnail
 from ..utils.media import run_subprocess
@@ -46,7 +46,11 @@ def _base_analysis_entry(item: dict, *, is_video: bool) -> dict:
 
 
 def load_analysis(cfg: Config) -> list[AnalysisEntry]:
-    """Reconstruct analysis data from manifest + per-item caches."""
+    """Reconstruct analysis data from manifest + per-item caches.
+
+    Each entry is runtime-validated via Pydantic at the prepare → plan
+    boundary. Entries that fail validation are skipped with a warning.
+    """
     if not cfg.manifest_path.exists():
         raise FileNotFoundError(
             f"Manifest not found: {cfg.manifest_path}\n"
@@ -56,6 +60,7 @@ def load_analysis(cfg: Config) -> list[AnalysisEntry]:
 
     cache_dir = cfg.cache_dir
     results = []
+    n_skipped = 0
     for item in manifest:
         item_id = item["id"]
         local_path_str = item.get("local_path", "")
@@ -72,7 +77,17 @@ def load_analysis(cfg: Config) -> list[AnalysisEntry]:
             except (json.JSONDecodeError, KeyError):
                 pass
 
-        results.append(entry)
+        validated = validate_analysis_entry(entry)
+        if validated is not None:
+            results.append(validated)
+        else:
+            n_skipped += 1
+
+    if n_skipped:
+        logger.warning(
+            "Skipped %d items with invalid analysis data (see warnings above)",
+            n_skipped,
+        )
     return results
 
 

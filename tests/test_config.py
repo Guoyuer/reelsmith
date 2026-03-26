@@ -49,6 +49,10 @@ class TestConfigLoad:
         ws = str(tmp_path / "explicit")
         assert Config.load(workspace=ws).workspace == Path(ws)
 
+    def test_empty_workspace_env_falls_to_default(self):
+        os.environ["WORKSPACE"] = ""
+        assert Config.load().workspace == Path("./workspace")
+
 
 @pytest.mark.usefixtures("_clean_env")
 class TestEnsureDirs:

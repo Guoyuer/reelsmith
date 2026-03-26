@@ -1,13 +1,18 @@
-"""Shared TypedDicts for cross-stage data contracts.
+"""Shared TypedDicts and Pydantic models for cross-stage data contracts.
 
-These types define the implicit data shapes flowing between pipeline stages
-(fetch → prepare → plan → assemble). Keeping them in one place makes the
-contracts explicit and catches key typos / missing fields at type-check time.
+These types define the data shapes flowing between pipeline stages
+(fetch → prepare → plan → assemble). TypedDicts provide static type-checking;
+Pydantic models add runtime validation at stage boundaries.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import TypedDict
+
+from pydantic import BaseModel, ConfigDict, ValidationError
+
+logger = logging.getLogger("vlog.types")
 
 # ---------------------------------------------------------------------------
 # Canonical file extension sets — used by fetch, prepare, plan, and edl
@@ -95,3 +100,59 @@ class AnalysisEntry(_AnalysisRequired, total=False):
     video_height: int
     video_fps: float
     video_orientation: str  # "landscape" or "portrait"
+
+
+# ---------------------------------------------------------------------------
+# Pydantic runtime validation models — used at stage boundaries
+# ---------------------------------------------------------------------------
+
+
+class AnalysisEntryModel(BaseModel):
+    """Runtime-validated version of AnalysisEntry.
+
+    Used by load_analysis() to catch corrupted cache data at the
+    prepare → plan boundary. Extra keys from cache files are tolerated.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    # Required (from manifest)
+    id: int
+    filename: str
+    local_path: str
+    media_type: str  # "photo" or "video"
+    taken_iso: str
+
+    # Location (optional — not all items have GPS)
+    country: str | None = None
+    first_level: str | None = None
+    district: str | None = None
+
+    # Photo-specific (from cache, optional)
+    thumbnail_path: str | None = None
+    exif: dict | None = None
+
+    # Video-specific (from cache, optional)
+    video_duration: float | None = None
+    video_width: int | None = None
+    video_height: int | None = None
+    video_fps: float | None = None
+    video_orientation: str | None = None
+
+
+def validate_analysis_entry(entry: dict) -> dict | None:
+    """Validate an analysis entry dict at the prepare → plan boundary.
+
+    Returns the validated dict (with extra keys stripped) on success,
+    or None if validation fails (with a warning logged).
+    """
+    try:
+        validated = AnalysisEntryModel.model_validate(entry)
+        return validated.model_dump(exclude_none=False)
+    except ValidationError as e:
+        logger.warning(
+            "Invalid analysis entry for item %s: %s",
+            entry.get("id", "?"),
+            e,
+        )
+        return None
