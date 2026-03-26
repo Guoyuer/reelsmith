@@ -6,6 +6,8 @@ dist/
 build/
 venv/
 .venv/
+.coverage
+htmlcov/
 
 # Environment
 .env
