@@ -1,20 +1,21 @@
 """Tests for CLI run config save/load feature.
 
 Verifies that:
-- CLI parameters are auto-saved to run_config.json on every run
-- --use-cfg-file loads parameters from a JSON file
+- CLI parameters are auto-saved to run_config.yaml on every run
+- --use-cfg-file loads parameters from a YAML file
 - --use-cfg-file is mutually exclusive with other params (except -n, --force, -v)
 - vlog config -n {name} prints the saved config
 - Resolution round-trips correctly through save/load
+- Default annotations (# default) are present in saved YAML
 """
 
 from __future__ import annotations
 
-import json
 from unittest.mock import patch
 
 import click
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from pipeline.cli import (
@@ -37,7 +38,7 @@ def runner():
 
 
 class TestSaveRunConfig:
-    def test_saves_grouped_json(self, tmp_path):
+    def test_saves_yaml_to_workspace(self, tmp_path):
         params = {
             "source": "local",
             "path": "/photos",
@@ -47,7 +48,7 @@ class TestSaveRunConfig:
         dest = save_run_config(tmp_path, params)
         assert dest == config_path_for(tmp_path)
         assert dest.exists()
-        loaded = json.loads(dest.read_text())
+        loaded = yaml.safe_load(dest.read_text())
         assert loaded["source"]["type"] == "local"
         assert loaded["source"]["path"] == "/photos"
         assert loaded["plan"]["duration"] == 180
@@ -56,13 +57,13 @@ class TestSaveRunConfig:
     def test_omits_none_values(self, tmp_path):
         params = {"source": "local", "path": None, "duration": 60}
         save_run_config(tmp_path, params)
-        loaded = json.loads(config_path_for(tmp_path).read_text())
+        loaded = yaml.safe_load(config_path_for(tmp_path).read_text())
         assert "path" not in loaded["source"]
 
     def test_omits_unsaved_fields(self, tmp_path):
         params = {"source": "local", "force": True, "version": 2, "run_name": "test"}
         save_run_config(tmp_path, params)
-        loaded = json.loads(config_path_for(tmp_path).read_text())
+        loaded = yaml.safe_load(config_path_for(tmp_path).read_text())
         assert "force" not in loaded
         assert "version" not in loaded
         assert "run_name" not in loaded
@@ -71,16 +72,38 @@ class TestSaveRunConfig:
     def test_overwrites_existing(self, tmp_path):
         save_run_config(tmp_path, {"source": "local", "duration": 60})
         save_run_config(tmp_path, {"source": "nas", "duration": 180})
-        loaded = json.loads(config_path_for(tmp_path).read_text())
+        loaded = yaml.safe_load(config_path_for(tmp_path).read_text())
         assert loaded["source"]["type"] == "nas"
         assert loaded["plan"]["duration"] == 180
 
     def test_empty_groups_omitted(self, tmp_path):
         params = {"source": "local"}
         save_run_config(tmp_path, params)
-        loaded = json.loads(config_path_for(tmp_path).read_text())
+        loaded = yaml.safe_load(config_path_for(tmp_path).read_text())
         assert "plan" not in loaded
         assert "assemble" not in loaded
+
+    def test_default_annotations(self, tmp_path):
+        params = {
+            "source": "local",
+            "duration": 300,
+            "model": "balanced",
+            "trip_type": "family",
+        }
+        defaults = {"trip_type"}
+        dest = save_run_config(tmp_path, params, defaults=defaults)
+        text = dest.read_text()
+        # trip_type should have # default comment
+        for line in text.splitlines():
+            if "trip_type:" in line:
+                assert "# default" in line
+            # duration is NOT a default — no comment
+            if "duration:" in line:
+                assert "# default" not in line
+
+    def test_config_filename_is_yaml(self, tmp_path):
+        dest = save_run_config(tmp_path, {"source": "local"})
+        assert dest.name == "run_config.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +127,7 @@ class TestResolutionFormat:
 
 
 class TestFullSavesConfig:
-    """Verify 'full' passes cli_params to _run_pipeline."""
+    """Verify 'full' passes cli_params and cli_defaults to _run_pipeline."""
 
     def _run_full(self, runner, extra_args=None):
         base_args = [
@@ -136,8 +159,10 @@ class TestFullSavesConfig:
             plan=None,
             assemble=None,
             cli_params=None,
+            cli_defaults=None,
         ):
             captured["cli_params"] = cli_params
+            captured["cli_defaults"] = cli_defaults
 
         with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
             result = runner.invoke(cli, base_args, catch_exceptions=False)
@@ -153,9 +178,22 @@ class TestFullSavesConfig:
         assert params["model"] == "balanced"
         assert params["resolution"] == "1080p30"
 
+    def test_cli_defaults_tracked(self, runner):
+        c = self._run_full(runner)
+        defaults = c["cli_defaults"]
+        # trip_type, style, music not explicitly passed → should be defaults
+        assert "trip_type" in defaults
+        assert "style" in defaults
+        assert "music" in defaults
+        # source, duration, model explicitly passed → not defaults
+        assert "source" not in defaults
+        assert "duration" not in defaults
+        assert "model" not in defaults
+
     def test_cli_params_bitrate(self, runner):
         c = self._run_full(runner, ["--bitrate", "2.0"])
         assert c["cli_params"]["bitrate"] == 2.0
+        assert "quality" not in c["cli_defaults"]  # explicitly passed
 
     def test_cli_params_custom_resolution(self, runner):
         c = self._run_full(runner, ["-r", "2560x1440x60"])
@@ -166,8 +204,11 @@ class TestPlanSavesConfig:
     def test_cli_params_passed(self, runner):
         captured = {}
 
-        def mock_pipeline(run_name, *, stages, cli_params=None, **kwargs):
+        def mock_pipeline(
+            run_name, *, stages, cli_params=None, cli_defaults=None, **kwargs
+        ):
             captured["cli_params"] = cli_params
+            captured["cli_defaults"] = cli_defaults
 
         with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
             result = runner.invoke(
@@ -179,14 +220,19 @@ class TestPlanSavesConfig:
         params = captured["cli_params"]
         assert params["duration"] == 120
         assert params["model"] == "fast"
+        # trip_type not passed → default
+        assert "trip_type" in captured["cli_defaults"]
 
 
 class TestAssembleSavesConfig:
     def test_cli_params_passed(self, runner):
         captured = {}
 
-        def mock_pipeline(run_name, *, stages, cli_params=None, **kwargs):
+        def mock_pipeline(
+            run_name, *, stages, cli_params=None, cli_defaults=None, **kwargs
+        ):
             captured["cli_params"] = cli_params
+            captured["cli_defaults"] = cli_defaults
 
         with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
             result = runner.invoke(
@@ -196,6 +242,8 @@ class TestAssembleSavesConfig:
             )
         assert result.exit_code == 0, result.output
         assert captured["cli_params"]["resolution"] == "4k60"
+        # bitrate not passed → default
+        assert "quality" in captured["cli_defaults"]
 
 
 # ---------------------------------------------------------------------------
@@ -204,38 +252,39 @@ class TestAssembleSavesConfig:
 
 
 class TestUseCfgFile:
-    """Test loading config from a JSON file via --use-cfg-file."""
+    """Test loading config from a YAML file via --use-cfg-file."""
 
     @pytest.fixture
     def cfg_file(self, tmp_path):
-        """Create a grouped config file and return its path."""
-        cfg = {
-            "source": {
-                "type": "local",
-                "path": ".",
-            },
-            "plan": {
-                "duration": 180,
-                "model": "quality",
-                "lang": "cn",
-                "trip_type": "solo",
-                "style": "cinematic",
-                "focus": "temples",
-                "music": "auto",
-            },
-            "assemble": {
-                "resolution": "4k60",
-                "bitrate": 1.5,
-            },
-        }
-        p = tmp_path / "my_config.json"
-        p.write_text(json.dumps(cfg))
+        """Create a grouped config YAML file and return its path."""
+        text = """\
+source:
+  type: local
+  path: .
+
+plan:
+  duration: 180
+  model: quality
+  lang: cn
+  trip_type: solo
+  style: cinematic
+  focus: temples
+  music: auto
+
+assemble:
+  resolution: 4k60
+  bitrate: 1.5
+"""
+        p = tmp_path / "my_config.yaml"
+        p.write_text(text)
         return str(p)
 
     def test_full_loads_from_cfg(self, runner, cfg_file):
         captured = {}
 
-        def mock_pipeline(run_name, *, stages, cli_params=None, **kwargs):
+        def mock_pipeline(
+            run_name, *, stages, cli_params=None, cli_defaults=None, **kwargs
+        ):
             captured["plan"] = kwargs.get("plan")
             captured["assemble"] = kwargs.get("assemble")
             captured["cli_params"] = cli_params
@@ -256,7 +305,9 @@ class TestUseCfgFile:
     def test_plan_loads_from_cfg(self, runner, cfg_file):
         captured = {}
 
-        def mock_pipeline(run_name, *, stages, cli_params=None, **kwargs):
+        def mock_pipeline(
+            run_name, *, stages, cli_params=None, cli_defaults=None, **kwargs
+        ):
             captured["plan"] = kwargs.get("plan")
 
         with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
@@ -272,7 +323,9 @@ class TestUseCfgFile:
     def test_assemble_loads_from_cfg(self, runner, cfg_file):
         captured = {}
 
-        def mock_pipeline(run_name, *, stages, cli_params=None, **kwargs):
+        def mock_pipeline(
+            run_name, *, stages, cli_params=None, cli_defaults=None, **kwargs
+        ):
             captured["assemble"] = kwargs.get("assemble")
 
         with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
@@ -299,7 +352,9 @@ class TestUseCfgFile:
         """--force is allowed alongside --use-cfg-file."""
         captured = {}
 
-        def mock_pipeline(run_name, *, stages, cli_params=None, **kwargs):
+        def mock_pipeline(
+            run_name, *, stages, cli_params=None, cli_defaults=None, **kwargs
+        ):
             captured["plan"] = kwargs.get("plan")
 
         with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
@@ -315,7 +370,9 @@ class TestUseCfgFile:
         """-v is allowed alongside --use-cfg-file."""
         captured = {}
 
-        def mock_pipeline(run_name, *, stages, cli_params=None, **kwargs):
+        def mock_pipeline(
+            run_name, *, stages, cli_params=None, cli_defaults=None, **kwargs
+        ):
             captured["assemble"] = kwargs.get("assemble")
 
         with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
@@ -331,7 +388,7 @@ class TestUseCfgFile:
         """Non-existent config file should fail."""
         result = runner.invoke(
             cli,
-            ["plan", "-n", "test", "--use-cfg-file", "/nonexistent/config.json"],
+            ["plan", "-n", "test", "--use-cfg-file", "/nonexistent/config.yaml"],
         )
         assert result.exit_code != 0
 
@@ -347,8 +404,8 @@ class TestConfigValidation:
     def _write_and_load(self, tmp_path, data):
         from pipeline.cli import load_run_config
 
-        p = tmp_path / "cfg.json"
-        p.write_text(json.dumps(data))
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml.dump(data))
         return load_run_config(str(p))
 
     def test_valid_config_passes(self, tmp_path):
@@ -390,12 +447,12 @@ class TestConfigValidation:
         with pytest.raises(click.UsageError, match="'plan' must be an object"):
             self._write_and_load(tmp_path, data)
 
-    def test_invalid_json(self, tmp_path):
-        p = tmp_path / "bad.json"
-        p.write_text("{broken")
+    def test_invalid_yaml(self, tmp_path):
+        p = tmp_path / "bad.yaml"
+        p.write_text(": broken: yaml: [")
         from pipeline.cli import load_run_config
 
-        with pytest.raises(click.UsageError, match="invalid JSON"):
+        with pytest.raises(click.UsageError, match="invalid YAML"):
             load_run_config(str(p))
 
     def test_bitrate_accepts_int_or_float(self, tmp_path):
@@ -422,14 +479,10 @@ class TestConfigValidation:
 
 class TestConfigCommand:
     def test_prints_saved_config(self, runner, tmp_path):
-        # Write a grouped config file to the expected location
         ws = tmp_path / "workspace" / "runs" / "myrun"
         ws.mkdir(parents=True)
-        cfg_data = {
-            "source": {"type": "local", "path": "/photos"},
-            "plan": {"duration": 120},
-        }
-        (ws / "run_config.json").write_text(json.dumps(cfg_data))
+        cfg_text = "source:\n  type: local\n  path: /photos\n\nplan:\n  duration: 120\n"
+        (ws / "run_config.yaml").write_text(cfg_text)
 
         with patch("pipeline.config.Config.run_workspace", return_value=str(ws)):
             with patch("pipeline.config.Config.load") as mock_load:
@@ -440,8 +493,8 @@ class TestConfigCommand:
                 )
 
         assert result.exit_code == 0, result.output
-        assert '"type": "local"' in result.output
-        assert '"duration": 120' in result.output
+        assert "type: local" in result.output
+        assert "duration: 120" in result.output
 
     def test_missing_config_errors(self, runner, tmp_path):
         ws = tmp_path / "workspace" / "runs" / "norun"

@@ -257,6 +257,7 @@ def _run_pipeline(
     plan=None,
     assemble=None,
     cli_params: dict | None = None,
+    cli_defaults: set[str] | None = None,
 ):
     """Execute pipeline stages directly in this process."""
     global _interrupted
@@ -274,7 +275,7 @@ def _run_pipeline(
     if cli_params:
         from ._config_io import save_run_config
 
-        save_run_config(cfg.workspace, cli_params)
+        save_run_config(cfg.workspace, cli_params, defaults=cli_defaults)
 
     # Create display first (starts live panel), then logging (uses its console)
     headline = _build_headline_from_args(active, plan)

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import click
 
 from ._config_io import (
@@ -311,6 +309,16 @@ def _format_resolution(resolution: tuple[int, int, int]) -> str:
     return f"{w}x{h}x{fps}"
 
 
+def _collect_defaults(ctx: click.Context) -> set[str]:
+    """Return set of param names whose values came from CLI defaults, not user input."""
+    defaults = set()
+    for param in ctx.command.params:
+        source = ctx.get_parameter_source(param.name)
+        if source == click.core.ParameterSource.DEFAULT:
+            defaults.add(param.name)
+    return defaults
+
+
 def _build_cli_params(**kwargs) -> dict:
     """Build a cli_params dict, converting resolution tuple to string."""
     params = {}
@@ -456,6 +464,7 @@ def prepare(
             _load_source_fields(saved)
         )
 
+    defaults = _collect_defaults(ctx) if not use_cfg_file else set()
     cli_params = _build_cli_params(
         source=source,
         path=path,
@@ -474,6 +483,7 @@ def prepare(
         prepare=PrepareConfig(force=force),
         stages=["fetch", "prepare"],
         cli_params=cli_params,
+        cli_defaults=defaults,
     )
 
 
@@ -534,6 +544,7 @@ def full(
         stages.append("generate_music")
     stages.append("assemble")
 
+    defaults = _collect_defaults(ctx) if not use_cfg_file else set()
     cli_params = _build_cli_params(
         source=source,
         path=path,
@@ -573,6 +584,7 @@ def full(
         assemble=AssembleConfig(w=w, h=h, fps=fps, quality=quality),
         stages=stages,
         cli_params=cli_params,
+        cli_defaults=defaults,
     )
 
 
@@ -609,6 +621,7 @@ def plan(
     if music != "none":
         stages.append("generate_music")
 
+    defaults = _collect_defaults(ctx) if not use_cfg_file else set()
     cli_params = _build_cli_params(
         duration=duration,
         model=model,
@@ -634,6 +647,7 @@ def plan(
         ),
         stages=stages,
         cli_params=cli_params,
+        cli_defaults=defaults,
     )
 
 
@@ -660,6 +674,7 @@ def assemble(ctx, run_name, use_cfg_file, version, resolution, quality):
 
     w, h, fps = resolution
 
+    defaults = _collect_defaults(ctx) if not use_cfg_file else set()
     cli_params = _build_cli_params(resolution=resolution, bitrate=quality)
 
     _run_pipeline(
@@ -667,6 +682,7 @@ def assemble(ctx, run_name, use_cfg_file, version, resolution, quality):
         assemble=AssembleConfig(w=w, h=h, fps=fps, quality=quality, version=version),
         stages=["assemble"],
         cli_params=cli_params,
+        cli_defaults=defaults,
     )
 
 
@@ -678,18 +694,18 @@ def assemble(ctx, run_name, use_cfg_file, version, resolution, quality):
 @cli.command("config")
 @_name_option
 def show_config(run_name):
-    """Print saved run_config.json for a run (human-readable JSON)."""
+    """Print saved run_config.yaml for a run."""
     from pipeline.config import Config
 
     ws = Config.run_workspace(run_name=run_name)
     cfg = Config.load(ws)
     cfg_path = config_path_for(cfg.workspace)
     try:
-        saved = json.loads(cfg_path.read_text())
+        text = cfg_path.read_text()
     except FileNotFoundError:
         raise click.UsageError(
             f"No saved config at {cfg_path}.\n"
             "Run the pipeline with full parameters first."
         )
     click.echo(f"# {cfg_path}")
-    click.echo(json.dumps(saved, indent=2, ensure_ascii=False))
+    click.echo(text)

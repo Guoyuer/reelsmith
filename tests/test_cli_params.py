@@ -101,7 +101,15 @@ class TestFullCommandWiring:
         captured = {}
 
         def mock_pipeline(
-            run_name, *, stages, fetch=None, prepare=None, plan=None, assemble=None, cli_params=None
+            run_name,
+            *,
+            stages,
+            fetch=None,
+            prepare=None,
+            plan=None,
+            assemble=None,
+            cli_params=None,
+            cli_defaults=None,
         ):
             captured["run_name"] = run_name
             captured["stages"] = stages
@@ -301,8 +309,19 @@ class TestRequiredParams:
     """Verify that missing required args cause non-zero exit."""
 
     ALL_ARGS = [
-        "full", "-n", "t", "-s", "local", "-p", ".",
-        "--duration", "60", "--model", "fast", "-r", "720p30",
+        "full",
+        "-n",
+        "t",
+        "-s",
+        "local",
+        "-p",
+        ".",
+        "--duration",
+        "60",
+        "--model",
+        "fast",
+        "-r",
+        "720p30",
     ]
 
     @pytest.fixture
@@ -334,8 +353,17 @@ class TestRequiredParams:
             result = runner.invoke(
                 cli,
                 [
-                    "full", "-n", "t", "-s", "local",
-                    "--duration", "60", "--model", "fast", "-r", "720p30",
+                    "full",
+                    "-n",
+                    "t",
+                    "-s",
+                    "local",
+                    "--duration",
+                    "60",
+                    "--model",
+                    "fast",
+                    "-r",
+                    "720p30",
                 ],
             )
         assert result.exit_code != 0

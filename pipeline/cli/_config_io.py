@@ -1,21 +1,34 @@
-"""Save and load run configuration (CLI parameters) as JSON.
+"""Save and load run configuration as YAML with default annotations.
 
-Config is stored in grouped format::
+Config is stored in grouped format with ``# default`` comments::
 
-    {
-      "source": {"type": "local", "path": "/photos"},
-      "plan":   {"duration": 300, "model": "balanced", ...},
-      "assemble": {"resolution": "4k60", "bitrate": 1.0}
-    }
+    source:
+      type: local
+      path: /photos
+
+    plan:
+      duration: 300
+      model: balanced
+      lang: cn
+      trip_type: family  # default
+      style: upbeat  # default
+      music: auto  # default
+
+    assemble:
+      resolution: 4k60
+      bitrate: 1.0  # default
 """
 
 from __future__ import annotations
 
-import json
+import logging
 from pathlib import Path
 from typing import Any
 
 import click
+import yaml
+
+logger = logging.getLogger("vlog.plan")
 
 # Shared choice constants — used by Click options (_commands.py) and config validation.
 SOURCE_CHOICES = ("local", "nas")
@@ -36,7 +49,7 @@ _SOURCE_FIELDS = {
 _PLAN_FIELDS = {"duration", "model", "lang", "trip_type", "style", "focus", "music"}
 _ASSEMBLE_FIELDS = {"resolution", "bitrate"}
 
-_CONFIG_FILENAME = "run_config.json"
+_CONFIG_FILENAME = "run_config.yaml"
 
 # ---------------------------------------------------------------------------
 # Config schema for validation
@@ -74,7 +87,7 @@ def _validate_config(data: dict[str, Any], cfg_file: str) -> None:
     """Validate grouped config structure. Raises click.UsageError on problems."""
     if not isinstance(data, dict):
         raise click.UsageError(
-            f"{cfg_file}: config must be a JSON object, got {type(data).__name__}"
+            f"{cfg_file}: config must be a YAML/JSON object, got {type(data).__name__}"
         )
 
     errors: list[str] = []
@@ -136,15 +149,61 @@ def _validate_config(data: dict[str, Any], cfg_file: str) -> None:
 
 
 def config_path_for(workspace: Path) -> Path:
-    """Return the canonical run_config.json path for a workspace."""
+    """Return the canonical run_config.yaml path for a workspace."""
     return workspace / _CONFIG_FILENAME
 
 
-def save_run_config(workspace: Path, cli_params: dict[str, Any]) -> Path:
-    """Write CLI parameters to run_config.json in grouped format.
+def _dump_yaml_with_comments(grouped: dict[str, Any], defaults: set[str]) -> str:
+    """Render grouped config as YAML with ``# default`` comments on default values.
+
+    *defaults* is a set of flat param names (e.g. ``{"trip_type", "style"}``).
+    """
+    lines: list[str] = []
+    # Map from grouped key back to flat param name for default detection.
+    # "source.type" → flat "source", rest are identity.
+    _GROUP_KEY_TO_FLAT = {"source": {"type": "source"}}
+
+    for group_name in ("source", "plan", "assemble"):
+        group = grouped.get(group_name)
+        if not group:
+            continue
+        if lines:
+            lines.append("")  # blank line between groups
+        lines.append(f"{group_name}:")
+        key_map = _GROUP_KEY_TO_FLAT.get(group_name, {})
+        for key, value in group.items():
+            flat_name = key_map.get(key, key)
+            # Format value for YAML
+            if isinstance(value, bool):
+                yaml_val = "true" if value else "false"
+            elif isinstance(value, str):
+                # Quote strings that contain special chars or look like numbers
+                if (
+                    not value
+                    or any(c in value for c in ":{}[]#,&*?|>!%@`'\"\\")
+                    or value != value.strip()
+                ):
+                    yaml_val = yaml.dump(value, default_flow_style=True).strip()
+                else:
+                    yaml_val = value
+            else:
+                yaml_val = str(value)
+            comment = "  # default" if flat_name in defaults else ""
+            lines.append(f"  {key}: {yaml_val}{comment}")
+    lines.append("")  # trailing newline
+    return "\n".join(lines)
+
+
+def save_run_config(
+    workspace: Path,
+    cli_params: dict[str, Any],
+    defaults: set[str] | None = None,
+) -> Path:
+    """Write CLI parameters to run_config.yaml in grouped format.
 
     None values are omitted to keep the file clean and human-editable.
     Per-invocation flags (force, version, run_name) are excluded.
+    *defaults* is the set of param names that came from CLI defaults (not user input).
     """
 
     def _pick(fields: frozenset[str] | set[str]) -> dict[str, Any]:
@@ -164,23 +223,52 @@ def save_run_config(workspace: Path, cli_params: dict[str, Any]) -> Path:
         grouped["assemble"] = assemble_cfg
 
     dest = config_path_for(workspace)
-    dest.write_text(json.dumps(grouped, indent=2, ensure_ascii=False) + "\n")
+    dest.write_text(_dump_yaml_with_comments(grouped, defaults or set()))
+
+    # Log to file
+    logger.info("Run config saved: %s", dest)
+    for line in dest.read_text().splitlines():
+        if line.strip():
+            logger.info("  %s", line)
+
+    # Rich display to terminal
+    try:
+        import sys
+
+        if sys.stderr.isatty():
+            from rich.console import Console
+            from rich.panel import Panel
+            from rich.syntax import Syntax
+
+            Console(stderr=True).print(
+                Panel(
+                    Syntax(dest.read_text(), "yaml", theme="ansi_dark"),
+                    title=f"[bold]Run Config[/bold] — {dest.name}",
+                    border_style="dim",
+                    expand=False,
+                )
+            )
+    except ImportError:
+        pass
+
     return dest
 
 
 def load_run_config(cfg_file: str) -> dict[str, Any]:
-    """Read and validate a grouped config JSON file.
+    """Read and validate a grouped config YAML (or JSON) file.
 
     *cfg_file* is the path passed via ``--use-cfg-file``.
     When called from CLI commands, Click's ``type=click.Path(exists=True)``
     validates existence before this function runs.
 
-    Raises ``click.UsageError`` on invalid JSON or schema violations.
+    Raises ``click.UsageError`` on invalid YAML/JSON or schema violations.
     """
     text = Path(cfg_file).read_text()
     try:
-        data = json.loads(text)
-    except json.JSONDecodeError as e:
-        raise click.UsageError(f"{cfg_file}: invalid JSON: {e}") from None
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        raise click.UsageError(f"{cfg_file}: invalid YAML: {e}") from None
+    if data is None:
+        raise click.UsageError(f"{cfg_file}: empty config file")
     _validate_config(data, cfg_file)
     return data
