@@ -87,7 +87,10 @@ def fetch_local(
                 entry["city"] = loc.get("city", "")
                 entry["country"] = loc.get("country", "")
             except ImportError:
-                pass
+                logger.debug(
+                    "reverse_geocode not available; skipping location lookup for %s",
+                    src_path.name,
+                )
 
         manifest.append(entry)
         if progress_callback:

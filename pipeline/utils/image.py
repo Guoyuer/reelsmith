@@ -44,7 +44,7 @@ def convert_heic(source: Path, cache_dir: Path | None = None) -> Path:
         if jpeg_path.exists():
             return jpeg_path
     except ImportError:
-        pass
+        logger.debug("pillow-heif not available for HEIC conversion")
 
     if shutil.which("sips"):
         run_subprocess(
