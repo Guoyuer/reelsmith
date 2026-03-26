@@ -405,7 +405,6 @@ class TestRunPrepareNoAnalysisPath:
         pc.prepare = PrepareConfig()
         pc.display = display
         pc.logger = MagicMock()
-        pc.log = MagicMock()
 
         # Should not raise AttributeError
         _run_prepare(pc)

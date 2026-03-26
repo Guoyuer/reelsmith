@@ -39,17 +39,15 @@ def _short_enum(val) -> str:
 
 def _display_thinking(text: str) -> None:
     """Render Gemini thinking block as a Rich Markdown panel."""
-    try:
-        import sys
+    from ..utils import stderr_console
 
-        if not sys.stderr.isatty():
-            return
-        from rich.console import Console
-        from rich.markdown import Markdown
-        from rich.panel import Panel
-    except ImportError:
+    console = stderr_console()
+    if not console:
         return
-    Console(stderr=True).print(
+    from rich.markdown import Markdown
+    from rich.panel import Panel
+
+    console.print(
         Panel(Markdown(text), title="\U0001f4ad Thinking", border_style="dim")
     )
 
@@ -75,17 +73,12 @@ def _display_api_summary(
     candidate: Any,
 ) -> None:
     """Render Gemini API call summary (token table + status) to terminal."""
-    try:
-        import sys
+    from ..utils import stderr_console
 
-        if not sys.stderr.isatty():
-            return
-        from rich.console import Console
-        from rich.table import Table
-    except ImportError:
+    console = stderr_console()
+    if not console:
         return
-
-    console = Console(stderr=True)
+    from rich.table import Table
 
     # Token & cost table
     t = Table(
@@ -165,14 +158,10 @@ def _display_api_summary(
     if candidate and candidate.avg_logprobs is not None:
         lp = candidate.avg_logprobs
         conf_style = "green" if lp > -0.5 else "yellow" if lp > -1.0 else "red"
-        status_parts.append(
-            f"Confidence: [{conf_style}]{lp:.4f}[/{conf_style}]"
-        )
+        status_parts.append(f"Confidence: [{conf_style}]{lp:.4f}[/{conf_style}]")
     status_parts.append(f"Output: {content_len:,} chars")
     if candidate and candidate.safety_ratings:
-        blocked = [
-            r for r in candidate.safety_ratings if getattr(r, "blocked", False)
-        ]
+        blocked = [r for r in candidate.safety_ratings if getattr(r, "blocked", False)]
         if blocked:
             status_parts.append(
                 f"[red bold]BLOCKED: {len(blocked)} categories[/red bold]"

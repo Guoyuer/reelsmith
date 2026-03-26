@@ -144,8 +144,6 @@ def _dump_yaml_with_comments(grouped: dict[str, Any], defaults: set[str]) -> str
     *defaults* is a set of flat param names (e.g. ``{"trip_type", "style"}``).
     """
     lines: list[str] = []
-    # Map from grouped key back to flat param name for default detection.
-    _GROUP_KEY_TO_FLAT: dict[str, dict[str, str]] = {}
 
     for group_name in ("source", "plan", "assemble"):
         group = grouped.get(group_name)
@@ -154,9 +152,7 @@ def _dump_yaml_with_comments(grouped: dict[str, Any], defaults: set[str]) -> str
         if lines:
             lines.append("")  # blank line between groups
         lines.append(f"{group_name}:")
-        key_map = _GROUP_KEY_TO_FLAT.get(group_name, {})
         for key, value in group.items():
-            flat_name = key_map.get(key, key)
             # Format value for YAML
             if isinstance(value, bool):
                 yaml_val = "true" if value else "false"
@@ -172,7 +168,7 @@ def _dump_yaml_with_comments(grouped: dict[str, Any], defaults: set[str]) -> str
                     yaml_val = value
             else:
                 yaml_val = str(value)
-            comment = "  # default" if flat_name in defaults else ""
+            comment = "  # default" if key in defaults else ""
             lines.append(f"  {key}: {yaml_val}{comment}")
     lines.append("")  # trailing newline
     return "\n".join(lines)
@@ -220,24 +216,21 @@ def save_run_config(
             logger.info("  %s", line)
 
     # Rich display to terminal
-    try:
-        import sys
+    from pipeline.utils import stderr_console
 
-        if sys.stderr.isatty():
-            from rich.console import Console
-            from rich.panel import Panel
-            from rich.syntax import Syntax
+    console = stderr_console()
+    if console:
+        from rich.panel import Panel
+        from rich.syntax import Syntax
 
-            Console(stderr=True).print(
-                Panel(
-                    Syntax(dest.read_text(), "yaml", theme="ansi_dark"),
-                    title=f"[bold]Run Config[/bold] — {dest.name}",
-                    border_style="dim",
-                    expand=False,
-                )
+        console.print(
+            Panel(
+                Syntax(dest.read_text(), "yaml", theme="ansi_dark"),
+                title=f"[bold]Run Config[/bold] — {dest.name}",
+                border_style="dim",
+                expand=False,
             )
-    except ImportError:
-        pass
+        )
 
     return dest
 

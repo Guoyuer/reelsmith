@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .._types import AnalysisEntry
+from .._types import VIDEO_EXTENSIONS, AnalysisEntry
 from ..config import Config, ProgressCallback
 from ..utils.image import generate_thumbnail
 from ..utils.media import run_subprocess
@@ -29,9 +29,6 @@ logger = logging.getLogger("vlog.prepare")
 @dataclass
 class PrepareConfig:
     force: bool = False
-
-
-VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
 def _base_analysis_entry(item: dict, *, is_video: bool) -> dict:
@@ -153,34 +150,31 @@ def prepare(
         _prepare_video(entry, item_id, local_path, cache_file, i, len(uncached_videos))
 
     # Rich video probe summary table
-    try:
-        import sys
+    from ..utils import stderr_console
 
-        if sys.stderr.isatty() and uncached_videos:
-            from rich.console import Console
-            from rich.table import Table
+    console = stderr_console()
+    if console and uncached_videos:
+        from rich.table import Table
 
-            t = Table(
-                title=f"Video Probe ({len(uncached_videos)} new)",
-                border_style="dim",
-                show_lines=False,
+        t = Table(
+            title=f"Video Probe ({len(uncached_videos)} new)",
+            border_style="dim",
+            show_lines=False,
+        )
+        t.add_column("File", max_width=35)
+        t.add_column("Duration", justify="right")
+        t.add_column("Resolution")
+        t.add_column("FPS", justify="right")
+        for entry, _, _, _ in uncached_videos[:20]:
+            t.add_row(
+                entry["filename"][:35],
+                f"{entry.get('video_duration', 0):.0f}s",
+                f"{entry.get('video_width', '?')}x{entry.get('video_height', '?')}",
+                f"{entry.get('video_fps', '?')}",
             )
-            t.add_column("File", max_width=35)
-            t.add_column("Duration", justify="right")
-            t.add_column("Resolution")
-            t.add_column("FPS", justify="right")
-            for entry, _, _, _ in uncached_videos[:20]:
-                t.add_row(
-                    entry["filename"][:35],
-                    f"{entry.get('video_duration', 0):.0f}s",
-                    f"{entry.get('video_width', '?')}x{entry.get('video_height', '?')}",
-                    f"{entry.get('video_fps', '?')}",
-                )
-            if len(uncached_videos) > 20:
-                t.add_row(f"... +{len(uncached_videos) - 20} more", "", "", "")
-            Console(stderr=True).print(t)
-    except ImportError:
-        pass
+        if len(uncached_videos) > 20:
+            t.add_row(f"... +{len(uncached_videos) - 20} more", "", "", "")
+        console.print(t)
 
     n_photos = sum(
         1

@@ -332,14 +332,15 @@ def validate_and_fix_edl(edl: EDL) -> None:
 
 def log_edl_summary(edl: EDL, target_duration: int) -> None:
     """Log structured summary of the final EDL."""
-    actual_dur = edl.estimated_duration()
+    s = edl.summary()
+    actual_dur = s["estimated_duration"]
     all_items = edl.all_items()
-    n_videos = sum(1 for i in all_items if i.media_type == "video")
-    n_photos = len(all_items) - n_videos
-    n_keep_audio = sum(1 for i in all_items if i.keep_audio)
-    n_text_overlay = sum(1 for i in all_items if i.text_overlay)
+    n_videos = s["n_videos"]
+    n_photos = s["n_photos"]
+    n_keep_audio = s["n_keep_audio"]
+    n_text_overlay = s["n_text_overlay"]
 
-    # Compute additional stats
+    # Compute additional stats (not in summary — only needed here)
     video_items = [i for i in all_items if i.media_type == "video"]
     trim_lengths = [
         i.end_time - i.start_time
@@ -349,9 +350,9 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
     avg_trim = sum(trim_lengths) / len(trim_lengths) if trim_lengths else 0.0
     speeds = {}
     for i in all_items:
-        s = i.playback_speed
-        speeds[s] = speeds.get(s, 0) + 1
-    n_montage = sum(1 for s in edl.segments if s.mode == "montage")
+        sp = i.playback_speed
+        speeds[sp] = speeds.get(sp, 0) + 1
+    n_montage = sum(1 for seg in edl.segments if seg.mode == "montage")
 
     logger.info("=== [Gemini] PARSED EDL ===")
     logger.info("  Title: %s", edl.title)
@@ -425,10 +426,10 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
             )
 
     # Rich tree display to terminal
-    try:
-        import sys
+    from ..utils import stderr_console
 
-        from rich.console import Console
+    console = stderr_console()
+    if console:
         from rich.tree import Tree
 
         status = (
@@ -468,7 +469,4 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
                     branch.add(
                         f"[green]\U0001f4f7 {item.display_duration}s[/green] {name}{flag_str}"
                     )
-        if sys.stderr.isatty():
-            Console(stderr=True).print(tree)
-    except ImportError:
-        pass
+        console.print(tree)

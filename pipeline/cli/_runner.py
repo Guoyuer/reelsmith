@@ -73,9 +73,6 @@ class _PipelineContext:
     def ws(self) -> Path:
         return Path(self.cfg.workspace)
 
-    def log(self, msg: str) -> None:
-        self.logger.info(msg)
-
 
 # ---------------------------------------------------------------------------
 # Stage runners
@@ -92,7 +89,7 @@ def _run_fetch(pc: _PipelineContext):
     if manifest_path.exists():
         items = json.loads(manifest_path.read_text())
         dur = time.monotonic() - t0
-        pc.log(f"Fetch: {len(items)} items (cached)")
+        pc.logger.info(f"Fetch: {len(items)} items (cached)")
         pc.display.done("fetch", f"{len(items)} items", dur)
     else:
         cb = _progress_cb(pc.logger, pc.display, "fetch", t0)
@@ -100,7 +97,7 @@ def _run_fetch(pc: _PipelineContext):
 
         items = fetch_local(pc.cfg, pc.fetch, progress_callback=cb)
         dur = time.monotonic() - t0
-        pc.log(f"Fetch: {len(items)} items in {dur:.0f}s")
+        pc.logger.info(f"Fetch: {len(items)} items in {dur:.0f}s")
         pc.display.done("fetch", f"{len(items)} items", dur)
 
 
@@ -140,32 +137,27 @@ def _run_plan(pc: _PipelineContext):
         progress_callback=_progress_cb(pc.logger, pc.display, "plan", t0),
     )
 
-    all_items = edl.all_items()
-    n_videos = sum(1 for i in all_items if i.media_type == "video")
-    n_photos = len(all_items) - n_videos
-    n_keep_audio = sum(1 for i in all_items if i.keep_audio)
-    _out_dur = edl._item_output_duration
-    photo_time = sum(_out_dur(i) for i in all_items if i.media_type != "video")
-    vid_time = sum(_out_dur(i) for i in all_items if i.media_type == "video")
-    total_time = photo_time + vid_time
-    vid_pct = int(vid_time / total_time * 100) if total_time > 0 else 0
-
+    s = edl.summary()
     dur = time.monotonic() - t0
+
     plan_detail = (
-        f"v{version}: {n_photos}p({photo_time:.0f}s)+{n_videos}v({vid_time:.0f}s), "
-        f"~{edl.estimated_duration():.0f}s"
+        f"v{version}: {s['n_photos']}p({s['photo_time']:.0f}s)"
+        f"+{s['n_videos']}v({s['vid_time']:.0f}s), "
+        f"~{s['estimated_duration']:.0f}s"
     )
     pc.display.done("plan", plan_detail, dur)
 
-    pc.log(
+    pc.logger.info(
         f"Plan: EDL v{version} \u2014 {len(edl.segments)} segments, "
-        f"{n_photos} photos + {n_videos} videos ({vid_pct}% video), "
-        f"duration ~{edl.estimated_duration():.0f}s (target {edl.target_duration:.0f}s), planned in {dur:.0f}s"
+        f"{s['n_photos']} photos + {s['n_videos']} videos ({s['vid_pct']}% video), "
+        f"duration ~{s['estimated_duration']:.0f}s (target {edl.target_duration:.0f}s), planned in {dur:.0f}s"
     )
-    if n_keep_audio:
-        pc.log(f"  Speech preserved: {n_keep_audio} clips")
+    if s["n_keep_audio"]:
+        pc.logger.info(f"  Speech preserved: {s['n_keep_audio']} clips")
     for seg in edl.segments:
-        pc.log(f"  {seg.name}: {len(seg.items)} items, transition={seg.transition}")
+        pc.logger.info(
+            f"  {seg.name}: {len(seg.items)} items, transition={seg.transition}"
+        )
 
 
 def _run_generate_music(pc: _PipelineContext):
@@ -184,10 +176,10 @@ def _run_generate_music(pc: _PipelineContext):
 
     dur = time.monotonic() - t0
     if track:
-        pc.log(f"Music: generated {track.name} in {dur:.0f}s")
+        pc.logger.info(f"Music: generated {track.name} in {dur:.0f}s")
         pc.display.done("generate_music", track.name, dur)
     else:
-        pc.log("Music: skipped")
+        pc.logger.info("Music: skipped")
         pc.display.done("generate_music", "skipped", dur)
 
 
@@ -206,7 +198,7 @@ def _run_assemble(pc: _PipelineContext):
 
         ac = replace(ac, version=find_latest_version(pc.cfg))
 
-    pc.log(f"Render: {ac.w}x{ac.h} {ac.fps}fps (EDL v{ac.version})")
+    pc.logger.info(f"Render: {ac.w}x{ac.h} {ac.fps}fps (EDL v{ac.version})")
 
     out, issues = do_assemble(
         pc.cfg,
@@ -216,13 +208,13 @@ def _run_assemble(pc: _PipelineContext):
 
     dur = time.monotonic() - t0
     size_mb = round(out.stat().st_size / 1024 / 1024, 1) if out.exists() else 0
-    pc.log(f"Assemble: {out.name} ({size_mb}MB) in {dur:.0f}s")
+    pc.logger.info(f"Assemble: {out.name} ({size_mb}MB) in {dur:.0f}s")
     pc.display.output_file = str(out)
     pc.display.done("assemble", f"{out.name} ({size_mb}MB)", dur)
 
     for issue in issues:
         level = issue.get("level", "warning")
-        pc.log(
+        pc.logger.info(
             f"  [{level.upper()}] {issue.get('check', '')}: {issue.get('message', '')}"
         )
 

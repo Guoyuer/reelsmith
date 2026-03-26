@@ -216,31 +216,26 @@ All candidates:"""
         logger.info("Post-processing: no changes (%d items)", items_after)
 
     # Rich post-processing diff
-    try:
-        import sys
+    from ..utils import stderr_console
 
-        if sys.stderr.isatty() and (
-            n_path_removed or n_trim_fixed or n_trim_removed or n_dedup
-        ):
-            from rich.console import Console
-            from rich.table import Table
+    console = stderr_console()
+    if console and (n_path_removed or n_trim_fixed or n_trim_removed or n_dedup):
+        from rich.table import Table
 
-            t = Table(title="Post-processing", border_style="dim", title_style="bold")
-            t.add_column("Step")
-            t.add_column("Result", justify="right")
-            if n_path_removed:
-                t.add_row("Items removed (bad path)", f"[red]{n_path_removed}[/red]")
-            if n_trim_fixed:
-                t.add_row("Trim points clamped", f"[yellow]{n_trim_fixed}[/yellow]")
-            if n_trim_removed:
-                t.add_row("Items removed (bad trim)", f"[red]{n_trim_removed}[/red]")
-            if n_dedup:
-                t.add_row("Duplicates removed", f"[yellow]{n_dedup}[/yellow]")
-            t.add_section()
-            t.add_row("[bold]Items", f"[bold]{items_before} \u2192 {items_after}")
-            Console(stderr=True).print(t)
-    except ImportError:
-        pass
+        t = Table(title="Post-processing", border_style="dim", title_style="bold")
+        t.add_column("Step")
+        t.add_column("Result", justify="right")
+        if n_path_removed:
+            t.add_row("Items removed (bad path)", f"[red]{n_path_removed}[/red]")
+        if n_trim_fixed:
+            t.add_row("Trim points clamped", f"[yellow]{n_trim_fixed}[/yellow]")
+        if n_trim_removed:
+            t.add_row("Items removed (bad trim)", f"[red]{n_trim_removed}[/red]")
+        if n_dedup:
+            t.add_row("Duplicates removed", f"[yellow]{n_dedup}[/yellow]")
+        t.add_section()
+        t.add_row("[bold]Items", f"[bold]{items_before} \u2192 {items_after}")
+        console.print(t)
 
     actual_dur = edl.estimated_duration()
     if actual_dur < pc.target_duration * 0.5:

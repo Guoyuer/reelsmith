@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
+from ._types import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS
+
 if TYPE_CHECKING:
     from .config import Config
 
@@ -187,6 +189,26 @@ class EDL(BaseModel):
             total += self.outro_duration
         return total
 
+    def summary(self) -> dict:
+        """Return key stats for display/logging (avoids recomputing in multiple places)."""
+        all_items = self.all_items()
+        _dur = self._item_output_duration
+        n_photos = sum(1 for i in all_items if i.media_type != "video")
+        n_videos = sum(1 for i in all_items if i.media_type == "video")
+        photo_time = sum(_dur(i) for i in all_items if i.media_type != "video")
+        vid_time = sum(_dur(i) for i in all_items if i.media_type == "video")
+        total_time = photo_time + vid_time
+        return {
+            "n_photos": n_photos,
+            "n_videos": n_videos,
+            "n_keep_audio": sum(1 for i in all_items if i.keep_audio),
+            "n_text_overlay": sum(1 for i in all_items if i.text_overlay),
+            "photo_time": photo_time,
+            "vid_time": vid_time,
+            "vid_pct": int(vid_time / total_time * 100) if total_time > 0 else 0,
+            "estimated_duration": self.estimated_duration(),
+        }
+
 
 # ---------------------------------------------------------------------------
 # EDL persistence helpers
@@ -300,17 +322,8 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
             # Media type vs file extension mismatch
             if src.exists():
                 ext = src.suffix.lower()
-                photo_exts = {
-                    ".jpg",
-                    ".jpeg",
-                    ".png",
-                    ".heic",
-                    ".heif",
-                    ".webp",
-                    ".bmp",
-                    ".tiff",
-                }
-                video_exts = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".webm", ".mts"}
+                photo_exts = PHOTO_EXTENSIONS | {".bmp", ".tiff"}
+                video_exts = VIDEO_EXTENSIONS | {".webm", ".mts"}
                 if item.media_type == "video" and ext in photo_exts:
                     _error(
                         f"{item_label}: media_type='video' but file is a photo ({ext})"

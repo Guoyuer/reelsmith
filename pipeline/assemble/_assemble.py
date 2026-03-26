@@ -139,32 +139,29 @@ def assemble(
         logger.info("Validation: all checks passed")
 
     # Rich validation panel to terminal
-    try:
-        import sys
+    from ..utils import stderr_console
 
-        if sys.stderr.isatty():
-            from rich.console import Console
-            from rich.panel import Panel
-            from rich.text import Text
+    console = stderr_console()
+    if console:
+        from rich.panel import Panel
+        from rich.text import Text
 
-            lines = Text()
-            for vi in val_issues:
-                icon = "\u2717" if vi["level"] == "error" else "\u26a0"
-                style = "red" if vi["level"] == "error" else "yellow"
-                lines.append(f" {icon} ", style=style)
-                lines.append(f"[{vi['check']}] {vi['message']}\n")
-            if not val_issues:
-                lines.append(" \u2713 All checks passed\n", style="green")
-            has_errors = any(vi["level"] == "error" for vi in val_issues)
-            Console(stderr=True).print(
-                Panel(
-                    lines,
-                    title="Validation",
-                    border_style="red" if has_errors else "green",
-                )
+        lines = Text()
+        for vi in val_issues:
+            icon = "\u2717" if vi["level"] == "error" else "\u26a0"
+            style = "red" if vi["level"] == "error" else "yellow"
+            lines.append(f" {icon} ", style=style)
+            lines.append(f"[{vi['check']}] {vi['message']}\n")
+        if not val_issues:
+            lines.append(" \u2713 All checks passed\n", style="green")
+        has_errors = any(vi["level"] == "error" for vi in val_issues)
+        console.print(
+            Panel(
+                lines,
+                title="Validation",
+                border_style="red" if has_errors else "green",
             )
-    except ImportError:
-        pass
+        )
 
     return output_path, val_issues
 

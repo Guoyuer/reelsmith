@@ -14,13 +14,10 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .._types import ManifestEntry
+from .._types import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS, ManifestEntry
 from ..config import Config, ProgressCallback
 
 logger = logging.getLogger("vlog.fetch.local")
-
-PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
-VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
 def fetch_local(

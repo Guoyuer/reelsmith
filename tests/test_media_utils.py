@@ -68,6 +68,7 @@ class TestConvertHeicCallsSips:
 
         # Force the pillow_heif import to raise ImportError
         import sys
+
         saved = sys.modules.pop("pillow_heif", None)
         try:
             with (
