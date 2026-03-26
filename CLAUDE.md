@@ -9,8 +9,7 @@ vlog/
 │   ├── config.py              # Config dataclass (workspace paths, env loading)
 │   ├── edl.py                 # EDL Pydantic model + all enums (MediaType, Effect, Transition, etc.)
 │   ├── fetch/                 # Stage 1: source fetching
-│   │   ├── _local.py          #   Local folder scanner + EXIF extraction
-│   │   └── _nas.py            #   Synology Photos API client
+│   │   └── _local.py          #   Local folder scanner + EXIF extraction
 │   ├── prepare/               # Stage 2: media preprocessing
 │   │   └── _prepare.py        #   Thumbnails, ffprobe, family detection, preview clips
 │   ├── plan/                  # Stage 3: Gemini EDL generation
@@ -48,7 +47,7 @@ vlog/
 ├── docs/                      # Architecture decisions, plans, metrics
 ├── pyproject.toml             # Dependencies, entry points, tool config
 ├── .pre-commit-config.yaml    # Ruff lint/format + pytest hooks
-├── .env.example               # GEMINI_API_KEY, SYNOLOGY_API_BASE, WORKSPACE
+├── .env.example               # GEMINI_API_KEY, WORKSPACE
 ├── CHANGELOG.md               # Version history
 └── workspace/                 # Generated artifacts (gitignored)
     ├── runs/{name}/           #   Per-run: manifest, EDL, clips, output, logs
@@ -130,13 +129,10 @@ Run pipeline via `vlog` CLI. Stages execute directly in a single Python process 
 
 ```bash
 # Full pipeline from local folder
-vlog full -n singapore -s local -p ./photos -r 4k60 --duration 180 --lang cn
-
-# Full pipeline from NAS
-vlog full -n singapore -s nas -f 2025-06-13 -t 2025-06-17 -r 1080p30 --duration 180
+vlog full -n singapore -p ./photos -r 4k60 --duration 180 --lang cn
 
 # Prepare only (fetch + media processing)
-vlog prepare -n singapore -s local -p ./photos
+vlog prepare -n singapore -p ./photos
 
 # Re-plan only (no render)
 vlog plan -n singapore --duration 180 --lang cn
@@ -167,19 +163,17 @@ degradation, not crashes.
 
 ### Stage 1: prepare (`pipeline/prepare/_prepare.py`)
 
-**Input:** Raw media files (photos + videos) from local folder or NAS.
+**Input:** Raw media files (photos + videos) from a local folder.
 
 **What it does per photo:**
 - Generate 400px JPEG thumbnail (cached in `workspace/thumbnails/`)
 - Extract EXIF: focal_length, aperture, ISO
-- Extract faces/persons from NAS manifest (family_count, person names)
 - Extract location (country, region, district) and timestamp
 
 **What it does per video:**
 - ffprobe: duration, width, height, fps, orientation (landscape/portrait)
 - **NO audio analysis** — no speech detection, no loudness, no transcript, no speech timestamps
 - Generate preview clip (480p 1fps WITH AUDIO, mono 64kbps AAC, via parallel workers)
-- Extract faces/persons from NAS manifest
 
 **What it does globally:**
 - Family detection: top 5 persons appearing in ≥3% of items
@@ -323,7 +317,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 
 ## What's still hard-coded
 
-- **Family detection** — family_count from NAS face data (top 5 persons appearing in ≥3% of items)
+- **Family detection** — top 5 persons appearing in ≥3% of items
 - **FFmpeg rendering** — parallel segment rendering from EDL (3 NVENC workers, 2 VideoToolbox workers)
 - **Ken Burns effects** — cosine-eased crop + lanczos scale per EDL effect field (photos only; videos use a separate render path)
 - **Thumbnail/keyframe generation** — Pillow resize, FFmpeg extraction
@@ -361,7 +355,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - Text overlays baked into clips via drawtext filter with drop shadow (no separate encode pass)
 - Title card uses first EDL photo as blurred background (fallback: purple gradient)
 - CLI `prepare` = fetch + prepare (family detection, thumbnails, EXIF, video probing); CLI `plan` = plan + generate_music (when `--music` is not `none`); CLI `assemble` = render. `full` = all stages
-- `--source local --path PATH` / `--source nas -f -t` — source type is a flag, `--path` required for local, `-f`/`-t` required for NAS
+- `--path PATH` is required for `prepare` and `full` commands
 - `--resolution` / `-r` is required for both `full` and `assemble` — no default. Presets: 4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30, or custom WxHxFPS
 - Clips cached per resolution (`seg00_item00_1080p30.mp4`); switching resolution doesn't re-render existing clips
 - Output files include resolution: `vlog_v1_1080p30.mp4` — different resolutions coexist
