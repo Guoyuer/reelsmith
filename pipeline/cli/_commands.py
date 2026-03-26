@@ -9,7 +9,7 @@ from ._config_io import (
     SOURCE_CHOICES,
     STYLE_CHOICES,
     TRIP_TYPE_CHOICES,
-    config_path_for,
+    list_configs,
     load_run_config,
 )
 from ._runner import _run_pipeline
@@ -699,13 +699,17 @@ def show_config(run_name):
 
     ws = Config.run_workspace(run_name=run_name)
     cfg = Config.load(ws)
-    cfg_path = config_path_for(cfg.workspace)
-    try:
-        text = cfg_path.read_text()
-    except FileNotFoundError:
+    configs = list_configs(cfg.workspace)
+    if not configs:
         raise click.UsageError(
-            f"No saved config at {cfg_path}.\n"
+            f"No config files in {cfg.workspace}.\n"
             "Run the pipeline with full parameters first."
         )
-    click.echo(f"# {cfg_path}")
-    click.echo(text)
+    # Print latest config, list all available
+    if len(configs) > 1:
+        click.echo(f"# {len(configs)} configs found (showing latest):")
+        for c in configs:
+            marker = " ← latest" if c == configs[-1] else ""
+            click.echo(f"#   {c.name}{marker}")
+    click.echo(f"# {configs[-1]}")
+    click.echo(configs[-1].read_text())

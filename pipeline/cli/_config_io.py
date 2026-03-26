@@ -49,7 +49,8 @@ _SOURCE_FIELDS = {
 _PLAN_FIELDS = {"duration", "model", "lang", "trip_type", "style", "focus", "music"}
 _ASSEMBLE_FIELDS = {"resolution", "bitrate"}
 
-_CONFIG_LATEST = "run_config.yaml"
+_CONFIG_GLOB = "run_config_*.yaml"
+_CONFIG_PREFIX = "run_config_"
 
 # ---------------------------------------------------------------------------
 # Config schema for validation
@@ -148,9 +149,9 @@ def _validate_config(data: dict[str, Any], cfg_file: str) -> None:
         raise click.UsageError(f"{cfg_file}: invalid config:\n  - {bullet_list}")
 
 
-def config_path_for(workspace: Path) -> Path:
-    """Return the latest run_config.yaml path for a workspace."""
-    return workspace / _CONFIG_LATEST
+def list_configs(workspace: Path) -> list[Path]:
+    """Return all run_config_{timestamp}.yaml files, newest last."""
+    return sorted(workspace.glob(_CONFIG_GLOB))
 
 
 def _dump_yaml_with_comments(grouped: dict[str, Any], defaults: set[str]) -> str:
@@ -228,15 +229,11 @@ def save_run_config(
 
     # Write timestamped file (never overwritten)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    timestamped = workspace / f"run_config_{timestamp}.yaml"
-    timestamped.write_text(yaml_text)
-
-    # Write latest copy (always points to most recent run)
-    dest = config_path_for(workspace)
+    dest = workspace / f"run_config_{timestamp}.yaml"
     dest.write_text(yaml_text)
 
     # Log to file
-    logger.info("Run config saved: %s", timestamped.name)
+    logger.info("Run config saved: %s", dest.name)
     for line in dest.read_text().splitlines():
         if line.strip():
             logger.info("  %s", line)

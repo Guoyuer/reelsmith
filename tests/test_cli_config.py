@@ -22,7 +22,7 @@ from pipeline.cli import (
     _RESOLUTION_PRESETS,
     _format_resolution,
     cli,
-    config_path_for,
+    list_configs,
     save_run_config,
 )
 
@@ -46,8 +46,9 @@ class TestSaveRunConfig:
             "model": "balanced",
         }
         dest = save_run_config(tmp_path, params)
-        assert dest == config_path_for(tmp_path)
         assert dest.exists()
+        assert dest.name.startswith("run_config_")
+        assert list_configs(tmp_path)[-1] == dest
         loaded = yaml.safe_load(dest.read_text())
         assert loaded["source"]["type"] == "local"
         assert loaded["source"]["path"] == "/photos"
@@ -57,13 +58,13 @@ class TestSaveRunConfig:
     def test_omits_none_values(self, tmp_path):
         params = {"source": "local", "path": None, "duration": 60}
         save_run_config(tmp_path, params)
-        loaded = yaml.safe_load(config_path_for(tmp_path).read_text())
+        loaded = yaml.safe_load(list_configs(tmp_path)[-1].read_text())
         assert "path" not in loaded["source"]
 
     def test_omits_unsaved_fields(self, tmp_path):
         params = {"source": "local", "force": True, "version": 2, "run_name": "test"}
         save_run_config(tmp_path, params)
-        loaded = yaml.safe_load(config_path_for(tmp_path).read_text())
+        loaded = yaml.safe_load(list_configs(tmp_path)[-1].read_text())
         assert "force" not in loaded
         assert "version" not in loaded
         assert "run_name" not in loaded
@@ -72,14 +73,14 @@ class TestSaveRunConfig:
     def test_overwrites_existing(self, tmp_path):
         save_run_config(tmp_path, {"source": "local", "duration": 60})
         save_run_config(tmp_path, {"source": "nas", "duration": 180})
-        loaded = yaml.safe_load(config_path_for(tmp_path).read_text())
+        loaded = yaml.safe_load(list_configs(tmp_path)[-1].read_text())
         assert loaded["source"]["type"] == "nas"
         assert loaded["plan"]["duration"] == 180
 
     def test_empty_groups_omitted(self, tmp_path):
         params = {"source": "local"}
         save_run_config(tmp_path, params)
-        loaded = yaml.safe_load(config_path_for(tmp_path).read_text())
+        loaded = yaml.safe_load(list_configs(tmp_path)[-1].read_text())
         assert "plan" not in loaded
         assert "assemble" not in loaded
 
@@ -101,9 +102,10 @@ class TestSaveRunConfig:
             if "duration:" in line:
                 assert "# default" not in line
 
-    def test_config_filename_is_yaml(self, tmp_path):
+    def test_config_filename_has_timestamp(self, tmp_path):
         dest = save_run_config(tmp_path, {"source": "local"})
-        assert dest.name == "run_config.yaml"
+        assert dest.name.startswith("run_config_")
+        assert dest.name.endswith(".yaml")
 
 
 # ---------------------------------------------------------------------------
@@ -482,7 +484,7 @@ class TestConfigCommand:
         ws = tmp_path / "workspace" / "runs" / "myrun"
         ws.mkdir(parents=True)
         cfg_text = "source:\n  type: local\n  path: /photos\n\nplan:\n  duration: 120\n"
-        (ws / "run_config.yaml").write_text(cfg_text)
+        (ws / "run_config_20260325_120000.yaml").write_text(cfg_text)
 
         with patch("pipeline.config.Config.run_workspace", return_value=str(ws)):
             with patch("pipeline.config.Config.load") as mock_load:
@@ -507,4 +509,4 @@ class TestConfigCommand:
                 result = runner.invoke(cli, ["config", "-n", "norun"])
 
         assert result.exit_code != 0
-        assert "No saved config" in result.output
+        assert "No config files" in result.output

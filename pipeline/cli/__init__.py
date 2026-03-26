@@ -19,7 +19,7 @@ from ._config_io import (
     SOURCE_CHOICES,
     STYLE_CHOICES,
     TRIP_TYPE_CHOICES,
-    config_path_for,
+    list_configs,
     load_run_config,
     save_run_config,
 )
@@ -50,7 +50,7 @@ __all__ = [
     "_PipelineDisplay",
     "_PipelineContext",
     "_run_prepare",
-    "config_path_for",
+    "list_configs",
     "load_run_config",
     "save_run_config",
 ]
