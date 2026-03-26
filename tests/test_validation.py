@@ -180,11 +180,6 @@ class TestValidateEdlTopLevel:
         issues = validate_edl(edl, strict=False)
         assert any("Invalid outro_duration" in i["message"] for i in issues)
 
-    def test_invalid_duck_ratio_errors(self):
-        edl = _make_edl(music_duck_ratio=1.5)
-        issues = validate_edl(edl, strict=False)
-        assert any("Invalid music_duck_ratio" in i["message"] for i in issues)
-
 
 class TestValidateEdlItems:
     def test_missing_source_file_errors(self):

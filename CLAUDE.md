@@ -260,7 +260,6 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 | plan | effect field (videos) | _orchestrate.py | Force-overwritten to "none" — prompt should not ask for video effects |
 | plan | display_duration | postprocess | Auto-corrected from trim+speed — Gemini's value is advisory |
 | plan | music_mood | generate_music | Sent directly to Lyria as text prompt |
-| plan | music_duck_ratio | assemble | EDL field exists but NOT used — sidechaincompress handles ducking dynamically |
 | assemble | segment .ts files | concat | Demuxer concat, no re-encode |
 | assemble | keep_audio flag | beat sync | Per-item: keep_audio=true items skip beat snap, others in same segment still eligible |
 

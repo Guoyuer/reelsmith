@@ -13,7 +13,7 @@ import json
 import logging
 from pathlib import Path
 
-from .._types import AnalysisEntry
+from .._types import PHOTO_EXTENSIONS, AnalysisEntry
 from ..edl import EDL, validate_edl
 from ._prompts import _timestamp_to_secs
 
@@ -92,7 +92,7 @@ def parse_and_convert_timestamps(
                         (local_end - local_start) / speed, 1
                     )
                     n_converted += 1
-                    logger.info(
+                    logger.debug(
                         "  Preview %s-%s → clip #%s trim %s-%ss (%ss)",
                         ps,
                         pe,
@@ -158,10 +158,10 @@ def fix_hallucinated_paths(edl: EDL, media_dir: Path) -> int:
                         [c.name for c in candidates[:5]],
                     )
                 else:
-                    logger.info("  Fixed path: %s → %s", name, candidates[0].name)
+                    logger.debug("  Fixed path: %s → %s", name, candidates[0].name)
                 valid_items.append(item)
             else:
-                logger.info("  Removed item with missing source: %s", name)
+                logger.debug("  Removed item with missing source: %s", name)
                 removed_count += 1
         seg.items = valid_items
     edl.segments = [s for s in edl.segments if s.items]
@@ -216,7 +216,7 @@ def validate_trim_points(
                     item.start_time = st
                     item.end_time = et
                     if et is not None and st >= et:
-                        logger.info(
+                        logger.debug(
                             "  Trim removal: %s start=%.1f >= end=%.1f (duration=%.1fs)",
                             Path(item.source_file).name,
                             item.start_time,
@@ -226,7 +226,7 @@ def validate_trim_points(
                         trim_removed += 1
                         continue
                     if changed:
-                        logger.info(
+                        logger.debug(
                             "  Trim clamped: %s to [%.1f, %s] (duration=%.1fs)",
                             Path(item.source_file).name,
                             item.start_time,
@@ -257,7 +257,7 @@ def validate_trim_points(
                 expected = trim_dur / speed
                 if abs(expected - item.display_duration) > 0.5:
                     delta = expected - item.display_duration
-                    logger.info(
+                    logger.debug(
                         "  Duration fix: %s display_duration %.1fs → %.1fs "
                         "(trim=%.1fs, speed=%s)",
                         Path(item.source_file).name,
@@ -287,7 +287,7 @@ def deduplicate_items(edl: EDL) -> int:
         unique_items = []
         for item in seg.items:
             if item.source_file in seen_sources:
-                logger.info(
+                logger.debug(
                     "  Dedup: removed duplicate %s", Path(item.source_file).name
                 )
                 dedup_removed += 1
@@ -311,14 +311,7 @@ def validate_and_fix_edl(edl: EDL) -> None:
             for seg in edl.segments:
                 for item in seg.items:
                     ext = Path(item.source_file).suffix.lower()
-                    if item.media_type == "video" and ext in {
-                        ".jpg",
-                        ".jpeg",
-                        ".png",
-                        ".heic",
-                        ".heif",
-                        ".webp",
-                    }:
+                    if item.media_type == "video" and ext in PHOTO_EXTENSIONS:
                         logger.info(
                             "  Auto-fix: %s video→photo",
                             Path(item.source_file).name,
@@ -338,69 +331,39 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
     n_videos = s["n_videos"]
     n_photos = s["n_photos"]
     n_keep_audio = s["n_keep_audio"]
-    n_text_overlay = s["n_text_overlay"]
-
-    # Compute additional stats (not in summary — only needed here)
-    video_items = [i for i in all_items if i.media_type == "video"]
-    trim_lengths = [
-        i.end_time - i.start_time
-        for i in video_items
-        if i.start_time is not None and i.end_time is not None
-    ]
-    avg_trim = sum(trim_lengths) / len(trim_lengths) if trim_lengths else 0.0
-    speeds = {}
-    for i in all_items:
-        sp = i.playback_speed
-        speeds[sp] = speeds.get(sp, 0) + 1
     n_montage = sum(1 for seg in edl.segments if seg.mode == "montage")
 
-    logger.info("=== [Gemini] PARSED EDL ===")
-    logger.info("  Title: %s", edl.title)
+    status = "OK" if actual_dur >= target_duration * 0.8 else "UNDERFILLED"
     logger.info(
-        "  Segments: %d (%d narrative, %d montage), Items: %d (%d photos + %d videos)",
+        "=== [Gemini] PARSED EDL === %s | %d segments (%d narrative, %d montage), "
+        "%d items (%d photos + %d videos), %.0fs (target %ds, %s), "
+        "speech=%d, overlays=%d",
+        edl.title,
         len(edl.segments),
         len(edl.segments) - n_montage,
         n_montage,
         len(all_items),
         n_photos,
         n_videos,
+        actual_dur,
+        target_duration,
+        status,
+        n_keep_audio,
+        s["n_text_overlay"],
     )
-    status = "OK" if actual_dur >= target_duration * 0.8 else "UNDERFILLED"
-    logger.info(
-        "  Duration: %.0fs (target: %ds, %s)", actual_dur, target_duration, status
-    )
-    logger.info("  Speech clips (keep_audio): %d", n_keep_audio)
-    logger.info("  Text overlays: %d", n_text_overlay)
-    if trim_lengths:
-        logger.info(
-            "  Video trims: avg %.1fs, min %.1fs, max %.1fs (%d videos with trims)",
-            avg_trim,
-            min(trim_lengths),
-            max(trim_lengths),
-            len(trim_lengths),
-        )
-    speed_parts = [f"{s}x: {c}" for s, c in sorted(speeds.items())]
-    logger.info("  Playback speeds: %s", ", ".join(speed_parts))
 
+    # Detailed per-segment/item breakdown at DEBUG (always in log file)
     for si, seg in enumerate(edl.segments):
         seg_dur = sum(i.display_duration for i in seg.items)
-        logger.info(
-            "  --- Segment %d: %s (%d items, %.0fs) ---",
+        logger.debug(
+            "  Segment %d: %s (%d items, %.0fs, %s, %s)",
             si,
             seg.name,
             len(seg.items),
             seg_dur,
-        )
-        logger.info(
-            "    Transition: %s (%ss) | Mode: %s | Color: %s",
-            seg.transition,
-            seg.transition_duration,
             seg.mode,
             seg.color_temp,
         )
-        logger.info("    Music mood: %s", seg.music_mood[:120])
-        if seg.narrative_rationale:
-            logger.info("    Rationale: %s", seg.narrative_rationale[:150])
         for item in seg.items:
             trim = (
                 f" trim={item.start_time:.0f}-{item.end_time:.0f}s"
@@ -415,11 +378,10 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
             if item.text_overlay:
                 flags.append(f'text="{item.text_overlay.text[:30]}"')
             flag_str = f" [{', '.join(flags)}]" if flags else ""
-            logger.info(
-                "    - %-5s %ss %-16s %s%s%s",
+            logger.debug(
+                "    - %-5s %ss %s%s%s",
                 item.media_type,
                 item.display_duration,
-                item.effect,
                 Path(item.source_file).name,
                 trim,
                 flag_str,
@@ -432,13 +394,13 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
     if console:
         from rich.tree import Tree
 
-        status = (
+        rich_status = (
             "[green]OK[/green]"
             if actual_dur >= target_duration * 0.8
             else "[red]UNDERFILLED[/red]"
         )
         tree = Tree(
-            f"[bold]{edl.title}[/bold]  {actual_dur:.0f}s/{target_duration}s {status}"
+            f"[bold]{edl.title}[/bold]  {actual_dur:.0f}s/{target_duration}s {rich_status}"
         )
         for seg in edl.segments:
             seg_dur = sum(i.display_duration for i in seg.items)

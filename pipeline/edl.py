@@ -156,9 +156,6 @@ class EDL(BaseModel):
     segments: list[Segment]
     music: MusicTrack | None = None
     music_mode: MusicMode = MusicMode.NONE  # auto = generate in generate_music step
-    music_duck_ratio: float = (
-        0.3  # during speech: music volume *= this (0.0=silent, 1.0=full)
-    )
     trip_type: str = "family"  # used by assemble for music generation prompt
     style: str = "upbeat"  # used by assemble for music generation prompt
     intro_style: IntroStyle = IntroStyle.TITLE_CARD
@@ -274,8 +271,6 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
         _error(f"Invalid intro_duration: {edl.intro_duration}")
     if edl.outro_duration <= 0 or edl.outro_duration > 15:
         _error(f"Invalid outro_duration: {edl.outro_duration}")
-    if edl.music_duck_ratio < 0 or edl.music_duck_ratio > 1.0:
-        _error(f"Invalid music_duck_ratio: {edl.music_duck_ratio}")
 
     # --- Segments ---
     if not edl.segments:
