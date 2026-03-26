@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
-from ._types import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS
+from ._types import PHOTO_EXTENSIONS_ALL, VIDEO_EXTENSIONS_ALL
 
 if TYPE_CHECKING:
     from .config import Config
@@ -336,8 +336,8 @@ def validate_edl(edl: EDL, *, strict: bool = True) -> list[dict]:
             # Media type vs file extension mismatch
             if src.exists():
                 ext = src.suffix.lower()
-                photo_exts = PHOTO_EXTENSIONS | {".bmp", ".tiff"}
-                video_exts = VIDEO_EXTENSIONS | {".webm", ".mts"}
+                photo_exts = PHOTO_EXTENSIONS_ALL
+                video_exts = VIDEO_EXTENSIONS_ALL
                 if item.media_type == "video" and ext in photo_exts:
                     _error(
                         f"{item_label}: media_type='video' but file is a photo ({ext})"

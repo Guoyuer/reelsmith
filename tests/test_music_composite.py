@@ -26,8 +26,8 @@ class TestBuildCompositeMusic:
             for c in cmd:
                 if str(c).endswith(".wav") and "_seg_music_" in str(c):
                     Path(c).write_bytes(b"RIFF" + b"\x00" * 50)
-            # Create output for compose phase
-            if str(out) in str(cmd):
+            # Create output for compose phase — check last arg is the output path
+            if Path(cmd[-1]) == out:
                 out.write_bytes(b"RIFF" + b"\x00" * 200)
             return m
 
@@ -140,7 +140,7 @@ class TestBuildCompositeMusic:
                 sc = str(c)
                 if sc.endswith(".wav") and "_seg_music_" in sc:
                     Path(sc).write_bytes(b"RIFF" + b"\x00" * 50)
-            if str(out) in str(cmd):
+            if Path(cmd[-1]) == out:
                 out.write_bytes(b"RIFF" + b"\x00" * 200)
             return m
 
