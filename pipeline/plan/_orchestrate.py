@@ -192,7 +192,9 @@ All candidates:"""
     edl = parse_and_convert_timestamps(edl_content, preview_offset_table)
     items_before = len(edl.all_items())
     n_path_removed = fix_hallucinated_paths(edl, cfg.media_dir)
-    n_trim_fixed, n_trim_removed = validate_trim_points(edl, analysis_by_id)
+    n_trim_fixed, n_trim_removed, n_dur_fixed, dur_delta = validate_trim_points(
+        edl, analysis_by_id
+    )
     n_dedup = deduplicate_items(edl)
     items_after = len(edl.all_items())
 
@@ -206,6 +208,8 @@ All candidates:"""
         pp_parts.append(f"{n_trim_removed} bad trims removed")
     if n_dedup:
         pp_parts.append(f"{n_dedup} duplicates removed")
+    if n_dur_fixed:
+        pp_parts.append(f"{n_dur_fixed} durations corrected ({dur_delta:+.1f}s)")
     if pp_parts:
         logger.info(
             "Post-processing: %s (%d → %d items)",
@@ -253,6 +257,28 @@ All candidates:"""
         logger.warning(
             "EDL is %.0fs, target is %ds — underfilled", actual_dur, pc.target_duration
         )
+
+    # Selection coverage: how many of the total candidates were selected
+    selected_paths = {item.source_file for item in edl.all_items()}
+    n_selected = len(selected_paths)
+    logger.info(
+        "Selection: %d / %d candidates used (%.0f%%)",
+        n_selected,
+        n_candidates,
+        n_selected / n_candidates * 100 if n_candidates else 0,
+    )
+    # Coverage by location
+    loc_total: dict[str, int] = {}
+    loc_selected: dict[str, int] = {}
+    for a in analysis_by_id.values():
+        loc = a.get("district") or a.get("first_level") or a.get("country") or "unknown"
+        loc_total[loc] = loc_total.get(loc, 0) + 1
+        if a.get("local_path") in selected_paths:
+            loc_selected[loc] = loc_selected.get(loc, 0) + 1
+    for loc in sorted(loc_total, key=lambda x: loc_total[x], reverse=True)[:10]:
+        sel = loc_selected.get(loc, 0)
+        tot = loc_total[loc]
+        logger.info("  %s: %d/%d selected", loc, sel, tot)
 
     log_edl_summary(edl, pc.target_duration)
 

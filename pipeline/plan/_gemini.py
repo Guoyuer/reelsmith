@@ -17,6 +17,14 @@ from ..config import ProgressCallback
 
 logger = logging.getLogger("vlog.plan")
 
+# Per-model pricing (USD per million tokens, paid tier)
+_PRICING: dict[str, tuple[float, float]] = {
+    "gemini-3.1-flash-lite-preview": (0.25, 1.50),
+    "gemini-3-flash-preview": (0.50, 3.00),
+    "gemini-3.1-pro-preview": (2.00, 12.00),
+    "gemini-3-pro-preview": (2.00, 12.00),
+}
+
 
 def _prepare_parts(
     user_parts: list, client, progress_callback: ProgressCallback = None
@@ -91,7 +99,7 @@ def _parse_response(response) -> str:
             if getattr(part, "thought", False) and part.text:
                 logger.info("  [Thinking] %d chars", len(part.text))
                 for line in part.text.split("\n"):
-                    logger.debug("  \U0001f4ad %s", line)
+                    logger.info("  [Thinking] %s", line)
                 # Rich Markdown to terminal
                 try:
                     import sys
@@ -350,32 +358,94 @@ def _gemini_call(
     # Parse response content
     content = _parse_response(response)
 
-    # Log token usage and cost
+    # --- Collect all response metadata into a structured summary ---
+    def _short_enum(val) -> str:
+        """Strip enum class prefix: 'HarmCategory.HARM_CATEGORY_X' → 'X'."""
+        s = str(val)
+        return s.rsplit(".", 1)[-1].removeprefix("HARM_CATEGORY_")
+
     usage = response.usage_metadata
-    input_tokens = (usage.prompt_token_count or 0) if usage else 0
-    output_tokens = (usage.candidates_token_count or 0) if usage else 0
+    prompt_tokens = (usage.prompt_token_count or 0) if usage else 0
+    content_tokens = (usage.candidates_token_count or 0) if usage else 0
+    thinking_tokens = (usage.thoughts_token_count or 0) if usage else 0
+    total_tokens = (usage.total_token_count or 0) if usage else 0
+    cached_tokens = (usage.cached_content_token_count or 0) if usage else 0
+    tool_use_tokens = (usage.tool_use_prompt_token_count or 0) if usage else 0
 
-    # Per-model pricing (USD per million tokens, paid tier)
-    _PRICING = {
-        "gemini-3.1-flash-lite-preview": (0.25, 1.50),
-        "gemini-3-flash-preview": (0.50, 3.00),
-        "gemini-3.1-pro-preview": (2.00, 12.00),
-        "gemini-3-pro-preview": (2.00, 12.00),
-    }
     in_rate, out_rate = _PRICING.get(model, (0.50, 3.00))
-    cost_est = input_tokens * in_rate / 1_000_000 + output_tokens * out_rate / 1_000_000
-
-    logger.info(
-        "  Response: %s input tokens, %s output tokens, %.1fs, ~$%.2f",
-        f"{input_tokens:,}",
-        f"{output_tokens:,}",
-        elapsed,
-        cost_est,
+    cost_est = (
+        prompt_tokens * in_rate / 1_000_000
+        + (content_tokens + thinking_tokens) * out_rate / 1_000_000
     )
-    logger.info("  Output: %d chars", len(content))
-    logger.info("=== [Gemini] End %s ===", label)
 
-    # Rich cost breakdown table to terminal
+    cand = response.candidates[0] if response.candidates else None
+    finish = cand.finish_reason if cand else "NO_CANDIDATES"
+
+    # --- Log file output (structured text block) ---
+    logger.info("--- Gemini API Response Summary ---")
+    logger.info(
+        "  Model: %s | Thinking: %s | Time: %.1fs", model, thinking_level, elapsed
+    )
+    logger.info("  Finish: %s | Response: %d chars", finish, len(content))
+    if cand and cand.finish_message:
+        logger.info("  Finish detail: %s", cand.finish_message)
+    if finish != "STOP":
+        logger.warning("  ⚠ Non-STOP finish — output may be truncated or filtered")
+    if cand and cand.avg_logprobs is not None:
+        logger.info("  Confidence: avg_logprobs=%.4f", cand.avg_logprobs)
+    logger.info("  Tokens:")
+    logger.info(
+        "    Prompt:   %8s  ($%.3f)",
+        f"{prompt_tokens:,}",
+        prompt_tokens * in_rate / 1e6,
+    )
+    logger.info(
+        "    Content:  %8s  ($%.3f)",
+        f"{content_tokens:,}",
+        content_tokens * out_rate / 1e6,
+    )
+    logger.info(
+        "    Thinking: %8s  ($%.3f)",
+        f"{thinking_tokens:,}",
+        thinking_tokens * out_rate / 1e6,
+    )
+    logger.info("    Total:    %8s   $%.3f", f"{total_tokens:,}", cost_est)
+    if cached_tokens:
+        logger.info(
+            "    Cached:   %8s  (prompt tokens from cache)", f"{cached_tokens:,}"
+        )
+    if tool_use_tokens:
+        logger.info(
+            "    Tool use: %8s  (prompt tokens for tools)", f"{tool_use_tokens:,}"
+        )
+    # Per-modality breakdown
+    if usage:
+        for breakdown_label, details in [
+            ("Prompt", usage.prompt_tokens_details),
+            ("Output", usage.candidates_tokens_details),
+            ("Cache", usage.cache_tokens_details),
+        ]:
+            if details:
+                parts = [
+                    f"{_short_enum(d.modality)}={d.token_count:,}"
+                    for d in details
+                    if d.token_count
+                ]
+                if parts:
+                    logger.info(
+                        "    %s by modality: %s", breakdown_label, ", ".join(parts)
+                    )
+        if usage.traffic_type:
+            logger.info("  Traffic type: %s", usage.traffic_type)
+    if cand and cand.safety_ratings:
+        parts = [
+            f"{_short_enum(r.category)}={_short_enum(r.probability)}"
+            for r in cand.safety_ratings
+        ]
+        logger.info("  Safety: %s", ", ".join(parts))
+    logger.info("--- End Response Summary ---")
+
+    # --- Rich terminal display ---
     try:
         import sys
 
@@ -383,42 +453,115 @@ def _gemini_call(
             from rich.console import Console
             from rich.table import Table
 
+            console = Console(stderr=True)
+
+            # Token & cost table
             t = Table(
-                title=f"Gemini API \u2014 {label}",
+                title=f"\U0001f4ca Gemini API — {label}",
                 border_style="dim",
                 title_style="bold",
+                caption=f"Model: {model} | Thinking: {thinking_level} | {elapsed:.0f}s",
+                caption_style="dim",
             )
-            t.add_column("", style="dim")
+            t.add_column("", style="dim", min_width=10)
             t.add_column("Tokens", justify="right")
-            t.add_column("Rate", justify="right")
+            t.add_column("$/M", justify="right", style="dim")
             t.add_column("Cost", justify="right")
+            t.add_column("Modality", style="dim")
+
+            # Prompt row with modality breakdown
+            prompt_modality = ""
+            if usage and usage.prompt_tokens_details:
+                parts = [
+                    f"{_short_enum(d.modality)}: {d.token_count:,}"
+                    for d in usage.prompt_tokens_details
+                    if d.token_count
+                ]
+                prompt_modality = " | ".join(parts)
             t.add_row(
-                "Input",
-                f"{input_tokens:,}",
-                f"${in_rate}/M",
-                f"${input_tokens * in_rate / 1e6:.3f}",
+                "Prompt",
+                f"{prompt_tokens:,}",
+                f"${in_rate}",
+                f"${prompt_tokens * in_rate / 1e6:.3f}",
+                prompt_modality,
+            )
+            if cached_tokens:
+                t.add_row("  cached", f"[dim]{cached_tokens:,}", "", "", "")
+            if tool_use_tokens:
+                t.add_row("  tool use", f"[dim]{tool_use_tokens:,}", "", "", "")
+
+            # Output rows
+            output_modality = ""
+            if usage and usage.candidates_tokens_details:
+                parts = [
+                    f"{_short_enum(d.modality)}: {d.token_count:,}"
+                    for d in usage.candidates_tokens_details
+                    if d.token_count
+                ]
+                output_modality = " | ".join(parts)
+            t.add_row(
+                "Content",
+                f"{content_tokens:,}",
+                f"${out_rate}",
+                f"${content_tokens * out_rate / 1e6:.3f}",
+                output_modality,
             )
             t.add_row(
-                "Output",
-                f"{output_tokens:,}",
-                f"${out_rate}/M",
-                f"${output_tokens * out_rate / 1e6:.3f}",
+                "Thinking",
+                f"{thinking_tokens:,}",
+                f"${out_rate}",
+                f"${thinking_tokens * out_rate / 1e6:.3f}",
+                "",
             )
+
             t.add_section()
             t.add_row(
                 "[bold]Total",
-                f"[bold]{input_tokens + output_tokens:,}",
-                f"[dim]{elapsed:.0f}s",
+                f"[bold]{total_tokens:,}",
+                "",
                 f"[bold]${cost_est:.3f}",
+                "",
             )
-            Console(stderr=True).print(t)
+
+            console.print(t)
+
+            # Status line: finish + confidence + safety
+            status_parts = []
+            finish_style = "green" if finish == "STOP" else "red bold"
+            status_parts.append(f"Finish: [{finish_style}]{finish}[/{finish_style}]")
+            if cand and cand.avg_logprobs is not None:
+                lp = cand.avg_logprobs
+                conf_style = "green" if lp > -0.5 else "yellow" if lp > -1.0 else "red"
+                status_parts.append(
+                    f"Confidence: [{conf_style}]{lp:.4f}[/{conf_style}]"
+                )
+            status_parts.append(f"Output: {len(content):,} chars")
+            if cand and cand.safety_ratings:
+                blocked = [
+                    r for r in cand.safety_ratings if getattr(r, "blocked", False)
+                ]
+                if blocked:
+                    status_parts.append(
+                        f"[red bold]BLOCKED: {len(blocked)} categories[/red bold]"
+                    )
+            console.print("  " + "  │  ".join(status_parts), highlight=False)
+
+            if cand and cand.safety_ratings:
+                safety_parts = [
+                    f"{_short_enum(r.category)}=[dim]{_short_enum(r.probability)}[/dim]"
+                    for r in cand.safety_ratings
+                ]
+                console.print(f"  Safety: {', '.join(safety_parts)}", highlight=False)
     except ImportError:
         pass
 
     # Report cost via callback metadata
     if progress_callback:
+        thinking_suffix = f", {thinking_tokens:,} thinking" if thinking_tokens else ""
         progress_callback(
-            0, 0, f"~${cost_est:.2f} ({input_tokens:,} in, {output_tokens:,} out)"
+            0,
+            0,
+            f"~${cost_est:.2f} ({prompt_tokens:,} prompt, {content_tokens:,} content{thinking_suffix})",
         )
 
     return content

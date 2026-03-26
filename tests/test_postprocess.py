@@ -234,7 +234,7 @@ class TestValidateTrimPoints:
             ]
         )
         analysis = {"1": {"local_path": "/media/clip.mp4", "video_duration": 60.0}}
-        fixed, removed = validate_trim_points(edl, analysis)
+        fixed, removed, _, _ = validate_trim_points(edl, analysis)
         assert fixed == 0
         assert removed == 0
         assert edl.all_items()[0].start_time == 10.0
@@ -252,7 +252,7 @@ class TestValidateTrimPoints:
             ]
         )
         analysis = {"1": {"local_path": "/media/clip.mp4", "video_duration": 60.0}}
-        fixed, removed = validate_trim_points(edl, analysis)
+        fixed, removed, _, _ = validate_trim_points(edl, analysis)
         assert fixed == 1  # start clamped to vid_dur-2, end clamped to vid_dur
         assert removed == 0
         assert edl.all_items()[0].start_time == 58.0
@@ -271,7 +271,7 @@ class TestValidateTrimPoints:
             ]
         )
         analysis = {"1": {"local_path": "/media/clip.mp4", "video_duration": 60.0}}
-        fixed, _ = validate_trim_points(edl, analysis)
+        fixed, _, _, _ = validate_trim_points(edl, analysis)
         assert fixed >= 1
         assert edl.all_items()[0].end_time == 60.0
 
@@ -285,7 +285,7 @@ class TestValidateTrimPoints:
                 )
             ]
         )
-        fixed, removed = validate_trim_points(edl, {})
+        fixed, removed, _, _ = validate_trim_points(edl, {})
         assert fixed == 0
         assert removed == 0
         assert len(edl.all_items()) == 1

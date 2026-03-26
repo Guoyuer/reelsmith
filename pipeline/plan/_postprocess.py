@@ -88,7 +88,9 @@ def parse_and_convert_timestamps(
                     item["start_time"] = round(local_start, 1)
                     item["end_time"] = round(local_end, 1)
                     speed = item.get("playback_speed") or 1.0
-                    item["display_duration"] = round((local_end - local_start) / speed, 1)
+                    item["display_duration"] = round(
+                        (local_end - local_start) / speed, 1
+                    )
                     n_converted += 1
                     logger.info(
                         "  Preview %s-%s → clip #%s trim %s-%ss (%ss)",
@@ -172,8 +174,8 @@ def fix_hallucinated_paths(edl: EDL, media_dir: Path) -> int:
 
 def validate_trim_points(
     edl: EDL, analysis_by_id: dict[str, AnalysisEntry]
-) -> tuple[int, int]:
-    """Clamp or remove invalid video trim points. Returns (fixed, removed) counts."""
+) -> tuple[int, int, int, float]:
+    """Clamp or remove invalid video trim points. Returns (fixed, removed, dur_fixed, dur_delta)."""
     trim_fixed = 0
     trim_removed = 0
     for seg in edl.segments:
@@ -242,6 +244,7 @@ def validate_trim_points(
 
     # Fix display_duration to match trim range / speed
     dur_fixed = 0
+    dur_delta = 0.0
     for seg in edl.segments:
         for item in seg.items:
             if (
@@ -253,6 +256,7 @@ def validate_trim_points(
                 speed = item.playback_speed or 1.0
                 expected = trim_dur / speed
                 if abs(expected - item.display_duration) > 0.5:
+                    delta = expected - item.display_duration
                     logger.info(
                         "  Duration fix: %s display_duration %.1fs → %.1fs "
                         "(trim=%.1fs, speed=%s)",
@@ -262,12 +266,17 @@ def validate_trim_points(
                         trim_dur,
                         speed,
                     )
+                    dur_delta += delta
                     item.display_duration = round(expected, 1)
                     dur_fixed += 1
     if dur_fixed:
-        logger.info("  Duration alignment: %d items corrected", dur_fixed)
+        logger.info(
+            "  Duration alignment: %d items corrected (net %+.1fs)",
+            dur_fixed,
+            dur_delta,
+        )
 
-    return trim_fixed, trim_removed
+    return trim_fixed, trim_removed, dur_fixed, dur_delta
 
 
 def deduplicate_items(edl: EDL) -> int:
@@ -329,13 +338,28 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
     n_photos = len(all_items) - n_videos
     n_keep_audio = sum(1 for i in all_items if i.keep_audio)
     n_text_overlay = sum(1 for i in all_items if i.text_overlay)
-    n_speed_ramp = sum(1 for i in all_items if i.playback_speed != 1.0)
+
+    # Compute additional stats
+    video_items = [i for i in all_items if i.media_type == "video"]
+    trim_lengths = [
+        i.end_time - i.start_time
+        for i in video_items
+        if i.start_time is not None and i.end_time is not None
+    ]
+    avg_trim = sum(trim_lengths) / len(trim_lengths) if trim_lengths else 0.0
+    speeds = {}
+    for i in all_items:
+        s = i.playback_speed
+        speeds[s] = speeds.get(s, 0) + 1
+    n_montage = sum(1 for s in edl.segments if s.mode == "montage")
 
     logger.info("=== [Gemini] PARSED EDL ===")
     logger.info("  Title: %s", edl.title)
     logger.info(
-        "  Segments: %d, Items: %d (%d photos + %d videos)",
+        "  Segments: %d (%d narrative, %d montage), Items: %d (%d photos + %d videos)",
         len(edl.segments),
+        len(edl.segments) - n_montage,
+        n_montage,
         len(all_items),
         n_photos,
         n_videos,
@@ -346,7 +370,16 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
     )
     logger.info("  Speech clips (keep_audio): %d", n_keep_audio)
     logger.info("  Text overlays: %d", n_text_overlay)
-    logger.info("  Speed ramps: %d", n_speed_ramp)
+    if trim_lengths:
+        logger.info(
+            "  Video trims: avg %.1fs, min %.1fs, max %.1fs (%d videos with trims)",
+            avg_trim,
+            min(trim_lengths),
+            max(trim_lengths),
+            len(trim_lengths),
+        )
+    speed_parts = [f"{s}x: {c}" for s, c in sorted(speeds.items())]
+    logger.info("  Playback speeds: %s", ", ".join(speed_parts))
 
     for si, seg in enumerate(edl.segments):
         seg_dur = sum(i.display_duration for i in seg.items)

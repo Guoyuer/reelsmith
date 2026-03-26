@@ -25,11 +25,22 @@ def _mock_genai_module(
     candidate = MagicMock()
     candidate.content.parts = []
     candidate.finish_reason = "STOP"
+    candidate.finish_message = None
+    candidate.avg_logprobs = None
+    candidate.token_count = output_tokens
     candidate.safety_ratings = []
     response.candidates = [candidate]
     usage = MagicMock()
     usage.prompt_token_count = input_tokens
     usage.candidates_token_count = output_tokens
+    usage.thoughts_token_count = 0
+    usage.total_token_count = input_tokens + output_tokens
+    usage.cached_content_token_count = 0
+    usage.tool_use_prompt_token_count = 0
+    usage.prompt_tokens_details = None
+    usage.candidates_tokens_details = None
+    usage.cache_tokens_details = None
+    usage.traffic_type = None
     response.usage_metadata = usage
 
     client = MagicMock()
