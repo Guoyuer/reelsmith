@@ -38,4 +38,3 @@ class TestAssembleConfigToEdlLoading:
 
         edl_loaded = EDLModel.model_validate_json(cfg.edl_path(1).read_text())
         assert edl_loaded.title == "V1"
-

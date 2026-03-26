@@ -13,14 +13,12 @@ import math
 import re
 from pathlib import Path
 
-from .._types import AnalysisEntry
+from .._types import VIDEO_EXTENSIONS, AnalysisEntry
 from ..config import Config
 from ..utils.media import probe_duration, run_subprocess
 from ._prompts import _secs_to_timestamp
 
 logger = logging.getLogger("vlog.plan")
-
-VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
 # ---------------------------------------------------------------------------

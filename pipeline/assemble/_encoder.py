@@ -70,8 +70,18 @@ def detect_hw_encoder(
             text=True,
         )
         if test.returncode == 0:
-            return ["-c:v", codec, "-preset", "p4", "-rc", "vbr",
-                    "-b:v", bitrate, "-maxrate", bitrate]
+            return [
+                "-c:v",
+                codec,
+                "-preset",
+                "p4",
+                "-rc",
+                "vbr",
+                "-b:v",
+                bitrate,
+                "-maxrate",
+                bitrate,
+            ]
         return None
 
     try:

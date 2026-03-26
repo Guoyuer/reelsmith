@@ -10,6 +10,13 @@ from __future__ import annotations
 from typing import TypedDict
 
 # ---------------------------------------------------------------------------
+# Canonical file extension sets — used by fetch, prepare, plan, and edl
+# ---------------------------------------------------------------------------
+
+PHOTO_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"})
+VIDEO_EXTENSIONS = frozenset({".mp4", ".mov", ".avi", ".mkv", ".m4v"})
+
+# ---------------------------------------------------------------------------
 # Manifest entry — produced by fetch, consumed by prepare
 # ---------------------------------------------------------------------------
 
