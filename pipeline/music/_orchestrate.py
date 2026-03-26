@@ -133,18 +133,24 @@ def _build_composite_music(
 
 
 def generate_music_for_edl(
-    cfg, *, progress_callback: ProgressCallback = None
+    cfg, *, edl_version: int | None = None, progress_callback: ProgressCallback = None
 ) -> Path | None:
     """Generate per-segment music and build a composite track with crossfades.
 
     Called by the generate_music stage. Generates one Lyria track per
     segment based on its music_mood, then crossfades them into one file.
 
+    *edl_version*: specific EDL version to use (default: latest).
+
     Returns the composite music file path, or None if skipped/failed.
     """
-    from ..edl import MusicTrack, load_latest_edl, save_edl
+    from ..edl import EDL, MusicTrack, load_latest_edl, save_edl
 
-    edl, version = load_latest_edl(cfg)
+    if edl_version is not None:
+        edl = EDL.model_validate_json(cfg.edl_path(edl_version).read_text())
+        version = edl_version
+    else:
+        edl, version = load_latest_edl(cfg)
 
     if edl.music_mode != "auto":
         logger.info("Music mode is '%s', skipping generation", edl.music_mode)

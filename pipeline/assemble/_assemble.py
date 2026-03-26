@@ -84,7 +84,9 @@ def assemble(
         )
         from ..music import generate_music_for_edl
 
-        music_path = generate_music_for_edl(cfg, progress_callback=progress_callback)
+        music_path = generate_music_for_edl(
+            cfg, edl_version=version, progress_callback=progress_callback
+        )
         if music_path:
             logger.info("=== Music generated: %s ===", music_path.name)
             # Reload EDL — generate_music_for_edl saved the music path into it
