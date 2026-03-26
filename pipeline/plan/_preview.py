@@ -55,49 +55,42 @@ def _histogram_similarity(h1: list[int], h2: list[int]) -> float:
     return dot / (mag1 * mag2)
 
 
-def _dedup_burst_photos(
-    items: list[AnalysisEntry],
-    thumbnails_dir: Path,
-    threshold: float = _BURST_SIMILARITY_THRESHOLD,
-) -> list[AnalysisEntry]:
-    """Remove near-identical burst photos before sending to Gemini.
+def _group_by_timestamp(
+    photos: list[AnalysisEntry],
+    window_secs: float,
+) -> list[list[AnalysisEntry]]:
+    """Group a pre-sorted list of photos into burst groups.
 
-    Two-pass: group by 10s time window, then compare histograms within each
-    group. Keeps the photo with the largest file size.
-    Videos pass through untouched.
+    Consecutive photos within ``window_secs`` of each other are placed in the
+    same burst group.  Returns a list of groups (each group is a non-empty list).
     """
-    photos = []
-    others = []
-    for entry in items:
-        suffix = Path(entry.get("local_path", "")).suffix.lower()
-        if suffix not in VIDEO_EXTENSIONS and entry.get("media_type") != "video":
-            photos.append(entry)
-        else:
-            others.append(entry)
+    from datetime import datetime
 
-    if len(photos) < 2:
-        return items
-
-    photos.sort(key=lambda x: x.get("taken_iso", "") or "")
-
-    # Group consecutive photos within 10s (by filename timestamp as proxy)
     bursts: list[list[AnalysisEntry]] = [[photos[0]]]
     for photo in photos[1:]:
         prev_t = bursts[-1][-1].get("taken_iso", "") or ""
         curr_t = photo.get("taken_iso", "") or ""
-        # Compare ISO timestamps: if within 10s, same burst
         try:
-            from datetime import datetime
-
             t1 = datetime.fromisoformat(prev_t.replace("Z", "+00:00"))
             t2 = datetime.fromisoformat(curr_t.replace("Z", "+00:00"))
-            if abs((t2 - t1).total_seconds()) <= _BURST_WINDOW_SECS:
+            if abs((t2 - t1).total_seconds()) <= window_secs:
                 bursts[-1].append(photo)
             else:
                 bursts.append([photo])
         except (ValueError, TypeError):
             bursts.append([photo])
+    return bursts
 
+
+def _select_from_bursts(
+    bursts: list[list[AnalysisEntry]],
+    thumbnails_dir: Path,
+    threshold: float,
+) -> tuple[list[AnalysisEntry], int]:
+    """For each burst group, cluster by histogram similarity and keep best photo.
+
+    Returns ``(kept_photos, removed_count)``.
+    """
     kept = []
     removed_total = 0
     for burst in bursts:
@@ -144,6 +137,37 @@ def _dedup_burst_photos(
                     ", ".join(removed[:3]),
                     "..." if len(removed) > 3 else "",
                 )
+
+    return kept, removed_total
+
+
+def _dedup_burst_photos(
+    items: list[AnalysisEntry],
+    thumbnails_dir: Path,
+    threshold: float = _BURST_SIMILARITY_THRESHOLD,
+) -> list[AnalysisEntry]:
+    """Remove near-identical burst photos before sending to Gemini.
+
+    Two-pass: group by 10s time window, then compare histograms within each
+    group. Keeps the photo with the largest file size.
+    Videos pass through untouched.
+    """
+    photos = []
+    others = []
+    for entry in items:
+        suffix = Path(entry.get("local_path", "")).suffix.lower()
+        if suffix not in VIDEO_EXTENSIONS and entry.get("media_type") != "video":
+            photos.append(entry)
+        else:
+            others.append(entry)
+
+    if len(photos) < 2:
+        return items
+
+    photos.sort(key=lambda x: x.get("taken_iso", "") or "")
+
+    bursts = _group_by_timestamp(photos, _BURST_WINDOW_SECS)
+    kept, removed_total = _select_from_bursts(bursts, thumbnails_dir, threshold)
 
     if removed_total:
         logger.info(
@@ -203,17 +227,21 @@ def _build_item_text(idx: int, entry: AnalysisEntry) -> tuple[str, Path | None]:
     return " ".join(parts), photo_path
 
 
-def _concat_previews(
+def _build_offset_table(
     video_entries: list[tuple[int, float, Path]],
-    output_path: Path,
-) -> tuple[list[tuple[int, float, float]], Path]:
-    """Concatenate video previews into one mega-preview with burned-in labels."""
-    import tempfile
+) -> tuple[list[tuple[int, float, float]], list[tuple[int, float, Path]]]:
+    """Probe actual durations of preview clips and build the offset table.
 
-    # Use actual preview clip durations (not metadata) for accurate offsets
+    Entries whose duration cannot be determined are silently skipped with a
+    warning logged.
+
+    Returns ``(offset_table, valid_entries)`` where:
+    - ``offset_table`` is a list of ``(item_num, actual_duration, offset)``
+    - ``valid_entries`` is a list of ``(item_num, actual_duration, preview_path)``
+    """
     offset = 0.0
-    offset_table = []
-    valid_entries = []
+    offset_table: list[tuple[int, float, float]] = []
+    valid_entries: list[tuple[int, float, Path]] = []
     for item_num, _meta_duration, preview_path in video_entries:
         actual_duration = probe_duration(preview_path)
         if actual_duration <= 0:
@@ -222,6 +250,19 @@ def _concat_previews(
         offset_table.append((item_num, actual_duration, offset))
         valid_entries.append((item_num, actual_duration, preview_path))
         offset += actual_duration
+    return offset_table, valid_entries
+
+
+def _concat_previews(
+    video_entries: list[tuple[int, float, Path]],
+    output_path: Path,
+) -> tuple[list[tuple[int, float, float]], Path]:
+    """Concatenate video previews into one mega-preview with burned-in labels."""
+    import tempfile
+
+    # Use actual preview clip durations (not metadata) for accurate offsets
+    offset_table, valid_entries = _build_offset_table(video_entries)
+    offset = sum(dur for _, dur, _ in offset_table)
 
     with tempfile.TemporaryDirectory() as td:
         concat_file = Path(td) / "concat.txt"
