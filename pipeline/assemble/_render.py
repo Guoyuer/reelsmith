@@ -94,19 +94,23 @@ def render_title_card(
     fade = f",fade=t=in:d={C.FADE_IN_DURATION},fade=t=out:st={duration - C.FADE_OUT_DURATION}:d={C.FADE_OUT_DURATION}"
 
     if use_photo_bg:
+        bg_path = Path(background_photo)
+        is_video = bg_path.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
+        if is_video:
+            # Extract first frame, loop it for duration
+            input_args = ["-i", background_photo]
+            bg_filter = f"select=eq(n\\,0),{photo_bg},loop=loop={int(duration * fps)}:size=1:start=0,setpts=N/{fps}/TB"
+        else:
+            input_args = ["-loop", "1", "-framerate", str(fps), "-i", background_photo]
+            bg_filter = photo_bg
         cmd = [
             "ffmpeg",
             "-y",
-            "-loop",
-            "1",
-            "-framerate",
-            str(fps),
-            "-i",
-            background_photo,
+            *input_args,
             "-t",
             str(duration),
             "-filter_complex",
-            f"{photo_bg}[bg];[bg]{title_text}{separator}{sub_text}{fade}",
+            f"{bg_filter}[bg];[bg]{title_text}{separator}{sub_text}{fade}",
             *_base_encode_args(ctx),
             str(output_path),
         ]
