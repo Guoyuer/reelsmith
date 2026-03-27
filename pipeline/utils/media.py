@@ -20,6 +20,15 @@ if sys.platform == "win32":
 _ffmpeg_logger = logging.getLogger("vlog.ffmpeg")
 logger = logging.getLogger("vlog.media")
 
+# Set by CLI signal handler; checked by run_subprocess after child exits.
+_interrupted = False
+
+
+def set_interrupted() -> None:
+    """Signal that the user pressed Ctrl+C."""
+    global _interrupted
+    _interrupted = True
+
 
 def run_subprocess(
     cmd: list[str], timeout: int = 300, **kwargs
@@ -51,6 +60,8 @@ def run_subprocess(
         proc.kill()
         proc.wait()
         raise
+    if _interrupted:
+        raise KeyboardInterrupt
     return subprocess.CompletedProcess(
         cmd,
         proc.returncode,

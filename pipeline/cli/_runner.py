@@ -40,6 +40,9 @@ def _handle_sigint(sig, frame):
 
         os._exit(1)
     _interrupted = True
+    from pipeline.utils.media import set_interrupted
+
+    set_interrupted()
     print("\n\u26a0 Interrupted \u2014 press Ctrl+C again to force quit")
 
 
@@ -224,6 +227,9 @@ def _run_pipeline(
     """Execute pipeline stages directly in this process."""
     global _interrupted
     _interrupted = False
+    import pipeline.utils.media
+
+    pipeline.utils.media._interrupted = False
 
     from pipeline.config import Config
 
