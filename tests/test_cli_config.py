@@ -96,6 +96,13 @@ class TestSaveRunConfig:
         assert dest.name.startswith("run_config_")
         assert dest.name.endswith(".yaml")
 
+    def test_path_with_backslash_no_yaml_doc_end(self, tmp_path):
+        """Windows paths should not produce YAML document-end markers (...)."""
+        params = {"path": r"C:\Users\guoyu\Projects\vlog\workspace\media"}
+        dest = save_run_config(tmp_path, params)
+        text = dest.read_text()
+        assert "..." not in text, f"YAML doc-end marker found in:\n{text}"
+
 
 # ---------------------------------------------------------------------------
 # Resolution round-trip tests

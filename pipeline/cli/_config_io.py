@@ -163,7 +163,11 @@ def _dump_yaml_with_comments(grouped: dict[str, Any], defaults: set[str]) -> str
                     or any(c in value for c in ":{}[]#,&*?|>!%@`'\"\\")
                     or value != value.strip()
                 ):
-                    yaml_val = yaml.dump(value, default_flow_style=True).strip()
+                    yaml_val = (
+                        yaml.dump(value, default_flow_style=True)
+                        .removesuffix("\n...\n")
+                        .strip()
+                    )
                 else:
                     yaml_val = value
             else:
