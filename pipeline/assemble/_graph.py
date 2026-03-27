@@ -24,6 +24,7 @@ Filter graph topology (video, aspect fill):
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,6 +57,8 @@ class SegmentGraph:
 
     inputs: list[list[str]]
     script: str
+    # item_idx → (input_idx, source_name, filter_line_start) for error mapping
+    item_map: list[tuple[int, str, int]] = dataclasses.field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +86,7 @@ def build_segment_graph(
     inputs: list[list[str]] = []
     filters: list[str] = []
     v_a_pairs: list[tuple[str, str]] = []
+    item_map: list[tuple[int, str, int]] = []
     # --- Title card (prepended to first segment) ---
     if title_card_path and title_card_path.exists():
         _add_static_card(
@@ -101,6 +105,7 @@ def build_segment_graph(
             source = convert_heic(source)
 
         idx = len(inputs)
+        filter_line = len(filters)
 
         if item.media_type == "photo":
             frames = int(item.display_duration * fps)
@@ -146,6 +151,7 @@ def build_segment_graph(
                 filters.append(f"{_silence(trim_dur / speed)} [a{idx}]")
 
         v_a_pairs.append((f"[v{idx}]", f"[a{idx}]"))
+        item_map.append((idx, source.name, filter_line))
 
     # --- Outro card (appended to last segment) ---
     if outro_card_path and outro_card_path.exists():
@@ -161,6 +167,7 @@ def build_segment_graph(
     return SegmentGraph(
         inputs=inputs,
         script=";\n".join(filters),
+        item_map=item_map,
     )
 
 

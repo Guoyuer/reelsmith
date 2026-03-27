@@ -18,7 +18,7 @@ from ..edl import EDL, load_latest_edl, validate_edl
 from ..utils.media import run_subprocess
 from ._audio import beat_snap_edl, write_chapters
 from ._encoder import RenderContext
-from ._graph import build_segment_graph, compute_fade_params
+from ._graph import SegmentGraph, build_segment_graph, compute_fade_params
 from ._render import render_title_card
 
 logger = logging.getLogger("vlog.assemble")
@@ -205,6 +205,7 @@ def _render_segments(
 
     # Build per-segment FFmpeg commands (must be sequential — graph needs ctx.probe)
     segment_cmds: list[tuple[int, list[str]]] = []
+    segment_graphs: list[SegmentGraph] = []
     for seg_idx, segment in enumerate(edl.segments):
         graph = build_segment_graph(
             segment,
@@ -218,6 +219,7 @@ def _render_segments(
             if seg_idx == len(edl.segments) - 1
             else 0.0,
         )
+        segment_graphs.append(graph)
         script_path = output_dir / f"_seg_{seg_idx}_{res_label}.txt"
         script_path.write_text(graph.script, encoding="utf-8")
 
@@ -238,6 +240,9 @@ def _render_segments(
             len(graph.inputs),
         )
 
+    # Pre-validate: render 1 frame per item to catch filter errors early
+    _prevalidate_items(edl, segment_graphs, ctx, output_dir, res_label)
+
     # Render segments in parallel (3 NVENC sessions max)
     from ..utils.parallel import run_parallel
 
@@ -249,7 +254,7 @@ def _render_segments(
     def _render_seg(seg_idx, cmd):
         result = run_subprocess(cmd, capture_output=True, text=True, timeout=600)
         if result.returncode != 0:
-            raise RuntimeError(f"Segment {seg_idx} failed: {result.stderr}")
+            _report_segment_failure(seg_idx, segment_graphs[seg_idx], result.stderr)
         return seg_idx
 
     def _on_seg_done(done, total):
@@ -450,6 +455,57 @@ def _concat_and_mix(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _prevalidate_items(
+    edl: EDL,
+    graphs: list[SegmentGraph],
+    ctx: RenderContext,
+    output_dir: Path,
+    res_label: str,
+) -> None:
+    """Render 1 frame per item to catch filter graph errors early."""
+    for seg_idx, (segment, graph) in enumerate(zip(edl.segments, graphs)):
+        for item_idx, (input_idx, source_name, _) in enumerate(graph.item_map):
+            inp = graph.inputs[input_idx]
+            # Build minimal single-item filter: just video, 1 frame
+            script_lines = graph.script.split(";\n")
+            # Find this item's video filter line (produces [v{input_idx}])
+            v_label = f"[v{input_idx}]"
+            item_filter = next(
+                (
+                    ln
+                    for ln in script_lines
+                    if v_label in ln and f"[{input_idx}:v]" in ln
+                ),
+                None,
+            )
+            if not item_filter:
+                continue
+            # Replace output label to [vout] for standalone test
+            test_filter = item_filter.replace(v_label, "[vout]")
+            cmd = ["ffmpeg", "-y"]
+            cmd += [str(x) for x in inp]
+            cmd += ["-filter_complex", test_filter]
+            cmd += ["-map", "[vout]", "-frames:v", "1", "-f", "null", "-"]
+            result = run_subprocess(cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"Filter validation failed — segment {seg_idx}, "
+                    f"item {item_idx} ({source_name}):\n{result.stderr[-500:]}"
+                )
+    logger.info("  Pre-validation: all items OK")
+
+
+def _report_segment_failure(seg_idx: int, graph: SegmentGraph, stderr: str) -> None:
+    """Log item mapping and raise with context when a segment render fails."""
+    lines = []
+    for item_idx, (input_idx, source_name, filter_line) in enumerate(graph.item_map):
+        lines.append(
+            f"  item {item_idx}: input [{input_idx}] = {source_name} (filter line {filter_line})"
+        )
+    logger.error("Segment %d item map:\n%s", seg_idx, "\n".join(lines))
+    raise RuntimeError(f"Segment {seg_idx} render failed:\n{stderr[-1000:]}")
 
 
 def _parse_loudnorm_stats(stderr: str) -> dict[str, str] | None:
