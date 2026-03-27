@@ -6,6 +6,7 @@ import json
 import signal
 import sys
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -70,149 +71,127 @@ class _PipelineContext:
 
 
 # ---------------------------------------------------------------------------
+# Stage runner boilerplate
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _stage(pc: _PipelineContext, name: str):
+    """Shared stage boilerplate: interrupt check, display start, timing, progress callback."""
+    assert pc.display is not None
+    _check_interrupted(pc.display, pc.logger)
+    pc.display.start(name)
+    t0 = time.monotonic()
+    cb = _progress_cb(pc.logger, pc.display, name, t0)
+
+    def done(detail: str) -> float:
+        elapsed = time.monotonic() - t0
+        pc.display.done(name, detail, elapsed)
+        return elapsed
+
+    yield cb, done
+
+
+# ---------------------------------------------------------------------------
 # Stage runners
 # ---------------------------------------------------------------------------
 
 
 def _run_fetch(pc: _PipelineContext):
-    assert pc.fetch is not None and pc.display is not None
-    _check_interrupted(pc.display, pc.logger)
-    pc.display.start("fetch")
-    t0 = time.monotonic()
-    manifest_path = pc.cfg.manifest_path
+    assert pc.fetch is not None
+    with _stage(pc, "fetch") as (cb, done):
+        manifest_path = pc.cfg.manifest_path
+        force = pc.prepare is not None and pc.prepare.force
+        if manifest_path.exists() and not force:
+            items = json.loads(manifest_path.read_text())
+            pc.logger.info(f"Fetch: {len(items)} items (cached)")
+            done(f"{len(items)} items")
+        else:
+            from pipeline.fetch import fetch_local
 
-    force = pc.prepare is not None and pc.prepare.force
-    if manifest_path.exists() and not force:
-        items = json.loads(manifest_path.read_text())
-        elapsed = time.monotonic() - t0
-        pc.logger.info(f"Fetch: {len(items)} items (cached)")
-        pc.display.done("fetch", f"{len(items)} items", elapsed)
-    else:
-        cb = _progress_cb(pc.logger, pc.display, "fetch", t0)
-        from pipeline.fetch import fetch_local
-
-        items = fetch_local(pc.cfg, pc.fetch, progress_callback=cb)
-        elapsed = time.monotonic() - t0
-        pc.logger.info(f"Fetch: {len(items)} items in {elapsed:.0f}s")
-        pc.display.done("fetch", f"{len(items)} items", elapsed)
+            items = fetch_local(pc.cfg, pc.fetch, progress_callback=cb)
+            elapsed = done(f"{len(items)} items")
+            pc.logger.info(f"Fetch: {len(items)} items in {elapsed:.0f}s")
 
 
 def _run_prepare(pc: _PipelineContext):
-    assert pc.prepare is not None and pc.display is not None
-    _check_interrupted(pc.display, pc.logger)
-    pc.display.start("prepare")
-    t0 = time.monotonic()
+    assert pc.prepare is not None
+    with _stage(pc, "prepare") as (cb, done):
+        from pipeline.prepare import load_analysis, prepare
 
-    from pipeline.prepare import load_analysis, prepare
-
-    prepare(
-        pc.cfg,
-        pc.prepare,
-        progress_callback=_progress_cb(pc.logger, pc.display, "prepare", t0),
-    )
-    elapsed = time.monotonic() - t0
-
-    results = load_analysis(pc.cfg)
-    n_photos = sum(1 for r in results if r.get("media_type") == "photo")
-    n_videos = len(results) - n_photos
-    pc.display.done("prepare", f"{n_photos} photos, {n_videos} videos", elapsed)
+        prepare(pc.cfg, pc.prepare, progress_callback=cb)
+        results = load_analysis(pc.cfg)
+        n_photos = sum(1 for r in results if r.get("media_type") == "photo")
+        n_videos = len(results) - n_photos
+        done(f"{n_photos} photos, {n_videos} videos")
 
 
 def _run_plan(pc: _PipelineContext):
-    """Execute the plan stage."""
-    assert pc.plan is not None and pc.display is not None
-    _check_interrupted(pc.display, pc.logger)
-    pc.display.start("plan")
-    t0 = time.monotonic()
+    assert pc.plan is not None
+    with _stage(pc, "plan") as (cb, done):
+        from pipeline.plan import plan as do_plan
 
-    from pipeline.plan import plan as do_plan
+        edl, version = do_plan(pc.cfg, pc.plan, progress_callback=cb)
+        s = edl.summary()
 
-    edl, version = do_plan(
-        pc.cfg,
-        pc.plan,
-        progress_callback=_progress_cb(pc.logger, pc.display, "plan", t0),
-    )
-
-    s = edl.summary()
-    elapsed = time.monotonic() - t0
-
-    plan_detail = (
-        f"v{version}: {s['n_photos']}p({s['photo_time']:.0f}s)"
-        f"+{s['n_videos']}v({s['vid_time']:.0f}s), "
-        f"~{s['estimated_duration']:.0f}s"
-    )
-    pc.display.done("plan", plan_detail, elapsed)
-
-    pc.logger.info(
-        f"Plan: EDL v{version} \u2014 {len(edl.segments)} segments, "
-        f"{s['n_photos']} photos + {s['n_videos']} videos ({s['vid_pct']}% video), "
-        f"duration ~{s['estimated_duration']:.0f}s (target {edl.target_duration:.0f}s), planned in {elapsed:.0f}s"
-    )
-    if s["n_keep_audio"]:
-        pc.logger.info(f"  Speech preserved: {s['n_keep_audio']} clips")
-    for seg in edl.segments:
-        pc.logger.info(
-            f"  {seg.name}: {len(seg.items)} items, transition={seg.transition}"
+        plan_detail = (
+            f"v{version}: {s['n_photos']}p({s['photo_time']:.0f}s)"
+            f"+{s['n_videos']}v({s['vid_time']:.0f}s), "
+            f"~{s['estimated_duration']:.0f}s"
         )
+        elapsed = done(plan_detail)
+
+        pc.logger.info(
+            f"Plan: EDL v{version} \u2014 {len(edl.segments)} segments, "
+            f"{s['n_photos']} photos + {s['n_videos']} videos ({s['vid_pct']}% video), "
+            f"duration ~{s['estimated_duration']:.0f}s (target {edl.target_duration:.0f}s), planned in {elapsed:.0f}s"
+        )
+        if s["n_keep_audio"]:
+            pc.logger.info(f"  Speech preserved: {s['n_keep_audio']} clips")
+        for seg in edl.segments:
+            pc.logger.info(
+                f"  {seg.name}: {len(seg.items)} items, transition={seg.transition}"
+            )
 
 
 def _run_generate_music(pc: _PipelineContext):
-    """Execute the generate_music stage."""
-    assert pc.display is not None
-    _check_interrupted(pc.display, pc.logger)
-    pc.display.start("generate_music")
-    t0 = time.monotonic()
+    with _stage(pc, "generate_music") as (cb, done):
+        from pipeline.music import generate_music_for_edl
 
-    from pipeline.music import generate_music_for_edl
-
-    track = generate_music_for_edl(
-        pc.cfg,
-        progress_callback=_progress_cb(pc.logger, pc.display, "generate_music", t0),
-    )
-
-    elapsed = time.monotonic() - t0
-    if track:
-        pc.logger.info(f"Music: generated {track.name} in {elapsed:.0f}s")
-        pc.display.done("generate_music", track.name, elapsed)
-    else:
-        pc.logger.info("Music: skipped")
-        pc.display.done("generate_music", "skipped", elapsed)
+        track = generate_music_for_edl(pc.cfg, progress_callback=cb)
+        if track:
+            elapsed = done(track.name)
+            pc.logger.info(f"Music: generated {track.name} in {elapsed:.0f}s")
+        else:
+            pc.logger.info("Music: skipped")
+            done("skipped")
 
 
 def _run_assemble(pc: _PipelineContext):
-    assert pc.assemble is not None and pc.display is not None
-    _check_interrupted(pc.display, pc.logger)
-    pc.display.start("assemble")
-    t0 = time.monotonic()
-    ac = pc.assemble
+    assert pc.assemble is not None
+    with _stage(pc, "assemble") as (cb, done):
+        from pipeline.assemble import assemble as do_assemble
+        from pipeline.edl import find_latest_version
 
-    from pipeline.assemble import assemble as do_assemble
-    from pipeline.edl import find_latest_version
+        ac = pc.assemble
+        if not ac.version:
+            from dataclasses import replace
 
-    if not ac.version:
-        from dataclasses import replace
+            ac = replace(ac, version=find_latest_version(pc.cfg))
 
-        ac = replace(ac, version=find_latest_version(pc.cfg))
+        pc.logger.info(f"Render: {ac.w}x{ac.h} {ac.fps}fps (EDL v{ac.version})")
+        out, issues = do_assemble(pc.cfg, ac, progress_callback=cb)
 
-    pc.logger.info(f"Render: {ac.w}x{ac.h} {ac.fps}fps (EDL v{ac.version})")
+        size_mb = round(out.stat().st_size / 1024 / 1024, 1) if out.exists() else 0
+        pc.display.output_file = str(out)
+        elapsed = done(f"{out.name} ({size_mb}MB)")
+        pc.logger.info(f"Assemble: {out.name} ({size_mb}MB) in {elapsed:.0f}s")
 
-    out, issues = do_assemble(
-        pc.cfg,
-        ac,
-        progress_callback=_progress_cb(pc.logger, pc.display, "assemble", t0),
-    )
-
-    elapsed = time.monotonic() - t0
-    size_mb = round(out.stat().st_size / 1024 / 1024, 1) if out.exists() else 0
-    pc.logger.info(f"Assemble: {out.name} ({size_mb}MB) in {elapsed:.0f}s")
-    pc.display.output_file = str(out)
-    pc.display.done("assemble", f"{out.name} ({size_mb}MB)", elapsed)
-
-    for issue in issues:
-        level = issue.get("level", "warning")
-        pc.logger.info(
-            f"  [{level.upper()}] {issue.get('check', '')}: {issue.get('message', '')}"
-        )
+        for issue in issues:
+            level = issue.get("level", "warning")
+            pc.logger.info(
+                f"  [{level.upper()}] {issue.get('check', '')}: {issue.get('message', '')}"
+            )
 
 
 _STAGE_RUNNERS = {
