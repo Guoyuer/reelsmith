@@ -27,7 +27,6 @@ def _setup_workspace(tmp_path, n_photos=2):
 
     manifest = [
         {
-            "id": i,
             "local_path": photo_paths[i - 1],
             "taken_at": f"2025-06-13T{10 + i}:30:00",
         }
@@ -38,7 +37,6 @@ def _setup_workspace(tmp_path, n_photos=2):
     # Write analysis.json (normally produced by prepare stage)
     analysis = [
         {
-            "id": i,
             "local_path": photo_paths[i - 1],
             "media_type": "photo",
             "taken_at": f"2025-06-13T{10 + i}:30:00",

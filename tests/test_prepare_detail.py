@@ -51,7 +51,6 @@ class TestPrepareVideo:
         from pipeline.prepare._prepare import _prepare_video
 
         entry = {
-            "id": 1,
             "local_path": str(tmp_path / "video.mp4"),
         }
         (tmp_path / "video.mp4").write_bytes(b"\x00" * 100)
@@ -111,7 +110,6 @@ class TestPrepareFullFlow:
 
         manifest = [
             {
-                "id": 1,
                 "local_path": str(photo),
                 "item_type": 0,
                 "takentime": 1700000000,
@@ -140,7 +138,6 @@ class TestPrepareFullFlow:
 
         manifest = [
             {
-                "id": 1,
                 "local_path": str(photo),
                 "item_type": 0,
                 "takentime": 1700000000,
@@ -204,35 +201,35 @@ class TestGenerateVideoPreview:
     """Test video preview generation."""
 
     def test_skips_existing_preview(self, tmp_path):
+        from pipeline._types import cache_id
         from pipeline.prepare._prepare import _generate_video_previews
 
         preview_dir = tmp_path / "previews"
         preview_dir.mkdir()
 
+        local_path = "/fake/video.mp4"
         # Pre-create preview
-        preview = preview_dir / "preview_123.mp4"
+        preview = preview_dir / f"preview_{cache_id(local_path)}.mp4"
         preview.write_bytes(b"\x00" * 1000)
 
-        video_items = [
-            {"id": 123, "local_path": "/fake/video.mp4", "video_duration": 30}
-        ]
+        video_items = [{"local_path": local_path, "video_duration": 30}]
         with patch("pipeline.prepare._prepare.run_subprocess") as mock_run:
             _generate_video_previews(video_items, preview_dir)
         # Should not call ffmpeg since preview exists
         mock_run.assert_not_called()
 
     def test_force_deletes_existing(self, tmp_path):
+        from pipeline._types import cache_id
         from pipeline.prepare._prepare import _generate_video_previews
 
         preview_dir = tmp_path / "previews"
         preview_dir.mkdir()
 
-        preview = preview_dir / "preview_123.mp4"
+        local_path = "/fake/video.mp4"
+        preview = preview_dir / f"preview_{cache_id(local_path)}.mp4"
         preview.write_bytes(b"\x00" * 1000)
 
-        video_items = [
-            {"id": 123, "local_path": "/fake/video.mp4", "video_duration": 30}
-        ]
+        video_items = [{"local_path": local_path, "video_duration": 30}]
 
         def fake_run(cmd, **kwargs):
             # Create a fake output file

@@ -62,7 +62,7 @@ class PlanConfig:
 
 def _plan_visual(
     cfg: Config,
-    analysis_by_id: dict[str, AnalysisEntry],
+    analysis_by_path: dict[str, AnalysisEntry],
     pc: PlanConfig,
     *,
     progress_callback: ProgressCallback = None,
@@ -73,7 +73,7 @@ def _plan_visual(
     designs narrative arc + selects items + self-reviews in one call.
     """
     content_blocks, preview_offset_table, n_photos, n_videos = (
-        _build_visual_content_blocks(analysis_by_id, cfg, force=pc.force)
+        _build_visual_content_blocks(analysis_by_path, cfg, force=pc.force)
     )
     n_candidates = n_photos + n_videos
 
@@ -189,7 +189,7 @@ All candidates:"""
     items_before = len(edl.all_items())
     n_path_removed = fix_hallucinated_paths(edl, cfg.media_dir)
     n_trim_fixed, n_trim_removed, n_dur_fixed, dur_delta = validate_trim_points(
-        edl, analysis_by_id
+        edl, analysis_by_path
     )
     n_dedup = deduplicate_items(edl)
     items_after = len(edl.all_items())
@@ -276,7 +276,7 @@ All candidates:"""
     # Coverage by location
     loc_total: dict[str, int] = {}
     loc_selected: dict[str, int] = {}
-    for a in analysis_by_id.values():
+    for a in analysis_by_path.values():
         loc = a.get("district") or a.get("first_level") or a.get("country") or "unknown"
         loc_total[loc] = loc_total.get(loc, 0) + 1
         if a.get("local_path") in selected_paths:
@@ -304,7 +304,9 @@ def plan(
 
     effective_focus = pc.focus or _default_focus(pc.trip_type)
     analysis_items = load_analysis(cfg)
-    analysis_by_id: dict[str, AnalysisEntry] = {str(a["id"]): a for a in analysis_items}
+    analysis_by_path: dict[str, AnalysisEntry] = {
+        a["local_path"]: a for a in analysis_items
+    }
 
     # Use a copy with effective_focus applied so _plan_visual gets the resolved focus
     from dataclasses import replace
@@ -312,7 +314,7 @@ def plan(
     visual_pc = replace(pc, focus=effective_focus)
     edl = _plan_visual(
         cfg,
-        analysis_by_id,
+        analysis_by_path,
         visual_pc,
         progress_callback=progress_callback,
     )
@@ -332,7 +334,7 @@ def plan(
     edl.language = pc.language  # type: ignore[assignment]  # validated by CLI
     if not edl.date_range:
         all_dates = sorted(
-            {a["taken_at"][:10] for a in analysis_by_id.values() if a.get("taken_at")}
+            {a["taken_at"][:10] for a in analysis_by_path.values() if a.get("taken_at")}
         )
         edl.date_range = _format_date_range(all_dates) if all_dates else ""
 

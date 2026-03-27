@@ -19,7 +19,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .._types import VIDEO_EXTENSIONS, AnalysisEntry, _AnalysisEntryValidator
+from .._types import VIDEO_EXTENSIONS, AnalysisEntry, _AnalysisEntryValidator, cache_id
 from ..config import Config, ProgressCallback
 from ..utils.image import generate_thumbnail
 from ..utils.media import run_subprocess
@@ -35,7 +35,6 @@ class PrepareConfig:
 def _base_analysis_entry(item: dict, *, is_video: bool) -> dict:
     """Build the common analysis entry dict from a manifest item."""
     return {
-        "id": item["id"],
         "local_path": item.get("local_path", ""),
         "media_type": "video" if is_video else "photo",
         "taken_at": item["taken_at"],
@@ -65,7 +64,9 @@ def load_analysis(cfg: Config) -> list[AnalysisEntry]:
             results.append(validated.model_dump(exclude_none=False))
         except ValidationError as e:
             logger.warning(
-                "Invalid analysis entry for item %s: %s", entry.get("id", "?"), e
+                "Invalid analysis entry for %s: %s",
+                Path(entry.get("local_path", "?")).name,
+                e,
             )
             n_skipped += 1
 
@@ -248,22 +249,21 @@ def _generate_video_previews(
             logger.info("Force: deleted %d cached preview files", deleted)
 
     # Clean orphaned previews
-    current_ids = {str(vi["id"]) for vi in video_items}
+    current_cids = {cache_id(vi["local_path"]) for vi in video_items}
     for old in preview_dir.glob("preview_*.mp4"):
         if old.name.startswith("_"):
             continue
         pid = old.stem.replace("preview_", "").split("_n")[0]
-        if pid not in current_ids:
+        if pid not in current_cids:
             old.unlink()
 
     tasks: list[tuple[Path, list[str]]] = []
     for vi in video_items:
-        vid_id = vi["id"]
         source = Path(vi.get("local_path", ""))
         duration = vi.get("video_duration", 0)
         if not source.exists() or duration <= 0:
             continue
-        preview_path = preview_dir / f"preview_{vid_id}.mp4"
+        preview_path = preview_dir / f"preview_{cache_id(vi['local_path'])}.mp4"
         if not preview_path.exists():
             skip = ["-skip_frame", "nokey"] if _has_dense_keyframes(source) else []
             tasks.append(

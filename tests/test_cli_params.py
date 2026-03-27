@@ -333,7 +333,6 @@ class TestRunPrepareNoAnalysisPath:
 
         manifest = [
             {
-                "id": 1,
                 "local_path": str(tmp_path / "p.jpg"),
                 "taken_at": "2025-01-01T00:00:00",
                 "takentime": 1700000000,
@@ -344,7 +343,6 @@ class TestRunPrepareNoAnalysisPath:
             json.dumps(
                 [
                     {
-                        "id": 1,
                         "local_path": str(tmp_path / "p.jpg"),
                         "media_type": "photo",
                         "taken_at": "2025-01-01T00:00:00",

@@ -7,6 +7,7 @@ Pydantic models add runtime validation at stage boundaries.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import TypedDict
 
@@ -21,6 +22,12 @@ logger = logging.getLogger("vlog.types")
 PHOTO_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"})
 VIDEO_EXTENSIONS = frozenset({".mp4", ".mov", ".avi", ".mkv", ".m4v"})
 
+
+def cache_id(local_path: str) -> str:
+    """Short deterministic hash from full path, for cache filenames."""
+    return hashlib.md5(local_path.encode()).hexdigest()[:12]
+
+
 # ---------------------------------------------------------------------------
 # Manifest entry — produced by fetch, consumed by prepare
 # ---------------------------------------------------------------------------
@@ -29,7 +36,6 @@ VIDEO_EXTENSIONS = frozenset({".mp4", ".mov", ".avi", ".mkv", ".m4v"})
 class _ManifestRequired(TypedDict):
     """Keys always present in manifest entries."""
 
-    id: int
     taken_at: str
     local_path: str
 
@@ -70,7 +76,6 @@ class ExifData(TypedDict, total=False):
 class _AnalysisRequired(TypedDict):
     """Keys always present in every analysis entry."""
 
-    id: int
     local_path: str
     media_type: str  # "photo" or "video"
     taken_at: str
@@ -80,7 +85,7 @@ class AnalysisEntry(_AnalysisRequired, total=False):
     """Per-item analysis data (prepare → plan).
 
     Built by load_analysis() from manifest + per-item cache files.
-    The plan stage reads these via analysis_by_id: dict[str, AnalysisEntry].
+    The plan stage reads these via analysis_by_path: dict[str, AnalysisEntry].
     """
 
     # Location
@@ -111,7 +116,6 @@ class _AnalysisEntryValidator(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     # Required (from manifest)
-    id: int
     local_path: str
     media_type: str  # "photo" or "video"
     taken_at: str

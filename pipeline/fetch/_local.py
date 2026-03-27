@@ -7,7 +7,6 @@ the pipeline.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import re
@@ -58,12 +57,8 @@ def fetch_local(
         takentime = int(taken_dt.timestamp())
         taken_at = taken_dt.isoformat()
 
-        # Stable ID from filename (deterministic across runs, unlike hash())
-        item_id = int(hashlib.md5(src_path.name.encode()).hexdigest()[:8], 16) % (10**8)
-
         # Point directly to source file — no copying or linking
         entry = {
-            "id": item_id,
             "item_type": item_type,
             "takentime": takentime,
             "taken_at": taken_at,

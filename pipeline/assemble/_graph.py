@@ -54,7 +54,6 @@ class SegmentGraph:
 
     inputs: list[list[str]]
     script: str
-    has_speech: bool
 
 
 # ---------------------------------------------------------------------------
@@ -82,8 +81,6 @@ def build_segment_graph(
     inputs: list[list[str]] = []
     filters: list[str] = []
     v_a_pairs: list[tuple[str, str]] = []
-    has_speech = False
-
     # --- Title card (prepended to first segment) ---
     if title_card_path and title_card_path.exists():
         _add_static_card(
@@ -117,7 +114,7 @@ def build_segment_graph(
                 language,
             )
         else:
-            speech = _add_video(
+            _add_video(
                 inputs,
                 filters,
                 item,
@@ -129,7 +126,6 @@ def build_segment_graph(
                 fade_out,
                 language,
             )
-            has_speech = has_speech or speech
 
         v_a_pairs.append((f"[v{idx}]", f"[a{idx}]"))
 
@@ -147,7 +143,6 @@ def build_segment_graph(
     return SegmentGraph(
         inputs=inputs,
         script=";\n".join(filters),
-        has_speech=has_speech,
     )
 
 
@@ -304,12 +299,10 @@ def _add_video(
             f"asetpts=PTS-STARTPTS [a{idx}]",
         ]
         filters.append(",".join(p for p in parts if p))
-        return True
     else:
         filters.append(
             f"aevalsrc=0:d={output_dur:.3f}:s={C.SAMPLE_RATE}:c=stereo [a{idx}]"
         )
-        return False
 
 
 def _fade_expr(duration: float, fade_in: float, fade_out: float) -> str:

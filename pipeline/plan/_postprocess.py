@@ -238,7 +238,7 @@ def fix_hallucinated_paths(edl: EDL, media_dir: Path) -> int:
 
 
 def validate_trim_points(
-    edl: EDL, analysis_by_id: dict[str, AnalysisEntry]
+    edl: EDL, analysis_by_path: dict[str, AnalysisEntry]
 ) -> tuple[int, int, int, float]:
     """Clamp or remove invalid video trim points. Returns (fixed, removed, dur_fixed, dur_delta)."""
     trim_fixed = 0
@@ -247,19 +247,8 @@ def validate_trim_points(
         valid_items = []
         for item in seg.items:
             if item.media_type == "video" and item.start_time is not None:
-                matched_id = next(
-                    (
-                        aid
-                        for aid, a in analysis_by_id.items()
-                        if a.get("local_path") == item.source_file
-                    ),
-                    None,
-                )
-                vid_dur = (
-                    analysis_by_id[matched_id].get("video_duration")
-                    if matched_id is not None
-                    else None
-                )
+                matched = analysis_by_path.get(item.source_file)
+                vid_dur = matched.get("video_duration") if matched else None
                 if vid_dur and vid_dur > 0:
                     changed = False
                     st = item.start_time

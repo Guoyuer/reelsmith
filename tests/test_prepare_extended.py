@@ -71,7 +71,7 @@ class TestHasDenseKeyframes:
 class TestPrepareVideoEdgeCases:
     def test_malformed_ffprobe_defaults(self, tmp_path):
         """Malformed ffprobe output should produce safe defaults."""
-        entry = {"id": 1, "local_path": str(tmp_path / "bad.mp4")}
+        entry = {"local_path": str(tmp_path / "bad.mp4")}
         mock = MagicMock(returncode=0, stdout="not json at all", stderr="")
         with patch("pipeline.prepare._prepare.run_subprocess", return_value=mock):
             _prepare_video(entry, tmp_path / "bad.mp4", 1, 1)
@@ -83,7 +83,7 @@ class TestPrepareVideoEdgeCases:
 
     def test_portrait_detection(self, tmp_path):
         """Height > width should set orientation=portrait."""
-        entry = {"id": 1, "local_path": str(tmp_path / "portrait.mp4")}
+        entry = {"local_path": str(tmp_path / "portrait.mp4")}
         probe_data = {
             "format": {"duration": "30.0"},
             "streams": [{"width": 1080, "height": 1920, "r_frame_rate": "30/1"}],
@@ -97,7 +97,7 @@ class TestPrepareVideoEdgeCases:
 
     def test_entry_fields_populated(self, tmp_path):
         """Entry dict should be populated with video metadata."""
-        entry = {"id": 1, "local_path": str(tmp_path / "vid.mp4")}
+        entry = {"local_path": str(tmp_path / "vid.mp4")}
         probe_data = {
             "format": {"duration": "45.5"},
             "streams": [{"width": 3840, "height": 2160, "r_frame_rate": "60/1"}],
@@ -110,7 +110,7 @@ class TestPrepareVideoEdgeCases:
 
     def test_fps_parsing_fractional(self, tmp_path):
         """24000/1001 fps should parse correctly."""
-        entry = {"id": 1, "local_path": str(tmp_path / "vid.mp4")}
+        entry = {"local_path": str(tmp_path / "vid.mp4")}
         probe_data = {
             "format": {"duration": "10.0"},
             "streams": [{"width": 1920, "height": 1080, "r_frame_rate": "24000/1001"}],
@@ -129,7 +129,6 @@ class TestPrepareVideoEdgeCases:
 class TestBaseAnalysisEntry:
     def test_photo_entry(self):
         item = {
-            "id": 42,
             "local_path": "/media/photo.jpg",
             "taken_at": "2025-01-01T00:00:00",
             "country": "Singapore",
@@ -142,7 +141,6 @@ class TestBaseAnalysisEntry:
 
     def test_video_entry(self):
         item = {
-            "id": 43,
             "local_path": "/media/clip.mp4",
             "taken_at": "2025-01-01T00:00:00",
         }
@@ -152,7 +150,6 @@ class TestBaseAnalysisEntry:
     def test_city_fallback_for_district(self):
         """When district is empty, city is used as fallback."""
         item = {
-            "id": 44,
             "local_path": "/media/photo.jpg",
             "taken_at": "2025-01-01T00:00:00",
             "city": "Singapore",
@@ -163,7 +160,6 @@ class TestBaseAnalysisEntry:
     def test_missing_location(self):
         """Missing location fields should be None."""
         item = {
-            "id": 45,
             "local_path": "/media/photo.jpg",
             "taken_at": "2025-01-01T00:00:00",
         }

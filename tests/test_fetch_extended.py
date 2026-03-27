@@ -79,7 +79,6 @@ class TestFetchLocalManifest:
         import json
 
         result = fetch_local(mock_config, str(source_dir))
-        assert "id" in result[0]
         assert "local_path" in result[0]
         assert "taken_at" in result[0]
         assert "local_path" in result[0]

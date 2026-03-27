@@ -613,7 +613,6 @@ class TestBuildSegmentGraph:
         seg = _seg([_photo(duration=3.0)])
         graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
         assert len(graph.inputs) == 1
-        assert graph.has_speech is False
         assert "concat=n=1:v=1:a=1" in graph.script
         assert "aevalsrc=0" in graph.script
         assert "-loop" in graph.inputs[0]
@@ -623,15 +622,13 @@ class TestBuildSegmentGraph:
         seg = _seg([_video(duration=5.0)])
         graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
         assert len(graph.inputs) == 1
-        assert graph.has_speech is False
         assert "aevalsrc=0" in graph.script
         assert "atrim" not in graph.script
 
     def test_video_keep_audio(self):
-        """Video with keep_audio=True: atrim audio, has_speech=True."""
+        """Video with keep_audio=True: atrim audio preserved."""
         seg = _seg([_video(duration=5.0, start=2.0, end=7.0, keep_audio=True)])
         graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
-        assert graph.has_speech is True
         assert "atrim=start=2.0:duration=5.0" in graph.script
         assert "asetpts=PTS-STARTPTS" in graph.script
 
@@ -642,7 +639,6 @@ class TestBuildSegmentGraph:
         )
         graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
         assert "atempo=1.5" in graph.script
-        assert graph.has_speech is True
 
     def test_video_keep_audio_normal_speed_no_atempo(self):
         """keep_audio at speed=1.0 should NOT add atempo."""
@@ -724,8 +720,8 @@ class TestBuildSegmentGraph:
         assert len(graph.inputs) == 1
         assert "concat=n=1:v=1:a=1" in graph.script
 
-    def test_mixed_speech_and_silence(self):
-        """Mix of keep_audio items: has_speech reflects any speech present."""
+    def test_mixed_audio_and_silence(self):
+        """Mix of keep_audio items: one gets atrim, other gets silence."""
         seg = _seg(
             [
                 _video(duration=5.0, keep_audio=False),
@@ -735,11 +731,12 @@ class TestBuildSegmentGraph:
                     end=5.0,
                     keep_audio=True,
                     source_file="/fake/clip2.mp4",
-                ),  # noqa: E501
+                ),
             ]
         )
         graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0), (0.0, 0.0)])
-        assert graph.has_speech is True
+        assert "atrim" in graph.script
+        assert "aevalsrc=0" in graph.script
 
     def test_script_semicolon_separated(self):
         """Filter graph lines are joined with semicolons."""

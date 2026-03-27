@@ -72,8 +72,7 @@ class TestBuildVisualContentBlocks:
         Image.new("RGB", (50, 50), "red").save(thumb, "JPEG")
 
         analysis = {
-            "1": {
-                "id": 1,
+            str(photo): {
                 "local_path": str(photo),
                 "media_type": "photo",
             }
@@ -100,8 +99,7 @@ class TestBuildVisualContentBlocks:
         # Don't create thumbnail
 
         analysis = {
-            "1": {
-                "id": 1,
+            str(photo): {
                 "local_path": str(photo),
                 "media_type": "photo",
             }
@@ -129,19 +127,19 @@ class TestBuildVisualContentBlocks:
         Image.new("RGB", (50, 50), "red").save(thumb, "JPEG")
 
         # Create video file + preview
+        from pipeline._types import cache_id
+
         video = cfg.media_dir / "vid.mp4"
         video.write_bytes(b"\x00" * 500)
-        preview = cfg.previews_dir / "preview_2.mp4"
+        preview = cfg.previews_dir / f"preview_{cache_id(str(video))}.mp4"
         preview.write_bytes(b"\x00" * 1000)
 
         analysis = {
-            "1": {
-                "id": 1,
+            str(photo): {
                 "local_path": str(photo),
                 "media_type": "photo",
             },
-            "2": {
-                "id": 2,
+            str(video): {
                 "local_path": str(video),
                 "media_type": "video",
                 "video_duration": 30.0,

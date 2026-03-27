@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 
 from .. import constants as C
-from .._types import VIDEO_EXTENSIONS, AnalysisEntry
+from .._types import VIDEO_EXTENSIONS, AnalysisEntry, cache_id
 from ..config import Config
 from ..utils.media import probe_duration, run_subprocess
 from ._prompts import _secs_to_timestamp
@@ -337,7 +337,7 @@ def _concat_previews(
 
 
 def _collect_items(
-    analysis_by_id: dict[str, AnalysisEntry],
+    analysis_by_path: dict[str, AnalysisEntry],
     cfg: Config,
     preview_dir: Path,
 ) -> tuple[str, list[Path], list[tuple[int, float, Path]], int, int]:
@@ -345,7 +345,9 @@ def _collect_items(
 
     Returns (text_block, photo_paths, video_entries, n_photos, n_videos).
     """
-    all_items = sorted(analysis_by_id.values(), key=lambda entry: entry.get("id", 0))
+    all_items = sorted(
+        analysis_by_path.values(), key=lambda entry: entry.get("local_path", "")
+    )
     all_items = _dedup_burst_photos(all_items, cfg.thumbnails_dir)
 
     lines: list[str] = []
@@ -368,10 +370,11 @@ def _collect_items(
             n_photos += 1
         else:
             # Video — collect for mega-preview
-            vid_id = entry["id"]
             duration = entry.get("video_duration", 0)
             if duration > 0:
-                preview_path = preview_dir / f"preview_{vid_id}.mp4"
+                preview_path = (
+                    preview_dir / f"preview_{cache_id(entry['local_path'])}.mp4"
+                )
                 if preview_path.exists() and preview_path.stat().st_size > 500:
                     video_entries.append((idx, duration, preview_path))
             n_videos += 1
@@ -432,7 +435,7 @@ def _build_mega_preview(
 
 
 def _build_visual_content_blocks(
-    analysis_by_id: dict[str, AnalysisEntry],
+    analysis_by_path: dict[str, AnalysisEntry],
     cfg: Config,
     *,
     force: bool = False,
@@ -449,7 +452,7 @@ def _build_visual_content_blocks(
 
     # --- Phase 1: collect items ---
     text_block, photo_paths, video_entries, n_photos, n_videos = _collect_items(
-        analysis_by_id, cfg, preview_dir
+        analysis_by_path, cfg, preview_dir
     )
     blocks.append(text_block)
 

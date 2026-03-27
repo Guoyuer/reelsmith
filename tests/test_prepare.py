@@ -13,8 +13,7 @@ from pipeline.prepare import load_analysis, prepare
 
 
 def _make_item(
-    item_id: int,
-    filename: str = "IMG_{:04d}.jpg",
+    filename: str = "IMG_0001.jpg",
     takentime: int = 1700000000,
     district: str | None = None,
     country: str | None = None,
@@ -22,13 +21,11 @@ def _make_item(
     filesize: int = 5000000,
 ) -> dict:
     """Create a manifest item with sensible defaults."""
-    fname = filename.format(item_id) if "{" in filename else filename
     return {
-        "id": item_id,
         "item_type": 0,
         "takentime": takentime,
         "taken_at": "2025-01-01T00:00:00+00:00",
-        "local_path": f"/fake/media/{item_id}_{fname}",
+        "local_path": f"/fake/media/{filename}",
         "filesize": filesize,
         "district": district,
         "country": country,
@@ -57,9 +54,8 @@ def _write_manifest(cfg, items: list[dict]) -> None:
     cfg.manifest_path.write_text(json.dumps(items))
 
 
-def _make_analysis_item(item_id: int, filename: str, local_path: str, **extra) -> dict:
+def _make_analysis_item(filename: str, local_path: str, **extra) -> dict:
     item = {
-        "id": item_id,
         "local_path": local_path,
         "item_type": 0,
         "taken_at": "2025-01-01T00:00:00+00:00",
@@ -73,7 +69,7 @@ class TestAnalysis:
     def test_all_items_analyzed(self, mock_config):
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "100_photo.jpg")
-        _write_manifest(cfg, [_make_analysis_item(100, "photo.jpg", str(img))])
+        _write_manifest(cfg, [_make_analysis_item("photo.jpg", str(img))])
         prepare(cfg)
         results = load_analysis(cfg)
         assert len(results) == 1
@@ -81,7 +77,7 @@ class TestAnalysis:
     def test_analysis_json_written(self, mock_config):
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "103_photo.jpg")
-        _write_manifest(cfg, [_make_analysis_item(103, "photo.jpg", str(img))])
+        _write_manifest(cfg, [_make_analysis_item("photo.jpg", str(img))])
         prepare(cfg)
         assert cfg.analysis_path.exists()
         data = json.loads(cfg.analysis_path.read_text())
@@ -92,7 +88,7 @@ class TestAnalysis:
         """EXIF should be extracted from photos each run."""
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "201_photo.jpg")
-        _write_manifest(cfg, [_make_analysis_item(201, "photo.jpg", str(img))])
+        _write_manifest(cfg, [_make_analysis_item("photo.jpg", str(img))])
         prepare(cfg)
         results = load_analysis(cfg)
         # Tiny test images have no real EXIF, so exif may be absent or empty
@@ -105,8 +101,8 @@ class TestAnalysis:
         _write_manifest(
             cfg,
             [
-                _make_analysis_item(109, "a.jpg", str(img1), takentime=1700000000),
-                _make_analysis_item(110, "b.jpg", str(img2), takentime=1700000100),
+                _make_analysis_item("a.jpg", str(img1), takentime=1700000000),
+                _make_analysis_item("b.jpg", str(img2), takentime=1700000100),
             ],
         )
         calls = []

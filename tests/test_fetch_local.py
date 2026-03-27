@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -18,11 +17,6 @@ from pipeline.fetch._local import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _expected_id(filename: str) -> int:
-    """Reproduce the md5-based ID generation from fetch_local."""
-    return int(hashlib.md5(filename.encode()).hexdigest()[:8], 16) % (10**8)
 
 
 def _create_fake_image(path: Path) -> None:
@@ -47,48 +41,6 @@ def source_dir(tmp_path: Path) -> Path:
     src = tmp_path / "media_source"
     src.mkdir()
     return src
-
-
-# ---------------------------------------------------------------------------
-# Test: ID generation is deterministic
-# ---------------------------------------------------------------------------
-
-
-class TestIdDeterminism:
-    @pytest.fixture(autouse=True)
-    def _mock_date(self):
-        with patch("pipeline.fetch._local._extract_date", return_value=None):
-            yield
-
-    def test_same_file_same_id(self, mock_config, source_dir):
-        _create_fake_image(source_dir / "IMG_001.jpg")
-        result1 = fetch_local(mock_config, str(source_dir))
-        result2 = fetch_local(mock_config, str(source_dir))
-        assert result1[0]["id"] == result2[0]["id"]
-
-    def test_id_matches_md5_formula(self, mock_config, source_dir):
-        _create_fake_image(source_dir / "IMG_001.jpg")
-        result = fetch_local(mock_config, str(source_dir))
-        assert result[0]["id"] == _expected_id("IMG_001.jpg")
-
-    def test_different_files_different_ids(self, mock_config, source_dir):
-        _create_fake_image(source_dir / "IMG_001.jpg")
-        _create_fake_image(source_dir / "IMG_002.jpg")
-        result = fetch_local(mock_config, str(source_dir))
-        ids = [r["id"] for r in result]
-        assert len(set(ids)) == 2
-
-    def test_id_stable_across_directory_changes(self, mock_config, tmp_path):
-        """Same filename in different directories gives the same ID."""
-        dir_a = tmp_path / "dir_a"
-        dir_b = tmp_path / "dir_b"
-        dir_a.mkdir()
-        dir_b.mkdir()
-        _create_fake_image(dir_a / "IMG_001.jpg")
-        _create_fake_image(dir_b / "IMG_001.jpg")
-        result_a = fetch_local(mock_config, str(dir_a))
-        result_b = fetch_local(mock_config, str(dir_b))
-        assert result_a[0]["id"] == result_b[0]["id"]
 
 
 # ---------------------------------------------------------------------------
