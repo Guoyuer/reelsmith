@@ -9,18 +9,10 @@ import struct as _struct
 import wave
 from pathlib import Path
 
+from .. import constants as C
 from ..edl import EDL
 
 logger = logging.getLogger("vlog.assemble.audio")
-
-_SAMPLE_RATE = 48000
-_ENERGY_WINDOW_MS = 10  # ms; window size for BPM energy envelope
-_MIN_ENERGY_WINDOWS = 200  # minimum energy windows for reliable BPM
-_MAX_BEAT_SHIFT = 0.4  # seconds; max transition snap distance
-_MONTAGE_MAX_SHIFT = 0.2  # seconds; tighter snap for montage segments
-_MIN_PHOTO_DURATION = 2.0  # seconds; floor after beat snap
-_MIN_VIDEO_DURATION = 3.0  # seconds; floor after beat snap
-_BEAT_SNAP_PRECISION = 3  # decimal places for snapped durations
 
 
 # ---------------------------------------------------------------------------
@@ -60,17 +52,17 @@ def estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int |
     if len(samples) < sample_rate * 2:
         return None
 
-    win = sample_rate // (1000 // _ENERGY_WINDOW_MS)
+    win = sample_rate // (1000 // C.ENERGY_WINDOW_MS)
     energy = []
     for i in range(0, len(samples), win):
         chunk = samples[i : i + win]
         if chunk:
             energy.append(math.sqrt(sum(s * s for s in chunk) / len(chunk)))
 
-    if len(energy) < _MIN_ENERGY_WINDOWS:
+    if len(energy) < C.MIN_ENERGY_WINDOWS:
         return None
 
-    windows_per_sec = 1000 // _ENERGY_WINDOW_MS
+    windows_per_sec = 1000 // C.ENERGY_WINDOW_MS
     min_lag = int(60 / max_bpm * windows_per_sec)
     max_lag = int(60 / min_bpm * windows_per_sec)
     max_lag = min(max_lag, len(energy) // 2)
@@ -126,7 +118,9 @@ def _snap_transitions(edl: EDL, beats: list[float]) -> tuple[int, int]:
     n_segments = len(edl.segments)
 
     for seg_idx, seg in enumerate(edl.segments):
-        seg_max_shift = _MONTAGE_MAX_SHIFT if seg.mode == "montage" else _MAX_BEAT_SHIFT
+        seg_max_shift = (
+            C.MONTAGE_MAX_SHIFT if seg.mode == "montage" else C.MAX_BEAT_SHIFT
+        )
 
         for i, item in enumerate(seg.items):
             offset += item.display_duration
@@ -162,15 +156,15 @@ def _snap_transitions(edl: EDL, beats: list[float]) -> tuple[int, int]:
                 continue
 
             min_dur = (
-                _MIN_PHOTO_DURATION
+                C.MIN_PHOTO_DURATION
                 if item.media_type == "photo"
-                else _MIN_VIDEO_DURATION
+                else C.MIN_VIDEO_DURATION
             )
             new_dur = item.display_duration + shift
             if new_dur < min_dur:
                 continue
 
-            item.display_duration = round(new_dur, _BEAT_SNAP_PRECISION)
+            item.display_duration = round(new_dur, C.BEAT_SNAP_PRECISION)
             offset = offset + shift
             snapped += 1
 

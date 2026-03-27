@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from .. import constants as C
 from .._types import PHOTO_EXTENSIONS, AnalysisEntry
 from ..edl import EDL, validate_edl
 from ._prompts import _timestamp_to_secs
@@ -23,11 +24,6 @@ logger = logging.getLogger("vlog.plan")
 # ---------------------------------------------------------------------------
 # Post-processing report — tracks repair counts for threshold alerting
 # ---------------------------------------------------------------------------
-
-# Thresholds: warn at 30% removal, hard-fail at 50%
-_WARN_REMOVAL_RATE = 0.3
-_FAIL_REMOVAL_RATE = 0.5
-_WARN_PATH_RATE = 0.2
 
 
 @dataclass
@@ -56,14 +52,14 @@ class PostprocessReport:
         if self.items_before == 0:
             return
 
-        if self.removal_rate > _FAIL_REMOVAL_RATE:
+        if self.removal_rate > C.FAIL_REMOVAL_RATE:
             raise RuntimeError(
                 f"Post-processing removed {self.removal_rate:.0%} of items "
                 f"({self.total_removed}/{self.items_before}). "
                 f"Gemini output is likely severely broken — aborting."
             )
 
-        if self.removal_rate > _WARN_REMOVAL_RATE:
+        if self.removal_rate > C.WARN_REMOVAL_RATE:
             logger.warning(
                 "Post-processing removed %.0f%% of items (%d/%d). "
                 "Gemini output may be severely wrong.",
@@ -72,7 +68,7 @@ class PostprocessReport:
                 self.items_before,
             )
 
-        if self.path_removed > self.items_before * _WARN_PATH_RATE:
+        if self.path_removed > self.items_before * C.WARN_PATH_RATE:
             logger.warning(
                 "Over 20%% of items had hallucinated paths (%d/%d). "
                 "Consider re-running with --force to refresh media cache.",
