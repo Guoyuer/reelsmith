@@ -68,7 +68,6 @@ def _seg(items: list[EditItem], **kw) -> Segment:
     kw.setdefault("name", "Seg")
     kw.setdefault("transition", "crossfade")
     kw.setdefault("transition_duration", 0.5)
-    kw.setdefault("segment_transition", "fade_black")
     kw.setdefault("segment_transition_duration", 1.0)
     return Segment(items=items, **kw)
 
@@ -480,7 +479,6 @@ class TestComputeFadeParams:
         seg2 = _seg(
             [_photo(), _photo()],
             name="S2",
-            segment_transition="fade_black",
             segment_transition_duration=1.0,
             transition="crossfade",
             transition_duration=0.3,

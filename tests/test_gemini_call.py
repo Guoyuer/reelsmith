@@ -240,7 +240,6 @@ class TestEdlResponseSchema:
         assert seg_schema["properties"]["transition"]["enum"] == [
             "crossfade",
             "cut",
-            "fade_black",
         ]
 
     def test_text_overlay_nullable_with_position_enum(self, schema):
@@ -271,7 +270,6 @@ class TestStructuredOutputParsing:
                         "music_mood": "gentle guitar",
                         "mode": "narrative",
                         "color_temp": "warm",
-                        "segment_transition": "crossfade",
                         "segment_transition_duration": 1.0,
                         "items": [
                             {

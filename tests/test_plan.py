@@ -190,7 +190,7 @@ class TestEdlFieldCompleteness:
         assert seg.mode == "narrative"
 
     def test_transition_options_accepted(self):
-        for tr in ["crossfade", "cut", "fade_black"]:
+        for tr in ["crossfade", "cut"]:
             seg = Segment(name="t", items=[], transition=tr)
             assert seg.transition == tr
 

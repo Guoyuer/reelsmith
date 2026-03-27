@@ -349,12 +349,10 @@ class TestAssembleE2E:
         errors = validate_output(output, edl)
         assert errors == [], f"Output validation failed: {errors}"
 
-    def test_fade_black_transition(self):
-        """Test fade_black transitions."""
+    def test_crossfade_transition(self):
+        """Test crossfade transitions with custom duration."""
         photos, videos = _get_media_samples()
-        edl = _make_edl(
-            photos, videos, transition="fade_black", transition_duration=0.6
-        )
+        edl = _make_edl(photos, videos, transition="crossfade", transition_duration=0.6)
         output = _run_assemble(edl)
         errors = validate_output(output, edl)
         assert errors == [], f"Output validation failed: {errors}"
@@ -434,7 +432,7 @@ class TestAssembleE2E:
                             "effect": "ken_burns_right",
                         },
                     ],
-                    "transition": "fade_black",
+                    "transition": "crossfade",
                     "transition_duration": 0.6,
                     "mode": "narrative",
                     "color_temp": "cool",

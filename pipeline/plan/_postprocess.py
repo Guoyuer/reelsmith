@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .. import constants as C
 from .._types import PHOTO_EXTENSIONS, AnalysisEntry
-from ..edl import EDL, Effect, MediaType, validate_edl
+from ..edl import EDL, Effect, MediaType, Transition, validate_edl
 from ._prompts import _timestamp_to_secs
 
 logger = logging.getLogger("vlog.plan")
@@ -171,7 +171,13 @@ def parse_and_convert_timestamps(
 
     # Sanitize effect values: Gemini may hallucinate values like "static"
     valid_effects = {e.value for e in Effect}
+    valid_transitions = {e.value for e in Transition}
     for seg in raw.get("segments", []):
+        # Normalize removed/invalid transition values to "crossfade"
+        if seg.get("transition") not in valid_transitions:
+            seg["transition"] = "crossfade"
+        # Remove legacy segment_transition field (no longer in schema)
+        seg.pop("segment_transition", None)
         for item in seg.get("items", []):
             if item.get("effect") not in valid_effects:
                 item["effect"] = "none"
