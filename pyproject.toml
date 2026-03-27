@@ -45,6 +45,7 @@ ignore = ["E501"]
 pythonVersion = "3.11"
 typeCheckingMode = "basic"
 reportOptionalMemberAccess = "warning"
+reportMissingTypeStubs = false
 exclude = ["tests/"]
 
 [tool.pytest.ini_options]
