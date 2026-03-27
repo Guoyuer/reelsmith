@@ -18,12 +18,12 @@ class TestPreparePrerequisites:
 
 
 class TestPlanPrerequisites:
-    def test_missing_manifest_raises(self, tmp_path):
+    def test_missing_analysis_raises(self, tmp_path):
         from pipeline.plan import PlanConfig, plan
 
         cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
-        with pytest.raises(FileNotFoundError, match="Manifest not found"):
+        with pytest.raises(FileNotFoundError, match="Analysis not found"):
             plan(cfg, PlanConfig(target_duration=60))
 
 

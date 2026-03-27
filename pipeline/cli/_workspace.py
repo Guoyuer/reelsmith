@@ -147,7 +147,6 @@ def workspace(clean, yes):
         ("media", "Source photos & videos", ws / "media"),
         ("music", "Generated music (Lyria cache)", ws / "music"),
         ("preview_clips", "Video preview clips (shared)", ws / "preview_clips"),
-        ("analysis_cache", "Analysis cache", ws / "analysis_cache"),
         ("thumbnails", "Photo thumbnails", ws / "thumbnails"),
         ("heic_converted", "HEIC\u2192JPEG conversions", ws / "heic_converted"),
     ]
@@ -295,7 +294,6 @@ def workspace(clean, yes):
         targets.append(("media", ws / "media"))
     if clean in ("cache", "all"):
         targets += [
-            ("analysis_cache", ws / "analysis_cache"),
             ("thumbnails", ws / "thumbnails"),
             ("preview_clips", ws / "preview_clips"),
             ("heic_converted", ws / "heic_converted"),

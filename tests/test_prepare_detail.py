@@ -80,13 +80,11 @@ class TestPrepareVideo:
                 )
             return result
 
-        cache_file = tmp_path / "cache" / "1.json"
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
         with patch("pipeline.prepare._prepare.run_subprocess", side_effect=fake_run):
             with patch(
                 "pipeline.prepare._prepare._has_dense_keyframes", return_value=True
             ):
-                _prepare_video(entry, 1, str(tmp_path / "video.mp4"), cache_file, 1, 1)
+                _prepare_video(entry, tmp_path / "video.mp4", 1, 1)
 
         assert (
             entry.get("video_duration") is not None
@@ -124,11 +122,10 @@ class TestPrepareFullFlow:
         cfg.manifest_path.write_text(json.dumps(manifest))
 
         prepare(cfg, PrepareConfig())
-        # Per-item cache should exist
-        assert (cfg.cache_dir / "1.json").exists()
+        assert cfg.analysis_path.exists()
 
-    def test_force_regenerates_cache(self, tmp_path):
-        """--force should regenerate per-item caches."""
+    def test_rerun_updates_analysis(self, tmp_path):
+        """Re-running prepare should overwrite analysis.json."""
         from pipeline.config import Config
         from pipeline.prepare import PrepareConfig, prepare
 
@@ -153,19 +150,15 @@ class TestPrepareFullFlow:
         ]
         cfg.manifest_path.write_text(json.dumps(manifest))
 
-        # First prepare
         prepare(cfg, PrepareConfig())
-        cache_file = cfg.cache_dir / "1.json"
-        assert cache_file.exists()
-        first_mtime = cache_file.stat().st_mtime
+        assert cfg.analysis_path.exists()
+        first_mtime = cfg.analysis_path.stat().st_mtime
 
-        # Second prepare with --force
         import time
 
         time.sleep(0.05)
-        prepare(cfg, PrepareConfig(force=True))
-        second_mtime = cache_file.stat().st_mtime
-        assert second_mtime > first_mtime
+        prepare(cfg, PrepareConfig())
+        assert cfg.analysis_path.stat().st_mtime > first_mtime
 
 
 class TestHasDenseKeyframes:

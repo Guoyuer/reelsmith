@@ -330,7 +330,6 @@ class TestRunPrepareNoAnalysisPath:
 
         cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
-        assert not hasattr(cfg, "analysis_path"), "Config still has analysis_path"
 
         manifest = [
             {
@@ -341,8 +340,19 @@ class TestRunPrepareNoAnalysisPath:
             }
         ]
         cfg.manifest_path.write_text(json.dumps(manifest))
-        cfg.cache_dir.mkdir(parents=True, exist_ok=True)
-        (cfg.cache_dir / "1.json").write_text(json.dumps({"thumbnail_path": "/t.jpg"}))
+        cfg.analysis_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": 1,
+                        "local_path": str(tmp_path / "p.jpg"),
+                        "media_type": "photo",
+                        "taken_at": "2025-01-01T00:00:00",
+                        "thumbnail_path": "/t.jpg",
+                    }
+                ]
+            )
+        )
 
         from pipeline.cli import _PipelineDisplay
         from pipeline.cli._runner import _run_prepare

@@ -72,10 +72,9 @@ class TestPrepareVideoEdgeCases:
     def test_malformed_ffprobe_defaults(self, tmp_path):
         """Malformed ffprobe output should produce safe defaults."""
         entry = {"id": 1, "local_path": str(tmp_path / "bad.mp4")}
-        cache = tmp_path / "cache.json"
         mock = MagicMock(returncode=0, stdout="not json at all", stderr="")
         with patch("pipeline.prepare._prepare.run_subprocess", return_value=mock):
-            _prepare_video(entry, 1, tmp_path / "bad.mp4", cache, 1, 1)
+            _prepare_video(entry, tmp_path / "bad.mp4", 1, 1)
         assert entry["video_duration"] == 10.0  # default
         assert entry["video_width"] == 0
         assert entry["video_height"] == 0
@@ -85,45 +84,40 @@ class TestPrepareVideoEdgeCases:
     def test_portrait_detection(self, tmp_path):
         """Height > width should set orientation=portrait."""
         entry = {"id": 1, "local_path": str(tmp_path / "portrait.mp4")}
-        cache = tmp_path / "cache.json"
         probe_data = {
             "format": {"duration": "30.0"},
             "streams": [{"width": 1080, "height": 1920, "r_frame_rate": "30/1"}],
         }
         mock = MagicMock(returncode=0, stdout=json.dumps(probe_data), stderr="")
         with patch("pipeline.prepare._prepare.run_subprocess", return_value=mock):
-            _prepare_video(entry, 1, tmp_path / "portrait.mp4", cache, 1, 1)
+            _prepare_video(entry, tmp_path / "portrait.mp4", 1, 1)
         assert entry["video_orientation"] == "portrait"
         assert entry["video_width"] == 1080
         assert entry["video_height"] == 1920
 
-    def test_cache_file_written(self, tmp_path):
-        """Cache file should be written with video metadata."""
+    def test_entry_fields_populated(self, tmp_path):
+        """Entry dict should be populated with video metadata."""
         entry = {"id": 1, "local_path": str(tmp_path / "vid.mp4")}
-        cache = tmp_path / "cache.json"
         probe_data = {
             "format": {"duration": "45.5"},
             "streams": [{"width": 3840, "height": 2160, "r_frame_rate": "60/1"}],
         }
         mock = MagicMock(returncode=0, stdout=json.dumps(probe_data), stderr="")
         with patch("pipeline.prepare._prepare.run_subprocess", return_value=mock):
-            _prepare_video(entry, 1, tmp_path / "vid.mp4", cache, 1, 1)
-        assert cache.exists()
-        cached = json.loads(cache.read_text())
-        assert cached["video_duration"] == 45.5
-        assert cached["video_fps"] == 60.0
+            _prepare_video(entry, tmp_path / "vid.mp4", 1, 1)
+        assert entry["video_duration"] == 45.5
+        assert entry["video_fps"] == 60.0
 
     def test_fps_parsing_fractional(self, tmp_path):
         """24000/1001 fps should parse correctly."""
         entry = {"id": 1, "local_path": str(tmp_path / "vid.mp4")}
-        cache = tmp_path / "cache.json"
         probe_data = {
             "format": {"duration": "10.0"},
             "streams": [{"width": 1920, "height": 1080, "r_frame_rate": "24000/1001"}],
         }
         mock = MagicMock(returncode=0, stdout=json.dumps(probe_data), stderr="")
         with patch("pipeline.prepare._prepare.run_subprocess", return_value=mock):
-            _prepare_video(entry, 1, tmp_path / "vid.mp4", cache, 1, 1)
+            _prepare_video(entry, tmp_path / "vid.mp4", 1, 1)
         assert entry["video_fps"] == 24.0  # 24000/1001 ≈ 23.976 → rounded to 24.0
 
 

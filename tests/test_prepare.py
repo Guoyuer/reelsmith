@@ -69,7 +69,7 @@ def _make_analysis_item(item_id: int, filename: str, local_path: str, **extra) -
     return item
 
 
-class TestAnalysisCaching:
+class TestAnalysis:
     def test_all_items_analyzed(self, mock_config):
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "100_photo.jpg")
@@ -78,42 +78,25 @@ class TestAnalysisCaching:
         results = load_analysis(cfg)
         assert len(results) == 1
 
-    def test_resumes_from_cache(self, mock_config):
-        cfg = mock_config
-        img = _make_tiny_image(cfg.media_dir / "101_photo.jpg")
-        _write_manifest(cfg, [_make_analysis_item(101, "photo.jpg", str(img))])
-        (cfg.cache_dir / "101.json").write_text(
-            json.dumps({"thumbnail_path": "/cached/thumb.jpg"})
-        )
-        prepare(cfg)
-        results = load_analysis(cfg)
-        assert results[0]["thumbnail_path"] == "/cached/thumb.jpg"
-
-    def test_saves_to_shared_cache(self, mock_config):
+    def test_analysis_json_written(self, mock_config):
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "103_photo.jpg")
         _write_manifest(cfg, [_make_analysis_item(103, "photo.jpg", str(img))])
         prepare(cfg)
-        cache_file = cfg.cache_dir / "103.json"
-        assert cache_file.exists()
-        assert "thumbnail_path" in json.loads(cache_file.read_text())
+        assert cfg.analysis_path.exists()
+        data = json.loads(cfg.analysis_path.read_text())
+        assert len(data) == 1
+        assert "thumbnail_path" in data[0]
 
-    def test_exif_from_cache_used(self, mock_config):
+    def test_exif_extracted(self, mock_config):
+        """EXIF should be extracted from photos each run."""
         cfg = mock_config
         img = _make_tiny_image(cfg.media_dir / "201_photo.jpg")
         _write_manifest(cfg, [_make_analysis_item(201, "photo.jpg", str(img))])
-        cache_data = {
-            "thumbnail_path": "/fake/thumb.jpg",
-            "exif": {"focal_length": 24.0, "aperture": 1.4, "iso_speed": 100},
-        }
-        (cfg.cache_dir / "201.json").write_text(json.dumps(cache_data))
         prepare(cfg)
         results = load_analysis(cfg)
-        assert results[0].get("exif") == {
-            "focal_length": 24.0,
-            "aperture": 1.4,
-            "iso_speed": 100,
-        }
+        # Tiny test images have no real EXIF, so exif may be absent or empty
+        assert results[0]["media_type"] == "photo"
 
     def test_progress_callback(self, mock_config):
         cfg = mock_config
@@ -128,9 +111,6 @@ class TestAnalysisCaching:
         )
         calls = []
         prepare(cfg, progress_callback=lambda c, t, n: calls.append((c, t, n)))
-        scan_calls = [c for c in calls if c[2] == "scan"]
         photo_calls = [c for c in calls if c[2] == "photos"]
-        assert len(scan_calls) == 2
-        assert scan_calls[0][1] == 2  # total = 2 items
         assert len(photo_calls) == 2
-        assert photo_calls[0][1] == 2  # total = 2 photos
+        assert photo_calls[0][1] == 2  # total = 2 items

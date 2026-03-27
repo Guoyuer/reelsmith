@@ -1,12 +1,11 @@
 """Stage 2: Prepare media for visual planning.
 
-Merges previous preprocess + analyze into one stage:
-- Timeline construction (day → time_block → location)
-- Photo thumbnails (400px JPEG, cached — used directly by plan stage)
-- EXIF extraction (cached)
-- Video duration probing (cached)
+- Photo thumbnails (400px JPEG, cached in thumbnails/)
+- EXIF extraction (recomputed each run — fast)
+- Video duration probing (recomputed each run — fast)
+- Video previews (480p 1fps, cached in preview_clips/)
 
-All results cached per-file in shared analysis_cache directory.
+Results written to a single analysis.json per run.
 """
 
 from __future__ import annotations
@@ -47,37 +46,20 @@ def _base_analysis_entry(item: dict, *, is_video: bool) -> dict:
 
 
 def load_analysis(cfg: Config) -> list[AnalysisEntry]:
-    """Reconstruct analysis data from manifest + per-item caches.
+    """Load analysis data written by prepare().
 
-    Each entry is runtime-validated via Pydantic at the prepare → plan
-    boundary. Entries that fail validation are skipped with a warning.
+    Reads analysis.json and validates each entry via Pydantic.
     """
-    if not cfg.manifest_path.exists():
+    if not cfg.analysis_path.exists():
         raise FileNotFoundError(
-            f"Manifest not found: {cfg.manifest_path}\n"
+            f"Analysis not found: {cfg.analysis_path}\n"
             "Run the prepare stage first (e.g. vlog prepare -p ./photos)"
         )
-    manifest = json.loads(cfg.manifest_path.read_text())
+    raw = json.loads(cfg.analysis_path.read_text())
 
-    cache_dir = cfg.cache_dir
     results = []
     n_skipped = 0
-    for item in manifest:
-        item_id = item["id"]
-        local_path_str = item.get("local_path", "")
-        suffix = Path(local_path_str).suffix.lower() if local_path_str else ""
-        is_video = suffix in VIDEO_EXTENSIONS
-
-        entry = _base_analysis_entry(item, is_video=is_video)
-
-        cache_file = cache_dir / f"{item_id}.json"
-        if cache_file.exists():
-            try:
-                cached = json.loads(cache_file.read_text())
-                entry.update(cached)
-            except (json.JSONDecodeError, KeyError):
-                pass
-
+    for entry in raw:
         try:
             validated = _AnalysisEntryValidator.model_validate(entry)
             results.append(validated.model_dump(exclude_none=False))
@@ -105,7 +87,8 @@ def prepare(
 
     1. Read manifest
     2. Generate thumbnails + EXIF for photos, probe duration for videos
-    3. Generate video previews (360p 1fps)
+    3. Write analysis.json
+    4. Generate video previews (480p 1fps)
     """
     if pc is None:
         pc = PrepareConfig()
@@ -117,20 +100,11 @@ def prepare(
         )
     manifest = json.loads(cfg.manifest_path.read_text())
 
-    # --- Analyze: thumbnails, EXIF, video duration ---
-    cache_dir = cfg.cache_dir
-
-    # --- Phase 1: Scan — check caches, build entries, collect uncached items ---
-    uncached_photos: list[
-        tuple[dict, int, Path, Path]
-    ] = []  # (entry, item_id, path, cache_file)
-    uncached_videos: list[tuple[dict, int, Path, Path]] = []
+    # --- Phase 1: Process all items ---
+    photos: list[dict] = []
+    videos: list[dict] = []
 
     for i, item in enumerate(manifest, 1):
-        item_id = item["id"]
-        if progress_callback:
-            progress_callback(i, len(manifest), "scan")
-
         local_path_str = item.get("local_path", "")
         local_path = Path(local_path_str)
         if not local_path.exists():
@@ -138,45 +112,28 @@ def prepare(
 
         suffix = local_path.suffix.lower()
         is_video = suffix in VIDEO_EXTENSIONS
-
-        cache_file = cache_dir / f"{item_id}.json"
-        if cache_file.exists() and not pc.force:
-            try:
-                json.loads(cache_file.read_text())  # validate not corrupt
-                continue  # cache hit — skip
-            except (json.JSONDecodeError, KeyError) as e:
-                logger.warning(
-                    "Corrupt cache for item %s, re-analyzing: %s", item_id, e
-                )
-
         entry = _base_analysis_entry(item, is_video=is_video)
 
         if is_video:
-            uncached_videos.append((entry, item_id, local_path, cache_file))
+            if progress_callback:
+                progress_callback(i, len(manifest), "video probe")
+            _prepare_video(entry, local_path, i, len(manifest))
+            videos.append(entry)
         else:
-            uncached_photos.append((entry, item_id, local_path, cache_file))
-
-    # --- Phase 2: Prepare photos — EXIF + thumbnails ---
-    for i, (entry, item_id, local_path, cache_file) in enumerate(uncached_photos, 1):
-        if progress_callback:
-            progress_callback(i, len(uncached_photos), "photos")
-        _prepare_photo(entry, item_id, local_path, cfg, cache_file)
-
-    # --- Phase 3: Probe uncached videos ---
-    for i, (entry, item_id, local_path, cache_file) in enumerate(uncached_videos, 1):
-        if progress_callback:
-            progress_callback(i, len(uncached_videos), "video probe")
-        _prepare_video(entry, item_id, local_path, cache_file, i, len(uncached_videos))
+            if progress_callback:
+                progress_callback(i, len(manifest), "photos")
+            _prepare_photo(entry, local_path, cfg)
+            photos.append(entry)
 
     # Rich video probe summary table
     from ..utils import stderr_console
 
     console = stderr_console()
-    if console and uncached_videos:
+    if console and videos:
         from rich.table import Table
 
         t = Table(
-            title=f"Video Probe ({len(uncached_videos)} new)",
+            title=f"Video Probe ({len(videos)})",
             border_style="dim",
             show_lines=False,
         )
@@ -184,40 +141,32 @@ def prepare(
         t.add_column("Duration", justify="right")
         t.add_column("Resolution")
         t.add_column("FPS", justify="right")
-        for entry, _, _, _ in uncached_videos[:20]:
+        for entry in videos[:20]:
             t.add_row(
                 Path(entry["local_path"]).name[:35],
                 f"{entry.get('video_duration', 0):.0f}s",
                 f"{entry.get('video_width', '?')}x{entry.get('video_height', '?')}",
                 f"{entry.get('video_fps', '?')}",
             )
-        if len(uncached_videos) > 20:
-            t.add_row(f"... +{len(uncached_videos) - 20} more", "", "", "")
+        if len(videos) > 20:
+            t.add_row(f"... +{len(videos) - 20} more", "", "", "")
         console.print(t)
 
-    n_photos = sum(
-        1
-        for item in manifest
-        if Path(item.get("local_path", "")).suffix.lower() not in VIDEO_EXTENSIONS
-    )
-    n_videos = len(manifest) - n_photos
-    n_new = len(uncached_photos) + len(uncached_videos)
-    cached_note = f", {n_new} new" if n_new else ", all cached"
     logger.info(
-        "Prepared: %d items (%d photos, %d videos%s)",
-        len(manifest),
-        n_photos,
-        n_videos,
-        cached_note,
+        "Prepared: %d items (%d photos, %d videos)",
+        len(photos) + len(videos),
+        len(photos),
+        len(videos),
     )
 
-    # Generate video previews (cached per video, used by plan stage)
-    # Use load_analysis to get full entries with cache data merged
-    results = load_analysis(cfg)
-    video_items = [r for r in results if r.get("media_type") == "video"]
-    if video_items:
+    # --- Phase 2: Write analysis.json ---
+    all_entries = photos + videos
+    cfg.analysis_path.write_text(json.dumps(all_entries, indent=2))
+
+    # --- Phase 3: Generate video previews (cached per video) ---
+    if videos:
         _generate_video_previews(
-            video_items,
+            videos,
             cfg.preview_clips_dir,
             force=pc.force,
             progress_callback=progress_callback,
@@ -390,13 +339,11 @@ def _generate_video_previews(
 
 def _prepare_video(
     entry: dict[str, Any],
-    item_id: int,
     local_path: Path,
-    cache_file: Path,
     i: int,
     total: int,
 ) -> None:
-    """Probe video duration, dimensions, fps, orientation, and audio loudness."""
+    """Probe video duration, dimensions, fps, and orientation."""
     probe = run_subprocess(
         [
             "ffprobe",
@@ -441,15 +388,6 @@ def _prepare_video(
     entry["video_height"] = video_height
     entry["video_fps"] = video_fps
     entry["video_orientation"] = orientation
-
-    cache_entry = {
-        "video_duration": round(total_duration, 1),
-        "video_width": video_width,
-        "video_height": video_height,
-        "video_fps": video_fps,
-        "video_orientation": orientation,
-    }
-    cache_file.write_text(json.dumps(cache_entry, indent=2))
 
     res_str = f"{video_width}x{video_height}" if video_width else "?"
     logger.debug(
@@ -506,18 +444,11 @@ def _read_exif(path: str | Path) -> dict[str, Any]:
         return {}
 
 
-def _prepare_photo(
-    entry: dict[str, Any], item_id: int, local_path: Path, cfg: Config, cache_file: Path
-) -> None:
+def _prepare_photo(entry: dict[str, Any], local_path: Path, cfg: Config) -> None:
     """Generate thumbnail and extract EXIF for a photo."""
-    thumb_dir = cfg.thumbnails_dir
-    thumb = generate_thumbnail(local_path, thumb_dir, size=400, quality=70)
+    thumb = generate_thumbnail(local_path, cfg.thumbnails_dir, size=400, quality=70)
     exif = _read_exif(local_path)
-    cache_data = {}
     if thumb:
-        cache_data["thumbnail_path"] = str(thumb)
         entry["thumbnail_path"] = str(thumb)
     if exif:
-        cache_data["exif"] = exif
         entry["exif"] = exif
-    cache_file.write_text(json.dumps(cache_data, indent=2))

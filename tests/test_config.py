@@ -33,7 +33,6 @@ class TestConfigLoad:
         cfg = Config.load(workspace=ws)
         expected_base = tmp_path / "workspace"
         assert cfg.media_dir == expected_base / "media"
-        assert cfg.cache_dir == expected_base / "analysis_cache"
         assert cfg.thumbnails_dir == expected_base / "thumbnails"
 
     def test_workspace_arg_used(self, tmp_path: Path):
@@ -51,7 +50,6 @@ class TestEnsureDirs:
         cfg.ensure_dirs()
         assert (cfg.workspace / "clips").is_dir()
         assert (cfg.workspace / "output").is_dir()
-        assert cfg.cache_dir.is_dir()
         assert cfg.thumbnails_dir.is_dir()
         assert cfg.preview_clips_dir.is_dir()
         assert cfg.music_dir.is_dir()

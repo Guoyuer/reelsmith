@@ -37,10 +37,6 @@ class Config:
         return self._base / "media"
 
     @property
-    def cache_dir(self) -> Path:
-        return self._base / "analysis_cache"
-
-    @property
     def thumbnails_dir(self) -> Path:
         return self._base / "thumbnails"
 
@@ -65,6 +61,10 @@ class Config:
     def manifest_path(self) -> Path:
         return self.workspace / "manifest.json"
 
+    @property
+    def analysis_path(self) -> Path:
+        return self.workspace / "analysis.json"
+
     def edl_path(self, version: int) -> Path:
         return self.workspace / f"edl_v{version}.json"
 
@@ -87,7 +87,6 @@ class Config:
         for d in [
             self.clips_dir,
             self.output_dir,
-            self.cache_dir,
             self.thumbnails_dir,
             self.preview_clips_dir,
             self.music_dir,

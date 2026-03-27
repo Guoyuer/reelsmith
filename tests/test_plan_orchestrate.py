@@ -34,15 +34,19 @@ def _setup_workspace(tmp_path, n_photos=2):
         for i in range(1, n_photos + 1)
     ]
     cfg.manifest_path.write_text(json.dumps(manifest))
-    cfg.cache_dir.mkdir(parents=True, exist_ok=True)
-    for i in range(1, n_photos + 1):
-        (cfg.cache_dir / f"{i}.json").write_text(
-            json.dumps(
-                {
-                    "thumbnail_path": str(cfg.thumbnails_dir / f"photo_{i}_thumb.jpg"),
-                }
-            )
-        )
+
+    # Write analysis.json (normally produced by prepare stage)
+    analysis = [
+        {
+            "id": i,
+            "local_path": photo_paths[i - 1],
+            "media_type": "photo",
+            "taken_at": f"2025-06-13T{10 + i}:30:00",
+            "thumbnail_path": str(cfg.thumbnails_dir / f"photo_{i}_thumb.jpg"),
+        }
+        for i in range(1, n_photos + 1)
+    ]
+    cfg.analysis_path.write_text(json.dumps(analysis))
 
     return cfg, photo_paths
 
