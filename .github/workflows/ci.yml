@@ -27,6 +27,7 @@ jobs:
 
   typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -36,7 +37,9 @@ jobs:
       - name: Install dependencies
         run: uv venv && uv pip install -e ".[dev]"
       - name: Run pyright
-        run: uv run pyright
+        uses: jakebailey/pyright-action@v2
+        with:
+          python-path: .venv/bin/python
 
   test:
     runs-on: ubuntu-latest
