@@ -1,0 +1,28 @@
+name: Typecheck
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: typecheck-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.11
+      - name: Install dependencies
+        run: uv venv && uv pip install -e ".[dev]"
+      - name: Run pyright
+        uses: jakebailey/pyright-action@v2
+        with:
+          python-path: .venv/bin/python
