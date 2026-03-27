@@ -183,9 +183,9 @@ class TestEdlResponseSchema:
     def test_top_level_structure(self, schema):
         assert schema["type"] == "OBJECT"
         assert "title" in schema["properties"]
-        assert "target_duration" in schema["properties"]
+        assert "target_duration" not in schema["properties"]
         assert "segments" in schema["properties"]
-        assert set(schema["required"]) == {"title", "target_duration", "segments"}
+        assert set(schema["required"]) == {"title", "segments"}
 
     def test_segment_has_required_fields(self, schema):
         seg_schema = schema["properties"]["segments"]["items"]

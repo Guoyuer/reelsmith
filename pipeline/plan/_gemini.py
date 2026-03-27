@@ -359,12 +359,11 @@ def _edl_response_schema() -> dict[str, Any]:
         "type": "OBJECT",
         "properties": {
             "title": {"type": "STRING"},
-            "target_duration": {"type": "NUMBER"},
             "intro_duration": {"type": "NUMBER"},
             "outro_duration": {"type": "NUMBER"},
             "segments": {"type": "ARRAY", "items": segment_schema},
         },
-        "required": ["title", "target_duration", "segments"],
+        "required": ["title", "segments"],
     }
 
 
