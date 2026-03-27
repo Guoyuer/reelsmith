@@ -27,7 +27,7 @@ def sample_manifest() -> list[dict]:
             "id": item_id,
             "item_type": kw.pop("item_type", 0),
             "takentime": taken,
-            "taken_iso": iso,
+            "taken_at": iso,
             "local_path": f"/fake/media/{item_id}_{filename}",
             "filesize": kw.pop("filesize", 5000000),
             **kw,

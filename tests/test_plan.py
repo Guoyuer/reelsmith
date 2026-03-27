@@ -50,8 +50,8 @@ SAMPLE_ANALYSIS = {
         "media_type": "photo",
         "district": "Marina Bay",
         "country": "Singapore",
-        "taken_iso": "2025-06-13T14:30:00",
-        "exif": {"focal_length": 24.0, "aperture": 1.4, "iso": 100},
+        "taken_at": "2025-06-13T14:30:00",
+        "exif": {"focal_length": 24.0, "aperture": 1.4, "iso_speed": 100},
     },
     "2": {
         "id": 2,

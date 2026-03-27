@@ -336,7 +336,7 @@ class TestRunPrepareNoAnalysisPath:
             {
                 "id": 1,
                 "local_path": str(tmp_path / "p.jpg"),
-                "taken_iso": "2025-01-01T00:00:00",
+                "taken_at": "2025-01-01T00:00:00",
                 "takentime": 1700000000,
             }
         ]

@@ -58,7 +58,7 @@ def fetch_local(
             taken_dt = datetime.fromtimestamp(src_path.stat().st_mtime, tz=timezone.utc)
 
         takentime = int(taken_dt.timestamp())
-        taken_iso = taken_dt.isoformat()
+        taken_at = taken_dt.isoformat()
 
         # Stable ID from filename (deterministic across runs, unlike hash())
         item_id = int(hashlib.md5(src_path.name.encode()).hexdigest()[:8], 16) % (10**8)
@@ -68,7 +68,7 @@ def fetch_local(
             "id": item_id,
             "item_type": item_type,
             "takentime": takentime,
-            "taken_iso": taken_iso,
+            "taken_at": taken_at,
             "filesize": src_path.stat().st_size,
             "local_path": str(src_path),
         }

@@ -117,7 +117,7 @@ class TestPrepareFullFlow:
                 "local_path": str(photo),
                 "item_type": 0,
                 "takentime": 1700000000,
-                "taken_iso": "2023-11-14T14:13:20+00:00",
+                "taken_at": "2023-11-14T14:13:20+00:00",
                 "filesize": 5000,
             }
         ]
@@ -147,7 +147,7 @@ class TestPrepareFullFlow:
                 "local_path": str(photo),
                 "item_type": 0,
                 "takentime": 1700000000,
-                "taken_iso": "2023-11-14T14:13:20+00:00",
+                "taken_at": "2023-11-14T14:13:20+00:00",
                 "filesize": 5000,
             }
         ]

@@ -39,7 +39,7 @@ def _base_analysis_entry(item: dict, *, is_video: bool) -> dict:
         "id": item["id"],
         "local_path": item.get("local_path", ""),
         "media_type": "video" if is_video else "photo",
-        "taken_iso": item["taken_iso"],
+        "taken_at": item["taken_at"],
         "country": item.get("country"),
         "first_level": item.get("first_level"),
         "district": item.get("district") or item.get("city"),
@@ -497,7 +497,7 @@ def _read_exif(path: str | Path) -> dict[str, Any]:
             )
         iso = exif.get("ISOSpeedRatings")
         if iso:
-            result["iso"] = int(iso)
+            result["iso_speed"] = int(iso)
         return result
     except Exception as e:
         import warnings

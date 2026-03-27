@@ -137,7 +137,7 @@ class TestBaseAnalysisEntry:
         item = {
             "id": 42,
             "local_path": "/media/photo.jpg",
-            "taken_iso": "2025-01-01T00:00:00",
+            "taken_at": "2025-01-01T00:00:00",
             "country": "Singapore",
             "first_level": "Central",
             "district": "Marina Bay",
@@ -150,7 +150,7 @@ class TestBaseAnalysisEntry:
         item = {
             "id": 43,
             "local_path": "/media/clip.mp4",
-            "taken_iso": "2025-01-01T00:00:00",
+            "taken_at": "2025-01-01T00:00:00",
         }
         entry = _base_analysis_entry(item, is_video=True)
         assert entry["media_type"] == "video"
@@ -160,7 +160,7 @@ class TestBaseAnalysisEntry:
         item = {
             "id": 44,
             "local_path": "/media/photo.jpg",
-            "taken_iso": "2025-01-01T00:00:00",
+            "taken_at": "2025-01-01T00:00:00",
             "city": "Singapore",
         }
         entry = _base_analysis_entry(item, is_video=False)
@@ -171,7 +171,7 @@ class TestBaseAnalysisEntry:
         item = {
             "id": 45,
             "local_path": "/media/photo.jpg",
-            "taken_iso": "2025-01-01T00:00:00",
+            "taken_at": "2025-01-01T00:00:00",
         }
         entry = _base_analysis_entry(item, is_video=False)
         assert entry["country"] is None

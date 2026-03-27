@@ -30,7 +30,7 @@ class _ManifestRequired(TypedDict):
     """Keys always present in manifest entries."""
 
     id: int
-    taken_iso: str
+    taken_at: str
     local_path: str
 
 
@@ -64,7 +64,7 @@ class ExifData(TypedDict, total=False):
 
     focal_length: float
     aperture: float
-    iso: int
+    iso_speed: int
 
 
 class _AnalysisRequired(TypedDict):
@@ -73,7 +73,7 @@ class _AnalysisRequired(TypedDict):
     id: int
     local_path: str
     media_type: str  # "photo" or "video"
-    taken_iso: str
+    taken_at: str
 
 
 class AnalysisEntry(_AnalysisRequired, total=False):
@@ -114,7 +114,7 @@ class _AnalysisEntryValidator(BaseModel):
     id: int
     local_path: str
     media_type: str  # "photo" or "video"
-    taken_iso: str
+    taken_at: str
 
     # Location (optional — not all items have GPS)
     country: str | None = None

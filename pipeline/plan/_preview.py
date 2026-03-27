@@ -65,8 +65,8 @@ def _group_by_timestamp(
 
     bursts: list[list[AnalysisEntry]] = [[photos[0]]]
     for photo in photos[1:]:
-        prev_t = bursts[-1][-1].get("taken_iso", "") or ""
-        curr_t = photo.get("taken_iso", "") or ""
+        prev_t = bursts[-1][-1].get("taken_at", "") or ""
+        curr_t = photo.get("taken_at", "") or ""
         try:
             t1 = datetime.fromisoformat(prev_t.replace("Z", "+00:00"))
             t2 = datetime.fromisoformat(curr_t.replace("Z", "+00:00"))
@@ -163,7 +163,7 @@ def _dedup_burst_photos(
     if len(photos) < 2:
         return items
 
-    photos.sort(key=lambda x: x.get("taken_iso", "") or "")
+    photos.sort(key=lambda x: x.get("taken_at", "") or "")
 
     bursts = _group_by_timestamp(photos, C.BURST_WINDOW_SECS)
     kept, removed_total = _select_from_bursts(bursts, thumbnails_dir, threshold)
@@ -211,7 +211,7 @@ def _build_item_text(idx: int, entry: AnalysisEntry) -> tuple[str, Path | None]:
             exif_parts = []
             focal_length = exif_data.get("focal_length")
             aperture = exif_data.get("aperture")
-            iso = exif_data.get("iso")
+            iso = exif_data.get("iso_speed")
             if focal_length:
                 exif_parts.append(f"{focal_length:.0f}mm")
             if aperture:

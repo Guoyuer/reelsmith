@@ -333,7 +333,7 @@ def plan(
     # intro_style/outro_style have defaults and both enum values are truthy — no fallback needed
     if not edl.date_range:
         all_dates = sorted(
-            {a["taken_iso"][:10] for a in analysis_by_id.values() if a.get("taken_iso")}
+            {a["taken_at"][:10] for a in analysis_by_id.values() if a.get("taken_at")}
         )
         edl.date_range = _format_date_range(all_dates) if all_dates else ""
 

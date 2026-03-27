@@ -27,7 +27,7 @@ def _make_item(
         "id": item_id,
         "item_type": 0,
         "takentime": takentime,
-        "taken_iso": "2025-01-01T00:00:00+00:00",
+        "taken_at": "2025-01-01T00:00:00+00:00",
         "local_path": f"/fake/media/{item_id}_{fname}",
         "filesize": filesize,
         "district": district,
@@ -62,7 +62,7 @@ def _make_analysis_item(item_id: int, filename: str, local_path: str, **extra) -
         "id": item_id,
         "local_path": local_path,
         "item_type": 0,
-        "taken_iso": "2025-01-01T00:00:00+00:00",
+        "taken_at": "2025-01-01T00:00:00+00:00",
         "takentime": 1735689600,
     }
     item.update(extra)
@@ -104,7 +104,7 @@ class TestAnalysisCaching:
         _write_manifest(cfg, [_make_analysis_item(201, "photo.jpg", str(img))])
         cache_data = {
             "thumbnail_path": "/fake/thumb.jpg",
-            "exif": {"focal_length": 24.0, "aperture": 1.4, "iso": 100},
+            "exif": {"focal_length": 24.0, "aperture": 1.4, "iso_speed": 100},
         }
         (cfg.cache_dir / "201.json").write_text(json.dumps(cache_data))
         prepare(cfg)
@@ -112,7 +112,7 @@ class TestAnalysisCaching:
         assert results[0].get("exif") == {
             "focal_length": 24.0,
             "aperture": 1.4,
-            "iso": 100,
+            "iso_speed": 100,
         }
 
     def test_progress_callback(self, mock_config):

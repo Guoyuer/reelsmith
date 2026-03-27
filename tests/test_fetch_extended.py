@@ -81,7 +81,7 @@ class TestFetchLocalManifest:
         result = fetch_local(mock_config, str(source_dir))
         assert "id" in result[0]
         assert "local_path" in result[0]
-        assert "taken_iso" in result[0]
+        assert "taken_at" in result[0]
         assert "local_path" in result[0]
         assert "filesize" in result[0]
         # Verify manifest file matches return value
