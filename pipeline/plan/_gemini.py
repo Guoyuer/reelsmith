@@ -74,7 +74,7 @@ class _ApiStats:
     in_rate: float
     out_rate: float
     cost_est: float
-    finish: str
+    finish: str | None
     usage: Any  # google.genai UsageMetadata
     candidate: Any  # google.genai Candidate
 

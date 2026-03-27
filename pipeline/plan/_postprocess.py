@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .. import constants as C
 from .._types import PHOTO_EXTENSIONS, AnalysisEntry
-from ..edl import EDL, validate_edl
+from ..edl import EDL, Effect, MediaType, validate_edl
 from ._prompts import _timestamp_to_secs
 
 logger = logging.getLogger("vlog.plan")
@@ -370,8 +370,8 @@ def validate_and_fix_edl(edl: EDL) -> None:
                             "  Auto-fix: %s video→photo",
                             Path(item.source_file).name,
                         )
-                        item.media_type = "photo"
-                        item.effect = "ken_burns_in"
+                        item.media_type = MediaType.PHOTO
+                        item.effect = Effect.KEN_BURNS_IN
                         item.start_time = None
                         item.end_time = None
                         item.keep_audio = False

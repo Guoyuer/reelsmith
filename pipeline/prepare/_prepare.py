@@ -223,7 +223,7 @@ def _has_dense_keyframes(source: Path) -> bool:
 
 
 def _generate_video_previews(
-    video_items: list[AnalysisEntry],
+    video_items: list[dict],
     preview_dir: Path,
     *,
     force: bool = False,
