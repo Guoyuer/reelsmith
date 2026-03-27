@@ -40,17 +40,11 @@ class TestConfigLoad:
         ws = str(tmp_path / "workspace" / "custom")
         assert Config.load(workspace=ws).media_dir == Path(ws) / "media"
 
-    def test_env_var_overrides(self, tmp_path: Path):
-        os.environ["WORKSPACE"] = str(tmp_path)
-        assert Config.load().workspace == tmp_path
-
-    def test_workspace_arg_overrides_env(self, tmp_path: Path):
-        os.environ["WORKSPACE"] = "/should/not/use"
+    def test_workspace_arg_used(self, tmp_path: Path):
         ws = str(tmp_path / "explicit")
         assert Config.load(workspace=ws).workspace == Path(ws)
 
-    def test_empty_workspace_env_falls_to_default(self):
-        os.environ["WORKSPACE"] = ""
+    def test_no_workspace_falls_to_default(self):
         assert Config.load().workspace == Path("./workspace")
 
 

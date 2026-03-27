@@ -5,15 +5,13 @@ Configuration resolution priority (highest wins):
 1. CLI explicit arguments (e.g. ``--duration 300``)
 2. ``--use-cfg-file`` values (run_config_*.yaml)
 3. CLI defaults (Click ``default=`` values)
-4. Environment variables (``WORKSPACE`` via ``.env``)
-5. Hardcoded defaults (``./workspace``)
+4. Hardcoded defaults (``./workspace``)
 
 See also ``_commands.py:_resolve_params()`` for CLI-level resolution.
 """
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -81,13 +79,12 @@ class Config:
 
     @classmethod
     def load(cls, workspace: str | None = None) -> Config:
-        """Load config. Priority: workspace arg > WORKSPACE env > default.
+        """Load config. Priority: workspace arg > default (./workspace).
 
-        .env is loaded first so WORKSPACE can come from there.
-        Empty-string WORKSPACE is treated as unset (falls through to default).
+        .env is loaded for GEMINI_API_KEY (used by plan/music stages).
         """
         load_dotenv()
-        ws = Path(workspace or os.getenv("WORKSPACE") or "./workspace")
+        ws = Path(workspace or "./workspace")
         return cls(workspace=ws)
 
     def ensure_dirs(self) -> None:

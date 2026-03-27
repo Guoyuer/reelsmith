@@ -170,17 +170,6 @@ class TestGeminiCall:
         assert schema["type"] == "OBJECT"
         assert "segments" in schema["properties"]
 
-    def test_uses_vlog_model_env_var(self, gemini_env, monkeypatch):
-        monkeypatch.setenv("VLOG_MODEL", "custom-model")
-        mod, client, _ = gemini_env("ok")
-        mod._gemini_call(system="s", user_parts=["h"])
-
-        call_args = client.models.generate_content.call_args
-        assert (
-            call_args.kwargs.get("model") == "custom-model"
-            or call_args[1].get("model") == "custom-model"
-        )
-
 
 class TestEdlResponseSchema:
     """Tests for _edl_response_schema — structured output schema validation."""

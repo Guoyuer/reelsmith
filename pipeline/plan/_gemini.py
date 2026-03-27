@@ -379,7 +379,7 @@ def _gemini_call(
     from google.genai import types
 
     if not model:
-        model = os.getenv("VLOG_MODEL", "gemini-3-flash-preview")
+        model = "gemini-3-flash-preview"
 
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key:
