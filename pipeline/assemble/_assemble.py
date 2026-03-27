@@ -464,37 +464,26 @@ def _prevalidate_items(
     output_dir: Path,
     res_label: str,
 ) -> None:
-    """Render 1 frame per item to catch filter graph errors early."""
-    for seg_idx, (segment, graph) in enumerate(zip(edl.segments, graphs)):
+    """Decode 1 frame per input to catch corrupt/missing files early."""
+    seen: set[str] = set()
+    for seg_idx, graph in enumerate(graphs):
         for item_idx, (input_idx, source_name, _) in enumerate(graph.item_map):
-            inp = graph.inputs[input_idx]
-            # Build minimal single-item filter: just video, 1 frame
-            script_lines = graph.script.split(";\n")
-            # Find this item's video filter line (produces [v{input_idx}])
-            v_label = f"[v{input_idx}]"
-            item_filter = next(
-                (
-                    ln
-                    for ln in script_lines
-                    if v_label in ln and f"[{input_idx}:v]" in ln
-                ),
-                None,
-            )
-            if not item_filter:
+            if source_name in seen:
                 continue
-            # Replace output label to [vout] for standalone test
-            test_filter = item_filter.replace(v_label, "[vout]")
-            cmd = ["ffmpeg", "-y"]
-            cmd += [str(x) for x in inp]
-            cmd += ["-filter_complex", test_filter]
-            cmd += ["-map", "[vout]", "-frames:v", "1", "-f", "null", "-"]
+            seen.add(source_name)
+            inp = graph.inputs[input_idx]
+            cmd = (
+                ["ffmpeg", "-y"]
+                + [str(x) for x in inp]
+                + ["-frames:v", "1", "-f", "null", "-"]
+            )
             result = run_subprocess(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode != 0:
                 raise RuntimeError(
-                    f"Filter validation failed — segment {seg_idx}, "
+                    f"Input validation failed — segment {seg_idx}, "
                     f"item {item_idx} ({source_name}):\n{result.stderr[-500:]}"
                 )
-    logger.info("  Pre-validation: all items OK")
+    logger.info("  Pre-validation: %d inputs OK", len(seen))
 
 
 def _report_segment_failure(seg_idx: int, graph: SegmentGraph, stderr: str) -> None:
