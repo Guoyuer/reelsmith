@@ -188,22 +188,6 @@ class TestExtractDateFallback:
 
 
 class TestFileFiltering:
-    def test_temp_files_skipped(self, mock_config, source_dir):
-        for name in (
-            "_converted_photo.jpg",
-            "_hist_photo.jpg",
-            "_audio_track.mp4",
-            "_resized_photo.jpg",
-        ):
-            _create_fake_image(source_dir / name)
-        _create_fake_image(source_dir / "real_photo.jpg")
-
-        with patch("pipeline.fetch._local._extract_date", return_value=None):
-            result = fetch_local(mock_config, str(source_dir))
-
-        assert len(result) == 1
-        assert Path(result[0]["local_path"]).name == "real_photo.jpg"
-
     def test_unsupported_extensions_skipped(self, mock_config, source_dir):
         (source_dir / "notes.txt").write_text("hello")
         (source_dir / "data.json").write_text("{}")

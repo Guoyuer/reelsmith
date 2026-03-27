@@ -36,12 +36,10 @@ def fetch_local(
 
     all_extensions = PHOTO_EXTENSIONS | VIDEO_EXTENSIONS
 
-    # Scan for media files (recursive), skip pipeline temp files
+    # Scan for media files (recursive)
     files = []
     for f in sorted(source.rglob("*")):
         if not f.is_file() or f.suffix.lower() not in all_extensions:
-            continue
-        if f.name.startswith(("_converted_", "_hist_", "_audio_", "_resized_")):
             continue
         files.append(f)
     logger.info("Found %d media files in %s", len(files), source)
