@@ -7,7 +7,6 @@ import signal
 import sys
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ._display import (
@@ -68,10 +67,6 @@ class _PipelineContext:
     prepare: PrepareConfig | None = None
     plan: PlanConfig | None = None
     assemble: AssembleConfig | None = None
-
-    @property
-    def ws(self) -> Path:
-        return Path(self.cfg.workspace)
 
 
 # ---------------------------------------------------------------------------
