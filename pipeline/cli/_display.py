@@ -90,7 +90,7 @@ class _PipelineDisplay:
         self._tick += 1
         elapsed = time.monotonic() - self._t_start
         term_w = shutil.get_terminal_size((80, 24)).columns
-        panel_w = min(max(term_w - 2, 50), 100)
+        panel_w = min(max(term_w - 2, 50), 120)
 
         table = Table.grid(padding=(0, 1))
         table.add_column(width=2)  # icon
@@ -193,7 +193,7 @@ class _PipelineDisplay:
         cur, total = sub["current"], sub["total"]
         if total > 0:
             row = InlineTable.grid(padding=(0, 1))
-            row.add_column(width=14)
+            row.add_column(width=18)
             row.add_column(width=16)
             row.add_column()
             bar = ProgressBar(
