@@ -418,6 +418,8 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
             seg.mode,
             seg.color_temp,
         )
+        if seg.narrative_rationale:
+            logger.debug("    Rationale: %s", seg.narrative_rationale)
         for item in seg.items:
             trim = (
                 f" trim={item.start_time:.0f}-{item.end_time:.0f}s"
