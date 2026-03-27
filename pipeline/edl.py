@@ -79,21 +79,6 @@ class Transition(StrEnum):
     CROSSFADE = "crossfade"
     CUT = "cut"
     FADE_BLACK = "fade_black"
-    WIPE_LEFT = "wipe_left"
-    DISSOLVE = "dissolve"
-    SMOOTHLEFT = "smoothleft"
-    SMOOTHRIGHT = "smoothright"
-    CIRCLECROP = "circlecrop"
-    FADEWHITE = "fadewhite"
-
-
-class SegmentTransition(StrEnum):
-    FADE_BLACK = "fade_black"
-    CROSSFADE = "crossfade"
-    WIPE_LEFT = "wipe_left"
-    DISSOLVE = "dissolve"
-    CUT = "cut"
-    FADEWHITE = "fadewhite"
 
 
 class ColorTemp(StrEnum):
@@ -167,7 +152,7 @@ class Segment(BaseModel):
     transition: Transition = Transition.CROSSFADE
     transition_duration: float = 0.4  # seconds
     # Inter-segment transition (how this segment starts, from previous segment)
-    segment_transition: SegmentTransition = SegmentTransition.FADE_BLACK
+    segment_transition: Transition = Transition.FADE_BLACK
     segment_transition_duration: float = 1.0  # seconds
     mode: SegmentMode = SegmentMode.NARRATIVE  # montage = quick-cut burst
     color_temp: ColorTemp = ColorTemp.NEUTRAL  # Gemini sets per segment
@@ -198,29 +183,20 @@ class EDL(BaseModel):
     def all_items(self) -> list[EditItem]:
         return [item for seg in self.segments for item in seg.items]
 
-    @staticmethod
-    def _item_output_duration(item: EditItem) -> float:
-        """Actual output duration of a rendered clip (accounts for trim + speed)."""
-        if item.start_time is not None and item.end_time is not None:
-            source_dur = item.end_time - item.start_time
-        else:
-            source_dur = item.display_duration
-        speed = item.playback_speed or 1.0
-        return source_dur / speed
-
     def estimated_duration(self) -> float:
-        total = sum(self._item_output_duration(item) for item in self.all_items())
+        total = sum(item.display_duration for item in self.all_items())
         total += self.intro_duration + self.outro_duration
         return total
 
     def summary(self) -> dict:
         """Return key stats for display/logging (avoids recomputing in multiple places)."""
         all_items = self.all_items()
-        _dur = self._item_output_duration
         n_photos = sum(1 for i in all_items if i.media_type != "video")
         n_videos = sum(1 for i in all_items if i.media_type == "video")
-        photo_time = sum(_dur(i) for i in all_items if i.media_type != "video")
-        vid_time = sum(_dur(i) for i in all_items if i.media_type == "video")
+        photo_time = sum(
+            i.display_duration for i in all_items if i.media_type != "video"
+        )
+        vid_time = sum(i.display_duration for i in all_items if i.media_type == "video")
         total_time = photo_time + vid_time
         return {
             "n_photos": n_photos,

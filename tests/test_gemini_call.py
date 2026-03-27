@@ -237,7 +237,11 @@ class TestEdlResponseSchema:
 
     def test_transition_enum_simplified(self, schema):
         seg_schema = schema["properties"]["segments"]["items"]
-        assert seg_schema["properties"]["transition"]["enum"] == ["crossfade", "cut"]
+        assert seg_schema["properties"]["transition"]["enum"] == [
+            "crossfade",
+            "cut",
+            "fade_black",
+        ]
 
     def test_text_overlay_nullable_with_position_enum(self, schema):
         item_schema = schema["properties"]["segments"]["items"]["properties"]["items"][

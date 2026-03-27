@@ -341,10 +341,16 @@ def _edl_response_schema() -> dict[str, Any]:
             "music_mood": {"type": "STRING"},
             "mode": {"type": "STRING", "enum": ["narrative", "montage"]},
             "color_temp": {"type": "STRING", "enum": ["neutral", "warm", "cool"]},
-            "segment_transition": {"type": "STRING", "enum": ["crossfade", "cut"]},
+            "segment_transition": {
+                "type": "STRING",
+                "enum": ["crossfade", "cut", "fade_black"],
+            },
             "segment_transition_duration": {"type": "NUMBER"},
             "items": {"type": "ARRAY", "items": item_schema},
-            "transition": {"type": "STRING", "enum": ["crossfade", "cut"]},
+            "transition": {
+                "type": "STRING",
+                "enum": ["crossfade", "cut", "fade_black"],
+            },
             "transition_duration": {"type": "NUMBER"},
         },
         "required": ["name", "items"],
