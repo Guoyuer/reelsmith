@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from pipeline.music._orchestrate import _build_composite_music
+from pipeline.music._orchestrate import _DEFAULT_CROSSFADE, _build_composite_music
 
 
 class TestBuildCompositeMusic:
@@ -32,7 +32,9 @@ class TestBuildCompositeMusic:
             return m
 
         with patch("pipeline.utils.media.run_subprocess", side_effect=_mock_run):
-            result = _build_composite_music([(10.0, t1), (10.0, t2)], out)
+            result = _build_composite_music(
+                [(10.0, t1), (10.0, t2)], out, crossfade=_DEFAULT_CROSSFADE
+            )
 
         assert result is True
         assert out.exists()
@@ -67,7 +69,9 @@ class TestBuildCompositeMusic:
             return m
 
         with patch("pipeline.utils.media.run_subprocess", side_effect=_mock_run):
-            result = _build_composite_music([(10.0, t1), (10.0, t2)], out)
+            result = _build_composite_music(
+                [(10.0, t1), (10.0, t2)], out, crossfade=_DEFAULT_CROSSFADE
+            )
 
         # With only 1 trimmed track, should copy it instead of crossfade
         assert result is True
@@ -82,7 +86,9 @@ class TestBuildCompositeMusic:
 
         mock = MagicMock(returncode=1, stderr="trim error")
         with patch("pipeline.utils.media.run_subprocess", return_value=mock):
-            result = _build_composite_music([(10.0, t1), (10.0, t2)], out)
+            result = _build_composite_music(
+                [(10.0, t1), (10.0, t2)], out, crossfade=_DEFAULT_CROSSFADE
+            )
 
         # All trims fail → trimmed list empty → returns False
         assert result is False
@@ -145,7 +151,7 @@ class TestBuildCompositeMusic:
             return m
 
         with patch("pipeline.utils.media.run_subprocess", side_effect=_mock_run):
-            result = _build_composite_music(tracks, out)
+            result = _build_composite_music(tracks, out, crossfade=_DEFAULT_CROSSFADE)
 
         assert result is True
         compose_cmds = [c for c in calls if "-filter_complex" in c]

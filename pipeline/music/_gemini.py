@@ -32,7 +32,7 @@ def generate_music_gemini(
     style: str,
     target_duration: int,
     cache_dir: Path,
-    mood: str = "",
+    mood: str,
 ) -> Path | None:
     """Generate background music via Lyria RealTime API.
 
@@ -43,9 +43,7 @@ def generate_music_gemini(
     import hashlib
 
     cache_dir.mkdir(parents=True, exist_ok=True)
-    mood_hash = (
-        hashlib.md5(mood.encode()).hexdigest()[:_CACHE_HASH_LEN] if mood else "default"
-    )
+    mood_hash = hashlib.md5(mood.encode()).hexdigest()[:_CACHE_HASH_LEN]
     cache_key = f"gemini_{trip_type}_{style}_{target_duration}s_{mood_hash}"
     cache_meta = cache_dir / f"{cache_key}.json"
     if cache_meta.exists():
@@ -60,10 +58,7 @@ def generate_music_gemini(
         logger.warning("GEMINI_API_KEY not set — cannot use Gemini music backend")
         return None
 
-    # Use mood if provided, otherwise fall back to template
-    from ._prompts import get_prompt
-
-    prompt = mood if mood else get_prompt(trip_type, style)
+    prompt = mood
 
     logger.info("=== Music Generation (Gemini Lyria RealTime) ===")
     logger.info("Model: lyria-realtime-exp")

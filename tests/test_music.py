@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import struct
 from pathlib import Path
@@ -68,18 +69,28 @@ class TestGenerateMusicGemini:
         from pipeline.music._gemini import generate_music_gemini
 
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-        assert generate_music_gemini("family", "upbeat", 30, tmp_path) is None
+        assert (
+            generate_music_gemini(
+                "family", "upbeat", 30, tmp_path, mood="upbeat travel vlog"
+            )
+            is None
+        )
 
     def test_uses_cache(self, tmp_path: Path):
         from pipeline.music._gemini import generate_music_gemini
 
-        cache_key = "gemini_family_upbeat_30s_default"
+        mood = "upbeat travel vlog"
+        mood_hash = hashlib.md5(mood.encode()).hexdigest()[:8]
+        cache_key = f"gemini_family_upbeat_30s_{mood_hash}"
         wav_path = tmp_path / f"{cache_key}.wav"
         wav_path.write_bytes(b"RIFF" + b"\x00" * 100)
         meta = tmp_path / f"{cache_key}.json"
         meta.write_text(json.dumps({"path": str(wav_path)}))
 
-        assert generate_music_gemini("family", "upbeat", 30, tmp_path) == wav_path
+        assert (
+            generate_music_gemini("family", "upbeat", 30, tmp_path, mood=mood)
+            == wav_path
+        )
 
     def test_generates_and_caches(self, tmp_path: Path, monkeypatch):
         from pipeline.music._gemini import generate_music_gemini
@@ -90,8 +101,9 @@ class TestGenerateMusicGemini:
         async def _fake_generate(*args, **kwargs):
             return fake_pcm
 
+        mood = "upbeat travel vlog"
         with patch("pipeline.music._gemini._generate_music", _fake_generate):
-            result = generate_music_gemini("family", "upbeat", 1, tmp_path)
+            result = generate_music_gemini("family", "upbeat", 1, tmp_path, mood=mood)
 
         assert result is not None
         assert result.exists()
@@ -101,7 +113,8 @@ class TestGenerateMusicGemini:
         assert data[:4] == b"RIFF"
         assert data[8:12] == b"WAVE"
 
-        cache_meta = tmp_path / "gemini_family_upbeat_1s_default.json"
+        mood_hash = hashlib.md5(mood.encode()).hexdigest()[:8]
+        cache_meta = tmp_path / f"gemini_family_upbeat_1s_{mood_hash}.json"
         assert cache_meta.exists()
         meta = json.loads(cache_meta.read_text())
         assert meta["backend"] == "gemini"
@@ -128,9 +141,14 @@ class TestGenerateMusicGemini:
             return fake_result
 
         with patch("pipeline.music._gemini._generate_music", _fake_generate):
-            assert generate_music_gemini("family", "upbeat", 10, tmp_path) is None
+            assert (
+                generate_music_gemini(
+                    "family", "upbeat", 10, tmp_path, mood="upbeat travel vlog"
+                )
+                is None
+            )
 
-    def test_uses_mood_over_template(self, tmp_path: Path, monkeypatch):
+    def test_passes_mood_to_api(self, tmp_path: Path, monkeypatch):
         from pipeline.music._gemini import generate_music_gemini
 
         monkeypatch.setenv("GEMINI_API_KEY", "test-key")

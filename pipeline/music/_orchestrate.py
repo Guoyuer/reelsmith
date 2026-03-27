@@ -90,7 +90,7 @@ def _build_crossfade_filter(n_tracks: int, crossfade: float) -> str:
 def _build_composite_music(
     segment_tracks: list[tuple[float, Path]],
     output_path: Path,
-    crossfade: float = _DEFAULT_CROSSFADE,
+    crossfade: float,
 ) -> bool:
     """Build composite music from per-segment tracks with crossfades.
 

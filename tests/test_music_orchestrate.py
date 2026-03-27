@@ -62,13 +62,16 @@ class TestBuildCompositeMusic:
         track = tmp_path / "track.wav"
         track.write_bytes(b"RIFF" + b"\x00" * 100)
         out = tmp_path / "composite.wav"
-        assert _build_composite_music([(10.0, track)], out) is True
+        assert _build_composite_music([(10.0, track)], out, crossfade=2.0) is True
         assert out.exists()
 
     def test_empty_returns_false(self, tmp_path):
         from pipeline.music._orchestrate import _build_composite_music
 
-        assert _build_composite_music([], tmp_path / "composite.wav") is False
+        assert (
+            _build_composite_music([], tmp_path / "composite.wav", crossfade=2.0)
+            is False
+        )
 
 
 # ---------------------------------------------------------------------------
