@@ -123,8 +123,6 @@ def _make_edl(duration: float = 60.0, music_file: str = "") -> EDL:
                 transition="cut",
             ),
         ],
-        intro_style="none",
-        outro_style="none",
         music=music,
     )
 

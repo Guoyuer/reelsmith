@@ -35,8 +35,6 @@ def _minimal_edl(**kw) -> EDL:
             )
         ],
     )
-    kw.setdefault("intro_style", "none")
-    kw.setdefault("outro_style", "none")
     return EDL(**kw)
 
 

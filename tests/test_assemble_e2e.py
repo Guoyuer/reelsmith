@@ -113,8 +113,6 @@ def _make_edl(
         "music_mode": "none",
         "trip_type": "family",
         "style": "upbeat",
-        "intro_style": "none",
-        "outro_style": "none",
         "date_range": "",
         "language": "cn",
     }
@@ -446,8 +444,6 @@ class TestAssembleE2E:
             "music_mode": "none",
             "trip_type": "family",
             "style": "upbeat",
-            "intro_style": "title_card",
-            "outro_style": "fade_title",
             "date_range": "June 2025",
             "language": "cn",
             "quality": 0.5,

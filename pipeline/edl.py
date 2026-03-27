@@ -119,16 +119,6 @@ class MusicMode(StrEnum):
     FILE = "file"
 
 
-class IntroStyle(StrEnum):
-    TITLE_CARD = "title_card"
-    NONE = "none"
-
-
-class OutroStyle(StrEnum):
-    FADE_TITLE = "fade_title"
-    NONE = "none"
-
-
 class Language(StrEnum):
     EN = "en"
     CN = "cn"
@@ -200,10 +190,8 @@ class EDL(BaseModel):
     music_mode: MusicMode = MusicMode.NONE  # auto = generate in generate_music step
     trip_type: str = "family"  # used by assemble for music generation prompt
     style: str = "upbeat"  # used by assemble for music generation prompt
-    intro_style: IntroStyle = IntroStyle.TITLE_CARD
-    intro_duration: float = 3.0  # seconds for intro clip
-    outro_style: OutroStyle = OutroStyle.FADE_TITLE
-    outro_duration: float = 3.0  # seconds for outro clip
+    intro_duration: float = 3.0  # seconds for intro title card
+    outro_duration: float = 3.0  # seconds for outro title card
     date_range: str = ""  # e.g. "June 13-16, 2025" for title card
     language: Language = Language.EN  # text language: en/cn/both
 
@@ -222,10 +210,7 @@ class EDL(BaseModel):
 
     def estimated_duration(self) -> float:
         total = sum(self._item_output_duration(item) for item in self.all_items())
-        if self.intro_style != IntroStyle.NONE:
-            total += self.intro_duration
-        if self.outro_style != OutroStyle.NONE:
-            total += self.outro_duration
+        total += self.intro_duration + self.outro_duration
         return total
 
     def summary(self) -> dict:

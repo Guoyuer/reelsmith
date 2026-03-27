@@ -38,8 +38,6 @@ def _make_test_edl(items: list | None = None) -> EDL:
         title="Test",
         target_duration=10.0,
         segments=[Segment(name="Seg1", items=items, transition="cut")],
-        intro_style="none",
-        outro_style="none",
     )
 
 

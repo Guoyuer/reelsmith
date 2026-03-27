@@ -94,8 +94,8 @@ class TestEstimatedDuration:
                     transition_duration=1.0,
                 ),
             ],
-            intro_style="none",
-            outro_style="none",
+            intro_duration=0,
+            outro_duration=0,
         )
         assert edl.estimated_duration() == 5.0
 

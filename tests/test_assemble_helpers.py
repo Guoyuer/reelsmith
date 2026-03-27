@@ -126,9 +126,7 @@ class TestFindFirstPhoto:
             ],
         )
         converted = tmp_path / "converted.jpg"
-        with patch(
-            "pipeline.utils.image.convert_heic", return_value=converted
-        ):
+        with patch("pipeline.utils.image.convert_heic", return_value=converted):
             result = _find_first_photo(edl)
         assert result == str(converted)
 
@@ -144,7 +142,7 @@ class TestRenderTitleCardIfNeeded:
         return RenderContext(w=1920, h=1080, fps=30)
 
     def test_intro_title_card(self, tmp_path, ctx):
-        """Returns path when intro_style=title_card and title exists."""
+        """Returns path when title exists."""
         edl = EDL(
             title="My Trip",
             target_duration=60,
@@ -161,7 +159,6 @@ class TestRenderTitleCardIfNeeded:
                     transition="cut",
                 )
             ],
-            intro_style="title_card",
         )
         path = tmp_path / "intro.mp4"
         with patch("pipeline.assemble._assemble.render_title_card") as m:
@@ -190,10 +187,17 @@ class TestRenderTitleCardIfNeeded:
                     transition="cut",
                 )
             ],
-            intro_style="none",
+        )
+        # No title → no title card
+        edl_no_title = EDL(
+            title="",
+            target_duration=60,
+            segments=edl.segments,
         )
         path = tmp_path / "intro.mp4"
-        result = _render_title_card_if_needed(edl, "intro", path, ctx, "1080p30")
+        result = _render_title_card_if_needed(
+            edl_no_title, "intro", path, ctx, "1080p30"
+        )
         assert result is None
 
     def test_outro_fade_title(self, tmp_path, ctx):
@@ -213,10 +217,10 @@ class TestRenderTitleCardIfNeeded:
                     transition="cut",
                 )
             ],
-            outro_style="fade_title",
         )
         path = tmp_path / "outro.mp4"
         with patch("pipeline.assemble._assemble.render_title_card") as m:
+
             def _create(*a, **kw):
                 path.write_bytes(b"\x00" * 100)
 
@@ -242,7 +246,6 @@ class TestRenderTitleCardIfNeeded:
                     transition="cut",
                 )
             ],
-            intro_style="title_card",
         )
         path = tmp_path / "intro.mp4"
         path.write_bytes(b"\x00" * 100)
@@ -268,7 +271,6 @@ class TestRenderTitleCardIfNeeded:
                     transition="cut",
                 )
             ],
-            intro_style="title_card",
         )
         path = tmp_path / "intro.mp4"
         with patch("pipeline.assemble._assemble.render_title_card"):

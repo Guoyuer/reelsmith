@@ -110,8 +110,7 @@ def _snap_transitions(edl: EDL, beats: list[float]) -> tuple[int, int]:
     Returns (snapped_count, total_transitions_count).
     """
     offset = 0.0
-    if edl.intro_style == "title_card":
-        offset += edl.intro_duration
+    offset += edl.intro_duration
 
     snapped = 0
     total_transitions = 0
@@ -206,7 +205,7 @@ def write_chapters(edl: EDL, segment_durations: list[float], out_path: Path) -> 
 
     segment_durations: probed duration of each rendered segment file.
     """
-    offset = edl.intro_duration if edl.intro_style != "none" else 0.0
+    offset = edl.intro_duration
     lines = []
     for seg_idx, seg in enumerate(edl.segments):
         minutes = int(offset) // 60

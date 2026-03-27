@@ -24,13 +24,12 @@ def _item(dur, media="photo", keep_audio=False):
     )
 
 
-def _edl(segments, intro="none"):
+def _edl(segments, intro_duration=0.0):
     return EDL(
         title="test",
         target_duration=60,
         segments=segments,
-        intro_style=intro,
-        intro_duration=3.0,
+        intro_duration=intro_duration,
     )
 
 
@@ -77,7 +76,7 @@ class TestBeatSnapBasic:
         # At 120 BPM, nearest beat to 6.1: 6.0 (shift -0.1) or 6.25 (+0.15).
         # Snaps to 6.0 → dur becomes 3.0.
         seg = Segment(name="A", items=[_item(3.1), _item(3.0)])
-        edl = _edl([seg], intro="title_card")
+        edl = _edl([seg], intro_duration=3.0)
 
         with _MOCK_BPM:
             n = beat_snap_edl(edl, _FAKE_WAV)

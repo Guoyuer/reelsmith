@@ -330,7 +330,6 @@ def plan(
     edl.trip_type = pc.trip_type
     edl.style = pc.style
     edl.language = pc.language  # type: ignore[assignment]  # validated by CLI
-    # intro_style/outro_style have defaults and both enum values are truthy — no fallback needed
     if not edl.date_range:
         all_dates = sorted(
             {a["taken_at"][:10] for a in analysis_by_id.values() if a.get("taken_at")}

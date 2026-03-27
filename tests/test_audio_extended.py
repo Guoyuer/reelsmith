@@ -15,7 +15,9 @@ from pipeline.edl import EDL, EditItem, Segment
 # ---------------------------------------------------------------------------
 
 
-def _make_wav(path: Path, duration: float = 5.0, sample_rate: int = 44100, freq: float = 440.0) -> Path:
+def _make_wav(
+    path: Path, duration: float = 5.0, sample_rate: int = 44100, freq: float = 440.0
+) -> Path:
     """Create a simple sine-wave WAV file."""
     import math
 
@@ -42,7 +44,12 @@ def _make_edl(items_per_seg: list[int], duration: float = 4.0) -> EDL:
             for ii in range(n_items)
         ]
         segments.append(
-            Segment(name=f"S{si}", items=items, transition="crossfade", transition_duration=0.5)
+            Segment(
+                name=f"S{si}",
+                items=items,
+                transition="crossfade",
+                transition_duration=0.5,
+            )
         )
     return EDL(title="T", target_duration=60, segments=segments)
 
@@ -101,7 +108,9 @@ class TestEstimateBpm:
             w.setsampwidth(4)
             w.setframerate(sample_rate)
             for i in range(n_frames):
-                sample = int(1_000_000_000 * math.sin(2 * math.pi * 440 * i / sample_rate))
+                sample = int(
+                    1_000_000_000 * math.sin(2 * math.pi * 440 * i / sample_rate)
+                )
                 w.writeframes(struct.pack("<i", sample))
         result = estimate_bpm(path)
         assert result is None or isinstance(result, int)
@@ -223,7 +232,6 @@ class TestBeatSnapEdl:
     def test_intro_offset(self):
         """Intro duration is added to beat grid offset."""
         edl = _make_edl([2], duration=4.0)
-        edl.intro_style = "title_card"
         edl.intro_duration = 3.0
         with patch("pipeline.assemble._audio.estimate_bpm", return_value=120):
             snapped = beat_snap_edl(edl, Path("/fake.wav"))
@@ -243,17 +251,35 @@ class TestWriteChapters:
             segments=[
                 Segment(
                     name="Opening",
-                    items=[EditItem(source_file="a.jpg", media_type="photo", display_duration=4.0)],
+                    items=[
+                        EditItem(
+                            source_file="a.jpg",
+                            media_type="photo",
+                            display_duration=4.0,
+                        )
+                    ],
                     transition="cut",
                 ),
                 Segment(
                     name="Middle",
-                    items=[EditItem(source_file="b.jpg", media_type="photo", display_duration=4.0)],
+                    items=[
+                        EditItem(
+                            source_file="b.jpg",
+                            media_type="photo",
+                            display_duration=4.0,
+                        )
+                    ],
                     transition="cut",
                 ),
                 Segment(
                     name="Closing",
-                    items=[EditItem(source_file="c.jpg", media_type="photo", display_duration=4.0)],
+                    items=[
+                        EditItem(
+                            source_file="c.jpg",
+                            media_type="photo",
+                            display_duration=4.0,
+                        )
+                    ],
                     transition="cut",
                 ),
             ],
@@ -275,11 +301,17 @@ class TestWriteChapters:
             segments=[
                 Segment(
                     name="S1",
-                    items=[EditItem(source_file="a.jpg", media_type="photo", display_duration=4.0)],
+                    items=[
+                        EditItem(
+                            source_file="a.jpg",
+                            media_type="photo",
+                            display_duration=4.0,
+                        )
+                    ],
                     transition="cut",
                 ),
             ],
-            intro_style="none",
+            intro_duration=0,
         )
         out = tmp_path / "chapters.txt"
         write_chapters(edl, [30.0], out)
@@ -293,7 +325,13 @@ class TestWriteChapters:
             segments=[
                 Segment(
                     name="S1",
-                    items=[EditItem(source_file="a.jpg", media_type="photo", display_duration=4.0)],
+                    items=[
+                        EditItem(
+                            source_file="a.jpg",
+                            media_type="photo",
+                            display_duration=4.0,
+                        )
+                    ],
                     transition="cut",
                 ),
             ],

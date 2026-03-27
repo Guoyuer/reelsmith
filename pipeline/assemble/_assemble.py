@@ -419,7 +419,9 @@ def _concat_and_mix(
 def _render_title_card_if_needed(
     edl: EDL, kind: str, path: Path, ctx: RenderContext, res_label: str
 ) -> Path | None:
-    if kind == "intro" and edl.intro_style == "title_card" and edl.title:
+    if not edl.title:
+        return None
+    if kind == "intro":
         if not path.exists():
             bg = _find_first_photo(edl)
             render_title_card(
@@ -434,7 +436,7 @@ def _render_title_card_if_needed(
         if not path.exists():
             raise RuntimeError(f"Intro title card render failed: {path}")
         return path
-    elif kind == "outro" and edl.outro_style == "fade_title" and edl.title:
+    elif kind == "outro":
         if not path.exists():
             render_title_card(
                 edl.title,
