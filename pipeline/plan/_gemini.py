@@ -206,7 +206,6 @@ def _prepare_parts(
             parts.append(types.Part(text=p))
         elif isinstance(p, dict) and p.get("type") in (
             "image_bytes",
-            "audio_bytes",
             "video_bytes",
         ):
             is_video = p.get("type") == "video_bytes"
