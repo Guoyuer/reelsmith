@@ -19,15 +19,41 @@ if TYPE_CHECKING:
 # Validation thresholds
 # ---------------------------------------------------------------------------
 
+# Title cards beyond 15s stall pacing — YouTube analytics show drop-off
+# spikes when intros exceed ~12s; 15s leaves a small creative buffer.
 _MAX_INTRO_DURATION = 15  # seconds
+
+# Transitions longer than 3s feel sluggish; 1-2s is the sweet spot for
+# crossfades.  3s is a generous upper bound that still feels intentional.
 _MAX_TRANSITION_DURATION = 3.0  # seconds
+
+# Below 2s the viewer can't register a photo; Ken Burns needs at least
+# ~1.5s to be perceptible, so 2s is the hard floor.
 _MIN_DISPLAY_DURATION = 2.0  # seconds; items shorter than this get a warning
+
+# A single item over 2 minutes almost always means Gemini hallucinated
+# a huge trim window rather than intentional slow cinema.
 _WARN_DISPLAY_DURATION = 120  # seconds; items longer than this get a warning
+
+# At 4K the drawtext filter renders at pixel size; 200px keeps text
+# readable without dominating the frame on any target resolution.
 _MAX_FONT_SIZE = 200  # pixels
+
+# 2x target means Gemini wildly over-selected — budget math is broken.
+# 0.3x means post-processing stripped most items — Gemini output is junk.
+# Both thresholds trigger early abort to avoid wasting a render cycle.
 _DURATION_RATIO_WARN = 2.0  # warn if estimated > 2x target
-_DURATION_RATIO_FAIL = 0.3  # warn if estimated < 30% of target
+_DURATION_RATIO_FAIL = 0.3  # fail if estimated < 30% of target
+
+# Trim-vs-display mismatches under 0.5s come from rounding in the
+# preview→local timestamp conversion; larger gaps signal real errors.
 _TRIM_TOLERANCE = 0.5  # seconds; trim vs display mismatch tolerance
+
+# An EDL under 5s total is clearly degenerate (e.g. a single 3s photo).
 _MIN_TOTAL_DISPLAY = 5  # seconds; minimum total display duration
+
+# FFmpeg atempo filter chains cap out around 4x before audio artifacts
+# become severe; also >4x rarely looks intentional in a travel vlog.
 _MAX_PLAYBACK_SPEED = 4.0
 
 

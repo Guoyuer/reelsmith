@@ -13,16 +13,13 @@ import math
 import re
 from pathlib import Path
 
+from .. import constants as C
 from .._types import VIDEO_EXTENSIONS, AnalysisEntry
 from ..config import Config
 from ..utils.media import probe_duration, run_subprocess
 from ._prompts import _secs_to_timestamp
 
 logger = logging.getLogger("vlog.plan")
-
-_BURST_SIMILARITY_THRESHOLD = 0.92  # cosine similarity for burst dedup
-_BURST_WINDOW_SECS = 10  # seconds; burst grouping time window
-_DEDUP_THUMB_SIZE = 64  # pixels; thumbnail size for histogram comparison
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +35,7 @@ def _photo_histogram(path: Path) -> list[int] | None:
         return (
             Image.open(path)
             .convert("HSV")
-            .resize((_DEDUP_THUMB_SIZE, _DEDUP_THUMB_SIZE))
+            .resize((C.DEDUP_THUMB_SIZE, C.DEDUP_THUMB_SIZE))
             .histogram()
         )
     except Exception:
@@ -144,7 +141,7 @@ def _select_from_bursts(
 def _dedup_burst_photos(
     items: list[AnalysisEntry],
     thumbnails_dir: Path,
-    threshold: float = _BURST_SIMILARITY_THRESHOLD,
+    threshold: float = C.BURST_SIMILARITY_THRESHOLD,
 ) -> list[AnalysisEntry]:
     """Remove near-identical burst photos before sending to Gemini.
 
@@ -166,7 +163,7 @@ def _dedup_burst_photos(
 
     photos.sort(key=lambda x: x.get("taken_iso", "") or "")
 
-    bursts = _group_by_timestamp(photos, _BURST_WINDOW_SECS)
+    bursts = _group_by_timestamp(photos, C.BURST_WINDOW_SECS)
     kept, removed_total = _select_from_bursts(bursts, thumbnails_dir, threshold)
 
     if removed_total:
