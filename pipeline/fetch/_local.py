@@ -147,7 +147,9 @@ def _extract_date(path: Path) -> datetime | None:
         img = Image.open(path)
         exif = img.getexif()
         if exif:
-            date_str = exif.get(36867) or exif.get(306)  # DateTimeOriginal or DateTime
+            # DateTimeOriginal (36867) lives in EXIF sub-IFD (0x8769)
+            exif_ifd = exif.get_ifd(0x8769)
+            date_str = exif_ifd.get(36867) or exif.get(306)  # DateTimeOriginal or DateTime
             if date_str:
                 dt = datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
                 return dt.replace(tzinfo=timezone.utc)
