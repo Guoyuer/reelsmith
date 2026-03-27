@@ -367,9 +367,6 @@ def _gemini_call(
     from google import genai
     from google.genai import types
 
-    if not model:
-        model = "gemini-3-flash-preview"
-
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key:
         raise RuntimeError(

@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from .._types import AnalysisEntry
 from ..config import Config, ProgressCallback
@@ -44,8 +43,8 @@ class PlanConfig:
     focus: str = ""
     trip_type: str = "family"
     language: str = "en"
-    model: str | None = None
-    thinking_level: str = "HIGH"  # OFF, LOW, HIGH
+    model: str = ""  # resolved by CLI from --model (required)
+    thinking_level: str = "HIGH"  # resolved by CLI from --model preset
     music_file: str | None = None
     force: bool = False
 
@@ -165,17 +164,13 @@ All candidates:"""
 
     system_prompt = _visual_system_prompt(pc.trip_type, language=pc.language)
 
-    model_kwargs: dict[str, Any] = {}
-    if pc.model:
-        model_kwargs["model"] = pc.model
-    if pc.thinking_level:
-        model_kwargs["thinking_level"] = pc.thinking_level
     edl_content = _gemini_call(
         system_prompt,
         visual_parts,
         label="single pass: plan",
+        model=pc.model,
+        thinking_level=pc.thinking_level,
         progress_callback=progress_callback,
-        **model_kwargs,
     )
 
     logger.info("Gemini response: %d chars", len(edl_content))
