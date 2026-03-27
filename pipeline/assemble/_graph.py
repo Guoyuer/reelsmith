@@ -264,45 +264,27 @@ def _add_video(
 
     Returns True if this item contributes speech audio.
     """
-    duration = item.display_duration
-    if item.start_time is not None and item.end_time is not None:
-        duration = item.end_time - item.start_time
-
-    # No -ss/-t on input — use trim/atrim in filter chain instead
-    # (FFmpeg 8 filter_complex ignores input-level -t)
     inputs.append(["-i", str(source)])
-
-    speed = item.playback_speed or 1.0
-    output_dur = duration / speed
-    trim_start = item.start_time or 0.0
-
-    filters.append(
-        _video_filter(
-            idx,
-            item,
-            segment,
-            ctx,
-            fade_in,
-            fade_out,
-            output_dur,
-            language,
-            trim_start=trim_start,
-            trim_duration=duration,
-        )
-    )
+    filters.append(_video_filter(idx, item, segment, ctx, fade_in, fade_out, language))
 
     # Audio: preserve speech or generate silence
+    trim_start = item.start_time or 0.0
+    trim_dur = (
+        item.end_time - item.start_time
+        if item.start_time is not None and item.end_time is not None
+        else item.display_duration
+    )
+    speed = item.playback_speed or 1.0
+
     if item.keep_audio:
         parts = [
-            f"[{idx}:a] atrim=start={trim_start}:duration={duration}",
+            f"[{idx}:a] atrim=start={trim_start}:duration={trim_dur}",
             f"atempo={speed}" if speed != 1.0 else None,
             f"asetpts=PTS-STARTPTS [a{idx}]",
         ]
         filters.append(",".join(p for p in parts if p))
     else:
-        filters.append(
-            f"aevalsrc=0:d={output_dur:.3f}:s={C.SAMPLE_RATE}:c=stereo [a{idx}]"
-        )
+        filters.append(f"{_silence(trim_dur / speed)} [a{idx}]")
 
 
 def _fade_expr(duration: float, fade_in: float, fade_out: float) -> str:
@@ -366,16 +348,12 @@ def _photo_filter(
     fade_out: float,
     language: str,
 ) -> str:
-    """Photo filter: blurred-bg composite + Ken Burns.
-
-    Preserves full photo content (no crop). Non-16:9 photos get a blurred,
-    darkened copy of themselves as background fill.
-    """
+    """Photo filter: blurred-bg composite + Ken Burns."""
     w, h, fps = ctx.w, ctx.h, ctx.fps
     frames = int(item.display_duration * fps)
+    exact_dur = frames / fps
 
     overlay_vf = _overlay_vf(item, language, h)
-    exact_dur = frames / fps
     fade = _fade_expr(exact_dur, fade_in, fade_out)
     color_vf = color_grade(segment.color_temp)
     sharpen = f",unsharp={C.UNSHARP_PARAMS}"
@@ -397,18 +375,25 @@ def _video_filter(
     ctx: RenderContext,
     fade_in: float,
     fade_out: float,
-    output_dur: float,
     language: str,
-    trim_start: float = 0.0,
-    trim_duration: float = 0.0,
 ) -> str:
+    """Video filter: trim + speed + aspect fill or direct scale."""
     w, h, fps = ctx.w, ctx.h, ctx.fps
+
+    # Derive trim/speed from item
+    trim_start = item.start_time or 0.0
+    trim_dur = (
+        item.end_time - item.start_time
+        if item.start_time is not None and item.end_time is not None
+        else item.display_duration
+    )
     speed = item.playback_speed or 1.0
+    output_dur = trim_dur / speed
+
     speed_vf = f",setpts={1 / speed:.4f}*PTS" if speed != 1.0 else ""
-    # Trim in filter chain (not -ss/-t on input — FFmpeg 8 filter_complex ignores those)
     trim_vf = (
-        f"trim=start={trim_start}:duration={trim_duration},setpts=PTS-STARTPTS,"
-        if trim_duration > 0
+        f"trim=start={trim_start}:duration={trim_dur},setpts=PTS-STARTPTS,"
+        if trim_dur > 0
         else ""
     )
 
@@ -417,7 +402,6 @@ def _video_filter(
     color_vf = color_grade(segment.color_temp)
     fade = _fade_expr(output_dur, fade_in, fade_out)
 
-    # trim_vf trims the source before processing (replaces -ss/-t on input)
     # Blurred background composite for non-matching aspect ratios (portrait AND
     # non-16:9 landscape like 2.35:1). Exact 16:9 videos pass through without
     # visible blur since the foreground covers the entire frame.

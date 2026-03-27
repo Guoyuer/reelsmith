@@ -256,7 +256,7 @@ class TestVideoFilter:
         """16:9 landscape video uses simple scale+pad, no blurred bg."""
         item = _video(duration=5.0)
         seg = _seg([item])
-        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, 5.0, "en")
+        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
         assert "scale=1920:1080:force_original_aspect_ratio=decrease" in result
         assert "pad=1920:1080" in result
         assert "gblur" not in result
@@ -267,7 +267,7 @@ class TestVideoFilter:
         with patch.object(RenderContext, "probe_dimensions", return_value=(1080, 1920)):
             item = _video(duration=5.0)
             seg = _seg([item])
-            result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, 5.0, "en")
+            result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
             assert "split [bg0][fg0]" in result
             assert "gblur=sigma=60" in result
             assert "overlay=(W-w)/2:(H-h)/2" in result
@@ -277,67 +277,43 @@ class TestVideoFilter:
         with patch.object(RenderContext, "probe_dimensions", return_value=(2560, 1080)):
             item = _video(duration=5.0)
             seg = _seg([item])
-            result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, 5.0, "en")
+            result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
             assert "gblur=sigma=60" in result
 
     def test_trim_in_filter(self):
         """Video with start_time/end_time uses trim filter, not -ss/-t."""
         item = _video(duration=5.0, start=10.0, end=15.0)
         seg = _seg([item])
-        result = _video_filter(
-            0,
-            item,
-            seg,
-            _CTX,
-            0.0,
-            0.0,
-            5.0,
-            "en",
-            trim_start=10.0,
-            trim_duration=5.0,
-        )
+        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
         assert "trim=start=10.0:duration=5.0" in result
         assert "setpts=PTS-STARTPTS" in result
 
-    def test_no_trim_without_duration(self):
-        """Video without trim should not include trim filter at start."""
+    def test_no_explicit_trim_uses_display_duration(self):
+        """Video without start_time/end_time trims to display_duration."""
         item = _video(duration=5.0)
         seg = _seg([item])
-        result = _video_filter(
-            0,
-            item,
-            seg,
-            _CTX,
-            0.0,
-            0.0,
-            5.0,
-            "en",
-            trim_start=0.0,
-            trim_duration=0.0,
-        )
-        # Should not start with trim=
-        assert "[0:v] trim=" not in result
-        assert "[0:v] format=yuv420p" in result or "[0:v] format=" in result
+        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
+        assert "trim=start=0.0:duration=5.0" in result
 
     def test_speed_change(self):
         """Playback speed != 1.0 adds setpts filter."""
-        item = _video(duration=10.0, speed=0.5)
+        item = _video(duration=10.0, start=0.0, end=10.0, speed=0.5)
         seg = _seg([item])
-        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, 20.0, "en")
+        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
         assert "setpts=2.0000*PTS" in result
 
     def test_normal_speed_no_setpts(self):
         """Speed 1.0 should NOT add speed setpts filter."""
         item = _video(duration=5.0, speed=1.0)
         seg = _seg([item])
-        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, 5.0, "en")
+        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
         # _fade_expr adds setpts=PTS-STARTPTS, but no multiplier
         assert "*PTS" not in result
 
     def test_fades(self):
         item = _video(duration=5.0)
         seg = _seg([item])
-        result = _video_filter(0, item, seg, _CTX, 0.5, 1.0, 5.0, "en")
+        result = _video_filter(0, item, seg, _CTX, 0.5, 1.0, "en")
         assert "fade=t=in:d=0.5" in result
         assert "fade=t=out" in result
 
@@ -345,13 +321,13 @@ class TestVideoFilter:
         """Output always ends with fps=N before label."""
         item = _video(duration=5.0)
         seg = _seg([item])
-        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, 5.0, "en")
+        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
         assert "fps=30 [v0]" in result
 
     def test_color_temp(self):
         item = _video(duration=5.0)
         seg = _seg([item], color_temp="cool")
-        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, 5.0, "en")
+        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
         assert "colorbalance=rs=-0.02" in result
 
     def test_with_text_overlay(self):
@@ -360,7 +336,7 @@ class TestVideoFilter:
             text_overlay=TextOverlay(text="Market"),
         )
         seg = _seg([item])
-        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, 5.0, "en")
+        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
         assert "drawtext=" in result
         assert "Market" in result
 
@@ -369,7 +345,7 @@ class TestVideoFilter:
         with patch.object(RenderContext, "probe_dimensions", return_value=(0, 0)):
             item = _video(duration=5.0)
             seg = _seg([item])
-            result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, 5.0, "en")
+            result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
             assert "gblur" not in result
 
 
