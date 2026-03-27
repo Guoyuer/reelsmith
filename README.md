@@ -164,7 +164,6 @@ vlog plan -n singapore --style reflective --duration 120 --model balanced
 workspace/
   -- Shared across all runs (cached, reused) --
   media/                          <- raw photos/videos (downloaded once)
-  analysis_cache/                 <- per-file prepare results ({item_id}.json)
   thumbnails/                     <- 400px JPEG thumbnails (prepare stage)
   preview_clips/                  <- 480p 1fps MP4 previews sent to Gemini
   music/                          <- generated music tracks (Lyria)
@@ -214,8 +213,7 @@ source video                     read cached previews             source video (
   ↓                                (single FFmpeg call)             + color grade + text overlay
 ffprobe: duration, resolution,   → upload mega-preview             → portrait: blurred bg
   FPS, orientation                 via Files API                  → output duration =
-  → cache: analysis_cache/       → send to Gemini                   source_dur / speed
-    {id}.json
+  → analysis.json (per-run)      → send to Gemini                   source_dur / speed
                                  mega-preview cached across       cache: clips/seg_item_{res}.mp4
 generate 480p 1fps preview       plan re-runs (hash key)
   (with audio, for Gemini
@@ -229,7 +227,7 @@ generate 480p 1fps preview       plan re-runs (hash key)
 | Directory | Contents | Created by | Shared across runs |
 |-----------|----------|------------|--------------------|
 | `workspace/thumbnails/` | 400px JPEG per photo | prepare | yes |
-| `workspace/analysis_cache/` | ffprobe metadata per video | prepare | yes |
+| `workspace/runs/{name}/analysis.json` | all item metadata (EXIF, ffprobe) | prepare | no (per run) |
 | `workspace/preview_clips/` | 480p 1fps preview per video | prepare | yes |
 | `workspace/preview_clips/_mega_preview.*` | labeled concatenated preview | plan | yes (cached by hash) |
 | `workspace/heic_converted/` | full-size JPEG for HEIC photos | assemble | yes |

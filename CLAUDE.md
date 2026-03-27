@@ -47,11 +47,10 @@ vlog/
 ├── docs/                      # Architecture decisions, plans, metrics
 ├── pyproject.toml             # Dependencies, entry points, tool config
 ├── .pre-commit-config.yaml    # Ruff lint/format + pytest hooks
-├── .env.example               # GEMINI_API_KEY, WORKSPACE
+├── .env.example               # GEMINI_API_KEY
 ├── CHANGELOG.md               # Version history
 └── workspace/                 # Generated artifacts (gitignored)
-    ├── runs/{name}/           #   Per-run: manifest, EDL, clips, output, logs
-    ├── analysis_cache/        #   Per-item analysis JSON
+    ├── runs/{name}/           #   Per-run: manifest, analysis.json, EDL, clips, output, logs
     ├── thumbnails/            #   400px JPEG cache
     ├── preview_clips/         #   480p 1fps preview videos
     └── music/                 #   Generated music tracks
@@ -176,9 +175,9 @@ degradation, not crashes.
 - Generate preview clip (480p 1fps WITH AUDIO, mono 64kbps AAC, via parallel workers)
 
 **What it does globally:**
-- Cache all results in `workspace/analysis_cache/{item_id}.json`
+- Write all results to `workspace/runs/{name}/analysis.json`
 
-**Output:** Per-item analysis cache + thumbnails + preview clips.
+**Output:** analysis.json + thumbnails + preview clips.
 
 **Critical implication:** Gemini is the ONLY component in the entire pipeline that hears video
 audio. There is no speech-to-text, no audio segmentation, no "speech at 5s-12s" metadata.
@@ -294,7 +293,7 @@ deduplication, duration check with optional follow-up Gemini call to fill gaps.
 |-------|-----------------|
 | Individual photos (400px thumbnails, inline) + 1 concatenated video preview (480p 1fps with audio, #XX labels, Files API) + per-item metadata | Design narrative arc → select items → assign music_mood/keep_audio/playback_speed/transitions/color_temp → self-review |
 
-Model: `--model` is required. Presets: `fast` (gemini-3.1-flash-lite-preview), `balanced` (gemini-3-flash-preview), `quality` (gemini-3.1-pro-preview). Custom: `model:thinking` (e.g. `gemini-2.5-flash:medium`). Fallback via `VLOG_MODEL` env var.
+Model: `--model` is required. Presets: `fast` (gemini-3.1-flash-lite-preview), `balanced` (gemini-3-flash-preview), `quality` (gemini-3.1-pro-preview). Custom: `model:thinking` (e.g. `gemini-2.5-flash:medium`). Default: `gemini-3-flash-preview`.
 
 Every API call is logged with: model, input token count, output tokens, wall time, response preview.
 
@@ -338,10 +337,10 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 
 - Photos sent to Gemini as individual 400px thumbnails inline. Videos as 1 concatenated 480p 1fps mega-preview with audio via Files API. Inline base64 limit is 100MB (~75MB raw).
 - Preview generation uses `-hwaccel auto`; `-skip_frame nokey` (~22x speedup) only when keyframe interval ≤2s, otherwise full decode
-- Photo thumbnails cached in `workspace/thumbnails/`, video analysis cached in `workspace/analysis_cache/`
+- Photo thumbnails cached in `workspace/thumbnails/`, analysis data written to per-run `analysis.json`
 - Preview clips cached in `workspace/preview_clips/` — orphaned files from old runs auto-cleaned
 - Rich progress auto-adapts to terminal capabilities
-- Stale cache auto-invalidation: prepare re-runs if upstream file is newer (mtime check)
+- Prepare always recomputes metadata (EXIF + ffprobe are fast); thumbnails and previews are cached
 - FFmpeg subprocesses have a 10-minute timeout for segment renders, 1-minute for concat (prevents hanging on corrupt files)
 - Ken Burns uses cosine easing (ease-in/ease-out) via crop+lanczos; only applies to photos (videos use a separate render path)
 - `--music auto` uses Gemini Lyria RealTime; `--music /path/to/file` uses custom audio; `--music none` disables music
