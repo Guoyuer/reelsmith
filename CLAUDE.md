@@ -228,7 +228,7 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 - TS demuxer concatenation (no re-encode: `-c:v copy -c:a copy`)
 - Music overlay: `sidechaincompress` dynamic ducking + `amix`
   - **Dynamic ducking** — music automatically fades down when speech plays, fades back up when speech stops
-  - `sidechaincompress=threshold=0.02:ratio=6:attack=200:release=1000` on music, keyed by speech track
+  - `sidechaincompress=threshold=0.02:ratio=6:attack=200:release=500` on music, keyed by speech track
   - Default music volume: 0.40 (ducked to ~15% during speech, full 40% during silence)
 
 **Phase 3: Beat sync** (`_audio.py`)

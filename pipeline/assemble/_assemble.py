@@ -362,7 +362,7 @@ def _concat_and_mix(
             f"{music_chain};\n"
             f"[0:a] apad [sp];\n"
             f"[bg][sp] sidechaincompress="
-            f"threshold=0.02:ratio=6:attack=200:release=1000 [ducked];\n"
+            f"threshold=0.02:ratio=6:attack=200:release=500 [ducked];\n"
             f"[sp][ducked] amix=inputs=2:duration=first,"
             f"loudnorm=I=-16:TP=-1.5:LRA=11 [aout]"
         )
