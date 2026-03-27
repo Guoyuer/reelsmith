@@ -169,10 +169,11 @@ def parse_and_convert_timestamps(
             "  Converted %d preview timestamps to local trim points", n_converted
         )
 
-    # Gemini doesn't output trip_type/style — inject placeholder defaults
-    # so EDL.model_validate succeeds; the orchestrator overwrites them afterward.
+    # Gemini doesn't output trip_type/style/target_duration — inject placeholder
+    # defaults so EDL.model_validate succeeds; the orchestrator overwrites them afterward.
     raw.setdefault("trip_type", "general")
     raw.setdefault("style", "upbeat")
+    raw.setdefault("target_duration", 60)
     edl = EDL.model_validate(raw)
     return edl
 
