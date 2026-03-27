@@ -52,7 +52,7 @@ vlog/
 └── workspace/                 # Generated artifacts (gitignored)
     ├── runs/{name}/           #   Per-run: manifest, analysis.json, EDL, clips, output, logs
     ├── thumbnails/            #   400px JPEG cache
-    ├── preview_clips/         #   480p 1fps preview videos
+    ├── previews/         #   480p 1fps preview videos
     └── music/                 #   Generated music tracks
 ```
 
@@ -317,9 +317,11 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - **FFmpeg rendering** — parallel segment rendering from EDL (3 NVENC workers, 2 VideoToolbox workers)
 - **Ken Burns effects** — cosine-eased crop + lanczos scale per EDL effect field (photos only; videos use a separate render path)
 - **Thumbnail/keyframe generation** — Pillow resize, FFmpeg extraction
+- **Hardware acceleration** — Auto-detected: CUDA (NVIDIA) or VideoToolbox (macOS) for decode; NVENC/VideoToolbox for encode. Falls back to CPU when unavailable.
 - **Codec** — HEVC (hevc_nvenc/hevc_videotoolbox) on GPU, H.264 (libx264) on CPU; auto-detected
 - **Bitrate** — HEVC at 65% of H.264 YouTube rates with `--quality` multiplier
 - **Audio ducking** — Dynamic via `sidechaincompress`: music auto-ducks when speech detected, recovers when speech stops. Default music volume 0.40, ducked to ~15% during speech. Tight trims = less music suppression.
+- **Loudness normalization** — Two-pass `loudnorm` (pass 1 measures I/LRA/TP/thresh, pass 2 applies with `linear=true`). Falls back to single-pass if measurement fails.
 - **Color grading** — subtle contrast/saturation boost, temperature shift per segment
 - **YouTube chapter markers** — timestamps from EDL segment boundaries
 - **Text overlays** — baked into clips during render (single FFmpeg pass, no separate overlay step)
@@ -338,7 +340,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - Photos sent to Gemini as individual 400px thumbnails inline. Videos as 1 concatenated 480p 1fps mega-preview with audio via Files API. Inline base64 limit is 100MB (~75MB raw).
 - Preview generation uses `-hwaccel auto`; `-skip_frame nokey` (~22x speedup) only when keyframe interval ≤2s, otherwise full decode
 - Photo thumbnails cached in `workspace/thumbnails/`, analysis data written to per-run `analysis.json`
-- Preview clips cached in `workspace/preview_clips/` — orphaned files from old runs auto-cleaned
+- Preview clips cached in `workspace/previews/` — orphaned files from old runs auto-cleaned
 - Rich progress auto-adapts to terminal capabilities
 - Prepare always recomputes metadata (EXIF + ffprobe are fast); thumbnails and previews are cached
 - FFmpeg subprocesses have a 10-minute timeout for segment renders, 1-minute for concat (prevents hanging on corrupt files)

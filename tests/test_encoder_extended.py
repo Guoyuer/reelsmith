@@ -71,15 +71,6 @@ class TestDetectHwEncoder:
 
 
 class TestRenderContextEdgeCases:
-    def test_invalidate_clears_caches(self):
-        ctx = RenderContext(w=1920, h=1080, fps=30)
-        path = Path("/fake/video.mp4")
-        ctx._dim_cache[str(path)] = (1920, 1080)
-        ctx._dur_cache[str(path)] = 60.0
-        ctx.invalidate(path)
-        assert str(path) not in ctx._dim_cache
-        assert str(path) not in ctx._dur_cache
-
     def test_rotation_180_no_swap(self):
         """Rotation 180 should NOT swap dimensions (upside down, same aspect)."""
         import json

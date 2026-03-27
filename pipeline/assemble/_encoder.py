@@ -225,12 +225,6 @@ class RenderContext:
         self._dim_cache[key] = dims
         return dims
 
-    def invalidate(self, path: Path) -> None:
-        """Remove cached probe results for a path (e.g. after re-encoding)."""
-        key = str(path)
-        self._dim_cache.pop(key, None)
-        self._dur_cache.pop(key, None)
-
     def probe_duration(self, path: Path) -> float:
         key = str(path)
         if key in self._dur_cache:
