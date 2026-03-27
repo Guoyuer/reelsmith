@@ -37,7 +37,6 @@ def _base_analysis_entry(item: dict, *, is_video: bool) -> dict:
     """Build the common analysis entry dict from a manifest item."""
     return {
         "id": item["id"],
-        "filename": item["filename"],
         "local_path": item.get("local_path", ""),
         "media_type": "video" if is_video else "photo",
         "taken_iso": item["taken_iso"],
@@ -187,7 +186,7 @@ def prepare(
         t.add_column("FPS", justify="right")
         for entry, _, _, _ in uncached_videos[:20]:
             t.add_row(
-                entry["filename"][:35],
+                Path(entry["local_path"]).name[:35],
                 f"{entry.get('video_duration', 0):.0f}s",
                 f"{entry.get('video_width', '?')}x{entry.get('video_height', '?')}",
                 f"{entry.get('video_fps', '?')}",
@@ -457,7 +456,7 @@ def _prepare_video(
         "[%d/%d] %s — %.0fs %s %sfps %s",
         i,
         total,
-        entry["filename"],
+        Path(entry["local_path"]).name,
         total_duration,
         res_str,
         video_fps,

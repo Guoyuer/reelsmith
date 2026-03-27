@@ -25,7 +25,6 @@ def _make_item(
     fname = filename.format(item_id) if "{" in filename else filename
     return {
         "id": item_id,
-        "filename": fname,
         "item_type": 0,
         "takentime": takentime,
         "taken_iso": "2025-01-01T00:00:00+00:00",
@@ -61,7 +60,6 @@ def _write_manifest(cfg, items: list[dict]) -> None:
 def _make_analysis_item(item_id: int, filename: str, local_path: str, **extra) -> dict:
     item = {
         "id": item_id,
-        "filename": filename,
         "local_path": local_path,
         "item_type": 0,
         "taken_iso": "2025-01-01T00:00:00+00:00",

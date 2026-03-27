@@ -109,8 +109,17 @@ def _capture_pipeline_call(cli_args, runner):
 
 
 _FULL_BASE_ARGS = [
-    "full", "-n", "test-run", "-p", ".", "--duration", "60",
-    "--model", "balanced", "-r", "1080p30",
+    "full",
+    "-n",
+    "test-run",
+    "-p",
+    ".",
+    "--duration",
+    "60",
+    "--model",
+    "balanced",
+    "-r",
+    "1080p30",
 ]
 
 
@@ -138,7 +147,9 @@ class TestFullCommandWiring:
         ],
         ids=["balanced_default", "quality", "fast", "custom_model"],
     )
-    def test_plan_config_model(self, runner, model_flag, expected_model, expected_thinking):
+    def test_plan_config_model(
+        self, runner, model_flag, expected_model, expected_thinking
+    ):
         extra = ["--model", model_flag] if model_flag else []
         c = self._run_full(runner, extra)
         assert c["plan"].model == expected_model
@@ -147,8 +158,18 @@ class TestFullCommandWiring:
     def test_plan_config_fields(self, runner):
         c = self._run_full(
             runner,
-            ["--trip-type", "solo", "--style", "cinematic", "--focus", "temples",
-             "--lang", "cn", "--duration", "180"],
+            [
+                "--trip-type",
+                "solo",
+                "--style",
+                "cinematic",
+                "--focus",
+                "temples",
+                "--lang",
+                "cn",
+                "--duration",
+                "180",
+            ],
         )
         assert c["plan"].trip_type == "solo"
         assert c["plan"].style == "cinematic"
@@ -164,7 +185,9 @@ class TestFullCommandWiring:
         ],
         ids=["preset", "custom"],
     )
-    def test_assemble_config_resolution(self, runner, res_flag, expected_w, expected_h, expected_fps):
+    def test_assemble_config_resolution(
+        self, runner, res_flag, expected_w, expected_h, expected_fps
+    ):
         c = self._run_full(runner, ["-r", res_flag])
         assert c["assemble"].w == expected_w
         assert c["assemble"].h == expected_h
@@ -260,8 +283,17 @@ class TestRequiredParams:
     )
     def test_full_missing_required_param(self, runner, omit_flags):
         all_args = [
-            "full", "-n", "t", "-p", ".", "--duration", "60",
-            "--model", "fast", "-r", "720p30",
+            "full",
+            "-n",
+            "t",
+            "-p",
+            ".",
+            "--duration",
+            "60",
+            "--model",
+            "fast",
+            "-r",
+            "720p30",
         ]
         args = [a for a in all_args if a not in omit_flags]
         result = runner.invoke(cli, args)
@@ -271,7 +303,17 @@ class TestRequiredParams:
         with patch("pipeline.cli._commands._run_pipeline"):
             result = runner.invoke(
                 cli,
-                ["full", "-n", "t", "--duration", "60", "--model", "fast", "-r", "720p30"],
+                [
+                    "full",
+                    "-n",
+                    "t",
+                    "--duration",
+                    "60",
+                    "--model",
+                    "fast",
+                    "-r",
+                    "720p30",
+                ],
             )
         assert result.exit_code != 0
 
@@ -293,7 +335,6 @@ class TestRunPrepareNoAnalysisPath:
         manifest = [
             {
                 "id": 1,
-                "filename": "p.jpg",
                 "local_path": str(tmp_path / "p.jpg"),
                 "taken_iso": "2025-01-01T00:00:00",
                 "takentime": 1700000000,

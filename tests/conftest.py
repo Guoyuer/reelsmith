@@ -25,7 +25,6 @@ def sample_manifest() -> list[dict]:
         iso = datetime.fromtimestamp(taken, tz=timezone.utc).isoformat()
         return {
             "id": item_id,
-            "filename": filename,
             "item_type": kw.pop("item_type", 0),
             "takentime": taken,
             "taken_iso": iso,

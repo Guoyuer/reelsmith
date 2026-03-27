@@ -71,7 +71,7 @@ class TestHasDenseKeyframes:
 class TestPrepareVideoEdgeCases:
     def test_malformed_ffprobe_defaults(self, tmp_path):
         """Malformed ffprobe output should produce safe defaults."""
-        entry = {"id": 1, "filename": "bad.mp4"}
+        entry = {"id": 1, "local_path": str(tmp_path / "bad.mp4")}
         cache = tmp_path / "cache.json"
         mock = MagicMock(returncode=0, stdout="not json at all", stderr="")
         with patch("pipeline.prepare._prepare.run_subprocess", return_value=mock):
@@ -84,7 +84,7 @@ class TestPrepareVideoEdgeCases:
 
     def test_portrait_detection(self, tmp_path):
         """Height > width should set orientation=portrait."""
-        entry = {"id": 1, "filename": "portrait.mp4"}
+        entry = {"id": 1, "local_path": str(tmp_path / "portrait.mp4")}
         cache = tmp_path / "cache.json"
         probe_data = {
             "format": {"duration": "30.0"},
@@ -99,7 +99,7 @@ class TestPrepareVideoEdgeCases:
 
     def test_cache_file_written(self, tmp_path):
         """Cache file should be written with video metadata."""
-        entry = {"id": 1, "filename": "vid.mp4"}
+        entry = {"id": 1, "local_path": str(tmp_path / "vid.mp4")}
         cache = tmp_path / "cache.json"
         probe_data = {
             "format": {"duration": "45.5"},
@@ -115,7 +115,7 @@ class TestPrepareVideoEdgeCases:
 
     def test_fps_parsing_fractional(self, tmp_path):
         """24000/1001 fps should parse correctly."""
-        entry = {"id": 1, "filename": "vid.mp4"}
+        entry = {"id": 1, "local_path": str(tmp_path / "vid.mp4")}
         cache = tmp_path / "cache.json"
         probe_data = {
             "format": {"duration": "10.0"},
@@ -136,7 +136,6 @@ class TestBaseAnalysisEntry:
     def test_photo_entry(self):
         item = {
             "id": 42,
-            "filename": "photo.jpg",
             "local_path": "/media/photo.jpg",
             "taken_iso": "2025-01-01T00:00:00",
             "country": "Singapore",
@@ -150,7 +149,6 @@ class TestBaseAnalysisEntry:
     def test_video_entry(self):
         item = {
             "id": 43,
-            "filename": "clip.mp4",
             "local_path": "/media/clip.mp4",
             "taken_iso": "2025-01-01T00:00:00",
         }
@@ -161,7 +159,6 @@ class TestBaseAnalysisEntry:
         """When district is empty, city is used as fallback."""
         item = {
             "id": 44,
-            "filename": "photo.jpg",
             "local_path": "/media/photo.jpg",
             "taken_iso": "2025-01-01T00:00:00",
             "city": "Singapore",
@@ -173,7 +170,6 @@ class TestBaseAnalysisEntry:
         """Missing location fields should be None."""
         item = {
             "id": 45,
-            "filename": "photo.jpg",
             "local_path": "/media/photo.jpg",
             "taken_iso": "2025-01-01T00:00:00",
         }

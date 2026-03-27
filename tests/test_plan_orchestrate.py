@@ -28,7 +28,6 @@ def _setup_workspace(tmp_path, n_photos=2):
     manifest = [
         {
             "id": i,
-            "filename": f"photo_{i}.jpg",
             "local_path": photo_paths[i - 1],
             "taken_iso": f"2025-06-13T{10 + i}:30:00",
         }

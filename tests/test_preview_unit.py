@@ -74,7 +74,6 @@ class TestBuildVisualContentBlocks:
         analysis = {
             "1": {
                 "id": 1,
-                "filename": "photo.jpg",
                 "local_path": str(photo),
                 "media_type": "photo",
             }
@@ -103,7 +102,6 @@ class TestBuildVisualContentBlocks:
         analysis = {
             "1": {
                 "id": 1,
-                "filename": "photo.jpg",
                 "local_path": str(photo),
                 "media_type": "photo",
             }
@@ -139,13 +137,11 @@ class TestBuildVisualContentBlocks:
         analysis = {
             "1": {
                 "id": 1,
-                "filename": "photo.jpg",
                 "local_path": str(photo),
                 "media_type": "photo",
             },
             "2": {
                 "id": 2,
-                "filename": "vid.mp4",
                 "local_path": str(video),
                 "media_type": "video",
                 "video_duration": 30.0,

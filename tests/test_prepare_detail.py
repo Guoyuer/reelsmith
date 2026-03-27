@@ -52,7 +52,6 @@ class TestPrepareVideo:
 
         entry = {
             "id": 1,
-            "filename": "video.mp4",
             "local_path": str(tmp_path / "video.mp4"),
         }
         (tmp_path / "video.mp4").write_bytes(b"\x00" * 100)
@@ -115,7 +114,6 @@ class TestPrepareFullFlow:
         manifest = [
             {
                 "id": 1,
-                "filename": "photo.jpg",
                 "local_path": str(photo),
                 "item_type": 0,
                 "takentime": 1700000000,
@@ -146,7 +144,6 @@ class TestPrepareFullFlow:
         manifest = [
             {
                 "id": 1,
-                "filename": "photo.jpg",
                 "local_path": str(photo),
                 "item_type": 0,
                 "takentime": 1700000000,

@@ -62,12 +62,10 @@ def fetch_local(
 
         # Stable ID from filename (deterministic across runs, unlike hash())
         item_id = int(hashlib.md5(src_path.name.encode()).hexdigest()[:8], 16) % (10**8)
-        filename = src_path.name
 
         # Point directly to source file — no copying or linking
         entry = {
             "id": item_id,
-            "filename": filename,
             "item_type": item_type,
             "takentime": takentime,
             "taken_iso": taken_iso,

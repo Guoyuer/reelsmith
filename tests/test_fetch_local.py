@@ -100,13 +100,31 @@ class TestParseDateFromFilename:
     @pytest.mark.parametrize(
         "filename, expected",
         [
-            ("87462_20250617_191756", datetime(2025, 6, 17, 19, 17, 56, tzinfo=timezone.utc)),
+            (
+                "87462_20250617_191756",
+                datetime(2025, 6, 17, 19, 17, 56, tzinfo=timezone.utc),
+            ),
             ("20250617_191756", datetime(2025, 6, 17, 19, 17, 56, tzinfo=timezone.utc)),
-            ("IMG20250613085912", datetime(2025, 6, 13, 8, 59, 12, tzinfo=timezone.utc)),
-            ("DJI_20250613120415_0072_D", datetime(2025, 6, 13, 12, 4, 15, tzinfo=timezone.utc)),
-            ("2025-06-13_12-04-15", datetime(2025, 6, 13, 12, 4, 15, tzinfo=timezone.utc)),
-            ("2025-06-13T12-04-15", datetime(2025, 6, 13, 12, 4, 15, tzinfo=timezone.utc)),
-            ("IMG_20250617_191756", datetime(2025, 6, 17, 19, 17, 56, tzinfo=timezone.utc)),
+            (
+                "IMG20250613085912",
+                datetime(2025, 6, 13, 8, 59, 12, tzinfo=timezone.utc),
+            ),
+            (
+                "DJI_20250613120415_0072_D",
+                datetime(2025, 6, 13, 12, 4, 15, tzinfo=timezone.utc),
+            ),
+            (
+                "2025-06-13_12-04-15",
+                datetime(2025, 6, 13, 12, 4, 15, tzinfo=timezone.utc),
+            ),
+            (
+                "2025-06-13T12-04-15",
+                datetime(2025, 6, 13, 12, 4, 15, tzinfo=timezone.utc),
+            ),
+            (
+                "IMG_20250617_191756",
+                datetime(2025, 6, 17, 19, 17, 56, tzinfo=timezone.utc),
+            ),
         ],
         ids=[
             "id_prefix_with_date_time",
@@ -144,7 +162,9 @@ class TestExtractDateFallback:
         """When PIL EXIF fails, photos fall back to filename date parsing."""
         photo = tmp_path / "IMG_20250613_120415.jpg"
         _create_fake_image(photo)
-        assert _extract_date(photo) == datetime(2025, 6, 13, 12, 4, 15, tzinfo=timezone.utc)
+        assert _extract_date(photo) == datetime(
+            2025, 6, 13, 12, 4, 15, tzinfo=timezone.utc
+        )
 
     def test_video_falls_through_to_filename(self, tmp_path):
         video = tmp_path / "VID_20250613_120415.mp4"
@@ -169,7 +189,12 @@ class TestExtractDateFallback:
 
 class TestFileFiltering:
     def test_temp_files_skipped(self, mock_config, source_dir):
-        for name in ("_converted_photo.jpg", "_hist_photo.jpg", "_audio_track.mp4", "_resized_photo.jpg"):
+        for name in (
+            "_converted_photo.jpg",
+            "_hist_photo.jpg",
+            "_audio_track.mp4",
+            "_resized_photo.jpg",
+        ):
             _create_fake_image(source_dir / name)
         _create_fake_image(source_dir / "real_photo.jpg")
 
@@ -177,7 +202,7 @@ class TestFileFiltering:
             result = fetch_local(mock_config, str(source_dir))
 
         assert len(result) == 1
-        assert result[0]["filename"] == "real_photo.jpg"
+        assert Path(result[0]["local_path"]).name == "real_photo.jpg"
 
     def test_unsupported_extensions_skipped(self, mock_config, source_dir):
         (source_dir / "notes.txt").write_text("hello")

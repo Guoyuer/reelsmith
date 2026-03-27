@@ -30,7 +30,6 @@ class _ManifestRequired(TypedDict):
     """Keys always present in manifest entries."""
 
     id: int
-    filename: str
     taken_iso: str
     local_path: str
 
@@ -72,7 +71,6 @@ class _AnalysisRequired(TypedDict):
     """Keys always present in every analysis entry."""
 
     id: int
-    filename: str
     local_path: str
     media_type: str  # "photo" or "video"
     taken_iso: str
@@ -114,7 +112,6 @@ class _AnalysisEntryValidator(BaseModel):
 
     # Required (from manifest)
     id: int
-    filename: str
     local_path: str
     media_type: str  # "photo" or "video"
     taken_iso: str

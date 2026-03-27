@@ -128,11 +128,13 @@ def _select_from_bursts(
             )
             kept.append(burst[best])
             if len(cluster) > 1:
-                removed = [burst[k]["filename"] for k in cluster if k != best]
+                removed = [
+                    Path(burst[k]["local_path"]).name for k in cluster if k != best
+                ]
                 removed_total += len(removed)
                 logger.debug(
                     "  Burst dedup: kept %s, removed %d: %s%s",
-                    burst[best]["filename"],
+                    Path(burst[best]["local_path"]).name,
                     len(removed),
                     ", ".join(removed[:3]),
                     "..." if len(removed) > 3 else "",
