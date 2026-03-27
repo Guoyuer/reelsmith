@@ -61,7 +61,13 @@ class TestAllItems:
 
     def test_empty_edl(self):
         """all_items() on an EDL with no segments returns empty list."""
-        edl = EDL(title="Empty", target_duration=60.0, segments=[])
+        edl = EDL(
+            title="Empty",
+            target_duration=60.0,
+            trip_type="family",
+            style="upbeat",
+            segments=[],
+        )
         assert edl.all_items() == []
 
 
@@ -80,6 +86,8 @@ class TestEstimatedDuration:
         edl = EDL(
             title="Solo",
             target_duration=10.0,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="Only",
@@ -119,6 +127,8 @@ class TestJsonRoundtrip:
         edl = EDL(
             title="No Music",
             target_duration=30.0,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="Seg1",
@@ -147,6 +157,8 @@ class TestEDLPersistence:
         edl = EDL(
             title="Test",
             target_duration=30,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S1",

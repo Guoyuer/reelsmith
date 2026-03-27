@@ -51,7 +51,13 @@ def _make_edl(items_per_seg: list[int], duration: float = 4.0) -> EDL:
                 transition_duration=0.5,
             )
         )
-    return EDL(title="T", target_duration=60, segments=segments)
+    return EDL(
+        title="T",
+        target_duration=60,
+        trip_type="family",
+        style="upbeat",
+        segments=segments,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +149,8 @@ class TestBeatSnapEdl:
         edl = EDL(
             title="T",
             target_duration=60,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S",
@@ -175,6 +183,8 @@ class TestBeatSnapEdl:
         edl = EDL(
             title="T",
             target_duration=60,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S",
@@ -205,6 +215,8 @@ class TestBeatSnapEdl:
         edl = EDL(
             title="T",
             target_duration=60,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S",
@@ -248,6 +260,8 @@ class TestWriteChapters:
         edl = EDL(
             title="T",
             target_duration=120,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="Opening",
@@ -298,6 +312,8 @@ class TestWriteChapters:
         edl = EDL(
             title="T",
             target_duration=60,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S1",
@@ -322,6 +338,8 @@ class TestWriteChapters:
         edl = EDL(
             title="T",
             target_duration=60,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S1",

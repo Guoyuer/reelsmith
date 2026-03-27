@@ -77,6 +77,8 @@ def sample_edl() -> EDL:
     return EDL(
         title="Singapore Trip",
         target_duration=120.0,
+        trip_type="family",
+        style="upbeat",
         segments=[
             Segment(
                 name="Marina Bay",

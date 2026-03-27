@@ -112,6 +112,8 @@ def _make_edl(**kwargs) -> EDL:
     defaults = {
         "title": "Test",
         "target_duration": 60.0,
+        "trip_type": "family",
+        "style": "upbeat",
         "segments": [
             Segment(
                 name="Seg1",

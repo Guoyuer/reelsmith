@@ -19,6 +19,8 @@ from pipeline.edl import EDL, EditItem, MusicTrack, Segment
 def _minimal_edl(**kw) -> EDL:
     kw.setdefault("title", "Test")
     kw.setdefault("target_duration", 60)
+    kw.setdefault("trip_type", "family")
+    kw.setdefault("style", "upbeat")
     kw.setdefault(
         "segments",
         [

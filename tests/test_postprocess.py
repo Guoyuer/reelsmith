@@ -20,7 +20,13 @@ from pipeline.plan._postprocess import (
 
 def _make_edl(items=None, segments=None) -> EDL:
     if segments:
-        return EDL(title="Test", target_duration=60.0, segments=segments)
+        return EDL(
+            title="Test",
+            target_duration=60.0,
+            trip_type="family",
+            style="upbeat",
+            segments=segments,
+        )
     if items is None:
         items = [
             EditItem(
@@ -30,6 +36,8 @@ def _make_edl(items=None, segments=None) -> EDL:
     return EDL(
         title="Test",
         target_duration=60.0,
+        trip_type="family",
+        style="upbeat",
         segments=[Segment(name="S1", items=items, transition="cut")],
     )
 

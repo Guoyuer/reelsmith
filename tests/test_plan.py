@@ -37,6 +37,8 @@ def _make_test_edl(items: list | None = None) -> EDL:
     return EDL(
         title="Test",
         target_duration=10.0,
+        trip_type="family",
+        style="upbeat",
         segments=[Segment(name="Seg1", items=items, transition="cut")],
     )
 

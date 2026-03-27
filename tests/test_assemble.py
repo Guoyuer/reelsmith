@@ -105,6 +105,8 @@ def _make_edl(duration: float = 60.0, music_file: str = "") -> EDL:
     return EDL(
         title="Test",
         target_duration=duration,
+        trip_type="family",
+        style="upbeat",
         segments=[
             Segment(
                 name="Seg1",

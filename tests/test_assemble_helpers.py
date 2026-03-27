@@ -65,6 +65,8 @@ class TestFindFirstPhoto:
         edl = EDL(
             title="T",
             target_duration=60,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S",
@@ -85,6 +87,8 @@ class TestFindFirstPhoto:
         edl = EDL(
             title="T",
             target_duration=60,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S",
@@ -102,7 +106,13 @@ class TestFindFirstPhoto:
         assert _find_first_photo(edl) is None
 
     def test_no_items(self):
-        edl = EDL(title="T", target_duration=60, segments=[])
+        edl = EDL(
+            title="T",
+            target_duration=60,
+            trip_type="family",
+            style="upbeat",
+            segments=[],
+        )
         assert _find_first_photo(edl) is None
 
     def test_heic_gets_converted(self, tmp_path):
@@ -111,6 +121,8 @@ class TestFindFirstPhoto:
         edl = EDL(
             title="T",
             target_duration=60,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S",
@@ -146,6 +158,8 @@ class TestRenderTitleCardIfNeeded:
         edl = EDL(
             title="My Trip",
             target_duration=60,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S",
@@ -174,6 +188,8 @@ class TestRenderTitleCardIfNeeded:
         edl = EDL(
             title="T",
             target_duration=60,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S",
@@ -192,6 +208,8 @@ class TestRenderTitleCardIfNeeded:
         edl_no_title = EDL(
             title="",
             target_duration=60,
+            trip_type="family",
+            style="upbeat",
             segments=edl.segments,
         )
         path = tmp_path / "intro.mp4"
@@ -204,6 +222,8 @@ class TestRenderTitleCardIfNeeded:
         edl = EDL(
             title="T",
             target_duration=60,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S",
@@ -233,6 +253,8 @@ class TestRenderTitleCardIfNeeded:
         edl = EDL(
             title="T",
             target_duration=60,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S",
@@ -258,6 +280,8 @@ class TestRenderTitleCardIfNeeded:
         edl = EDL(
             title="T",
             target_duration=60,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S",

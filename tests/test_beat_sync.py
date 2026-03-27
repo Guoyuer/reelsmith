@@ -28,6 +28,8 @@ def _edl(segments, intro_duration=0.0):
     return EDL(
         title="test",
         target_duration=60,
+        trip_type="family",
+        style="upbeat",
         segments=segments,
         intro_duration=intro_duration,
     )

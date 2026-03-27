@@ -76,6 +76,8 @@ def _seg(items: list[EditItem], **kw) -> Segment:
 def _edl(segments: list[Segment], **kw) -> EDL:
     kw.setdefault("title", "Test")
     kw.setdefault("target_duration", 60.0)
+    kw.setdefault("trip_type", "family")
+    kw.setdefault("style", "upbeat")
     return EDL(segments=segments, **kw)
 
 

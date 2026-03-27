@@ -188,8 +188,8 @@ class EDL(BaseModel):
     segments: list[Segment]
     music: MusicTrack | None = None
     music_mode: MusicMode = MusicMode.NONE  # auto = generate in generate_music step
-    trip_type: str = "family"  # used by assemble for music generation prompt
-    style: str = "upbeat"  # used by assemble for music generation prompt
+    trip_type: str  # set by orchestrator from PlanConfig
+    style: str  # set by orchestrator from PlanConfig
     intro_duration: float = 3.0  # seconds for intro title card
     outro_duration: float = 3.0  # seconds for outro title card
     date_range: str = ""  # e.g. "June 13-16, 2025" for title card
