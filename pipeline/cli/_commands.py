@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import click
 
 from ._config_io import (
@@ -261,9 +263,10 @@ def _apply_options(options):
 _use_cfg_option = click.option(
     "--use-cfg-file",
     default=None,
-    type=click.Path(exists=True, dir_okay=False),
-    help="Load parameters from a JSON config file (mutually exclusive with other options except -n, --force, -v). "
-    "Tip: a config is auto-saved to workspace/runs/{name}/run_config.json on every run.",
+    type=click.Path(dir_okay=False),
+    help="Load parameters from a YAML config file (mutually exclusive with other options except -n, --force, -v). "
+    "Looks in workspace/runs/{name}/ if not found at the given path. "
+    "Tip: a config is auto-saved on every run.",
 )
 
 # Params that are always allowed alongside --use-cfg-file
@@ -344,7 +347,18 @@ def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
 
     if use_cfg_file:
         _validate_use_cfg(ctx)
-        saved = load_run_config(use_cfg_file)
+        # Resolve path: try as-is first, then workspace/runs/{name}/
+        cfg_path = Path(use_cfg_file)
+        if not cfg_path.exists():
+            run_dir = Path("workspace/runs") / p.get("run_name", "") / use_cfg_file
+            if run_dir.exists():
+                cfg_path = run_dir
+            else:
+                raise click.BadParameter(
+                    f"File not found: '{use_cfg_file}' " f"(also checked {run_dir})",
+                    param_hint="'--use-cfg-file'",
+                )
+        saved = load_run_config(str(cfg_path))
         if "source" in saved and "path" in p:
             src = saved["source"]
             p["path"] = src.get("path")
