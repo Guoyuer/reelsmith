@@ -513,3 +513,42 @@ class TestAssembleE2E:
         output = _run_assemble(edl)
         errors = validate_output(output, edl)
         assert errors == [], f"Output validation failed: {errors}"
+
+    def test_with_music_two_pass_loudnorm(self, tmp_path):
+        """Test two-pass loudnorm with generated sine wave as music."""
+        photos, videos = _get_media_samples()
+        edl = _make_edl(photos, videos, keep_audio_idx={0})
+
+        # Generate a short sine wave as music
+        music_path = tmp_path / "test_music.wav"
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=30",
+                str(music_path),
+            ],
+            capture_output=True,
+            timeout=30,
+        )
+        assert music_path.exists(), "Failed to generate test music"
+
+        edl["music"] = {
+            "file": str(music_path),
+            "volume": 0.4,
+            "fade_in": 1.0,
+            "fade_out": 2.0,
+        }
+        output = _run_assemble(edl)
+        errors = validate_output(output, edl)
+        assert errors == [], f"Output validation failed: {errors}"
+
+        # Verify output has audio
+        info = _probe(output)
+        a_streams = [
+            s for s in info.get("streams", []) if s.get("codec_type") == "audio"
+        ]
+        assert len(a_streams) >= 1, "Output should have audio stream with music"

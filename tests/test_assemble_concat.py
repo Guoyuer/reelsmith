@@ -6,7 +6,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pipeline.assemble._assemble import _concat_and_mix, _validate_output
+from pipeline.assemble._assemble import (
+    _concat_and_mix,
+    _parse_loudnorm_stats,
+    _validate_output,
+)
 from pipeline.assemble._encoder import RenderContext
 from pipeline.config import Config
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
@@ -126,9 +130,16 @@ class TestConcatAndMixWithMusic:
         seg0.write_bytes(b"\x00" * 500)
 
         calls = []
+        _loudnorm_json = (
+            '{\n"input_i": "-24.0", "input_tp": "-2.0",'
+            ' "input_lra": "7.0", "input_thresh": "-34.0"\n}'
+        )
 
         def _track_calls(cmd, **kw):
             calls.append(cmd)
+            # Measure pass: return loudnorm JSON in stderr
+            if "-f" in cmd and "null" in cmd:
+                return MagicMock(returncode=0, stderr=_loudnorm_json, stdout="")
             m = MagicMock(returncode=0, stderr="", stdout="")
             # Make nomix and output exist after their respective commands
             if any(str(nomix) in str(c) for c in cmd):
@@ -147,14 +158,21 @@ class TestConcatAndMixWithMusic:
                 [seg0], edl, ctx, cfg, output, version=1, res_label="1080p30"
             )
 
-        # Find the music mix command (second ffmpeg call)
+        # Two ffmpeg calls with -filter_complex: measure + apply
         mix_cmds = [c for c in calls if "-filter_complex" in c]
-        assert len(mix_cmds) >= 1
-        fc = mix_cmds[0][mix_cmds[0].index("-filter_complex") + 1]
-        assert "sidechaincompress" in fc
-        assert "loudnorm" in fc
-        assert "volume=0.400" in fc
-        assert "afade=t=in:d=2.0" in fc
+        assert len(mix_cmds) == 2
+
+        # Pass 1: measure (outputs to null)
+        measure_fc = mix_cmds[0][mix_cmds[0].index("-filter_complex") + 1]
+        assert "print_format=json" in measure_fc
+
+        # Pass 2: apply with measured values
+        apply_fc = mix_cmds[1][mix_cmds[1].index("-filter_complex") + 1]
+        assert "sidechaincompress" in apply_fc
+        assert "measured_I=-24.0" in apply_fc
+        assert "linear=true" in apply_fc
+        assert "volume=0.400" in apply_fc
+        assert "afade=t=in:d=2.0" in apply_fc
 
     def test_music_loop_when_short(self, tmp_path):
         """When music shorter than video, aloop filter is added."""
@@ -173,9 +191,15 @@ class TestConcatAndMixWithMusic:
         seg0.write_bytes(b"\x00" * 500)
 
         calls = []
+        _loudnorm_json = (
+            '{\n"input_i": "-24.0", "input_tp": "-2.0",'
+            ' "input_lra": "7.0", "input_thresh": "-34.0"\n}'
+        )
 
         def _track(cmd, **kw):
             calls.append(cmd)
+            if "-f" in cmd and "null" in cmd:
+                return MagicMock(returncode=0, stderr=_loudnorm_json, stdout="")
             m = MagicMock(returncode=0, stderr="", stdout="")
             if any(str(nomix) in str(c) for c in cmd):
                 nomix.write_bytes(b"\x00" * 2000)
@@ -219,6 +243,10 @@ class TestConcatAndMixWithMusic:
         seg0.write_bytes(b"\x00" * 500)
 
         call_count = [0]
+        _loudnorm_json = (
+            '{\n"input_i": "-24.0", "input_tp": "-2.0",'
+            ' "input_lra": "7.0", "input_thresh": "-34.0"\n}'
+        )
 
         def _mock(cmd, **kw):
             call_count[0] += 1
@@ -226,6 +254,9 @@ class TestConcatAndMixWithMusic:
             if call_count[0] == 1:
                 # Concat succeeds
                 nomix.write_bytes(b"\x00" * 2000)
+            elif "-f" in cmd and "null" in cmd:
+                # Measure pass
+                m.stderr = _loudnorm_json
             else:
                 # Mix fails — output not created
                 m.returncode = 1
@@ -245,6 +276,91 @@ class TestConcatAndMixWithMusic:
 # ---------------------------------------------------------------------------
 # _validate_output — edge cases
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# _parse_loudnorm_stats
+# ---------------------------------------------------------------------------
+
+
+class TestParseLoudnormStats:
+    def test_valid_json(self):
+        stderr = (
+            "some ffmpeg output\n"
+            "{\n"
+            '"input_i" : "-24.05",\n'
+            '"input_tp" : "-2.10",\n'
+            '"input_lra" : "7.20",\n'
+            '"input_thresh" : "-34.17"\n'
+            "}\n"
+        )
+        result = _parse_loudnorm_stats(stderr)
+        assert result is not None
+        assert result["input_i"] == "-24.05"
+        assert result["input_tp"] == "-2.10"
+        assert result["input_lra"] == "7.20"
+        assert result["input_thresh"] == "-34.17"
+
+    def test_no_json(self):
+        assert _parse_loudnorm_stats("just some stderr text") is None
+
+    def test_missing_keys(self):
+        stderr = '{"input_i": "-24.0", "unrelated": "value"}'
+        assert _parse_loudnorm_stats(stderr) is None
+
+    def test_invalid_json(self):
+        stderr = "{broken json"
+        assert _parse_loudnorm_stats(stderr) is None
+
+    def test_empty_string(self):
+        assert _parse_loudnorm_stats("") is None
+
+
+class TestLoudnormFallback:
+    """When measurement fails, single-pass loudnorm is used as fallback."""
+
+    def test_fallback_on_bad_measurement(self, tmp_path):
+        cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
+        cfg.ensure_dirs()
+        ctx = RenderContext(w=1920, h=1080, fps=30)
+
+        music_file = tmp_path / "music.mp3"
+        music_file.write_bytes(b"\x00" * 500)
+
+        edl = _minimal_edl(music=MusicTrack(file=str(music_file)))
+        output = cfg.output_dir / "out.mp4"
+        nomix = cfg.output_dir / "vlog_v1_1080p30_nomix.mp4"
+        seg0 = cfg.output_dir / "_seg_0_1080p30.ts"
+        seg0.write_bytes(b"\x00" * 500)
+
+        calls = []
+
+        def _mock(cmd, **kw):
+            calls.append(cmd)
+            if "-f" in cmd and "null" in cmd:
+                # Measurement returns garbage
+                return MagicMock(returncode=0, stderr="no json here", stdout="")
+            m = MagicMock(returncode=0, stderr="", stdout="")
+            if any(str(nomix) in str(c) for c in cmd):
+                nomix.write_bytes(b"\x00" * 2000)
+            if any(str(output) in str(c) for c in cmd):
+                output.write_bytes(b"\x00" * 2000)
+            return m
+
+        with (
+            patch("pipeline.assemble._assemble.run_subprocess", side_effect=_mock),
+            patch.object(ctx, "probe_duration", return_value=60.0),
+        ):
+            _concat_and_mix(
+                [seg0], edl, ctx, cfg, output, version=1, res_label="1080p30"
+            )
+
+        # Apply pass should use single-pass loudnorm (no measured_ params)
+        apply_cmds = [c for c in calls if "-filter_complex" in c and "-f" not in c]
+        assert len(apply_cmds) == 1
+        fc = apply_cmds[0][apply_cmds[0].index("-filter_complex") + 1]
+        assert "loudnorm=I=-16" in fc
+        assert "measured_I" not in fc
 
 
 class TestValidateOutputEdgeCases:
