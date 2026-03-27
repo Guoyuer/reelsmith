@@ -101,31 +101,47 @@ def build_segment_graph(
         idx = len(inputs)
 
         if item.media_type == "photo":
-            _add_photo(
-                inputs,
-                filters,
-                item,
-                segment,
-                ctx,
-                idx,
-                source,
-                fade_in,
-                fade_out,
-                language,
+            frames = int(item.display_duration * fps)
+            exact_dur = frames / fps
+            inputs.append(
+                [
+                    "-loop",
+                    "1",
+                    "-framerate",
+                    str(fps),
+                    "-t",
+                    str(exact_dur),
+                    "-i",
+                    str(source),
+                ]
             )
+            filters.append(
+                _photo_filter(idx, item, segment, ctx, fade_in, fade_out, language)
+            )
+            filters.append(f"{_silence(exact_dur)} [a{idx}]")
         else:
-            _add_video(
-                inputs,
-                filters,
-                item,
-                segment,
-                ctx,
-                idx,
-                source,
-                fade_in,
-                fade_out,
-                language,
+            inputs.append(["-i", str(source)])
+            filters.append(
+                _video_filter(idx, item, segment, ctx, fade_in, fade_out, language)
             )
+
+            # Audio: preserve speech or generate silence
+            trim_start = item.start_time or 0.0
+            trim_dur = (
+                item.end_time - item.start_time
+                if item.start_time is not None and item.end_time is not None
+                else item.display_duration
+            )
+            speed = item.playback_speed or 1.0
+            if item.keep_audio:
+                parts = [
+                    f"[{idx}:a] atrim=start={trim_start}:duration={trim_dur}",
+                    f"atempo={speed}" if speed != 1.0 else None,
+                    f"asetpts=PTS-STARTPTS [a{idx}]",
+                ]
+                filters.append(",".join(p for p in parts if p))
+            else:
+                filters.append(f"{_silence(trim_dur / speed)} [a{idx}]")
 
         v_a_pairs.append((f"[v{idx}]", f"[a{idx}]"))
 
@@ -220,71 +236,6 @@ def _add_static_card(
     )
     filters.append(f"{_silence(duration)} [a{idx}]")
     v_a_pairs.append((f"[v{idx}]", f"[a{idx}]"))
-
-
-def _add_photo(
-    inputs: list[list[str]],
-    filters: list[str],
-    item: EditItem,
-    segment: Segment,
-    ctx: RenderContext,
-    idx: int,
-    source: Path,
-    fade_in: float,
-    fade_out: float,
-    language: str,
-) -> None:
-    """Add a photo item: looped input + Ken Burns filter + silence."""
-    fps = ctx.fps
-    frames = int(item.display_duration * fps)
-    exact_dur = frames / fps
-
-    # -framerate ensures input generates frames at target fps,
-    # so Ken Burns crop expressions using frame number 'n' are correct
-    inputs.append(
-        ["-loop", "1", "-framerate", str(fps), "-t", str(exact_dur), "-i", str(source)]
-    )
-    filters.append(_photo_filter(idx, item, segment, ctx, fade_in, fade_out, language))
-    filters.append(f"{_silence(exact_dur)} [a{idx}]")
-
-
-def _add_video(
-    inputs: list[list[str]],
-    filters: list[str],
-    item: EditItem,
-    segment: Segment,
-    ctx: RenderContext,
-    idx: int,
-    source: Path,
-    fade_in: float,
-    fade_out: float,
-    language: str,
-) -> bool:
-    """Add a video item: raw input + trim/speed filter + audio (speech or silence).
-
-    Returns True if this item contributes speech audio.
-    """
-    inputs.append(["-i", str(source)])
-    filters.append(_video_filter(idx, item, segment, ctx, fade_in, fade_out, language))
-
-    # Audio: preserve speech or generate silence
-    trim_start = item.start_time or 0.0
-    trim_dur = (
-        item.end_time - item.start_time
-        if item.start_time is not None and item.end_time is not None
-        else item.display_duration
-    )
-    speed = item.playback_speed or 1.0
-
-    if item.keep_audio:
-        parts = [
-            f"[{idx}:a] atrim=start={trim_start}:duration={trim_dur}",
-            f"atempo={speed}" if speed != 1.0 else None,
-            f"asetpts=PTS-STARTPTS [a{idx}]",
-        ]
-        filters.append(",".join(p for p in parts if p))
-    else:
-        filters.append(f"{_silence(trim_dur / speed)} [a{idx}]")
 
 
 def _fade_expr(duration: float, fade_in: float, fade_out: float) -> str:
