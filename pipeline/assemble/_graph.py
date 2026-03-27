@@ -5,19 +5,21 @@ audio-video sync. Photos get silence, keep_audio videos contribute speech.
 
 Filter graph topology (photo):
 
-    [idx:v] split ─┬─[bg] scale,crop,gblur,eq ─[blurred]─┐
-                    └─[fg] scale ──────────────[sharp]─────┤
-                                                           ▼
-                                    [blurred][sharp] overlay,ken_burns,color,fade → [v{idx}]
-    aevalsrc=0 (silence) ──────────────────────────────────────────────────────────→ [a{idx}]
+    [idx:v] split -+-[bg] scale,crop,gblur,eq -[blurred]--+
+                   |                                      |
+                   +-[fg] scale -----------[sharp]--------+
+                                                          |
+                                  [blurred][sharp] overlay,ken_burns,color,fade -> [v{idx}]
+    aevalsrc=0 (silence) ------------------------------------------> [a{idx}]
 
 Filter graph topology (video, aspect fill):
 
-    [idx:v] trim,split ─┬─[bg] scale,crop,gblur,eq ─[blurred]─┐
-                         └─[fg] scale ──────────────[sharp]─────┤
-                                                                ▼
-                                         [blurred][sharp] overlay,color,speed,fade → [v{idx}]
-    [idx:a] atrim,atempo (or aevalsrc=0) ─────────────────────────────────────────→ [a{idx}]
+    [idx:v] trim,split -+-[bg] scale,crop,gblur,eq -[blurred]--+
+                        |                                      |
+                        +-[fg] scale -----------[sharp]--------+
+                                                               |
+                                       [blurred][sharp] overlay,color,speed,fade -> [v{idx}]
+    [idx:a] atrim,atempo (or aevalsrc=0) -----------------------------> [a{idx}]
 """
 
 from __future__ import annotations
