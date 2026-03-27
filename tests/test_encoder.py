@@ -50,7 +50,12 @@ class TestRenderContext:
     @pytest.mark.parametrize(
         "patch_target, method, stdout, expected",
         [
-            ("pipeline.assemble._encoder.run_subprocess", "probe_dimensions", "garbage\n", (0, 0)),
+            (
+                "pipeline.assemble._encoder.run_subprocess",
+                "probe_dimensions",
+                "garbage\n",
+                (0, 0),
+            ),
             ("pipeline.utils.media.run_subprocess", "probe_duration", "\n", 0.0),
         ],
     )

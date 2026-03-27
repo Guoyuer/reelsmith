@@ -55,8 +55,10 @@ class TestSaveRunConfig:
             ({"path": None, "duration": 60}, lambda d: "source" not in d),
             (
                 {"path": "/photos", "force": True, "version": 2, "run_name": "test"},
-                lambda d: all(k not in d for k in ("force", "version", "run_name"))
-                and d["source"]["path"] == "/photos",
+                lambda d: (
+                    all(k not in d for k in ("force", "version", "run_name"))
+                    and d["source"]["path"] == "/photos"
+                ),
             ),
             ({"path": "/photos"}, lambda d: "plan" not in d and "assemble" not in d),
         ],
@@ -134,8 +136,17 @@ def _capture_cli_params(runner, cli_args):
 
 
 _FULL_BASE = [
-    "full", "-n", "test-run", "-p", ".", "--duration", "60",
-    "--model", "balanced", "-r", "1080p30",
+    "full",
+    "-n",
+    "test-run",
+    "-p",
+    ".",
+    "--duration",
+    "60",
+    "--model",
+    "balanced",
+    "-r",
+    "1080p30",
 ]
 
 
@@ -230,7 +241,9 @@ assemble:
             ),
             (
                 ["plan", "-n", "test", "--use-cfg-file"],
-                lambda c: c["plan"].target_duration == 180 and c["plan"].style == "cinematic",
+                lambda c: (
+                    c["plan"].target_duration == 180 and c["plan"].style == "cinematic"
+                ),
             ),
             (
                 ["assemble", "-n", "test", "--use-cfg-file"],
@@ -298,11 +311,23 @@ class TestConfigValidation:
     @pytest.mark.parametrize(
         "data, match",
         [
-            ({"source": {"path": "/photos"}, "bogus": 123}, "unknown top-level keys.*bogus"),
-            ({"plan": {"duration": 300, "model": "fast", "foo": "bar"}}, "'plan'.*unknown keys.*foo"),
+            (
+                {"source": {"path": "/photos"}, "bogus": 123},
+                "unknown top-level keys.*bogus",
+            ),
+            (
+                {"plan": {"duration": 300, "model": "fast", "foo": "bar"}},
+                "'plan'.*unknown keys.*foo",
+            ),
             ({"plan": {"model": "fast"}}, "'plan.duration' is required"),
-            ({"plan": {"duration": "not_an_int", "model": "fast"}}, "'plan.duration' must be int"),
-            ({"source": {"path": "/photos", "type": "local"}}, "'source'.*unknown keys.*type"),
+            (
+                {"plan": {"duration": "not_an_int", "model": "fast"}},
+                "'plan.duration' must be int",
+            ),
+            (
+                {"source": {"path": "/photos", "type": "local"}},
+                "'source'.*unknown keys.*type",
+            ),
             ({"plan": "not_a_dict"}, "'plan' must be an object"),
         ],
         ids=[

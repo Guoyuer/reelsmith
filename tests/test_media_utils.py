@@ -32,7 +32,9 @@ class TestStripMarkdownFences:
             ('  {"key": "value"}  ', '{"key": "value"}', True),
         ],
     )
-    def test_strips_fences_and_whitespace(self, input_text, expected_substring, no_fences):
+    def test_strips_fences_and_whitespace(
+        self, input_text, expected_substring, no_fences
+    ):
         result = strip_markdown_fences(input_text)
         assert expected_substring in result
         if no_fences:

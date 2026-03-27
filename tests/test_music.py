@@ -28,7 +28,9 @@ class TestWriteWav:
 
         pcm = b"\x00" * (sample_rate * channels * (bits // 8) * pcm_seconds)
         path = tmp_path / "test.wav"
-        _write_wav(path, pcm, sample_rate=sample_rate, channels=channels, bits_per_sample=bits)
+        _write_wav(
+            path, pcm, sample_rate=sample_rate, channels=channels, bits_per_sample=bits
+        )
 
         assert path.exists()
         data = path.read_bytes()
@@ -113,7 +115,9 @@ class TestGenerateMusicGemini:
         ],
         ids=["empty_audio", "api_error"],
     )
-    def test_returns_none_on_failure(self, tmp_path, monkeypatch, fake_result, description):
+    def test_returns_none_on_failure(
+        self, tmp_path, monkeypatch, fake_result, description
+    ):
         from pipeline.music._gemini import generate_music_gemini
 
         monkeypatch.setenv("GEMINI_API_KEY", "test-key")
@@ -188,13 +192,19 @@ class TestGenerateMusicGeminiE2E:
         from pipeline.music._gemini import generate_music_gemini
 
         result1 = generate_music_gemini(
-            "general", "upbeat", 5, tmp_path,
+            "general",
+            "upbeat",
+            5,
+            tmp_path,
             mood="gentle piano, calm travel background",
         )
         assert result1 is not None
 
         result2 = generate_music_gemini(
-            "general", "upbeat", 5, tmp_path,
+            "general",
+            "upbeat",
+            5,
+            tmp_path,
             mood="gentle piano, calm travel background",
         )
         assert result2 == result1

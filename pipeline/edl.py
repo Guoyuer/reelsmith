@@ -306,8 +306,7 @@ def _validate_item(
     if item.media_type == "video":
         if item.effect != Effect.NONE:
             _error(
-                f"{item_label}: video should have effect='none', "
-                f"got '{item.effect}'"
+                f"{item_label}: video should have effect='none', got '{item.effect}'"
             )
         if item.start_time is not None and item.end_time is not None:
             if item.start_time >= item.end_time:

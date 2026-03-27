@@ -31,12 +31,16 @@ class TestRenderTitleCard:
         """Without background_photo, uses gradient filter."""
         out = tmp_path / "title.mp4"
         mock_result = MagicMock(returncode=0, stderr="")
-        with patch("pipeline.assemble._render.run_subprocess", return_value=mock_result) as m:
+        with patch(
+            "pipeline.assemble._render.run_subprocess", return_value=mock_result
+        ) as m:
             render_title_card("My Trip", "June 2025", out, ctx=ctx)
             cmd = m.call_args[0][0]
             cmd_str = " ".join(str(c) for c in cmd)
             assert "color=c=0x0f0c29" in cmd_str  # gradient
-            assert "My Trip" in cmd_str or "My\\ Trip" in cmd_str or "My Trip" in cmd_str
+            assert (
+                "My Trip" in cmd_str or "My\\ Trip" in cmd_str or "My Trip" in cmd_str
+            )
             assert "-an" in cmd
 
     def test_photo_background_cmd(self, ctx, tmp_path):
@@ -45,7 +49,9 @@ class TestRenderTitleCard:
         bg.write_bytes(b"\xff\xd8" + b"\x00" * 100)
         out = tmp_path / "title.mp4"
         mock_result = MagicMock(returncode=0, stderr="")
-        with patch("pipeline.assemble._render.run_subprocess", return_value=mock_result) as m:
+        with patch(
+            "pipeline.assemble._render.run_subprocess", return_value=mock_result
+        ) as m:
             render_title_card("Trip", "", out, ctx=ctx, background_photo=str(bg))
             cmd = m.call_args[0][0]
             cmd_str = " ".join(str(c) for c in cmd)
@@ -57,8 +63,12 @@ class TestRenderTitleCard:
         """If background_photo doesn't exist, falls back to gradient."""
         out = tmp_path / "title.mp4"
         mock_result = MagicMock(returncode=0, stderr="")
-        with patch("pipeline.assemble._render.run_subprocess", return_value=mock_result) as m:
-            render_title_card("Trip", "", out, ctx=ctx, background_photo="/no/photo.jpg")
+        with patch(
+            "pipeline.assemble._render.run_subprocess", return_value=mock_result
+        ) as m:
+            render_title_card(
+                "Trip", "", out, ctx=ctx, background_photo="/no/photo.jpg"
+            )
             cmd_str = " ".join(str(c) for c in m.call_args[0][0])
             assert "color=c=0x0f0c29" in cmd_str
 
@@ -66,7 +76,9 @@ class TestRenderTitleCard:
         """Subtitle text appears in filter when provided."""
         out = tmp_path / "title.mp4"
         mock_result = MagicMock(returncode=0, stderr="")
-        with patch("pipeline.assemble._render.run_subprocess", return_value=mock_result) as m:
+        with patch(
+            "pipeline.assemble._render.run_subprocess", return_value=mock_result
+        ) as m:
             render_title_card("Trip", "June 13-16", out, ctx=ctx)
             cmd_str = " ".join(str(c) for c in m.call_args[0][0])
             assert "June 13-16" in cmd_str
@@ -75,14 +87,18 @@ class TestRenderTitleCard:
         """Empty subtitle doesn't crash."""
         out = tmp_path / "title.mp4"
         mock_result = MagicMock(returncode=0, stderr="")
-        with patch("pipeline.assemble._render.run_subprocess", return_value=mock_result):
+        with patch(
+            "pipeline.assemble._render.run_subprocess", return_value=mock_result
+        ):
             render_title_card("Trip", "", out, ctx=ctx)  # should not raise
 
     def test_failure_raises(self, ctx, tmp_path):
         """Non-zero return code raises RuntimeError."""
         out = tmp_path / "title.mp4"
         mock_result = MagicMock(returncode=1, stderr="encode error")
-        with patch("pipeline.assemble._render.run_subprocess", return_value=mock_result):
+        with patch(
+            "pipeline.assemble._render.run_subprocess", return_value=mock_result
+        ):
             with pytest.raises(RuntimeError, match="Title card render failed"):
                 render_title_card("Trip", "", out, ctx=ctx)
 
@@ -90,7 +106,9 @@ class TestRenderTitleCard:
         """Titles > 25 chars should get reduced font size."""
         out = tmp_path / "title.mp4"
         mock_result = MagicMock(returncode=0, stderr="")
-        with patch("pipeline.assemble._render.run_subprocess", return_value=mock_result) as m:
+        with patch(
+            "pipeline.assemble._render.run_subprocess", return_value=mock_result
+        ) as m:
             long_title = "A" * 40
             render_title_card(long_title, "", out, ctx=ctx)
             cmd_str = " ".join(str(c) for c in m.call_args[0][0])
@@ -102,7 +120,9 @@ class TestRenderTitleCard:
         ctx_4k = RenderContext(w=3840, h=2160, fps=60)
         out = tmp_path / "title.mp4"
         mock_result = MagicMock(returncode=0, stderr="")
-        with patch("pipeline.assemble._render.run_subprocess", return_value=mock_result) as m:
+        with patch(
+            "pipeline.assemble._render.run_subprocess", return_value=mock_result
+        ) as m:
             render_title_card("Trip", "", out, ctx=ctx_4k)
             cmd_str = " ".join(str(c) for c in m.call_args[0][0])
             assert "3840" in cmd_str
