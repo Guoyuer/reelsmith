@@ -249,7 +249,7 @@ def _render_segments(
     max_workers = 3 if "nvenc" in " ".join(ctx.get_encoder()) else 2
 
     if progress_callback:
-        progress_callback(0, 0, "rendering segments...")
+        progress_callback(0, len(segment_cmds), "render segments")
 
     def _render_seg(seg_idx, cmd):
         result = run_subprocess(cmd, capture_output=True, text=True, timeout=600)
