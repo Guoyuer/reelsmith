@@ -13,7 +13,7 @@ from typing import Any
 
 from .._types import AnalysisEntry
 from ..config import Config, ProgressCallback
-from ..edl import EDL, MusicTrack, find_latest_version, save_edl
+from ..edl import EDL, Effect, MusicMode, MusicTrack, find_latest_version, save_edl
 from ._gemini import _gemini_call
 from ._postprocess import (
     PostprocessReport,
@@ -322,8 +322,8 @@ def plan(
     validate_and_fix_edl(edl)
     for seg in edl.segments:
         for item in seg.items:
-            if item.media_type == "video" and item.effect != "none":
-                item.effect = "none"
+            if item.media_type == "video" and item.effect != Effect.NONE:
+                item.effect = Effect.NONE
 
     # Set metadata on the EDL — use user's target, not Gemini's
     edl.target_duration = pc.target_duration
@@ -341,9 +341,9 @@ def plan(
     if pc.music_file and pc.music_file != "auto" and Path(pc.music_file).exists():
         logger.info("Attaching music file: %s", pc.music_file)
         edl.music = MusicTrack(file=pc.music_file)
-        edl.music_mode = "file"
+        edl.music_mode = MusicMode.FILE
     elif pc.music_file == "auto":
-        edl.music_mode = "auto"
+        edl.music_mode = MusicMode.AUTO
         logger.info("Music mode: auto (will generate in generate_music step)")
 
     version = find_latest_version(cfg) + 1
