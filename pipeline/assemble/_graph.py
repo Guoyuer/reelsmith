@@ -314,7 +314,7 @@ def _photo_filter(
 
     return (
         f"[{idx}:v] split [bg{idx}][fg{idx}];"
-        f"{_blurred_bg(idx, w, h, C.PHOTO_BLUR_SIGMA)},"
+        f"{_blurred_bg(idx, w, h, C.BG_BLUR_SIGMA)},"
         f"{ken_burns_vf},{color_vf}{sharpen}{overlay_vf}{fade} [v{idx}]"
     )
 
@@ -364,7 +364,7 @@ def _video_filter(
     if needs_aspect_fill:
         return (
             f"[{idx}:v] {trim_vf}format=yuv420p,split [bg{idx}][fg{idx}];"
-            f"{_blurred_bg(idx, w, h, C.VIDEO_BLUR_SIGMA)},"
+            f"{_blurred_bg(idx, w, h, C.BG_BLUR_SIGMA)},"
             f"{color_vf}{speed_vf}{overlay_vf}{fade},fps={fps} [v{idx}]"
         )
     else:

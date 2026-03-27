@@ -269,7 +269,7 @@ class TestVideoFilter:
             seg = _seg([item])
             result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
             assert "split [bg0][fg0]" in result
-            assert "gblur=sigma=60" in result
+            assert "gblur=sigma=50" in result
             assert "overlay=(W-w)/2:(H-h)/2" in result
 
     def test_non_16_9_landscape_gets_blur(self):
@@ -278,7 +278,7 @@ class TestVideoFilter:
             item = _video(duration=5.0)
             seg = _seg([item])
             result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
-            assert "gblur=sigma=60" in result
+            assert "gblur=sigma=50" in result
 
     def test_trim_in_filter(self):
         """Video with start_time/end_time uses trim filter, not -ss/-t."""

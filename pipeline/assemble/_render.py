@@ -48,7 +48,7 @@ def render_title_card(
     if use_photo_bg:
         photo_bg = (
             f"scale={w}:{h}:force_original_aspect_ratio=increase,"
-            f"crop={w}:{h},gblur=sigma={C.TITLE_BG_BLUR_SIGMA},"
+            f"crop={w}:{h},gblur=sigma={C.BG_BLUR_SIGMA},"
             f"eq=brightness=-0.3:saturation=0.7,vignette=PI/5"
         )
     else:
