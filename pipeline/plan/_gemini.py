@@ -193,16 +193,13 @@ def _display_api_summary(stats: _ApiStats) -> None:
 
 def _prepare_parts(
     user_parts: list, client, progress_callback: ProgressCallback = None
-) -> tuple[list, int]:
+) -> list:
     """Convert *user_parts* (str/dict) into Gemini API Part objects.
 
     Videos are uploaded via the Files API; images are inlined.
-    Returns ``(parts, n_uploaded)`` where *n_uploaded* is the number of
-    files uploaded via the Files API.
     """
     from google.genai import types
 
-    n_uploaded = 0
     parts = []
     for p in user_parts:
         if isinstance(p, str):
@@ -230,7 +227,6 @@ def _prepare_parts(
                         time.sleep(2)
                         uploaded = client.files.get(name=uploaded.name or "")
                     logger.info("  Video uploaded and ACTIVE: %s", uploaded.name)
-                    n_uploaded += 1
                 finally:
                     Path(tf_path).unlink(missing_ok=True)
                 parts.append(
@@ -247,7 +243,7 @@ def _prepare_parts(
         elif isinstance(p, types.Part):
             parts.append(p)
 
-    return parts, n_uploaded
+    return parts
 
 
 def _parse_response(response) -> str:
@@ -416,7 +412,7 @@ def _gemini_call(
         )
 
     # Convert user_parts into Gemini Part objects
-    parts, n_uploaded = _prepare_parts(user_parts, client, progress_callback)
+    parts = _prepare_parts(user_parts, client, progress_callback)
 
     # Log call details
     n_images = sum(
