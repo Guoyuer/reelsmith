@@ -445,7 +445,7 @@ def _build_visual_content_blocks(
     Returns (blocks, offset_table, n_photos, n_videos).
     """
     blocks: list = []
-    preview_dir = cfg.preview_clips_dir
+    preview_dir = cfg.previews_dir
 
     # --- Phase 1: collect items ---
     text_block, photo_paths, video_entries, n_photos, n_videos = _collect_items(

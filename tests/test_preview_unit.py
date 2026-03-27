@@ -131,7 +131,7 @@ class TestBuildVisualContentBlocks:
         # Create video file + preview
         video = cfg.media_dir / "vid.mp4"
         video.write_bytes(b"\x00" * 500)
-        preview = cfg.preview_clips_dir / "preview_2.mp4"
+        preview = cfg.previews_dir / "preview_2.mp4"
         preview.write_bytes(b"\x00" * 1000)
 
         analysis = {

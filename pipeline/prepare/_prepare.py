@@ -3,7 +3,7 @@
 - Photo thumbnails (400px JPEG, cached in thumbnails/)
 - EXIF extraction (recomputed each run — fast)
 - Video duration probing (recomputed each run — fast)
-- Video previews (480p 1fps, cached in preview_clips/)
+- Video previews (480p 1fps, cached in previews/)
 
 Results written to a single analysis.json per run.
 """
@@ -167,7 +167,7 @@ def prepare(
     if videos:
         _generate_video_previews(
             videos,
-            cfg.preview_clips_dir,
+            cfg.previews_dir,
             force=pc.force,
             progress_callback=progress_callback,
         )

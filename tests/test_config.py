@@ -48,14 +48,14 @@ class TestEnsureDirs:
     def test_creates_all_directories(self, tmp_path: Path):
         cfg = Config.load(workspace=str(tmp_path / "workspace" / "runs" / "test"))
         cfg.ensure_dirs()
-        assert (cfg.workspace / "clips").is_dir()
+        assert (cfg.workspace / "render").is_dir()
         assert (cfg.workspace / "output").is_dir()
         assert cfg.thumbnails_dir.is_dir()
-        assert cfg.preview_clips_dir.is_dir()
+        assert cfg.previews_dir.is_dir()
         assert cfg.music_dir.is_dir()
 
     def test_idempotent(self, tmp_path: Path):
         cfg = Config.load(workspace=str(tmp_path / "workspace" / "runs" / "test"))
         cfg.ensure_dirs()
         cfg.ensure_dirs()
-        assert (cfg.workspace / "clips").is_dir()
+        assert (cfg.workspace / "render").is_dir()

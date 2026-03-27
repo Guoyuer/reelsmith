@@ -191,10 +191,10 @@ def _render_segments(
 
     # Title cards
     intro_path = _render_title_card_if_needed(
-        edl, "intro", cfg.clips_dir / f"intro_title_{res_label}.mp4", ctx, res_label
+        edl, "intro", cfg.render_dir / f"intro_title_{res_label}.mp4", ctx, res_label
     )
     outro_path = _render_title_card_if_needed(
-        edl, "outro", cfg.clips_dir / f"outro_title_{res_label}.mp4", ctx, res_label
+        edl, "outro", cfg.render_dir / f"outro_title_{res_label}.mp4", ctx, res_label
     )
 
     fade_params = compute_fade_params(edl)
@@ -405,7 +405,7 @@ def _concat_and_mix(
     for i in range(len(edl.segments)):
         (output_dir / f"_seg_{i}_{res_label}.txt").unlink(missing_ok=True)
     list_path.unlink(missing_ok=True)
-    for tc in cfg.clips_dir.glob(f"*_title_{res_label}.mp4"):
+    for tc in cfg.render_dir.glob(f"*_title_{res_label}.mp4"):
         tc.unlink(missing_ok=True)
 
     return output_path

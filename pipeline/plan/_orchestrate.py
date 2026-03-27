@@ -348,9 +348,9 @@ def plan(
     version = find_latest_version(cfg) + 1
     save_edl(cfg, edl, version)
 
-    clips_dir = cfg.clips_dir
-    if clips_dir.exists():
-        for f in clips_dir.iterdir():
+    render_dir = cfg.render_dir
+    if render_dir.exists():
+        for f in render_dir.iterdir():
             f.unlink(missing_ok=True)
 
     return edl, version

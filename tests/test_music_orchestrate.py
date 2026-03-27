@@ -9,7 +9,6 @@ import pytest
 from pipeline.config import Config
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -19,7 +18,7 @@ from pipeline.edl import EDL, EditItem, MusicTrack, Segment
 def music_workspace(tmp_path):
     """Minimal workspace with music-related directories."""
     ws = tmp_path / "workspace"
-    for d in ("media", "clips", "output", "music"):
+    for d in ("media", "render", "output", "music"):
         (ws / d).mkdir(parents=True)
     return ws
 
@@ -184,6 +183,9 @@ class TestGenerateMusicForEdl:
             "pipeline.music._gemini.generate_music_gemini", return_value=fake_track
         ):
             generate_music_for_edl(
-                cfg, progress_callback=lambda done, total, detail: calls.append((done, total))
+                cfg,
+                progress_callback=lambda done, total, detail: calls.append(
+                    (done, total)
+                ),
             )
         assert len(calls) >= 1

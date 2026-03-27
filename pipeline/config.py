@@ -41,8 +41,8 @@ class Config:
         return self._base / "thumbnails"
 
     @property
-    def preview_clips_dir(self) -> Path:
-        return self._base / "preview_clips"
+    def previews_dir(self) -> Path:
+        return self._base / "previews"
 
     @property
     def music_dir(self) -> Path:
@@ -50,8 +50,8 @@ class Config:
 
     # Per-run directories and files
     @property
-    def clips_dir(self) -> Path:
-        return self.workspace / "clips"
+    def render_dir(self) -> Path:
+        return self.workspace / "render"
 
     @property
     def output_dir(self) -> Path:
@@ -85,10 +85,10 @@ class Config:
 
     def ensure_dirs(self) -> None:
         for d in [
-            self.clips_dir,
+            self.render_dir,
             self.output_dir,
             self.thumbnails_dir,
-            self.preview_clips_dir,
+            self.previews_dir,
             self.music_dir,
         ]:
             d.mkdir(parents=True, exist_ok=True)
