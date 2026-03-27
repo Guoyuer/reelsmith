@@ -7,7 +7,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict
 
 from ._types import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS
 
@@ -153,14 +153,6 @@ class Segment(BaseModel):
     segment_transition_duration: float = 1.0  # seconds; inter-segment fade length
     mode: SegmentMode = SegmentMode.NARRATIVE  # montage = quick-cut burst
     color_temp: ColorTemp = ColorTemp.NEUTRAL  # Gemini sets per segment
-
-    @field_validator("transition", mode="before")
-    @classmethod
-    def _normalize_transition(cls, v: str) -> str:
-        """Map removed enum values to crossfade for backwards compatibility."""
-        if v == "fade_black":
-            return "crossfade"
-        return v
 
 
 class MusicTrack(BaseModel):
