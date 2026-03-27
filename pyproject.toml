@@ -44,7 +44,7 @@ ignore = ["E501"]
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "basic"
-reportOptionalMemberAccess = "warning"
+reportOptionalMemberAccess = "error"
 reportMissingTypeStubs = false
 exclude = ["tests/", ".venv/", "venv/"]
 

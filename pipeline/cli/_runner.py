@@ -79,14 +79,15 @@ class _PipelineContext:
 def _stage(pc: _PipelineContext, name: str):
     """Shared stage boilerplate: interrupt check, display start, timing, progress callback."""
     assert pc.display is not None
-    _check_interrupted(pc.display, pc.logger)
-    pc.display.start(name)
+    display = pc.display
+    _check_interrupted(display, pc.logger)
+    display.start(name)
     t0 = time.monotonic()
-    cb = _progress_cb(pc.logger, pc.display, name, t0)
+    cb = _progress_cb(pc.logger, display, name, t0)
 
     def done(detail: str) -> float:
         elapsed = time.monotonic() - t0
-        pc.display.done(name, detail, elapsed)
+        display.done(name, detail, elapsed)
         return elapsed
 
     yield cb, done
@@ -183,6 +184,7 @@ def _run_assemble(pc: _PipelineContext):
         out, issues = do_assemble(pc.cfg, ac, progress_callback=cb)
 
         size_mb = round(out.stat().st_size / 1024 / 1024, 1) if out.exists() else 0
+        assert pc.display is not None
         pc.display.output_file = str(out)
         elapsed = done(f"{out.name} ({size_mb}MB)")
         pc.logger.info(f"Assemble: {out.name} ({size_mb}MB) in {elapsed:.0f}s")

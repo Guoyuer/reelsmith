@@ -99,6 +99,7 @@ def assemble(
 
     # Beat sync
     if has_music:
+        assert edl.music is not None
         beat_snap_edl(edl, Path(edl.music.file))
 
     t_start = time.monotonic()
