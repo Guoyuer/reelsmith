@@ -119,7 +119,7 @@ _plan_options = [
     ),
     click.option(
         "--trip-type",
-        default="family",
+        default="general",
         type=click.Choice(TRIP_TYPE_CHOICES),
         help="Narrative style: family=close-ups+laughter, solo=landscapes+wonder, food=dishes+markets, etc.",
     ),
@@ -275,6 +275,8 @@ def _validate_use_cfg(ctx: click.Context) -> None:
     for param in ctx.command.params:
         if param.name in _CFG_ALLOWED_PARAMS:
             continue
+        if param.name is None:
+            continue
         source = ctx.get_parameter_source(param.name)
         if source == click.core.ParameterSource.COMMANDLINE:
             raise click.UsageError(
@@ -298,6 +300,8 @@ def _collect_defaults(ctx: click.Context) -> set[str]:
     """Return set of param names whose values came from CLI defaults, not user input."""
     defaults = set()
     for param in ctx.command.params:
+        if param.name is None:
+            continue
         source = ctx.get_parameter_source(param.name)
         if source == click.core.ParameterSource.DEFAULT:
             defaults.add(param.name)
@@ -349,7 +353,7 @@ def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
             p["duration"] = pl["duration"]
             p["model"] = pl["model"]
             p["lang"] = pl.get("lang", "en")
-            p["trip_type"] = pl.get("trip_type", "family")
+            p["trip_type"] = pl.get("trip_type", "general")
             p["style"] = pl.get("style", "upbeat")
             p["focus"] = pl.get("focus", "")
             p["music"] = pl.get("music", "auto")
