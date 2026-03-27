@@ -248,8 +248,8 @@ class TestRenderTitleCardIfNeeded:
             result = _render_title_card_if_needed(edl, "outro", path, ctx, "1080p30")
         assert result == path
 
-    def test_skips_existing_file(self, tmp_path, ctx):
-        """If title card already exists, don't re-render."""
+    def test_always_re_renders(self, tmp_path, ctx):
+        """Title card is always re-rendered (no caching)."""
         edl = EDL(
             title="T",
             target_duration=60,
@@ -272,8 +272,9 @@ class TestRenderTitleCardIfNeeded:
         path = tmp_path / "intro.mp4"
         path.write_bytes(b"\x00" * 100)
         with patch("pipeline.assemble._assemble.render_title_card") as m:
+            m.side_effect = lambda *a, **kw: path.write_bytes(b"\x00" * 100)
             _render_title_card_if_needed(edl, "intro", path, ctx, "1080p30")
-            m.assert_not_called()
+            m.assert_called_once()
 
     def test_render_failure_raises(self, tmp_path, ctx):
         """If render doesn't create the file, raise RuntimeError."""

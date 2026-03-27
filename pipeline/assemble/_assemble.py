@@ -522,30 +522,28 @@ def _render_title_card_if_needed(
     if not edl.title:
         return None
     if kind == "intro":
-        if not path.exists():
-            bg = _find_first_photo(edl)
-            render_title_card(
-                edl.title,
-                edl.date_range,
-                path,
-                duration=edl.intro_duration,
-                language=edl.language,
-                ctx=ctx,
-                background_photo=bg,
-            )
+        bg = _find_first_photo(edl)
+        render_title_card(
+            edl.title,
+            edl.date_range,
+            path,
+            duration=edl.intro_duration,
+            language=edl.language,
+            ctx=ctx,
+            background_photo=bg,
+        )
         if not path.exists():
             raise RuntimeError(f"Intro title card render failed: {path}")
         return path
     elif kind == "outro":
-        if not path.exists():
-            render_title_card(
-                edl.title,
-                "",
-                path,
-                duration=edl.outro_duration,
-                language=edl.language,
-                ctx=ctx,
-            )
+        render_title_card(
+            edl.title,
+            "",
+            path,
+            duration=edl.outro_duration,
+            language=edl.language,
+            ctx=ctx,
+        )
         if not path.exists():
             raise RuntimeError(f"Outro title card render failed: {path}")
         return path
