@@ -248,11 +248,10 @@ def _prepare_parts(
 def _parse_response(response) -> str:
     """Extract text content from a Gemini response.
 
-    Logs thinking, executable_code, and code_execution_result parts.
-    Renders thinking to terminal via Rich when available.
+    Logs thinking parts and renders them to terminal via Rich.
     Returns the text content string (may be empty).
     """
-    # Log thinking, code execution, and other non-text parts
+    # Log thinking parts
     if response.candidates:
         cand_content = response.candidates[0].content
         for part in (cand_content.parts if cand_content else None) or []:
@@ -261,16 +260,6 @@ def _parse_response(response) -> str:
                 for line in part.text.split("\n"):
                     logger.info("  [Thinking] %s", line)
                 _display_thinking(part.text)
-            if getattr(part, "executable_code", None):
-                ec = part.executable_code  # type: ignore[union-attr]
-                code = ec.code or "" if ec else ""
-                for line in code.split("\n"):
-                    logger.info("  [Code] %s", line)
-            if getattr(part, "code_execution_result", None):
-                cer = part.code_execution_result  # type: ignore[union-attr]
-                if cer:
-                    for line in (cer.output or "").split("\n"):
-                        logger.info("  [CodeResult] %s: %s", cer.outcome, line)
 
     content = response.text or ""
     # Log finish reason if response is empty or blocked
