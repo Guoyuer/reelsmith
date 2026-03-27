@@ -142,7 +142,7 @@ class TestEDLPersistence:
         from pipeline.config import Config
         from pipeline.edl import load_latest_edl, save_edl
 
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
         edl = EDL(
             title="Test",
@@ -157,7 +157,7 @@ class TestEDLPersistence:
             ],
         )
         save_edl(cfg, edl, version=3)
-        assert (tmp_path / "edl_v3.json").exists()
+        assert (cfg.workspace / "edl_v3.json").exists()
 
         loaded, version = load_latest_edl(cfg)
         assert version == 3
@@ -167,17 +167,18 @@ class TestEDLPersistence:
         from pipeline.config import Config
         from pipeline.edl import find_latest_version
 
-        cfg = Config(workspace=tmp_path)
-        (tmp_path / "edl_v1.json").write_text("{}")
-        (tmp_path / "edl_v5.json").write_text("{}")
-        (tmp_path / "edl_v3.json").write_text("{}")
+        cfg = Config(workspace=tmp_path / "runs" / "test")
+        cfg.ensure_dirs()
+        (cfg.workspace / "edl_v1.json").write_text("{}")
+        (cfg.workspace / "edl_v5.json").write_text("{}")
+        (cfg.workspace / "edl_v3.json").write_text("{}")
         assert find_latest_version(cfg) == 5
 
     def test_no_edl_raises(self, tmp_path):
         from pipeline.config import Config
         from pipeline.edl import load_latest_edl
 
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
         with pytest.raises(FileNotFoundError):
             load_latest_edl(cfg)

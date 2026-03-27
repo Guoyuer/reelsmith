@@ -135,7 +135,7 @@ def sample_edl() -> EDL:
 def mock_config(tmp_path: Path) -> Config:
     """Config with fake URLs pointed at tmp_path, directories created."""
     cfg = Config(
-        workspace=tmp_path / "workspace",
+        workspace=tmp_path / "workspace" / "runs" / "test",
     )
     cfg.ensure_dirs()
     cfg.media_dir.mkdir(parents=True, exist_ok=True)

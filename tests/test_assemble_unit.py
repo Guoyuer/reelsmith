@@ -11,7 +11,7 @@ class TestAssembleConfigToEdlLoading:
     """Test that assemble() loads the correct EDL version."""
 
     def test_loads_specified_version(self, tmp_path):
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
         edl = EDL(
             title="V1",

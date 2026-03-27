@@ -37,7 +37,7 @@ def _create_fake_video(path: Path) -> None:
 def mock_config(tmp_path: Path):
     from pipeline.config import Config
 
-    cfg = Config(workspace=tmp_path / "workspace")
+    cfg = Config(workspace=tmp_path / "workspace" / "runs" / "test")
     cfg.ensure_dirs()
     return cfg
 

@@ -61,7 +61,7 @@ class TestBuildVisualContentBlocks:
     """Test the full content block builder."""
 
     def test_builds_blocks_with_photos(self, tmp_path):
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
         cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
@@ -91,7 +91,7 @@ class TestBuildVisualContentBlocks:
         assert "#01" in texts[0]
 
     def test_missing_thumbnail_raises(self, tmp_path):
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
         cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
@@ -111,14 +111,14 @@ class TestBuildVisualContentBlocks:
             _build_visual_content_blocks(analysis, cfg)
 
     def test_empty_chapter_skipped(self, tmp_path):
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
 
         with pytest.raises(RuntimeError, match="No photos"):
             _build_visual_content_blocks({}, cfg)
 
     def test_video_entries_collected(self, tmp_path):
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
         cfg.media_dir.mkdir(parents=True, exist_ok=True)
 

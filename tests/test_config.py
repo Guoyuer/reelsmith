@@ -36,10 +36,6 @@ class TestConfigLoad:
         assert cfg.cache_dir == expected_base / "analysis_cache"
         assert cfg.thumbnails_dir == expected_base / "thumbnails"
 
-    def test_custom_workspace_uses_self_for_shared(self, tmp_path: Path):
-        ws = str(tmp_path / "workspace" / "custom")
-        assert Config.load(workspace=ws).media_dir == Path(ws) / "media"
-
     def test_workspace_arg_used(self, tmp_path: Path):
         ws = str(tmp_path / "explicit")
         assert Config.load(workspace=ws).workspace == Path(ws)
@@ -51,7 +47,7 @@ class TestConfigLoad:
 @pytest.mark.usefixtures("_clean_env")
 class TestEnsureDirs:
     def test_creates_all_directories(self, tmp_path: Path):
-        cfg = Config.load(workspace=str(tmp_path / "workspace"))
+        cfg = Config.load(workspace=str(tmp_path / "workspace" / "runs" / "test"))
         cfg.ensure_dirs()
         assert (cfg.workspace / "clips").is_dir()
         assert (cfg.workspace / "output").is_dir()
@@ -61,7 +57,7 @@ class TestEnsureDirs:
         assert cfg.music_dir.is_dir()
 
     def test_idempotent(self, tmp_path: Path):
-        cfg = Config.load(workspace=str(tmp_path / "workspace"))
+        cfg = Config.load(workspace=str(tmp_path / "workspace" / "runs" / "test"))
         cfg.ensure_dirs()
         cfg.ensure_dirs()
         assert (cfg.workspace / "clips").is_dir()

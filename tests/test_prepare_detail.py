@@ -101,7 +101,7 @@ class TestPrepareFullFlow:
         from pipeline.config import Config
         from pipeline.prepare import PrepareConfig, prepare
 
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
         cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
@@ -132,7 +132,7 @@ class TestPrepareFullFlow:
         from pipeline.config import Config
         from pipeline.prepare import PrepareConfig, prepare
 
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
         cfg.media_dir.mkdir(parents=True, exist_ok=True)
 

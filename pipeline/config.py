@@ -28,12 +28,8 @@ class Config:
 
     @property
     def _base(self) -> Path:
-        """Shared root: workspace/../.. if in runs/xxx, else workspace itself."""
-        return (
-            self.workspace.parent.parent
-            if self.workspace.parent.name == "runs"
-            else self.workspace
-        )
+        """Shared root: workspace/runs/{name} → workspace."""
+        return self.workspace.parent.parent
 
     # Shared directories (across all runs)
     @property

@@ -14,7 +14,7 @@ from pipeline.fetch._local import _extract_gps, fetch_local
 def mock_config(tmp_path):
     from pipeline.config import Config
 
-    cfg = Config(workspace=tmp_path / "workspace")
+    cfg = Config(workspace=tmp_path / "workspace" / "runs" / "test")
     cfg.ensure_dirs()
     return cfg
 

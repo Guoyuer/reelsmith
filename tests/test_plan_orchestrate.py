@@ -13,7 +13,7 @@ from pipeline.plan import PlanConfig
 
 def _setup_workspace(tmp_path, n_photos=2):
     """Create a minimal workspace with preprocessed data and photos."""
-    cfg = Config(workspace=tmp_path)
+    cfg = Config(workspace=tmp_path / "runs" / "test")
     cfg.ensure_dirs()
     cfg.media_dir.mkdir(parents=True, exist_ok=True)
 

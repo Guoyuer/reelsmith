@@ -57,7 +57,7 @@ def _mock_run_ok(cmd, **kw):
 class TestConcatAndMixNoMusic:
     def test_concat_creates_output(self, tmp_path):
         """Without music, concat copies directly to output_path."""
-        cfg = Config(workspace=tmp_path / "ws")
+        cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
         cfg.ensure_dirs()
         ctx = RenderContext(w=1920, h=1080, fps=30)
         edl = _minimal_edl()
@@ -78,7 +78,7 @@ class TestConcatAndMixNoMusic:
 
     def test_concat_failure_raises(self, tmp_path):
         """Non-zero ffmpeg concat raises RuntimeError."""
-        cfg = Config(workspace=tmp_path / "ws")
+        cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
         cfg.ensure_dirs()
         ctx = RenderContext(w=1920, h=1080, fps=30)
         edl = _minimal_edl()
@@ -107,7 +107,7 @@ class TestConcatAndMixNoMusic:
 class TestConcatAndMixWithMusic:
     def test_music_mix_filter_chain(self, tmp_path):
         """With music, verify sidechaincompress + loudnorm in filter chain."""
-        cfg = Config(workspace=tmp_path / "ws")
+        cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
         cfg.ensure_dirs()
         ctx = RenderContext(w=1920, h=1080, fps=30)
 
@@ -158,7 +158,7 @@ class TestConcatAndMixWithMusic:
 
     def test_music_loop_when_short(self, tmp_path):
         """When music shorter than video, aloop filter is added."""
-        cfg = Config(workspace=tmp_path / "ws")
+        cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
         cfg.ensure_dirs()
         ctx = RenderContext(w=1920, h=1080, fps=30)
 
@@ -204,7 +204,7 @@ class TestConcatAndMixWithMusic:
 
     def test_mix_failure_raises(self, tmp_path):
         """Music mix failure raises RuntimeError."""
-        cfg = Config(workspace=tmp_path / "ws")
+        cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
         cfg.ensure_dirs()
         ctx = RenderContext(w=1920, h=1080, fps=30)
 

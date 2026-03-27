@@ -328,7 +328,7 @@ class TestRunPrepareNoAnalysisPath:
         from pipeline.config import Config
         from pipeline.prepare import PrepareConfig
 
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
         assert not hasattr(cfg, "analysis_path"), "Config still has analysis_path"
 
