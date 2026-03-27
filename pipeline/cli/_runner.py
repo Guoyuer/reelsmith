@@ -86,7 +86,8 @@ def _run_fetch(pc: _PipelineContext):
     t0 = time.monotonic()
     manifest_path = pc.cfg.manifest_path
 
-    if manifest_path.exists():
+    force = pc.prepare is not None and pc.prepare.force
+    if manifest_path.exists() and not force:
         items = json.loads(manifest_path.read_text())
         elapsed = time.monotonic() - t0
         pc.logger.info(f"Fetch: {len(items)} items (cached)")
