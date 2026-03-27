@@ -224,7 +224,7 @@ def _render_segments(
         script_path.write_text(graph.script, encoding="utf-8")
 
         enc = ctx.get_encoder()
-        cmd = ["ffmpeg", "-y"]
+        cmd = ["ffmpeg", "-y", *ctx.hwaccel_args]
         for inp in graph.inputs:
             cmd += [str(x) for x in inp]
         cmd += ["-filter_complex_script", str(script_path)]

@@ -93,6 +93,44 @@ def detect_hw_encoder(
     return ["-c:v", "libx264", "-preset", "fast", "-b:v", h264_br]
 
 
+def _detect_hwaccel() -> list[str] | None:
+    """Detect hardware-accelerated decoder: CUDA (NVIDIA) or VideoToolbox (macOS)."""
+    import sys
+
+    candidates = (
+        [("-hwaccel", "videotoolbox")]
+        if sys.platform == "darwin"
+        else [("-hwaccel", "cuda")]
+    )
+    for args in candidates:
+        try:
+            result = run_subprocess(
+                [
+                    "ffmpeg",
+                    "-y",
+                    *args,
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "nullsrc=s=64x64:d=0.1",
+                    "-frames:v",
+                    "1",
+                    "-f",
+                    "null",
+                    "-",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                logger.info("Hardware decoder: %s", args[-1])
+                return list(args)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    logger.info("Hardware decoder: none (CPU fallback)")
+    return None
+
+
 # ---------------------------------------------------------------------------
 # RenderContext — per-run render state, passed explicitly (no globals)
 # ---------------------------------------------------------------------------
@@ -107,6 +145,7 @@ class RenderContext:
     fps: int
     quality: float = 1.0
     _encoder_cache: dict[tuple, list[str]] = field(default_factory=dict)
+    _hwaccel: list[str] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if self.w <= 0 or self.h <= 0:
@@ -115,9 +154,15 @@ class RenderContext:
             raise ValueError(f"Resolution must be even: {self.w}x{self.h}")
         if self.fps <= 0 or self.fps > 120:
             raise ValueError(f"Invalid fps: {self.fps}")
+        self._hwaccel = _detect_hwaccel()
 
     _dim_cache: dict[str, tuple[int, int]] = field(default_factory=dict)
     _dur_cache: dict[str, float] = field(default_factory=dict)
+
+    @property
+    def hwaccel_args(self) -> list[str]:
+        """Return hwaccel input args (e.g. ['-hwaccel', 'cuda']), or [] if unavailable."""
+        return list(self._hwaccel) if self._hwaccel else []
 
     def get_encoder(
         self,
