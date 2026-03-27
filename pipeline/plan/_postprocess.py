@@ -169,6 +169,13 @@ def parse_and_convert_timestamps(
             "  Converted %d preview timestamps to local trim points", n_converted
         )
 
+    # Sanitize effect values: Gemini may hallucinate values like "static"
+    valid_effects = {e.value for e in Effect}
+    for seg in raw.get("segments", []):
+        for item in seg.get("items", []):
+            if item.get("effect") not in valid_effects:
+                item["effect"] = "none"
+
     # Gemini doesn't output trip_type/style — inject placeholder defaults
     # so EDL.model_validate succeeds; the orchestrator overwrites them afterward.
     raw.setdefault("trip_type", "general")

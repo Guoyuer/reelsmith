@@ -80,7 +80,7 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
 - effect (PHOTOS ONLY — omit or set "none" for videos, the renderer ignores it):
   **ken_burns_in** (reveals, close-ups), **ken_burns_out** (departures, end of chapter),
   **ken_burns_left/right** (wide landscapes, match visual flow direction),
-  **static** (only for text overlays or ≤1.5s montage cuts).
+  **none** (only for text overlays or ≤1.5s montage cuts).
   Vary directions — never 3+ consecutive photos with the same direction.
 - playback_speed: 1.0 = normal (default). Use 0.5 SPARINGLY for dramatic slow-mo moments
   (a jump, a splash, a reaction) — especially effective on ≥48fps source videos.
