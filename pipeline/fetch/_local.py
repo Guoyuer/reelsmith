@@ -145,7 +145,7 @@ def _extract_date(path: Path) -> datetime | None:
         from PIL import Image
 
         img = Image.open(path)
-        exif = img._getexif()  # type: ignore[attr-defined]
+        exif = img.getexif()
         if exif:
             date_str = exif.get(36867) or exif.get(306)  # DateTimeOriginal or DateTime
             if date_str:
@@ -190,12 +190,12 @@ def _extract_gps(path: Path) -> tuple[float | None, float | None]:
         from PIL import Image
 
         img = Image.open(path)
-        exif = img._getexif()  # type: ignore[attr-defined]
+        exif = img.getexif()
         if not exif:
             return None, None
 
-        # EXIF tag 34853 = GPSInfo
-        gps_info = exif.get(34853)
+        # EXIF tag 34853 = GPSInfo; getexif() stores IFDs separately
+        gps_info = exif.get_ifd(34853)
         if not gps_info:
             return None, None
 
