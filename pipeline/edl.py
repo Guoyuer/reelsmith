@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
-from ._types import PHOTO_EXTENSIONS_ALL, VIDEO_EXTENSIONS_ALL
+from ._types import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS
 
 if TYPE_CHECKING:
     from .config import Config
@@ -303,9 +303,9 @@ def _validate_item(
 
     if src.exists():
         ext = src.suffix.lower()
-        if item.media_type == "video" and ext in PHOTO_EXTENSIONS_ALL:
+        if item.media_type == "video" and ext in PHOTO_EXTENSIONS:
             _error(f"{item_label}: media_type='video' but file is a photo ({ext})")
-        elif item.media_type == "photo" and ext in VIDEO_EXTENSIONS_ALL:
+        elif item.media_type == "photo" and ext in VIDEO_EXTENSIONS:
             _error(f"{item_label}: media_type='photo' but file is a video ({ext})")
 
     if item.display_duration <= 0:

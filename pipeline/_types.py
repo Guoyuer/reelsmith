@@ -21,10 +21,6 @@ logger = logging.getLogger("vlog.types")
 PHOTO_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"})
 VIDEO_EXTENSIONS = frozenset({".mp4", ".mov", ".avi", ".mkv", ".m4v"})
 
-# Extended sets — accepted by validation but not processed in the main pipeline
-PHOTO_EXTENSIONS_ALL = PHOTO_EXTENSIONS | frozenset({".bmp", ".tiff"})
-VIDEO_EXTENSIONS_ALL = VIDEO_EXTENSIONS | frozenset({".webm", ".mts"})
-
 # ---------------------------------------------------------------------------
 # Manifest entry — produced by fetch, consumed by prepare
 # ---------------------------------------------------------------------------
