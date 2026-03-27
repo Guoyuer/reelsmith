@@ -16,13 +16,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
       - uses: astral-sh/ruff-action@v3
         with:
           args: check
       - uses: astral-sh/ruff-action@v3
         with:
           args: format --check
+          version: "0.8.6"
 
   typecheck:
     runs-on: ubuntu-latest
@@ -33,9 +33,9 @@ jobs:
           enable-cache: true
       - run: uv python install 3.11
       - name: Install dependencies
-        run: uv pip install --system -e ".[dev]"
+        run: uv venv && uv pip install -e ".[dev]"
       - name: Run pyright
-        run: pyright
+        run: uv run pyright
 
   test:
     runs-on: ubuntu-latest
@@ -50,9 +50,9 @@ jobs:
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
       - name: Install dependencies
-        run: uv pip install --system -e ".[test]"
+        run: uv venv && uv pip install -e ".[test]"
       - name: Run tests
-        run: pytest -x -q
+        run: uv run pytest -x -q
 
   integration:
     runs-on: ubuntu-latest
@@ -64,8 +64,8 @@ jobs:
           enable-cache: true
       - run: uv python install 3.11
       - name: Install dependencies
-        run: uv pip install --system -e ".[test]"
+        run: uv venv && uv pip install -e ".[test]"
       - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Run integration tests
-        run: pytest -m integration -x -q
+        run: uv run pytest -m integration -x -q
