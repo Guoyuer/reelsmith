@@ -8,7 +8,7 @@ import pytest
 
 from pipeline.assemble._assemble import (
     AssembleConfig,
-    _find_first_photo,
+    _find_first_frame,
     _render_title_card_if_needed,
 )
 from pipeline.assemble._encoder import RenderContext
@@ -54,12 +54,12 @@ class TestAssembleConfig:
 
 
 # ---------------------------------------------------------------------------
-# _find_first_photo
+# _find_first_frame
 # ---------------------------------------------------------------------------
 
 
-class TestFindFirstPhoto:
-    def test_finds_jpg(self, tmp_path):
+class TestFindFirstFrame:
+    def test_finds_photo(self, tmp_path):
         photo = tmp_path / "photo.jpg"
         photo.write_bytes(b"\xff\xd8")
         edl = EDL(
@@ -81,9 +81,9 @@ class TestFindFirstPhoto:
                 )
             ],
         )
-        assert _find_first_photo(edl) == str(photo)
+        assert _find_first_frame(edl) == str(photo)
 
-    def test_skips_videos(self):
+    def test_finds_video(self):
         edl = EDL(
             title="T",
             target_duration=60,
@@ -103,7 +103,7 @@ class TestFindFirstPhoto:
                 )
             ],
         )
-        assert _find_first_photo(edl) is None
+        assert _find_first_frame(edl) == "/fake/clip.mp4"
 
     def test_no_items(self):
         edl = EDL(
@@ -113,34 +113,7 @@ class TestFindFirstPhoto:
             style="upbeat",
             segments=[],
         )
-        assert _find_first_photo(edl) is None
-
-    def test_heic_gets_converted(self, tmp_path):
-        heic = tmp_path / "photo.heic"
-        heic.write_bytes(b"\x00" * 100)
-        edl = EDL(
-            title="T",
-            target_duration=60,
-            trip_type="family",
-            style="upbeat",
-            segments=[
-                Segment(
-                    name="S",
-                    items=[
-                        EditItem(
-                            source_file=str(heic),
-                            media_type="photo",
-                            display_duration=4.0,
-                        )
-                    ],
-                    transition="cut",
-                )
-            ],
-        )
-        converted = tmp_path / "converted.jpg"
-        with patch("pipeline.utils.image.convert_heic", return_value=converted):
-            result = _find_first_photo(edl)
-        assert result == str(converted)
+        assert _find_first_frame(edl) is None
 
 
 # ---------------------------------------------------------------------------

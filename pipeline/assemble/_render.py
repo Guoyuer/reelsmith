@@ -45,6 +45,12 @@ def render_title_card(
     # Decide background: hero photo or gradient fallback
     use_photo_bg = background_photo is not None and Path(background_photo).exists()
 
+    # HEIC not supported by -loop 1; convert to JPEG first
+    if use_photo_bg and Path(background_photo).suffix.lower() in {".heic", ".heif"}:
+        from ..utils.image import convert_heic
+
+        background_photo = str(convert_heic(Path(background_photo)))
+
     if use_photo_bg:
         photo_bg = (
             f"scale={w}:{h}:force_original_aspect_ratio=increase,"

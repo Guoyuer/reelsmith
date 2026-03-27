@@ -522,7 +522,7 @@ def _render_title_card_if_needed(
     if not edl.title:
         return None
     if kind == "intro":
-        bg = _find_first_photo(edl)
+        bg = _find_first_frame(edl)
         render_title_card(
             edl.title,
             edl.date_range,
@@ -550,16 +550,10 @@ def _render_title_card_if_needed(
     return None
 
 
-def _find_first_photo(edl: EDL) -> str | None:
-    from ..utils.image import convert_heic
-
-    for seg in edl.segments:
-        for item in seg.items:
-            if item.media_type == "photo":
-                photo_path = Path(item.source_file)
-                if photo_path.suffix.lower() in {".heic", ".heif"}:
-                    photo_path = convert_heic(photo_path)
-                return str(photo_path)
+def _find_first_frame(edl: EDL) -> str | None:
+    """Return path to the first item's source file (photo or video)."""
+    if edl.segments and edl.segments[0].items:
+        return edl.segments[0].items[0].source_file
     return None
 
 
