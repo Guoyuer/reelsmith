@@ -242,7 +242,6 @@ class TestEdlResponseSchema:
             "ken_burns_out",
             "ken_burns_left",
             "ken_burns_right",
-            "static",
             "none",
         ):
             assert effect in effect_enum

@@ -46,7 +46,6 @@ class Effect(StrEnum):
     KEN_BURNS_OUT = "ken_burns_out"
     KEN_BURNS_LEFT = "ken_burns_left"
     KEN_BURNS_RIGHT = "ken_burns_right"
-    STATIC = "static"
     NONE = "none"
 
 
@@ -318,7 +317,7 @@ def _validate_item(
         _warn(f"{item_label}: display_duration very long ({item.display_duration}s)")
 
     if item.media_type == "video":
-        if item.effect not in (Effect.NONE, Effect.STATIC):
+        if item.effect != Effect.NONE:
             _error(
                 f"{item_label}: video should have effect='none', "
                 f"got '{item.effect}'"
@@ -344,7 +343,7 @@ def _validate_item(
             _error(f"{item_label}: invalid playback_speed ({item.playback_speed})")
 
     if item.media_type == "photo":
-        if item.effect == "none":
+        if item.effect == Effect.NONE:
             _warn(f"{item_label}: photo with effect='none' will be static")
         if item.keep_audio:
             _error(f"{item_label}: photo cannot have keep_audio=True")

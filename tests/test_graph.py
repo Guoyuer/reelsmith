@@ -183,12 +183,12 @@ class TestPhotoFilter:
             ("ken_burns_out", "out"),
             ("ken_burns_left", "left"),
             ("ken_burns_right", "right"),
-            ("static", "static"),
+            ("none", "static"),
         ]:
             item = _photo(effect=effect)
             seg = _seg([item])
             result = _photo_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
-            # Static has zoom=1, others have zoom expressions
+            # "none" has zoom=1, others have zoom expressions
             if expected_dir == "static":
                 # For static, ken_burns_filter uses zoom="1"
                 assert "crop=w='trunc(iw/(1)/2)*2'" in result

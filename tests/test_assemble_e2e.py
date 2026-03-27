@@ -76,7 +76,7 @@ def _make_edl(
                 "source_file": p["local_path"],
                 "media_type": "photo",
                 "display_duration": 3.0,
-                "effect": ["ken_burns_in", "ken_burns_out", "static", "ken_burns_left"][
+                "effect": ["ken_burns_in", "ken_burns_out", "none", "ken_burns_left"][
                     i % 4
                 ],
             }
@@ -419,7 +419,7 @@ class TestAssembleE2E:
                             "source_file": photos[2]["local_path"],
                             "media_type": "photo",
                             "display_duration": 3.0,
-                            "effect": "static",
+                            "effect": "none",
                         },
                         {
                             "source_file": videos[1]["local_path"],

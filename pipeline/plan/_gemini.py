@@ -324,7 +324,6 @@ def _edl_response_schema() -> dict[str, Any]:
                     "ken_burns_out",
                     "ken_burns_left",
                     "ken_burns_right",
-                    "static",
                     "none",
                 ],
             },

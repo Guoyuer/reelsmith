@@ -43,7 +43,7 @@ _EFFECT_DIRECTIONS = {
     "ken_burns_out": "out",
     "ken_burns_left": "left",
     "ken_burns_right": "right",
-    "static": "static",
+    "none": "static",
 }
 
 _SAMPLE_RATE = 48000
