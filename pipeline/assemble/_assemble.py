@@ -358,14 +358,49 @@ def _concat_and_mix(
         fade_out_start = max(0, total_duration - fade_out)
         music_chain += f"afade=t=out:st={fade_out_start:.3f}:d={fade_out} [bg]"
 
-        fc = (
+        mix_chain = (
             f"{music_chain};\n"
             f"[0:a] apad [sp];\n"
             f"[bg][sp] sidechaincompress="
             f"threshold=0.02:ratio=6:attack=200:release=500 [ducked];\n"
-            f"[sp][ducked] amix=inputs=2:duration=first,"
-            f"loudnorm=I=-16:TP=-1.5:LRA=11 [aout]"
+            f"[sp][ducked] amix=inputs=2:duration=first"
         )
+
+        # loudnorm pass 1: measure
+        measure_cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(nomix_path),
+            "-i",
+            str(music_path),
+            "-filter_complex",
+            f"{mix_chain},loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json [aout]",
+            "-map",
+            "[aout]",
+            "-f",
+            "null",
+            "-",
+        ]
+        measure_result = run_subprocess(
+            measure_cmd, capture_output=True, text=True, timeout=600
+        )
+        measured = _parse_loudnorm_stats(measure_result.stderr)
+
+        # loudnorm pass 2: apply with measured values
+        if measured:
+            loudnorm = (
+                f"loudnorm=I=-16:TP=-1.5:LRA=11:linear=true"
+                f":measured_I={measured['input_i']}"
+                f":measured_LRA={measured['input_lra']}"
+                f":measured_TP={measured['input_tp']}"
+                f":measured_thresh={measured['input_thresh']}"
+            )
+        else:
+            logger.warning("loudnorm measurement failed, falling back to single-pass")
+            loudnorm = "loudnorm=I=-16:TP=-1.5:LRA=11"
+
+        fc = f"{mix_chain},{loudnorm} [aout]"
 
         cmd = [
             "ffmpeg",
@@ -415,6 +450,25 @@ def _concat_and_mix(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _parse_loudnorm_stats(stderr: str) -> dict[str, str] | None:
+    """Parse loudnorm JSON stats from ffmpeg stderr (pass 1 measurement)."""
+    import json as _json
+
+    # loudnorm prints a JSON block at the end of stderr
+    idx = stderr.rfind("{")
+    if idx == -1:
+        return None
+    try:
+        data = _json.loads(stderr[idx : stderr.rfind("}") + 1])
+        # Verify required keys exist
+        for key in ("input_i", "input_lra", "input_tp", "input_thresh"):
+            if key not in data:
+                return None
+        return data
+    except (ValueError, KeyError):
+        return None
 
 
 def _render_title_card_if_needed(
