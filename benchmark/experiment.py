@@ -54,8 +54,8 @@ class Experiment:
     # How many times to run each side (for variance)
     iterations: int = 1
 
-    # VMAF reference video (optional)
-    reference_output: Path | None = None
+    # Reference video for VMAF comparison (required)
+    reference_output: Path = field(default_factory=lambda: Path("benchmark/reference.mp4"))
 
 
 @dataclass
@@ -88,7 +88,7 @@ class ExperimentReport:
 
 
 def _checkout_and_run(
-    branch: str, edl_path: Path, resolution: str, label: str, ref: Path | None
+    branch: str, edl_path: Path, resolution: str, label: str, ref: Path
 ) -> BenchmarkResult:
     """Checkout a branch in a worktree, run benchmark, return result."""
     worktree = Path(f"/tmp/reelsmith-bench-{label}-{int(time.time())}")
@@ -108,6 +108,8 @@ def _checkout_and_run(
                 str(edl_path),
                 "-r",
                 resolution,
+                "--reference",
+                str(ref),
                 "--experiment",
                 label,
                 "-o",
@@ -162,8 +164,8 @@ def run_experiment(exp: Experiment) -> ExperimentReport:
         report.baseline = run_benchmark(
             exp.edl_path,
             exp.resolution,
+            exp.reference_output,
             experiment="baseline",
-            reference_output=exp.reference_output,
         )
         logger.info("Applying patch and running experiment...")
         cleanup = exp.patch_fn()
@@ -171,8 +173,8 @@ def run_experiment(exp: Experiment) -> ExperimentReport:
             report.experiment = run_benchmark(
                 exp.edl_path,
                 exp.resolution,
+                exp.reference_output,
                 experiment=exp.name,
-                reference_output=exp.reference_output,
             )
         finally:
             cleanup()
@@ -185,28 +187,37 @@ def run_experiment(exp: Experiment) -> ExperimentReport:
     if report.baseline and report.experiment:
         report.comparison = compare_results(report.baseline, report.experiment)
 
-        # Auto-verdict heuristics
+        # Auto-verdict heuristics (VMAF is always available)
         comp = report.comparison
         has_new_errors = bool(comp.get("new_errors"))
         speed_info = comp.get("speed", {})
         is_faster = speed_info.get("faster", False)
         quality_info = comp.get("quality", {})
-        vmaf_drop = False
-        if quality_info.get("vmaf_baseline") and quality_info.get("vmaf_experiment"):
-            vmaf_drop = quality_info["vmaf_experiment"] < quality_info["vmaf_baseline"] - 1.0
+        vmaf_baseline = quality_info["vmaf_baseline"]
+        vmaf_experiment = quality_info["vmaf_experiment"]
+        vmaf_drop = vmaf_baseline - vmaf_experiment
 
         if has_new_errors:
             report.verdict = "reject"
             report.notes = f"New errors: {comp['new_errors']}"
-        elif vmaf_drop:
+        elif vmaf_drop > 1.0:
             report.verdict = "reject"
-            report.notes = "Quality regression (VMAF drop > 1.0)"
-        elif is_faster:
+            report.notes = (
+                f"Quality regression: VMAF {vmaf_baseline:.2f} → "
+                f"{vmaf_experiment:.2f} (Δ{-vmaf_drop:+.2f})"
+            )
+        elif is_faster and vmaf_drop <= 1.0:
             report.verdict = "accept"
-            report.notes = f"Faster by {speed_info['change']}, no quality regression"
+            report.notes = (
+                f"Faster by {speed_info['change']}, "
+                f"VMAF {vmaf_experiment:.2f} (Δ{-vmaf_drop:+.2f})"
+            )
         else:
             report.verdict = "inconclusive"
-            report.notes = f"Speed change: {speed_info['change']}"
+            report.notes = (
+                f"Speed: {speed_info['change']}, "
+                f"VMAF {vmaf_experiment:.2f} (Δ{-vmaf_drop:+.2f})"
+            )
 
     # --- Log ---
     EXPERIMENTS_LOG.parent.mkdir(parents=True, exist_ok=True)

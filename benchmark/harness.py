@@ -1,11 +1,14 @@
 """Benchmark harness — deterministic, repeatable rendering measurements.
 
 Usage:
-    python -m benchmark.harness --edl workspace/runs/test/edl_v1.json --resolution 1080p30
-    python -m benchmark.harness --edl workspace/runs/test/edl_v1.json --resolution 1080p30 --baseline results/baseline.json
+    python -m benchmark.harness --edl workspace/runs/test/edl_v1.json -r 1080p30 --reference ref.mp4
+    python -m benchmark.harness --edl workspace/runs/test/edl_v1.json -r 1080p30 --reference ref.mp4 --baseline results/baseline.json
 
 Collects: wall time (total + per-phase), file size, duration accuracy,
-codec metadata, and optionally VMAF/PSNR quality scores.
+codec metadata, and VMAF/PSNR/SSIM quality scores.
+
+VMAF is mandatory — every benchmark run must compare against a reference
+video. FFmpeg must be built with --enable-libvmaf.
 """
 
 from __future__ import annotations
@@ -36,11 +39,11 @@ class PhaseMetrics:
 
 @dataclass
 class QualityMetrics:
-    """Optional quality scores (requires FFmpeg with libvmaf)."""
+    """Quality scores via libvmaf (mandatory for all benchmark runs)."""
 
-    vmaf: float | None = None
-    psnr_avg: float | None = None
-    ssim: float | None = None
+    vmaf: float = 0.0
+    psnr_avg: float = 0.0
+    ssim: float = 0.0
 
 
 @dataclass
@@ -77,7 +80,7 @@ class BenchmarkResult:
     video_bitrate_kbps: int = 0
     hw_encoder: str = ""
 
-    # Quality (optional)
+    # Quality (mandatory — VMAF/PSNR/SSIM vs reference)
     quality: QualityMetrics = field(default_factory=QualityMetrics)
 
     # Validation
@@ -149,12 +152,38 @@ def _probe_output(path: Path) -> dict:
         return {}
 
 
-def _compute_vmaf(reference: Path, distorted: Path, resolution: str) -> QualityMetrics:
+def check_libvmaf() -> None:
+    """Verify that FFmpeg was built with libvmaf support.
+
+    Raises SystemExit if libvmaf is not available.
+    """
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-filters"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if "libvmaf" not in (result.stdout or ""):
+            raise SystemExit(
+                "FFmpeg was not built with --enable-libvmaf. "
+                "VMAF is required for benchmarking. "
+                "Install a build with libvmaf support "
+                "(e.g. ffmpeg-full on Homebrew, or build from source)."
+            )
+    except FileNotFoundError:
+        raise SystemExit("FFmpeg not found on PATH.")
+    except subprocess.SubprocessError as exc:
+        raise SystemExit(f"Could not check libvmaf support: {exc}")
+
+
+def _compute_vmaf(reference: Path, distorted: Path) -> QualityMetrics:
     """Compute VMAF/PSNR/SSIM between reference and distorted videos.
 
-    Requires FFmpeg built with --enable-libvmaf.
+    Raises RuntimeError if computation fails — VMAF is not optional.
     """
-    metrics = QualityMetrics()
+    # Use /dev/stderr for log output to keep stdout clean, then parse stderr
+    log_path = distorted.parent / f".vmaf_{distorted.stem}.json"
     try:
         result = subprocess.run(
             [
@@ -164,7 +193,8 @@ def _compute_vmaf(reference: Path, distorted: Path, resolution: str) -> QualityM
                 "-i",
                 str(reference),
                 "-lavfi",
-                "libvmaf=log_fmt=json:log_path=/dev/stdout:feature=name=psnr:feature=name=float_ssim",
+                f"libvmaf=log_fmt=json:log_path={log_path}"
+                ":feature=name=psnr:feature=name=float_ssim",
                 "-f",
                 "null",
                 "-",
@@ -173,14 +203,24 @@ def _compute_vmaf(reference: Path, distorted: Path, resolution: str) -> QualityM
             text=True,
             timeout=600,
         )
-        data = json.loads(result.stdout)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"VMAF computation failed (exit {result.returncode}): "
+                f"{result.stderr[-500:]}"
+            )
+        data = json.loads(log_path.read_text())
         pooled = data.get("pooled_metrics", {})
-        metrics.vmaf = pooled.get("vmaf", {}).get("mean")
-        metrics.psnr_avg = pooled.get("psnr_y", {}).get("mean")
-        metrics.ssim = pooled.get("float_ssim", {}).get("mean")
-    except Exception as exc:
-        logger.debug("VMAF computation failed (optional): %s", exc)
-    return metrics
+        return QualityMetrics(
+            vmaf=pooled.get("vmaf", {}).get("mean", 0.0),
+            psnr_avg=pooled.get("psnr_y", {}).get("mean", 0.0),
+            ssim=pooled.get("float_ssim", {}).get("mean", 0.0),
+        )
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Failed to parse VMAF JSON output: {exc}")
+    except FileNotFoundError:
+        raise RuntimeError(f"VMAF log file not created: {log_path}")
+    finally:
+        log_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -191,9 +231,9 @@ def _compute_vmaf(reference: Path, distorted: Path, resolution: str) -> QualityM
 def run_benchmark(
     edl_path: Path,
     resolution: str,
+    reference_output: Path,
     *,
     experiment: str = "baseline",
-    reference_output: Path | None = None,
 ) -> BenchmarkResult:
     """Run a full assemble benchmark and collect metrics.
 
@@ -203,11 +243,20 @@ def run_benchmark(
         Path to EDL JSON file.
     resolution:
         Resolution string (e.g. "1080p30", "4k60").
+    reference_output:
+        Reference video for VMAF/PSNR/SSIM comparison (required).
     experiment:
         Label for this experiment run.
-    reference_output:
-        If provided, compute VMAF/PSNR against this reference video.
     """
+    # Fail fast if libvmaf is not available
+    check_libvmaf()
+
+    if not reference_output.exists():
+        raise FileNotFoundError(
+            f"Reference video not found: {reference_output}. "
+            "A reference video is required for VMAF quality measurement. "
+            "Generate one first with the baseline code."
+        )
     from pipeline.cli._commands import _parse_resolution
     from pipeline.config import Config
     from pipeline.edl import EDL
@@ -266,9 +315,8 @@ def run_benchmark(
             elif stream.get("codec_type") == "audio":
                 result.audio_codec = stream.get("codec_name", "")
 
-        # Quality metrics (optional)
-        if reference_output and reference_output.exists():
-            result.quality = _compute_vmaf(reference_output, output_path, resolution)
+        # Quality metrics (mandatory)
+        result.quality = _compute_vmaf(reference_output, output_path)
 
     return result
 
@@ -310,11 +358,11 @@ def compare_results(
         "quality": {
             "vmaf_baseline": baseline.quality.vmaf,
             "vmaf_experiment": experiment.quality.vmaf,
-            "vmaf_change": _pct(
-                baseline.quality.vmaf or 0, experiment.quality.vmaf or 0
-            )
-            if baseline.quality.vmaf and experiment.quality.vmaf
-            else "N/A",
+            "vmaf_change": _pct(baseline.quality.vmaf, experiment.quality.vmaf),
+            "psnr_baseline": baseline.quality.psnr_avg,
+            "psnr_experiment": experiment.quality.psnr_avg,
+            "ssim_baseline": baseline.quality.ssim,
+            "ssim_experiment": experiment.quality.ssim,
         },
         "codec_change": baseline.video_codec != experiment.video_codec,
         "new_errors": [
@@ -334,19 +382,20 @@ if __name__ == "__main__":
     parser.add_argument("--edl", required=True, help="Path to EDL JSON")
     parser.add_argument("--resolution", "-r", default="1080p30")
     parser.add_argument("--experiment", default="baseline", help="Experiment label")
+    parser.add_argument(
+        "--reference", required=True, help="Reference video for VMAF comparison (required)"
+    )
     parser.add_argument("--baseline", help="Path to baseline results JSON for comparison")
-    parser.add_argument("--reference", help="Path to reference video for VMAF")
     parser.add_argument("--output", "-o", help="Save results JSON to this path")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
 
-    ref = Path(args.reference) if args.reference else None
     result = run_benchmark(
         Path(args.edl),
         args.resolution,
+        Path(args.reference),
         experiment=args.experiment,
-        reference_output=ref,
     )
 
     # Save results
