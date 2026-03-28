@@ -89,7 +89,7 @@ def _run_detail(run_dir: Path) -> dict[str, Any]:
     output_dir = run_dir / "output"
     outputs = sorted(output_dir.glob("reelsmith_v*.mp4")) if output_dir.exists() else []
     info["outputs"] = [
-        {"path": o, "version": int(o.stem.split("_v")[1]), "size": o.stat().st_size}
+        {"path": o, "version": int(o.stem.split("_v")[1].split("_")[0]), "size": o.stat().st_size}
         for o in outputs
     ]
     info["old_output_bytes"] = (
