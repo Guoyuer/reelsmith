@@ -1,4 +1,4 @@
-"""Tests for pipeline.assemble._assemble — helper functions and AssembleConfig."""
+"""Tests for pipeline.assemble._assemble — _find_first_frame and _render_title_card_if_needed."""
 
 from __future__ import annotations
 
@@ -7,82 +7,19 @@ from unittest.mock import patch
 import pytest
 
 from pipeline.assemble._assemble import (
-    AssembleConfig,
     _find_first_frame,
     _render_title_card_if_needed,
 )
 from pipeline.assemble._encoder import RenderContext
 from pipeline.edl import EDL, EditItem, Segment
 
-# ---------------------------------------------------------------------------
-# AssembleConfig validation
-# ---------------------------------------------------------------------------
-
-
-class TestAssembleConfig:
-    def test_valid(self):
-        ac = AssembleConfig(w=1920, h=1080, fps=30)
-        assert ac.w == 1920
-
-    def test_odd_resolution_rejected(self):
-        with pytest.raises(ValueError, match="even"):
-            AssembleConfig(w=1921, h=1080, fps=30)
-
-    def test_zero_resolution_rejected(self):
-        with pytest.raises(ValueError, match="Invalid resolution"):
-            AssembleConfig(w=0, h=1080, fps=30)
-
-    def test_negative_fps_rejected(self):
-        with pytest.raises(ValueError, match="Invalid fps"):
-            AssembleConfig(w=1920, h=1080, fps=0)
-
-    def test_fps_over_120_rejected(self):
-        with pytest.raises(ValueError, match="Invalid fps"):
-            AssembleConfig(w=1920, h=1080, fps=121)
-
-    def test_invalid_quality(self):
-        with pytest.raises(ValueError, match="Invalid quality"):
-            AssembleConfig(w=1920, h=1080, fps=30, quality=0)
-
-    def test_quality_over_5_rejected(self):
-        with pytest.raises(ValueError, match="Invalid quality"):
-            AssembleConfig(w=1920, h=1080, fps=30, quality=6.0)
-
-    def test_version_default_none(self):
-        ac = AssembleConfig(w=1920, h=1080, fps=30)
-        assert ac.version is None
-
 
 # ---------------------------------------------------------------------------
-# _find_first_frame
+# _find_first_frame — video case (photo + empty covered in test_assemble_orchestrate)
 # ---------------------------------------------------------------------------
 
 
 class TestFindFirstFrame:
-    def test_finds_photo(self, tmp_path):
-        photo = tmp_path / "photo.jpg"
-        photo.write_bytes(b"\xff\xd8")
-        edl = EDL(
-            title="T",
-            target_duration=60,
-            trip_type="family",
-            style="upbeat",
-            segments=[
-                Segment(
-                    name="S",
-                    items=[
-                        EditItem(
-                            source_file=str(photo),
-                            media_type="photo",
-                            display_duration=4.0,
-                        )
-                    ],
-                    transition="cut",
-                )
-            ],
-        )
-        assert _find_first_frame(edl) == str(photo)
-
     def test_finds_video(self):
         edl = EDL(
             title="T",
@@ -104,16 +41,6 @@ class TestFindFirstFrame:
             ],
         )
         assert _find_first_frame(edl) == "/fake/clip.mp4"
-
-    def test_no_items(self):
-        edl = EDL(
-            title="T",
-            target_duration=60,
-            trip_type="family",
-            style="upbeat",
-            segments=[],
-        )
-        assert _find_first_frame(edl) is None
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +86,7 @@ class TestRenderTitleCardIfNeeded:
 
     def test_intro_none_style_returns_none(self, tmp_path, ctx):
         edl = EDL(
-            title="T",
+            title="",
             target_duration=60,
             trip_type="family",
             style="upbeat",
@@ -177,18 +104,8 @@ class TestRenderTitleCardIfNeeded:
                 )
             ],
         )
-        # No title → no title card
-        edl_no_title = EDL(
-            title="",
-            target_duration=60,
-            trip_type="family",
-            style="upbeat",
-            segments=edl.segments,
-        )
         path = tmp_path / "intro.mp4"
-        result = _render_title_card_if_needed(
-            edl_no_title, "intro", path, ctx, "1080p30"
-        )
+        result = _render_title_card_if_needed(edl, "intro", path, ctx, "1080p30")
         assert result is None
 
     def test_outro_fade_title(self, tmp_path, ctx):

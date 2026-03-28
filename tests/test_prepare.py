@@ -66,34 +66,6 @@ def _make_analysis_item(filename: str, local_path: str, **extra) -> dict:
 
 
 class TestAnalysis:
-    def test_all_items_analyzed(self, mock_config):
-        cfg = mock_config
-        img = _make_tiny_image(cfg.media_dir / "100_photo.jpg")
-        _write_manifest(cfg, [_make_analysis_item("photo.jpg", str(img))])
-        prepare(cfg)
-        results = load_analysis(cfg)
-        assert len(results) == 1
-
-    def test_analysis_json_written(self, mock_config):
-        cfg = mock_config
-        img = _make_tiny_image(cfg.media_dir / "103_photo.jpg")
-        _write_manifest(cfg, [_make_analysis_item("photo.jpg", str(img))])
-        prepare(cfg)
-        assert cfg.analysis_path.exists()
-        data = json.loads(cfg.analysis_path.read_text())
-        assert len(data) == 1
-        assert "thumbnail_path" in data[0]
-
-    def test_exif_extracted(self, mock_config):
-        """EXIF should be extracted from photos each run."""
-        cfg = mock_config
-        img = _make_tiny_image(cfg.media_dir / "201_photo.jpg")
-        _write_manifest(cfg, [_make_analysis_item("photo.jpg", str(img))])
-        prepare(cfg)
-        results = load_analysis(cfg)
-        # Tiny test images have no real EXIF, so exif may be absent or empty
-        assert results[0]["media_type"] == "photo"
-
     def test_progress_callback(self, mock_config):
         cfg = mock_config
         img1 = _make_tiny_image(cfg.media_dir / "109_a.jpg")

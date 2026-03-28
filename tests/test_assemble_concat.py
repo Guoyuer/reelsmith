@@ -284,34 +284,6 @@ class TestConcatAndMixWithMusic:
 
 
 class TestParseLoudnormStats:
-    def test_valid_json(self):
-        stderr = (
-            "some ffmpeg output\n"
-            "{\n"
-            '"input_i" : "-24.05",\n'
-            '"input_tp" : "-2.10",\n'
-            '"input_lra" : "7.20",\n'
-            '"input_thresh" : "-34.17"\n'
-            "}\n"
-        )
-        result = _parse_loudnorm_stats(stderr)
-        assert result is not None
-        assert result["input_i"] == "-24.05"
-        assert result["input_tp"] == "-2.10"
-        assert result["input_lra"] == "7.20"
-        assert result["input_thresh"] == "-34.17"
-
-    def test_no_json(self):
-        assert _parse_loudnorm_stats("just some stderr text") is None
-
-    def test_missing_keys(self):
-        stderr = '{"input_i": "-24.0", "unrelated": "value"}'
-        assert _parse_loudnorm_stats(stderr) is None
-
-    def test_invalid_json(self):
-        stderr = "{broken json"
-        assert _parse_loudnorm_stats(stderr) is None
-
     def test_empty_string(self):
         assert _parse_loudnorm_stats("") is None
 

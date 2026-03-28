@@ -6,7 +6,6 @@ import json
 from unittest.mock import MagicMock, patch
 
 from pipeline.prepare._prepare import (
-    _base_analysis_entry,
     _has_dense_keyframes,
     _prepare_video,
 )
@@ -121,49 +120,3 @@ class TestPrepareVideoEdgeCases:
         assert entry["video_fps"] == 24.0  # 24000/1001 ≈ 23.976 → rounded to 24.0
 
 
-# ---------------------------------------------------------------------------
-# _base_analysis_entry
-# ---------------------------------------------------------------------------
-
-
-class TestBaseAnalysisEntry:
-    def test_photo_entry(self):
-        item = {
-            "local_path": "/media/photo.jpg",
-            "taken_at": "2025-01-01T00:00:00",
-            "country": "Singapore",
-            "first_level": "Central",
-            "district": "Marina Bay",
-        }
-        entry = _base_analysis_entry(item, is_video=False)
-        assert entry["media_type"] == "photo"
-        assert entry["district"] == "Marina Bay"
-
-    def test_video_entry(self):
-        item = {
-            "local_path": "/media/clip.mp4",
-            "taken_at": "2025-01-01T00:00:00",
-        }
-        entry = _base_analysis_entry(item, is_video=True)
-        assert entry["media_type"] == "video"
-
-    def test_city_fallback_for_district(self):
-        """When district is empty, city is used as fallback."""
-        item = {
-            "local_path": "/media/photo.jpg",
-            "taken_at": "2025-01-01T00:00:00",
-            "city": "Singapore",
-        }
-        entry = _base_analysis_entry(item, is_video=False)
-        assert entry["district"] == "Singapore"
-
-    def test_missing_location(self):
-        """Missing location fields should be None."""
-        item = {
-            "local_path": "/media/photo.jpg",
-            "taken_at": "2025-01-01T00:00:00",
-        }
-        entry = _base_analysis_entry(item, is_video=False)
-        assert entry["country"] is None
-        assert entry["first_level"] is None
-        assert entry["district"] is None

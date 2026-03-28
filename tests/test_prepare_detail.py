@@ -1,4 +1,4 @@
-"""Tests for pipeline.prepare — video analysis, audio probing, EXIF extraction."""
+"""Tests for pipeline.prepare — EXIF extraction, rerun behavior, preview generation."""
 
 from __future__ import annotations
 
@@ -44,83 +44,8 @@ class TestReadExif:
         assert exif == {}
 
 
-class TestPrepareVideo:
-    """Test _prepare_video video analysis."""
-
-    def test_probes_video_metadata(self, tmp_path):
-        from pipeline.prepare._prepare import _prepare_video
-
-        entry = {
-            "local_path": str(tmp_path / "video.mp4"),
-        }
-        (tmp_path / "video.mp4").write_bytes(b"\x00" * 100)
-
-        # Mock ffprobe to return video metadata
-        def fake_run(cmd, **kwargs):
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = ""
-            result.stderr = ""
-            cmd_str = " ".join(str(c) for c in cmd)
-            if "show_streams" in cmd_str or "show_format" in cmd_str:
-                result.stdout = json.dumps(
-                    {
-                        "streams": [
-                            {
-                                "codec_type": "video",
-                                "width": 1920,
-                                "height": 1080,
-                                "r_frame_rate": "30/1",
-                                "duration": "45.5",
-                            }
-                        ],
-                        "format": {"duration": "45.5"},
-                    }
-                )
-            return result
-
-        with patch("pipeline.prepare._prepare.run_subprocess", side_effect=fake_run):
-            with patch(
-                "pipeline.prepare._prepare._has_dense_keyframes", return_value=True
-            ):
-                _prepare_video(entry, tmp_path / "video.mp4", 1, 1)
-
-        assert (
-            entry.get("video_duration") is not None
-            or entry.get("video_width") is not None
-        )
-
-
 class TestPrepareFullFlow:
     """Test prepare() end-to-end with minimal data."""
-
-    def test_prepare_with_photos_only(self, tmp_path):
-        from pipeline.config import Config
-        from pipeline.prepare import PrepareConfig, prepare
-
-        cfg = Config(workspace=tmp_path / "runs" / "test")
-        cfg.ensure_dirs()
-        cfg.media_dir.mkdir(parents=True, exist_ok=True)
-
-        # Create manifest
-        from PIL import Image
-
-        photo = cfg.media_dir / "photo.jpg"
-        Image.new("RGB", (100, 100), "red").save(photo, "JPEG")
-
-        manifest = [
-            {
-                "local_path": str(photo),
-                "item_type": 0,
-                "takentime": 1700000000,
-                "taken_at": "2023-11-14T14:13:20+00:00",
-                "filesize": 5000,
-            }
-        ]
-        cfg.manifest_path.write_text(json.dumps(manifest))
-
-        prepare(cfg, PrepareConfig())
-        assert cfg.analysis_path.exists()
 
     def test_rerun_updates_analysis(self, tmp_path):
         """Re-running prepare should overwrite analysis.json."""
@@ -156,45 +81,6 @@ class TestPrepareFullFlow:
         time.sleep(0.05)
         prepare(cfg, PrepareConfig())
         assert cfg.analysis_path.stat().st_mtime > first_mtime
-
-
-class TestHasDenseKeyframes:
-    """Test keyframe interval detection."""
-
-    def test_dense_keyframes_returns_true(self):
-        from pipeline.prepare._prepare import _has_dense_keyframes
-
-        fake = MagicMock()
-        # Keyframes at 0, 1, 2, 3 seconds (1s interval = dense)
-        fake.stdout = "0.000000,K_\n1.000000,K_\n2.000000,K_\n3.000000,K_\n"
-        with patch("pipeline.prepare._prepare.run_subprocess", return_value=fake):
-            assert _has_dense_keyframes("/fake/video.mp4") is True
-
-    def test_sparse_keyframes_returns_false(self):
-        from pipeline.prepare._prepare import _has_dense_keyframes
-
-        fake = MagicMock()
-        # Keyframes at 0, 5, 10 seconds (5s interval = sparse)
-        fake.stdout = "0.000000,K_\n5.000000,K_\n10.000000,K_\n"
-        with patch("pipeline.prepare._prepare.run_subprocess", return_value=fake):
-            assert _has_dense_keyframes("/fake/video.mp4") is False
-
-    def test_too_few_keyframes_returns_false(self):
-        from pipeline.prepare._prepare import _has_dense_keyframes
-
-        fake = MagicMock()
-        fake.stdout = "0.000000,K_\n"
-        with patch("pipeline.prepare._prepare.run_subprocess", return_value=fake):
-            assert _has_dense_keyframes("/fake/video.mp4") is False
-
-    def test_probe_failure_returns_false(self):
-        from pipeline.prepare._prepare import _has_dense_keyframes
-
-        with patch(
-            "pipeline.prepare._prepare.run_subprocess",
-            side_effect=RuntimeError("ffprobe failed"),
-        ):
-            assert _has_dense_keyframes("/fake/video.mp4") is False
 
 
 class TestGenerateVideoPreview:

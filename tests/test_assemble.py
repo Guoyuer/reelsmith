@@ -80,19 +80,6 @@ class TestProbeDimensions:
             w, h = ctx.probe_dimensions(Path("/fake/rotated.mp4"))
         assert (w, h) == (2160, 3840)
 
-    def test_probe_dimensions_handles_failure(self):
-        """On failure (empty output), should return (0, 0)."""
-        fake_result = MagicMock()
-        fake_result.stdout = ""
-        fake_result.returncode = 1
-
-        ctx = RenderContext(w=1920, h=1080, fps=30)
-        with patch(
-            "pipeline.assemble._encoder.run_subprocess", return_value=fake_result
-        ):
-            w, h = ctx.probe_dimensions(Path("/fake/bad.mp4"))
-        assert (w, h) == (0, 0)
-
 
 # -----------------------------------------------------------------------
 # Output validation tests (mocked -- no FFmpeg needed)

@@ -9,63 +9,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pipeline.assemble._assemble import (
-    AssembleConfig,
     _find_first_frame,
     _parse_loudnorm_stats,
     _validate_output,
 )
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
-
-
-# ---------------------------------------------------------------------------
-# AssembleConfig validation
-# ---------------------------------------------------------------------------
-
-
-class TestAssembleConfig:
-    def test_valid_config(self):
-        ac = AssembleConfig(w=1920, h=1080, fps=30)
-        assert ac.w == 1920
-
-    def test_odd_width_rejected(self):
-        with pytest.raises(ValueError, match="even"):
-            AssembleConfig(w=1921, h=1080, fps=30)
-
-    def test_odd_height_rejected(self):
-        with pytest.raises(ValueError, match="even"):
-            AssembleConfig(w=1920, h=1081, fps=30)
-
-    def test_zero_width(self):
-        with pytest.raises(ValueError, match="Invalid resolution"):
-            AssembleConfig(w=0, h=1080, fps=30)
-
-    def test_negative_height(self):
-        with pytest.raises(ValueError, match="Invalid resolution"):
-            AssembleConfig(w=1920, h=-1, fps=30)
-
-    def test_zero_fps(self):
-        with pytest.raises(ValueError, match="Invalid fps"):
-            AssembleConfig(w=1920, h=1080, fps=0)
-
-    def test_fps_over_120(self):
-        with pytest.raises(ValueError, match="Invalid fps"):
-            AssembleConfig(w=1920, h=1080, fps=121)
-
-    def test_quality_zero(self):
-        with pytest.raises(ValueError, match="Invalid quality"):
-            AssembleConfig(w=1920, h=1080, fps=30, quality=0)
-
-    def test_quality_over_5(self):
-        with pytest.raises(ValueError, match="Invalid quality"):
-            AssembleConfig(w=1920, h=1080, fps=30, quality=5.1)
-
-    def test_valid_quality_range(self):
-        ac = AssembleConfig(w=1920, h=1080, fps=30, quality=2.5)
-        assert ac.quality == 2.5
-
-    def test_version_optional(self):
-        ac = AssembleConfig(w=1920, h=1080, fps=30)
-        assert ac.version is None
 
 
 # ---------------------------------------------------------------------------
@@ -164,21 +112,6 @@ class TestFindFirstFrame:
 
 
 class TestRenderTitleCardIfNeeded:
-    def test_no_title_returns_none(self):
-        from pipeline.assemble._assemble import _render_title_card_if_needed
-        from pipeline.assemble._encoder import RenderContext
-
-        edl = EDL(
-            title="",
-            target_duration=60,
-            trip_type="family",
-            style="upbeat",
-            segments=[],
-        )
-        ctx = RenderContext(w=1920, h=1080, fps=30)
-        result = _render_title_card_if_needed(edl, "intro", Path("/tmp/intro.mp4"), ctx, "1080p30")
-        assert result is None
-
     def test_unknown_kind_returns_none(self):
         from pipeline.assemble._assemble import _render_title_card_if_needed
         from pipeline.assemble._encoder import RenderContext

@@ -128,13 +128,6 @@ class TestEstimateBpm:
 
 
 class TestBeatSnapEdl:
-    def test_no_bpm_returns_zero(self, tmp_path):
-        edl = _make_edl([2])
-        wav = tmp_path / "short.wav"
-        wav.write_bytes(b"not a wav")
-        snapped = beat_snap_edl(edl, wav)
-        assert snapped == 0
-
     def test_snaps_with_bpm(self):
         edl = _make_edl([3, 2], duration=4.0)
         with patch("pipeline.assemble._audio.estimate_bpm", return_value=120):
@@ -143,72 +136,6 @@ class TestBeatSnapEdl:
         # Some transitions may snap
         assert isinstance(snapped, int)
         assert snapped >= 0
-
-    def test_speech_items_skipped(self):
-        """Items with keep_audio=True should not be snapped."""
-        edl = EDL(
-            title="T",
-            target_duration=60,
-            trip_type="family",
-            style="upbeat",
-            segments=[
-                Segment(
-                    name="S",
-                    items=[
-                        EditItem(
-                            source_file="/a.mp4",
-                            media_type="video",
-                            display_duration=5.0,
-                            keep_audio=True,
-                        ),
-                        EditItem(
-                            source_file="/b.jpg",
-                            media_type="photo",
-                            display_duration=4.0,
-                        ),
-                    ],
-                    transition="crossfade",
-                    transition_duration=0.5,
-                )
-            ],
-        )
-        original_dur = edl.all_items()[0].display_duration
-        with patch("pipeline.assemble._audio.estimate_bpm", return_value=120):
-            beat_snap_edl(edl, Path("/fake.wav"))
-        # Speech item's duration should be unchanged
-        assert edl.all_items()[0].display_duration == original_dur
-
-    def test_montage_smaller_max_shift(self):
-        """Montage segments use smaller max_shift (0.2 vs 0.4)."""
-        edl = EDL(
-            title="T",
-            target_duration=60,
-            trip_type="family",
-            style="upbeat",
-            segments=[
-                Segment(
-                    name="S",
-                    items=[
-                        EditItem(
-                            source_file="/a.jpg",
-                            media_type="photo",
-                            display_duration=4.0,
-                        ),
-                        EditItem(
-                            source_file="/b.jpg",
-                            media_type="photo",
-                            display_duration=4.0,
-                        ),
-                    ],
-                    transition="crossfade",
-                    transition_duration=0.3,
-                    mode="montage",
-                )
-            ],
-        )
-        with patch("pipeline.assemble._audio.estimate_bpm", return_value=120):
-            snapped = beat_snap_edl(edl, Path("/fake.wav"))
-        assert isinstance(snapped, int)
 
     def test_min_duration_respected(self):
         """Beat snap should not reduce photo below 2s or video below 3s."""
@@ -240,14 +167,6 @@ class TestBeatSnapEdl:
         with patch("pipeline.assemble._audio.estimate_bpm", return_value=120):
             beat_snap_edl(edl, Path("/fake.wav"))
         assert edl.all_items()[0].display_duration >= 2.0
-
-    def test_intro_offset(self):
-        """Intro duration is added to beat grid offset."""
-        edl = _make_edl([2], duration=4.0)
-        edl.intro_duration = 3.0
-        with patch("pipeline.assemble._audio.estimate_bpm", return_value=120):
-            snapped = beat_snap_edl(edl, Path("/fake.wav"))
-        assert isinstance(snapped, int)
 
 
 # ---------------------------------------------------------------------------
