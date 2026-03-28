@@ -3,7 +3,7 @@ name = "reelsmith"
 version = "1.0.0"
 description = "AI-powered video editor — turns photos and videos into polished highlight reels"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 authors = [{name = "Yuer Guo"}]
 readme = "README.md"
 dependencies = [

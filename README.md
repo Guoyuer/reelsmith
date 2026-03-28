@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Guoyuer/reelsmith/actions/workflows/ci.yml/badge.svg)](https://github.com/Guoyuer/reelsmith/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 **Turn a folder of photos and videos into a polished highlight reel — with one command.**
 
@@ -156,4 +156,4 @@ Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-[MIT](LICENSE)
+[Apache 2.0](LICENSE)
