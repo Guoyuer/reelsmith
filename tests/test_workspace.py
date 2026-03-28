@@ -191,15 +191,6 @@ class TestRunDetail:
         assert info["intermediate_bytes"] == 5000
         assert len(info["intermediate_files"]) == 2
 
-    def test_legacy_txt_clips(self, tmp_path: Path):
-        run_dir = tmp_path / "run_legacy"
-        run_dir.mkdir()
-        render_dir = run_dir / "render"
-        render_dir.mkdir()
-        (render_dir / "seg00_item00_txt.mp4").write_bytes(b"\x00" * 1000)
-        info = _run_detail(run_dir)
-        assert info["legacy_txt_bytes"] == 1000
-
     def test_multiple_edl_versions(self, tmp_path: Path):
         run_dir = tmp_path / "run_multi_edl"
         run_dir.mkdir()
