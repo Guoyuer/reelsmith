@@ -250,12 +250,12 @@ def _run_pipeline(
     display = _PipelineDisplay(run_name, headline, active)
     logger = _setup_logging(run_name, display)
 
-    # Log CLI parameters for reproducibility
-    logger.info("Run: %s | stages: %s", run_name, ", ".join(active))
+    # Log CLI parameters for reproducibility (file-only, config box handles terminal)
+    logger.debug("Run: %s | stages: %s", run_name, ", ".join(active))
     if plan:
-        logger.info(
+        logger.debug(
             "  Plan: duration=%ds, trip_type=%s, style=%s, lang=%s, model=%s, "
-            "thinking=%s, focus=%r",
+            "thinking=%s, focus=%r, instruct=%r",
             plan.target_duration,
             plan.trip_type,
             plan.style,
@@ -263,9 +263,10 @@ def _run_pipeline(
             plan.model,
             plan.thinking_level,
             plan.focus,
+            plan.instruct,
         )
     if assemble:
-        logger.info(
+        logger.debug(
             "  Assemble: %dx%d@%d quality=%s",
             assemble.w,
             assemble.h,
@@ -273,10 +274,9 @@ def _run_pipeline(
             assemble.quality,
         )
     if prepare:
-        logger.info("  Prepare: force=%s", prepare.force)
+        logger.debug("  Prepare: force=%s", prepare.force)
     if fetch:
-        src = fetch
-        logger.info("  Fetch: source=%s", src)
+        logger.debug("  Fetch: source=%s", fetch)
 
     pc = _PipelineContext(
         cfg=cfg,
