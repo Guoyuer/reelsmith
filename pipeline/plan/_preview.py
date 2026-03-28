@@ -345,9 +345,7 @@ def _collect_items(
 
     Returns (text_block, photo_paths, video_entries, n_photos, n_videos).
     """
-    all_items = sorted(
-        analysis_by_path.values(), key=lambda entry: entry["local_path"]
-    )
+    all_items = sorted(analysis_by_path.values(), key=lambda entry: entry["local_path"])
     all_items = _dedup_burst_photos(all_items, cfg.thumbnails_dir)
 
     lines: list[str] = []
