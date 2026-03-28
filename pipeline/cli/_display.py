@@ -271,7 +271,6 @@ class _PipelineDisplay:
     def stop(self) -> None:
         """Stop the live display (call in finally block)."""
         if self._live:
-            self._live.update(self._render_panel())
             self._live.stop()
             self._live = None
 
