@@ -2,14 +2,34 @@
 
 Each segment gets its own FFmpeg call with concat=v=1:a=1, ensuring perfect
 audio-video sync. Photos get silence, keep_audio videos contribute speech.
+
+Filter graph topology (photo):
+
+    [idx:v] split -+-[bg] scale,crop,gblur,eq -[blurred]--+
+                   |                                      |
+                   +-[fg] scale -----------[sharp]--------+
+                                                          |
+                                  [blurred][sharp] overlay,ken_burns,color,fade -> [v{idx}]
+    aevalsrc=0 (silence) ------------------------------------------> [a{idx}]
+
+Filter graph topology (video, aspect fill):
+
+    [idx:v] trim,split -+-[bg] scale,crop,gblur,eq -[blurred]--+
+                        |                                      |
+                        +-[fg] scale -----------[sharp]--------+
+                                                               |
+                                       [blurred][sharp] overlay,color,speed,fade -> [v{idx}]
+    [idx:a] atrim,atempo (or aevalsrc=0) -----------------------------> [a{idx}]
 """
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from .. import constants as C
 from ..edl import EDL, EditItem, Segment
 from ._encoder import RenderContext
 from ._filters import (
@@ -27,7 +47,7 @@ _EFFECT_DIRECTIONS = {
     "ken_burns_out": "out",
     "ken_burns_left": "left",
     "ken_burns_right": "right",
-    "static": "static",
+    "none": "static",
 }
 
 
@@ -37,7 +57,13 @@ class SegmentGraph:
 
     inputs: list[list[str]]
     script: str
-    has_speech: bool
+    # item_idx → (input_idx, source_name, filter_line_start) for error mapping
+    item_map: list[tuple[int, str, int]] = dataclasses.field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 def build_segment_graph(
@@ -59,20 +85,15 @@ def build_segment_graph(
     fps = ctx.fps
     inputs: list[list[str]] = []
     filters: list[str] = []
-    segment_pairs: list[tuple[str, str]] = []
-    has_speech = False
-
-    # Title card (prepended to first segment)
+    v_a_pairs: list[tuple[str, str]] = []
+    item_map: list[tuple[int, str, int]] = []
+    # --- Title card (prepended to first segment) ---
     if title_card_path and title_card_path.exists():
-        idx = len(inputs)
-        inputs.append(["-i", str(title_card_path)])
-        # Normalize to match segment content: fps + format + SAR + PTS reset
-        filters.append(
-            f"[{idx}:v] fps={fps},format=yuv420p,setsar=1,setpts=PTS-STARTPTS [v{idx}]"
+        _add_static_card(
+            inputs, filters, v_a_pairs, title_card_path, intro_duration, fps
         )
-        filters.append(f"aevalsrc=0:d={intro_duration}:s=48000:c=stereo [a{idx}]")
-        segment_pairs.append((f"[v{idx}]", f"[a{idx}]"))
 
+    # --- Content items ---
     for item_idx, item in enumerate(segment.items):
         fade_in, fade_out = fade_params[item_idx]
         source = Path(item.source_file)
@@ -84,12 +105,11 @@ def build_segment_graph(
             source = convert_heic(source)
 
         idx = len(inputs)
+        filter_line = len(filters)
 
         if item.media_type == "photo":
             frames = int(item.display_duration * fps)
             exact_dur = frames / fps
-            # -framerate ensures input generates frames at target fps,
-            # so Ken Burns crop expressions using frame number 'n' are correct
             inputs.append(
                 [
                     "-loop",
@@ -102,68 +122,52 @@ def build_segment_graph(
                     str(source),
                 ]
             )
-            vf = _photo_filter(idx, item, segment, ctx, fade_in, fade_out, language)
-            filters.append(vf)
-            filters.append(f"aevalsrc=0:d={exact_dur}:s=48000:c=stereo [a{idx}]")
-        else:
-            duration = item.display_duration
-            if item.start_time is not None and item.end_time is not None:
-                duration = item.end_time - item.start_time
-            # No -ss/-t on input — use trim/atrim in filter chain instead
-            # (FFmpeg 8 filter_complex ignores input-level -t)
-            inputs.append(["-i", str(source)])
-
-            speed = item.playback_speed
-            output_dur = duration / speed
-            trim_start = item.start_time or 0.0
-            vf = _video_filter(
-                idx,
-                item,
-                segment,
-                ctx,
-                fade_in,
-                fade_out,
-                output_dur,
-                language,
-                trim_start=trim_start,
-                trim_duration=duration,
+            filters.append(
+                _photo_filter(idx, item, segment, ctx, fade_in, fade_out, language)
             )
-            filters.append(vf)
+            filters.append(f"{_silence(exact_dur)} [a{idx}]")
+        else:
+            inputs.append(["-i", str(source)])
+            filters.append(
+                _video_filter(idx, item, segment, ctx, fade_in, fade_out, language)
+            )
 
+            # Audio: preserve speech or generate silence
+            trim_start = item.start_time or 0.0
+            trim_dur = (
+                item.end_time - item.start_time
+                if item.start_time is not None and item.end_time is not None
+                else item.display_duration
+            )
+            speed = item.playback_speed
             if item.keep_audio:
-                af = f"[{idx}:a] "
-                af += f"atrim=start={trim_start}:duration={duration},"
-                if speed != 1.0:
-                    af += f"atempo={speed},"
-                af += f"asetpts=PTS-STARTPTS [a{idx}]"
-                filters.append(af)
-                has_speech = True
+                parts = [
+                    f"[{idx}:a] atrim=start={trim_start}:duration={trim_dur}",
+                    f"atempo={speed}" if speed != 1.0 else None,
+                    f"asetpts=PTS-STARTPTS [a{idx}]",
+                ]
+                filters.append(",".join(p for p in parts if p))
             else:
-                filters.append(
-                    f"aevalsrc=0:d={output_dur:.3f}:s=48000:c=stereo [a{idx}]"
-                )
+                filters.append(f"{_silence(trim_dur / speed)} [a{idx}]")
 
-        segment_pairs.append((f"[v{idx}]", f"[a{idx}]"))
+        v_a_pairs.append((f"[v{idx}]", f"[a{idx}]"))
+        item_map.append((idx, source.name, filter_line))
 
-    # Outro card (appended to last segment)
+    # --- Outro card (appended to last segment) ---
     if outro_card_path and outro_card_path.exists():
-        idx = len(inputs)
-        inputs.append(["-i", str(outro_card_path)])
-        filters.append(
-            f"[{idx}:v] fps={fps},format=yuv420p,setsar=1,setpts=PTS-STARTPTS [v{idx}]"
+        _add_static_card(
+            inputs, filters, v_a_pairs, outro_card_path, outro_duration, fps
         )
-        filters.append(f"aevalsrc=0:d={outro_duration}:s=48000:c=stereo [a{idx}]")
-        segment_pairs.append((f"[v{idx}]", f"[a{idx}]"))
 
-    # Concat all pairs
-    n = len(segment_pairs)
-    concat_in = "".join(f"{v}{a}" for v, a in segment_pairs)
+    # --- Concat all v/a pairs ---
+    n = len(v_a_pairs)
+    concat_in = "".join(f"{v}{a}" for v, a in v_a_pairs)
     filters.append(f"{concat_in} concat=n={n}:v=1:a=1 [vout][aout]")
 
     return SegmentGraph(
         inputs=inputs,
         script=";\n".join(filters),
-        has_speech=has_speech,
+        item_map=item_map,
     )
 
 
@@ -171,48 +175,76 @@ def compute_fade_params(edl: EDL) -> list[list[tuple[float, float]]]:
     """Compute fade_in/fade_out per item, grouped by segment."""
     all_fades: list[list[tuple[float, float]]] = []
 
-    flat = []
     for seg_idx, segment in enumerate(edl.segments):
-        for item_idx, item in enumerate(segment.items):
-            flat.append((seg_idx, item_idx, item, segment))
+        seg_fades: list[tuple[float, float]] = []
 
-    seg_fades: list[tuple[float, float]] = []
-    current_seg = 0
+        for item_idx in range(len(segment.items)):
+            fade_in = 0.0
+            fade_out = 0.0
 
-    for fi, (seg_idx, item_idx, item, segment) in enumerate(flat):
-        if seg_idx != current_seg:
-            all_fades.append(seg_fades)
-            seg_fades = []
-            current_seg = seg_idx
+            if segment.mode != "montage":
+                # Fade in: first item of a non-first segment
+                if item_idx == 0 and seg_idx > 0:
+                    fade_in = segment.segment_transition_duration
 
-        fade_in = 0.0
-        fade_out = 0.0
-        is_montage = segment.mode == "montage"
-
-        if not is_montage:
-            if item_idx == 0 and seg_idx > 0:
-                fade_in = segment.segment_transition_duration
-            if fi + 1 < len(flat):
-                _, next_item_idx, _, next_segment = flat[fi + 1]
-                if next_segment.mode != "montage":
+                # Fade out: determined by the NEXT item's context
+                next_seg, next_item_idx = _next_item(edl, seg_idx, item_idx)
+                if next_seg is not None and next_seg.mode != "montage":
                     if next_item_idx == 0:
-                        fade_out = next_segment.segment_transition_duration
-                    else:
-                        fade_out = (
-                            next_segment.transition_duration
-                            if next_segment.transition != "cut"
-                            else 0.0
-                        )
+                        # Crossing segment boundary → use next segment's transition
+                        fade_out = next_seg.segment_transition_duration
+                    elif next_seg.transition != "cut":
+                        # Same segment, intra-segment transition
+                        fade_out = next_seg.transition_duration
 
-        seg_fades.append((fade_in, fade_out))
+            seg_fades.append((fade_in, fade_out))
 
-    all_fades.append(seg_fades)
+        all_fades.append(seg_fades)
+
     return all_fades
 
 
+def _next_item(edl: EDL, seg_idx: int, item_idx: int) -> tuple[Segment | None, int]:
+    """Return (segment, item_index) for the next item in the EDL.
+
+    If the next item is in the same segment, returns (current_segment, item_idx+1).
+    If crossing to the next segment, returns (next_segment, 0).
+    If this is the last item overall, returns (None, 0).
+    """
+    seg = edl.segments[seg_idx]
+    if item_idx + 1 < len(seg.items):
+        return seg, item_idx + 1
+    if seg_idx + 1 < len(edl.segments):
+        return edl.segments[seg_idx + 1], 0
+    return None, 0
+
+
 # ---------------------------------------------------------------------------
-# Per-clip filter chains
+# Per-item builders (called by build_segment_graph)
 # ---------------------------------------------------------------------------
+
+
+def _silence(duration: float) -> str:
+    """Stereo silence source at 48kHz for the given duration."""
+    return f"aevalsrc=0:d={duration}:s={C.SAMPLE_RATE}:c=stereo"
+
+
+def _add_static_card(
+    inputs: list[list[str]],
+    filters: list[str],
+    v_a_pairs: list[tuple[str, str]],
+    path: Path,
+    duration: float,
+    fps: int,
+) -> None:
+    """Add a title/outro card: normalize video + generate silence."""
+    idx = len(inputs)
+    inputs.append(["-i", str(path)])
+    filters.append(
+        f"[{idx}:v] fps={fps},format=yuv420p,setsar=1,setpts=PTS-STARTPTS [v{idx}]"
+    )
+    filters.append(f"{_silence(duration)} [a{idx}]")
+    v_a_pairs.append((f"[v{idx}]", f"[a{idx}]"))
 
 
 def _fade_expr(duration: float, fade_in: float, fade_out: float) -> str:
@@ -247,6 +279,26 @@ def _overlay_vf(item: EditItem, language: str, out_h: int) -> str:
     )
 
 
+def _blurred_bg(idx: int, w: int, h: int, sigma: int) -> str:
+    """Blurred-background composite: upscale+crop+blur bg, fit-scale fg, overlay.
+
+    Shared by photo and video filters for non-matching aspect ratios.
+    Returns the bg/fg/overlay filter lines (without the leading split or
+    trailing post-composite filters).
+    """
+    bg_parts = [
+        f"scale={w}:{h}:force_original_aspect_ratio=increase",
+        f"crop={w}:{h}",
+        f"gblur=sigma={sigma}",
+        "eq=brightness=-0.15:saturation=0.6",
+    ]
+    return (
+        f"[bg{idx}] {','.join(bg_parts)} [blurred{idx}];"
+        f"[fg{idx}] scale={w}:{h}:force_original_aspect_ratio=decrease [sharp{idx}];"
+        f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2"
+    )
+
+
 def _photo_filter(
     idx: int,
     item: EditItem,
@@ -256,30 +308,23 @@ def _photo_filter(
     fade_out: float,
     language: str,
 ) -> str:
-    """Photo filter: blurred-bg composite + Ken Burns.
-
-    Preserves full photo content (no crop). Non-16:9 photos get a blurred,
-    darkened copy of themselves as background fill.
-    """
+    """Photo filter: blurred-bg composite + Ken Burns."""
     w, h, fps = ctx.w, ctx.h, ctx.fps
     frames = int(item.display_duration * fps)
-
-    dt = _overlay_vf(item, language, h)
     exact_dur = frames / fps
+
+    overlay_vf = _overlay_vf(item, language, h)
     fade = _fade_expr(exact_dur, fade_in, fade_out)
-    cg = color_grade(segment.color_temp)
-    sharpen = ",unsharp=3:3:0.5:3:3:0.0"
+    color_vf = color_grade(segment.color_temp)
+    sharpen = f",unsharp={C.UNSHARP_PARAMS}"
 
     direction = _EFFECT_DIRECTIONS.get(item.effect, "in")
-    kb = ken_burns_filter(frames, w, h, fps, direction=direction)
+    ken_burns_vf = ken_burns_filter(frames, w, h, fps, direction=direction)
 
     return (
         f"[{idx}:v] split [bg{idx}][fg{idx}];"
-        f"[bg{idx}] scale={w}:{h}:force_original_aspect_ratio=increase,"
-        f"crop={w}:{h},gblur=sigma=50,eq=brightness=-0.15:saturation=0.6 [blurred{idx}];"
-        f"[fg{idx}] scale={w}:{h}:force_original_aspect_ratio=decrease [sharp{idx}];"
-        f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2,"
-        f"{kb},{cg}{sharpen}{dt}{fade} [v{idx}]"
+        f"{_blurred_bg(idx, w, h, C.BG_BLUR_SIGMA)},"
+        f"{ken_burns_vf},{color_vf}{sharpen}{overlay_vf}{fade} [v{idx}]"
     )
 
 
@@ -290,45 +335,53 @@ def _video_filter(
     ctx: RenderContext,
     fade_in: float,
     fade_out: float,
-    output_dur: float,
     language: str,
-    trim_start: float = 0.0,
-    trim_duration: float = 0.0,
 ) -> str:
+    """Video filter: trim + speed + aspect fill or direct scale."""
     w, h, fps = ctx.w, ctx.h, ctx.fps
+
+    # Derive trim/speed from item
+    trim_start = item.start_time or 0.0
+    trim_dur = (
+        item.end_time - item.start_time
+        if item.start_time is not None and item.end_time is not None
+        else item.display_duration
+    )
     speed = item.playback_speed
+    output_dur = trim_dur / speed
+
     speed_vf = f",setpts={1 / speed:.4f}*PTS" if speed != 1.0 else ""
-    # Trim in filter chain (not -ss/-t on input — FFmpeg 8 filter_complex ignores those)
     trim_vf = (
-        f"trim=start={trim_start}:duration={trim_duration},setpts=PTS-STARTPTS,"
-        if trim_duration > 0
+        f"trim=start={trim_start}:duration={trim_dur},setpts=PTS-STARTPTS,"
+        if trim_dur > 0
         else ""
     )
 
-    dt = _overlay_vf(item, language, h)
+    overlay_vf = _overlay_vf(item, language, h)
     src_w, src_h = ctx.probe_dimensions(Path(item.source_file))
-    cg = color_grade(segment.color_temp)
+    color_vf = color_grade(segment.color_temp)
     fade = _fade_expr(output_dur, fade_in, fade_out)
 
-    # trim_vf trims the source before processing (replaces -ss/-t on input)
     # Blurred background composite for non-matching aspect ratios (portrait AND
     # non-16:9 landscape like 2.35:1). Exact 16:9 videos pass through without
     # visible blur since the foreground covers the entire frame.
     needs_aspect_fill = is_portrait(src_w, src_h) or (
-        src_w > 0 and src_h > 0 and abs(src_w / src_h - w / h) > 0.05
+        src_w > 0
+        and src_h > 0
+        and abs(src_w / src_h - w / h) > C.ASPECT_RATIO_TOLERANCE
     )
     if needs_aspect_fill:
         return (
             f"[{idx}:v] {trim_vf}format=yuv420p,split [bg{idx}][fg{idx}];"
-            f"[bg{idx}] scale={w}:{h}:force_original_aspect_ratio=increase,"
-            f"crop={w}:{h},gblur=sigma=60,eq=brightness=-0.15:saturation=0.6 [blurred{idx}];"
-            f"[fg{idx}] scale={w}:{h}:force_original_aspect_ratio=decrease [sharp{idx}];"
-            f"[blurred{idx}][sharp{idx}] overlay=(W-w)/2:(H-h)/2,"
-            f"{cg}{speed_vf}{dt}{fade},fps={fps} [v{idx}]"
+            f"{_blurred_bg(idx, w, h, C.BG_BLUR_SIGMA)},"
+            f"{color_vf}{speed_vf}{overlay_vf}{fade},fps={fps} [v{idx}]"
         )
     else:
+        direct_parts = [
+            f"scale={w}:{h}:force_original_aspect_ratio=decrease",
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
+        ]
         return (
-            f"[{idx}:v] {trim_vf}format=yuv420p,scale={w}:{h}:force_original_aspect_ratio=decrease,"
-            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,"
-            f"{cg}{speed_vf}{dt}{fade},fps={fps} [v{idx}]"
+            f"[{idx}:v] {trim_vf}format=yuv420p,{','.join(direct_parts)},"
+            f"{color_vf}{speed_vf}{overlay_vf}{fade},fps={fps} [v{idx}]"
         )

@@ -12,15 +12,17 @@ from pipeline.edl import EDL, EditItem, Segment
 
 
 class TestEditItemDefaults:
-    def test_default_display_duration(self):
-        """EditItem default display_duration is 4.0s."""
+    @pytest.mark.parametrize(
+        "field, expected",
+        [
+            ("display_duration", 4.0),
+            ("effect", "ken_burns_in"),
+            ("text_overlay", None),
+        ],
+    )
+    def test_defaults(self, field, expected):
         item = EditItem(source_file="photo.jpg", media_type="photo")
-        assert item.display_duration == 4.0
-
-    def test_default_effect(self):
-        """EditItem default effect is 'ken_burns_in'."""
-        item = EditItem(source_file="photo.jpg", media_type="photo")
-        assert item.effect == "ken_burns_in"
+        assert getattr(item, field) == expected
 
     def test_default_trim_times(self):
         """start_time and end_time default to None."""
@@ -28,22 +30,18 @@ class TestEditItemDefaults:
         assert item.start_time is None
         assert item.end_time is None
 
-    def test_default_text_overlay(self):
-        """text_overlay defaults to None."""
-        item = EditItem(source_file="photo.jpg", media_type="photo")
-        assert item.text_overlay is None
-
 
 class TestSegmentDefaults:
-    def test_default_transition(self):
-        """Segment default transition is 'crossfade'."""
+    @pytest.mark.parametrize(
+        "field, expected",
+        [
+            ("transition", "crossfade"),
+            ("transition_duration", 0.4),
+        ],
+    )
+    def test_defaults(self, field, expected):
         seg = Segment(name="test", items=[])
-        assert seg.transition == "crossfade"
-
-    def test_default_transition_duration(self):
-        """Segment default transition_duration is 0.4s."""
-        seg = Segment(name="test", items=[])
-        assert seg.transition_duration == 0.4
+        assert getattr(seg, field) == expected
 
 
 class TestAllItems:
@@ -63,7 +61,13 @@ class TestAllItems:
 
     def test_empty_edl(self):
         """all_items() on an EDL with no segments returns empty list."""
-        edl = EDL(title="Empty", target_duration=60.0, segments=[])
+        edl = EDL(
+            title="Empty",
+            target_duration=60.0,
+            trip_type="family",
+            style="upbeat",
+            segments=[],
+        )
         assert edl.all_items() == []
 
 
@@ -82,6 +86,8 @@ class TestEstimatedDuration:
         edl = EDL(
             title="Solo",
             target_duration=10.0,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="Only",
@@ -96,8 +102,8 @@ class TestEstimatedDuration:
                     transition_duration=1.0,
                 ),
             ],
-            intro_style="none",
-            outro_style="none",
+            intro_duration=0,
+            outro_duration=0,
         )
         assert edl.estimated_duration() == 5.0
 
@@ -105,8 +111,7 @@ class TestEstimatedDuration:
 class TestJsonRoundtrip:
     def test_roundtrip(self, sample_edl: EDL):
         """EDL -> JSON -> EDL should produce an equivalent object."""
-        json_str = sample_edl.model_dump_json()
-        restored = EDL.model_validate_json(json_str)
+        restored = EDL.model_validate_json(sample_edl.model_dump_json())
         assert restored.title == sample_edl.title
         assert restored.target_duration == sample_edl.target_duration
         assert len(restored.segments) == len(sample_edl.segments)
@@ -122,6 +127,8 @@ class TestJsonRoundtrip:
         edl = EDL(
             title="No Music",
             target_duration=30.0,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="Seg1",
@@ -145,11 +152,13 @@ class TestEDLPersistence:
         from pipeline.config import Config
         from pipeline.edl import load_latest_edl, save_edl
 
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
         edl = EDL(
             title="Test",
             target_duration=30,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S1",
@@ -160,7 +169,7 @@ class TestEDLPersistence:
             ],
         )
         save_edl(cfg, edl, version=3)
-        assert (tmp_path / "edl_v3.json").exists()
+        assert (cfg.workspace / "edl_v3.json").exists()
 
         loaded, version = load_latest_edl(cfg)
         assert version == 3
@@ -170,17 +179,18 @@ class TestEDLPersistence:
         from pipeline.config import Config
         from pipeline.edl import find_latest_version
 
-        cfg = Config(workspace=tmp_path)
-        (tmp_path / "edl_v1.json").write_text("{}")
-        (tmp_path / "edl_v5.json").write_text("{}")
-        (tmp_path / "edl_v3.json").write_text("{}")
+        cfg = Config(workspace=tmp_path / "runs" / "test")
+        cfg.ensure_dirs()
+        (cfg.workspace / "edl_v1.json").write_text("{}")
+        (cfg.workspace / "edl_v5.json").write_text("{}")
+        (cfg.workspace / "edl_v3.json").write_text("{}")
         assert find_latest_version(cfg) == 5
 
     def test_no_edl_raises(self, tmp_path):
         from pipeline.config import Config
         from pipeline.edl import load_latest_edl
 
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
         with pytest.raises(FileNotFoundError):
             load_latest_edl(cfg)

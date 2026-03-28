@@ -19,13 +19,20 @@ from pathlib import Path
 
 logger = logging.getLogger("vlog.music.gemini")
 
+_LYRIA_GUIDANCE = 4.0
+_LYRIA_TEMPERATURE = 1.1
+_WAV_SAMPLE_RATE = 48000
+_WAV_CHANNELS = 2
+_WAV_BITS_PER_SAMPLE = 16
+_CACHE_HASH_LEN = 8  # MD5 hex chars for mood hash
+
 
 def generate_music_gemini(
     trip_type: str,
     style: str,
     target_duration: int,
     cache_dir: Path,
-    mood: str = "",
+    mood: str,
 ) -> Path | None:
     """Generate background music via Lyria RealTime API.
 
@@ -36,7 +43,7 @@ def generate_music_gemini(
     import hashlib
 
     cache_dir.mkdir(parents=True, exist_ok=True)
-    mood_hash = hashlib.md5(mood.encode()).hexdigest()[:8] if mood else "default"
+    mood_hash = hashlib.md5(mood.encode()).hexdigest()[:_CACHE_HASH_LEN]
     cache_key = f"gemini_{trip_type}_{style}_{target_duration}s_{mood_hash}"
     cache_meta = cache_dir / f"{cache_key}.json"
     if cache_meta.exists():
@@ -51,10 +58,7 @@ def generate_music_gemini(
         logger.warning("GEMINI_API_KEY not set — cannot use Gemini music backend")
         return None
 
-    # Use mood if provided, otherwise fall back to template
-    from ._prompts import get_prompt
-
-    prompt = mood if mood else get_prompt(trip_type, style)
+    prompt = mood
 
     logger.info("=== Music Generation (Gemini Lyria RealTime) ===")
     logger.info("Model: lyria-realtime-exp")
@@ -75,12 +79,13 @@ def generate_music_gemini(
         gen_time = time.time() - t0
 
         # Write WAV file (48kHz, 16-bit, stereo)
-        sample_rate = 48000
-        channels = 2
-        bits_per_sample = 16
-        _write_wav(out_path, pcm_data, sample_rate, channels, bits_per_sample)
+        _write_wav(
+            out_path, pcm_data, _WAV_SAMPLE_RATE, _WAV_CHANNELS, _WAV_BITS_PER_SAMPLE
+        )
 
-        bytes_per_second = sample_rate * channels * (bits_per_sample // 8)
+        bytes_per_second = (
+            _WAV_SAMPLE_RATE * _WAV_CHANNELS * (_WAV_BITS_PER_SAMPLE // 8)
+        )
         dur = len(pcm_data) / bytes_per_second
         logger.info(
             "Generated %.1fs of audio in %.1fs via Lyria RealTime", dur, gen_time
@@ -126,7 +131,7 @@ async def _generate_music(
     )
 
     # 48kHz stereo 16-bit = 192,000 bytes per second
-    bytes_per_second = 48000 * 2 * 2
+    bytes_per_second = _WAV_SAMPLE_RATE * _WAV_CHANNELS * (_WAV_BITS_PER_SAMPLE // 8)
     target_bytes = duration * bytes_per_second
 
     audio_chunks: list[bytes] = []
@@ -142,8 +147,8 @@ async def _generate_music(
         )
         await session.set_music_generation_config(
             config=types.LiveMusicGenerationConfig(
-                guidance=4.0,
-                temperature=1.1,
+                guidance=_LYRIA_GUIDANCE,
+                temperature=_LYRIA_TEMPERATURE,
             )
         )
         await session.play()

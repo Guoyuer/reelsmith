@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from pipeline.edl import EditItem, Segment
+from pipeline.edl import EDL, EditItem, Segment
 from pipeline.plan._prompts import (
     _default_focus,
     _format_date_range,
@@ -37,49 +37,35 @@ def _make_test_edl(items: list | None = None) -> EDL:
     return EDL(
         title="Test",
         target_duration=10.0,
+        trip_type="family",
+        style="upbeat",
         segments=[Segment(name="Seg1", items=items, transition="cut")],
-        intro_style="none",
-        outro_style="none",
     )
 
 
 SAMPLE_ANALYSIS = {
-    "1": {
-        "id": 1,
-        "filename": "IMG_001.jpg",
+    "/media/1_IMG_001.jpg": {
         "local_path": "/media/1_IMG_001.jpg",
         "media_type": "photo",
-        "family_count": 2,
-        "persons": ["Alice", "Bob"],
         "district": "Marina Bay",
         "country": "Singapore",
-        "taken_iso": "2025-06-13T14:30:00",
-        "exif": {"focal_length": 24.0, "aperture": 1.4, "iso": 100},
+        "taken_at": "2025-06-13T14:30:00",
+        "exif": {"focal_length": 24.0, "aperture": 1.4, "iso_speed": 100},
     },
-    "2": {
-        "id": 2,
-        "filename": "VID_002.mp4",
+    "/media/2_VID_002.mp4": {
         "local_path": "/media/2_VID_002.mp4",
         "media_type": "video",
-        "family_count": 0,
-        "persons": [],
         "video_duration": 45.3,
-        "duration_ms": 45300,
     },
-    "3": {
-        "id": 3,
-        "filename": "IMG_003.jpg",
+    "/media/3_IMG_003.jpg": {
         "local_path": "/media/3_IMG_003.jpg",
         "media_type": "photo",
-        "family_count": 1,
-        "persons": ["Alice"],
     },
 }
 
 SAMPLE_CHAPTER = {
     "time_block": "afternoon",
     "location": "Marina Bay",
-    "item_ids": [1, 2, 3],
 }
 
 SAMPLE_DAY = {
@@ -204,16 +190,7 @@ class TestEdlFieldCompleteness:
         assert seg.mode == "narrative"
 
     def test_transition_options_accepted(self):
-        for tr in [
-            "crossfade",
-            "dissolve",
-            "smoothleft",
-            "smoothright",
-            "circlecrop",
-            "fade_black",
-            "wipe_left",
-            "cut",
-        ]:
+        for tr in ["crossfade", "cut"]:
             seg = Segment(name="t", items=[], transition=tr)
             assert seg.transition == tr
 
@@ -255,14 +232,10 @@ class TestPromptFileLoading:
         guidance = _trip_guidance("nonexistent")
         assert "Balanced storytelling" in guidance
 
-    def test_missing_prompt_file_raises(self, tmp_path):
+    def test_missing_prompt_file_raises(self, tmp_path, monkeypatch):
         import pipeline.plan._prompts as prompts_mod
         from pipeline.plan._prompts import _load_json
 
-        orig = prompts_mod._PROMPTS_DIR
-        try:
-            prompts_mod._PROMPTS_DIR = tmp_path / "nonexistent"
-            with pytest.raises(FileNotFoundError):
-                _load_json("anything.json")
-        finally:
-            prompts_mod._PROMPTS_DIR = orig
+        monkeypatch.setattr(prompts_mod, "_PROMPTS_DIR", tmp_path / "nonexistent")
+        with pytest.raises(FileNotFoundError):
+            _load_json("anything.json")

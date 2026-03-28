@@ -31,8 +31,7 @@ renders a polished highlight reel — all for ~$0.03 per run.
 
 - **CLI commands**: `vlog full`, `vlog prepare`, `vlog plan`, `vlog assemble`,
   `vlog config`, `vlog workspace` with Rich progress display
-- **Media sources**: local folder (`--source local --path PATH`) and Synology NAS
-  (`--source nas -f DATE -t DATE`) with automatic EXIF/GPS extraction
+- **Media source**: local folder (`--path PATH`) with automatic EXIF/GPS extraction
 - **Prepare stage**: 400px JPEG thumbnails, ffprobe video analysis, family detection
   (top 5 persons in ≥3% of items), preview clip generation (480p 1fps with audio)
 - **Plan stage**: single-pass Gemini planning with chain-of-thought; externalized

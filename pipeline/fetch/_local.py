@@ -1,31 +1,26 @@
-"""Fetch media from a local folder — no NAS required.
+"""Fetch media from a local folder.
 
 Scans a directory for photos and videos, extracts metadata from EXIF
 (date, GPS), and builds a manifest.json compatible with the rest of
-the pipeline. Alternative to fetch.py (Synology NAS).
+the pipeline.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .._types import ManifestEntry
+from .._types import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS, ManifestEntry
 from ..config import Config, ProgressCallback
-from ._nas import FetchConfig
 
 logger = logging.getLogger("vlog.fetch.local")
 
-PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
-VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
-
 
 def fetch_local(
-    cfg: Config, fc: FetchConfig, *, progress_callback: ProgressCallback = None
+    cfg: Config, source_dir: str, *, progress_callback: ProgressCallback = None
 ) -> list[ManifestEntry]:
     """Scan a local folder for photos/videos and build a manifest.
 
@@ -34,19 +29,16 @@ def fetch_local(
     Points directly to source files (no copying or linking).
     """
     cfg.ensure_dirs()
-    assert fc.source_dir is not None
-    source = Path(fc.source_dir)
+    source = Path(source_dir)
     if not source.is_dir():
         raise FileNotFoundError(f"Source directory not found: {source}")
 
     all_extensions = PHOTO_EXTENSIONS | VIDEO_EXTENSIONS
 
-    # Scan for media files (recursive), skip pipeline temp files
+    # Scan for media files (recursive)
     files = []
     for f in sorted(source.rglob("*")):
         if not f.is_file() or f.suffix.lower() not in all_extensions:
-            continue
-        if f.name.startswith(("_converted_", "_hist_", "_audio_", "_resized_")):
             continue
         files.append(f)
     logger.info("Found %d media files in %s", len(files), source)
@@ -63,22 +55,15 @@ def fetch_local(
             taken_dt = datetime.fromtimestamp(src_path.stat().st_mtime, tz=timezone.utc)
 
         takentime = int(taken_dt.timestamp())
-        taken_iso = taken_dt.isoformat()
-
-        # Stable ID from filename (deterministic across runs, unlike hash())
-        item_id = int(hashlib.md5(src_path.name.encode()).hexdigest()[:8], 16) % (10**8)
-        filename = src_path.name
+        taken_at = taken_dt.isoformat()
 
         # Point directly to source file — no copying or linking
         entry = {
-            "id": item_id,
-            "filename": filename,
             "item_type": item_type,
             "takentime": takentime,
-            "taken_iso": taken_iso,
+            "taken_at": taken_at,
             "filesize": src_path.stat().st_size,
             "local_path": str(src_path),
-            "metadata": {"persons": []},  # no face recognition without NAS
         }
 
         # Extract GPS location and reverse geocode
@@ -93,7 +78,10 @@ def fetch_local(
                 entry["city"] = loc.get("city", "")
                 entry["country"] = loc.get("country", "")
             except ImportError:
-                pass
+                logger.debug(
+                    "reverse_geocode not available; skipping location lookup for %s",
+                    src_path.name,
+                )
 
         manifest.append(entry)
         if progress_callback:
@@ -159,7 +147,7 @@ def _extract_date(path: Path) -> datetime | None:
 
 
 _DATE_PATTERNS = [
-    # 87462_20250617_191756 (NAS ID prefix + date + time)
+    # 87462_20250617_191756 (ID prefix + date + time)
     re.compile(r"(?:^\d+_)?(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})"),
     # IMG20250613085912 or DJI_20250613120415_0072_D
     re.compile(r"(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})"),

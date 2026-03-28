@@ -14,6 +14,8 @@ class TestWriteChapters:
         edl = EDL(
             title="T",
             target_duration=60,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S1",

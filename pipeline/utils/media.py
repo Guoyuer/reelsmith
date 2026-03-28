@@ -18,6 +18,16 @@ if sys.platform == "win32":
 
 
 _ffmpeg_logger = logging.getLogger("vlog.ffmpeg")
+logger = logging.getLogger("vlog.media")
+
+# Set by CLI signal handler; checked by run_subprocess after child exits.
+_interrupted = False
+
+
+def set_interrupted() -> None:
+    """Signal that the user pressed Ctrl+C."""
+    global _interrupted
+    _interrupted = True
 
 
 def run_subprocess(
@@ -50,6 +60,8 @@ def run_subprocess(
         proc.kill()
         proc.wait()
         raise
+    if _interrupted:
+        raise KeyboardInterrupt
     return subprocess.CompletedProcess(
         cmd,
         proc.returncode,
@@ -77,6 +89,9 @@ def probe_duration(path) -> float:
     try:
         return float(result.stdout.strip().split("\n")[0])
     except (ValueError, IndexError):
+        logger.debug(
+            "ffprobe returned unparseable output for %s: %r", path, result.stdout
+        )
         return 0.0
 
 

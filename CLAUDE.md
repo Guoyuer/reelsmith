@@ -9,10 +9,9 @@ vlog/
 │   ├── config.py              # Config dataclass (workspace paths, env loading)
 │   ├── edl.py                 # EDL Pydantic model + all enums (MediaType, Effect, Transition, etc.)
 │   ├── fetch/                 # Stage 1: source fetching
-│   │   ├── _local.py          #   Local folder scanner + EXIF extraction
-│   │   └── _nas.py            #   Synology Photos API client
+│   │   └── _local.py          #   Local folder scanner + EXIF extraction
 │   ├── prepare/               # Stage 2: media preprocessing
-│   │   └── _prepare.py        #   Thumbnails, ffprobe, family detection, preview clips
+│   │   └── _prepare.py        #   Thumbnails, ffprobe, preview clips
 │   ├── plan/                  # Stage 3: Gemini EDL generation
 │   │   ├── _gemini.py         #   Raw Gemini API interaction + logging
 │   │   ├── _orchestrate.py    #   Plan orchestrator (prepare input → call Gemini → postprocess)
@@ -48,13 +47,12 @@ vlog/
 ├── docs/                      # Architecture decisions, plans, metrics
 ├── pyproject.toml             # Dependencies, entry points, tool config
 ├── .pre-commit-config.yaml    # Ruff lint/format + pytest hooks
-├── .env.example               # GEMINI_API_KEY, SYNOLOGY_API_BASE, WORKSPACE
+├── .env.example               # GEMINI_API_KEY
 ├── CHANGELOG.md               # Version history
 └── workspace/                 # Generated artifacts (gitignored)
-    ├── runs/{name}/           #   Per-run: manifest, EDL, clips, output, logs
-    ├── analysis_cache/        #   Per-item analysis JSON
+    ├── runs/{name}/           #   Per-run: manifest, analysis.json, EDL, clips, output, logs
     ├── thumbnails/            #   400px JPEG cache
-    ├── preview_clips/         #   480p 1fps preview videos
+    ├── previews/         #   480p 1fps preview videos
     └── music/                 #   Generated music tracks
 ```
 
@@ -67,7 +65,7 @@ vlog/
 
 ## Dependencies
 
-**Runtime:** httpx, pydantic, click, Pillow, python-dotenv, google-genai, pillow-heif, reverse_geocode, rich
+**Runtime:** pydantic, click, Pillow, python-dotenv, google-genai, pillow-heif, reverse_geocode, rich, pyyaml
 
 **Dev:** pytest (≥8.0), ruff (≥0.8), pyright (≥1.1), pre-commit (≥4.0)
 
@@ -130,13 +128,10 @@ Run pipeline via `vlog` CLI. Stages execute directly in a single Python process 
 
 ```bash
 # Full pipeline from local folder
-vlog full -n singapore -s local -p ./photos -r 4k60 --duration 180 --lang cn
-
-# Full pipeline from NAS
-vlog full -n singapore -s nas -f 2025-06-13 -t 2025-06-17 -r 1080p30 --duration 180
+vlog full -n singapore -p ./photos -r 4k60 --duration 180 --lang cn
 
 # Prepare only (fetch + media processing)
-vlog prepare -n singapore -s local -p ./photos
+vlog prepare -n singapore -p ./photos
 
 # Re-plan only (no render)
 vlog plan -n singapore --duration 180 --lang cn
@@ -167,25 +162,22 @@ degradation, not crashes.
 
 ### Stage 1: prepare (`pipeline/prepare/_prepare.py`)
 
-**Input:** Raw media files (photos + videos) from local folder or NAS.
+**Input:** Raw media files (photos + videos) from a local folder.
 
 **What it does per photo:**
 - Generate 400px JPEG thumbnail (cached in `workspace/thumbnails/`)
 - Extract EXIF: focal_length, aperture, ISO
-- Extract faces/persons from NAS manifest (family_count, person names)
 - Extract location (country, region, district) and timestamp
 
 **What it does per video:**
 - ffprobe: duration, width, height, fps, orientation (landscape/portrait)
 - **NO audio analysis** — no speech detection, no loudness, no transcript, no speech timestamps
 - Generate preview clip (480p 1fps WITH AUDIO, mono 64kbps AAC, via parallel workers)
-- Extract faces/persons from NAS manifest
 
 **What it does globally:**
-- Family detection: top 5 persons appearing in ≥3% of items
-- Cache all results in `workspace/analysis_cache/{item_id}.json`
+- Write all results to `workspace/runs/{name}/analysis.json`
 
-**Output:** `preprocessed.json` + per-item analysis cache + thumbnails + preview clips.
+**Output:** analysis.json + thumbnails + preview clips.
 
 **Critical implication:** Gemini is the ONLY component in the entire pipeline that hears video
 audio. There is no speech-to-text, no audio segmentation, no "speech at 5s-12s" metadata.
@@ -236,7 +228,7 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 - TS demuxer concatenation (no re-encode: `-c:v copy -c:a copy`)
 - Music overlay: `sidechaincompress` dynamic ducking + `amix`
   - **Dynamic ducking** — music automatically fades down when speech plays, fades back up when speech stops
-  - `sidechaincompress=threshold=0.02:ratio=6:attack=200:release=1000` on music, keyed by speech track
+  - `sidechaincompress=threshold=0.02:ratio=6:attack=200:release=500` on music, keyed by speech track
   - Default music volume: 0.40 (ducked to ~15% during speech, full 40% during silence)
 
 **Phase 3: Beat sync** (`_audio.py`)
@@ -267,7 +259,6 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 | plan | effect field (videos) | _orchestrate.py | Force-overwritten to "none" — prompt should not ask for video effects |
 | plan | display_duration | postprocess | Auto-corrected from trim+speed — Gemini's value is advisory |
 | plan | music_mood | generate_music | Sent directly to Lyria as text prompt |
-| plan | music_duck_ratio | assemble | EDL field exists but NOT used — sidechaincompress handles ducking dynamically |
 | assemble | segment .ts files | concat | Demuxer concat, no re-encode |
 | assemble | keep_audio flag | beat sync | Per-item: keep_audio=true items skip beat snap, others in same segment still eligible |
 
@@ -302,7 +293,7 @@ deduplication, duration check with optional follow-up Gemini call to fill gaps.
 |-------|-----------------|
 | Individual photos (400px thumbnails, inline) + 1 concatenated video preview (480p 1fps with audio, #XX labels, Files API) + per-item metadata | Design narrative arc → select items → assign music_mood/keep_audio/playback_speed/transitions/color_temp → self-review |
 
-Model: `--model` is required. Presets: `fast` (gemini-3.1-flash-lite-preview), `balanced` (gemini-3-flash-preview), `quality` (gemini-3.1-pro-preview). Custom: `model:thinking` (e.g. `gemini-2.5-flash:medium`). Fallback via `VLOG_MODEL` env var.
+Model: `--model` is required. Presets: `fast` (gemini-3.1-flash-lite-preview), `balanced` (gemini-3-flash-preview), `quality` (gemini-3.1-pro-preview). Custom: `model:thinking` (e.g. `gemini-2.5-flash:medium`). Default: `gemini-3-flash-preview`.
 
 Every API call is logged with: model, input token count, output tokens, wall time, response preview.
 
@@ -323,13 +314,14 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 
 ## What's still hard-coded
 
-- **Family detection** — family_count from NAS face data (top 5 persons appearing in ≥3% of items)
 - **FFmpeg rendering** — parallel segment rendering from EDL (3 NVENC workers, 2 VideoToolbox workers)
 - **Ken Burns effects** — cosine-eased crop + lanczos scale per EDL effect field (photos only; videos use a separate render path)
 - **Thumbnail/keyframe generation** — Pillow resize, FFmpeg extraction
+- **Hardware acceleration** — Auto-detected: CUDA (NVIDIA) or VideoToolbox (macOS) for decode; NVENC/VideoToolbox for encode. Falls back to CPU when unavailable.
 - **Codec** — HEVC (hevc_nvenc/hevc_videotoolbox) on GPU, H.264 (libx264) on CPU; auto-detected
 - **Bitrate** — HEVC at 65% of H.264 YouTube rates with `--quality` multiplier
 - **Audio ducking** — Dynamic via `sidechaincompress`: music auto-ducks when speech detected, recovers when speech stops. Default music volume 0.40, ducked to ~15% during speech. Tight trims = less music suppression.
+- **Loudness normalization** — Two-pass `loudnorm` (pass 1 measures I/LRA/TP/thresh, pass 2 applies with `linear=true`). Falls back to single-pass if measurement fails.
 - **Color grading** — subtle contrast/saturation boost, temperature shift per segment
 - **YouTube chapter markers** — timestamps from EDL segment boundaries
 - **Text overlays** — baked into clips during render (single FFmpeg pass, no separate overlay step)
@@ -347,10 +339,10 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 
 - Photos sent to Gemini as individual 400px thumbnails inline. Videos as 1 concatenated 480p 1fps mega-preview with audio via Files API. Inline base64 limit is 100MB (~75MB raw).
 - Preview generation uses `-hwaccel auto`; `-skip_frame nokey` (~22x speedup) only when keyframe interval ≤2s, otherwise full decode
-- Photo thumbnails cached in `workspace/thumbnails/`, video analysis cached in `workspace/analysis_cache/`
-- Preview clips cached in `workspace/preview_clips/` — orphaned files from old runs auto-cleaned
+- Photo thumbnails cached in `workspace/thumbnails/`, analysis data written to per-run `analysis.json`
+- Preview clips cached in `workspace/previews/` — orphaned files from old runs auto-cleaned
 - Rich progress auto-adapts to terminal capabilities
-- Stale cache auto-invalidation: prepare re-runs if upstream file is newer (mtime check)
+- Prepare always recomputes metadata (EXIF + ffprobe are fast); thumbnails and previews are cached
 - FFmpeg subprocesses have a 10-minute timeout for segment renders, 1-minute for concat (prevents hanging on corrupt files)
 - Ken Burns uses cosine easing (ease-in/ease-out) via crop+lanczos; only applies to photos (videos use a separate render path)
 - `--music auto` uses Gemini Lyria RealTime; `--music /path/to/file` uses custom audio; `--music none` disables music
@@ -360,8 +352,8 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - ffprobe results cached per assemble run via RenderContext (dimensions + duration)
 - Text overlays baked into clips via drawtext filter with drop shadow (no separate encode pass)
 - Title card uses first EDL photo as blurred background (fallback: purple gradient)
-- CLI `prepare` = fetch + prepare (family detection, thumbnails, EXIF, video probing); CLI `plan` = plan + generate_music (when `--music` is not `none`); CLI `assemble` = render. `full` = all stages
-- `--source local --path PATH` / `--source nas -f -t` — source type is a flag, `--path` required for local, `-f`/`-t` required for NAS
+- CLI `prepare` = fetch + prepare (thumbnails, EXIF, video probing); CLI `plan` = plan + generate_music (when `--music` is not `none`); CLI `assemble` = render. `full` = all stages
+- `--path PATH` is required for `prepare` and `full` commands
 - `--resolution` / `-r` is required for both `full` and `assemble` — no default. Presets: 4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30, or custom WxHxFPS
 - Clips cached per resolution (`seg00_item00_1080p30.mp4`); switching resolution doesn't re-render existing clips
 - Output files include resolution: `vlog_v1_1080p30.mp4` — different resolutions coexist

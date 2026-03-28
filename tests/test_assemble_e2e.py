@@ -76,7 +76,7 @@ def _make_edl(
                 "source_file": p["local_path"],
                 "media_type": "photo",
                 "display_duration": 3.0,
-                "effect": ["ken_burns_in", "ken_burns_out", "static", "ken_burns_left"][
+                "effect": ["ken_burns_in", "ken_burns_out", "none", "ken_burns_left"][
                     i % 4
                 ],
             }
@@ -113,8 +113,6 @@ def _make_edl(
         "music_mode": "none",
         "trip_type": "family",
         "style": "upbeat",
-        "intro_style": "none",
-        "outro_style": "none",
         "date_range": "",
         "language": "cn",
     }
@@ -351,12 +349,10 @@ class TestAssembleE2E:
         errors = validate_output(output, edl)
         assert errors == [], f"Output validation failed: {errors}"
 
-    def test_fade_black_transition(self):
-        """Test fade_black transitions."""
+    def test_crossfade_transition(self):
+        """Test crossfade transitions with custom duration."""
         photos, videos = _get_media_samples()
-        edl = _make_edl(
-            photos, videos, transition="fade_black", transition_duration=0.6
-        )
+        edl = _make_edl(photos, videos, transition="crossfade", transition_duration=0.6)
         output = _run_assemble(edl)
         errors = validate_output(output, edl)
         assert errors == [], f"Output validation failed: {errors}"
@@ -419,7 +415,7 @@ class TestAssembleE2E:
                             "source_file": photos[2]["local_path"],
                             "media_type": "photo",
                             "display_duration": 3.0,
-                            "effect": "static",
+                            "effect": "none",
                         },
                         {
                             "source_file": videos[1]["local_path"],
@@ -436,7 +432,7 @@ class TestAssembleE2E:
                             "effect": "ken_burns_right",
                         },
                     ],
-                    "transition": "fade_black",
+                    "transition": "crossfade",
                     "transition_duration": 0.6,
                     "mode": "narrative",
                     "color_temp": "cool",
@@ -446,8 +442,6 @@ class TestAssembleE2E:
             "music_mode": "none",
             "trip_type": "family",
             "style": "upbeat",
-            "intro_style": "title_card",
-            "outro_style": "fade_title",
             "date_range": "June 2025",
             "language": "cn",
             "quality": 0.5,
@@ -517,3 +511,42 @@ class TestAssembleE2E:
         output = _run_assemble(edl)
         errors = validate_output(output, edl)
         assert errors == [], f"Output validation failed: {errors}"
+
+    def test_with_music_two_pass_loudnorm(self, tmp_path):
+        """Test two-pass loudnorm with generated sine wave as music."""
+        photos, videos = _get_media_samples()
+        edl = _make_edl(photos, videos, keep_audio_idx={0})
+
+        # Generate a short sine wave as music
+        music_path = tmp_path / "test_music.wav"
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=30",
+                str(music_path),
+            ],
+            capture_output=True,
+            timeout=30,
+        )
+        assert music_path.exists(), "Failed to generate test music"
+
+        edl["music"] = {
+            "file": str(music_path),
+            "volume": 0.4,
+            "fade_in": 1.0,
+            "fade_out": 2.0,
+        }
+        output = _run_assemble(edl)
+        errors = validate_output(output, edl)
+        assert errors == [], f"Output validation failed: {errors}"
+
+        # Verify output has audio
+        info = _probe(output)
+        a_streams = [
+            s for s in info.get("streams", []) if s.get("codec_type") == "audio"
+        ]
+        assert len(a_streams) >= 1, "Output should have audio stream with music"

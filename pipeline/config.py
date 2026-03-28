@@ -1,8 +1,17 @@
-"""Pipeline configuration — workspace paths, shared directories, environment loading."""
+"""Pipeline configuration — workspace paths, shared directories, environment loading.
+
+Configuration resolution priority (highest wins):
+
+1. CLI explicit arguments (e.g. ``--duration 300``)
+2. ``--use-cfg-file`` values (run_config_*.yaml)
+3. CLI defaults (Click ``default=`` values)
+4. Hardcoded defaults (``./workspace``)
+
+See also ``_commands.py:_resolve_params()`` for CLI-level resolution.
+"""
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,16 +25,11 @@ ProgressCallback = Callable[[int, int, str], None] | None
 @dataclass
 class Config:
     workspace: Path = Path("./workspace")
-    api_base: str = "http://localhost:8000"
 
     @property
     def _base(self) -> Path:
-        """Shared root: workspace/../.. if in runs/xxx, else workspace itself."""
-        return (
-            self.workspace.parent.parent
-            if self.workspace.parent.name == "runs"
-            else self.workspace
-        )
+        """Shared root: workspace/runs/{name} → workspace."""
+        return self.workspace.parent.parent
 
     # Shared directories (across all runs)
     @property
@@ -33,16 +37,12 @@ class Config:
         return self._base / "media"
 
     @property
-    def cache_dir(self) -> Path:
-        return self._base / "analysis_cache"
-
-    @property
     def thumbnails_dir(self) -> Path:
         return self._base / "thumbnails"
 
     @property
-    def preview_clips_dir(self) -> Path:
-        return self._base / "preview_clips"
+    def previews_dir(self) -> Path:
+        return self._base / "previews"
 
     @property
     def music_dir(self) -> Path:
@@ -50,8 +50,8 @@ class Config:
 
     # Per-run directories and files
     @property
-    def clips_dir(self) -> Path:
-        return self.workspace / "clips"
+    def render_dir(self) -> Path:
+        return self.workspace / "render"
 
     @property
     def output_dir(self) -> Path:
@@ -62,8 +62,8 @@ class Config:
         return self.workspace / "manifest.json"
 
     @property
-    def preprocessed_path(self) -> Path:
-        return self.workspace / "preprocessed.json"
+    def analysis_path(self) -> Path:
+        return self.workspace / "analysis.json"
 
     def edl_path(self, version: int) -> Path:
         return self.workspace / f"edl_v{version}.json"
@@ -75,21 +75,20 @@ class Config:
 
     @classmethod
     def load(cls, workspace: str | None = None) -> Config:
+        """Load config. Priority: workspace arg > default (./workspace).
+
+        .env is loaded for GEMINI_API_KEY (used by plan/music stages).
+        """
         load_dotenv()
-        ws = Path(workspace or os.getenv("WORKSPACE", "./workspace"))
-        return cls(
-            workspace=ws,
-            api_base=os.getenv("SYNOLOGY_API_BASE", cls.api_base),
-        )
+        ws = Path(workspace or "./workspace")
+        return cls(workspace=ws)
 
     def ensure_dirs(self) -> None:
         for d in [
-            self.clips_dir,
+            self.render_dir,
             self.output_dir,
-            self.media_dir,
-            self.cache_dir,
             self.thumbnails_dir,
-            self.preview_clips_dir,
+            self.previews_dir,
             self.music_dir,
         ]:
             d.mkdir(parents=True, exist_ok=True)

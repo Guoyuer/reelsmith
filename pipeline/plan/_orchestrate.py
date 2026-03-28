@@ -6,17 +6,16 @@ single public `plan()` entry point.
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
-from .._types import AnalysisEntry, PreprocessedData
+from .._types import AnalysisEntry
 from ..config import Config, ProgressCallback
-from ..edl import EDL, MusicTrack, find_latest_version, save_edl
+from ..edl import EDL, Effect, MusicMode, MusicTrack, find_latest_version, save_edl
 from ._gemini import _gemini_call
 from ._postprocess import (
+    PostprocessReport,
     deduplicate_items,
     fix_hallucinated_paths,
     log_edl_summary,
@@ -42,10 +41,11 @@ class PlanConfig:
     target_duration: int  # required — no default
     style: str = "upbeat"
     focus: str = ""
+    instruct: str = ""
     trip_type: str = "family"
     language: str = "en"
-    model: str | None = None
-    thinking_level: str = "HIGH"  # OFF, LOW, HIGH
+    model: str = ""  # resolved by CLI from --model (required)
+    thinking_level: str = "HIGH"  # resolved by CLI from --model preset
     music_file: str | None = None
     force: bool = False
 
@@ -62,8 +62,7 @@ class PlanConfig:
 
 def _plan_visual(
     cfg: Config,
-    preprocessed: PreprocessedData,
-    analysis_by_id: dict[str, AnalysisEntry],
+    analysis_by_path: dict[str, AnalysisEntry],
     pc: PlanConfig,
     *,
     progress_callback: ProgressCallback = None,
@@ -74,7 +73,7 @@ def _plan_visual(
     designs narrative arc + selects items + self-reviews in one call.
     """
     content_blocks, preview_offset_table, n_photos, n_videos = (
-        _build_visual_content_blocks(preprocessed, analysis_by_id, cfg, force=pc.force)
+        _build_visual_content_blocks(analysis_by_path, cfg, force=pc.force)
     )
     n_candidates = n_photos + n_videos
 
@@ -85,17 +84,21 @@ def _plan_visual(
     vid_ratio = _video_ratio(pc.trip_type)
     trip_label = f"{pc.trip_type} trip" if pc.trip_type != "general" else "trip"
     guidance_text = _trip_guidance(pc.trip_type)
-    family_line = ""
-    if pc.trip_type == "family" and preprocessed.get("family_names"):
-        family_line = f"\nFamily: {', '.join(preprocessed['family_names'])}"
 
     if progress_callback:
         progress_callback(0, 0, f"{n_photos} photos, {n_videos} videos → Gemini")
 
+    instruct_block = (
+        f"\n**User instructions** (follow these; if they conflict with hard "
+        f"constraints above, the user's instructions win):\n{pc.instruct}\n"
+        if pc.instruct
+        else ""
+    )
+
     intro_text = f"""\
 Create a {pc.style} {trip_label} vlog EDL from the photos and videos shown below.
 
-{trip_summary}{family_line}
+{trip_summary}
 
 **FOCUS: {pc.focus}** — This is the creative direction. Every chapter, every selection
 decision, and every text overlay should serve this focus. When choosing between two
@@ -109,7 +112,7 @@ items of similar quality, pick the one that better supports this focus.
 - Video ratio: at least {vid_ratio}% videos for this {trip_label}.
 - Photo time cap: total photo duration ≤ {pc.target_duration * 0.3:.0f}s (30% of target). Photos are punctuation, not filler.
 - Location diversity: max 3 items per location, spread across all places visited.
-
+{instruct_block}
 **Think step-by-step:**
 
 1. **SCAN** — Look at ALL photos carefully. Watch the ENTIRE video preview with audio.
@@ -169,17 +172,13 @@ All candidates:"""
 
     system_prompt = _visual_system_prompt(pc.trip_type, language=pc.language)
 
-    model_kwargs: dict[str, Any] = {}
-    if pc.model:
-        model_kwargs["model"] = pc.model
-    if pc.thinking_level:
-        model_kwargs["thinking_level"] = pc.thinking_level
     edl_content = _gemini_call(
         system_prompt,
         visual_parts,
         label="single pass: plan",
+        model=pc.model,
+        thinking_level=pc.thinking_level,
         progress_callback=progress_callback,
-        **model_kwargs,
     )
 
     logger.info("Gemini response: %d chars", len(edl_content))
@@ -193,10 +192,22 @@ All candidates:"""
     items_before = len(edl.all_items())
     n_path_removed = fix_hallucinated_paths(edl, cfg.media_dir)
     n_trim_fixed, n_trim_removed, n_dur_fixed, dur_delta = validate_trim_points(
-        edl, analysis_by_id
+        edl, analysis_by_path
     )
     n_dedup = deduplicate_items(edl)
     items_after = len(edl.all_items())
+
+    # Build report and check thresholds
+    report = PostprocessReport(
+        items_before=items_before,
+        items_after=items_after,
+        path_removed=n_path_removed,
+        trim_clamped=n_trim_fixed,
+        trim_removed=n_trim_removed,
+        dedup_removed=n_dedup,
+        dur_fixed=n_dur_fixed,
+        dur_delta=dur_delta,
+    )
 
     # Log post-processing summary at INFO
     pp_parts = []
@@ -220,32 +231,30 @@ All candidates:"""
     else:
         logger.info("Post-processing: no changes (%d items)", items_after)
 
+    # Check removal thresholds (raises RuntimeError if >50% removed)
+    report.check_thresholds()
+
     # Rich post-processing diff
-    try:
-        import sys
+    from ..utils import stderr_console
 
-        if sys.stderr.isatty() and (
-            n_path_removed or n_trim_fixed or n_trim_removed or n_dedup
-        ):
-            from rich.console import Console
-            from rich.table import Table
+    console = stderr_console()
+    if console and (n_path_removed or n_trim_fixed or n_trim_removed or n_dedup):
+        from rich.table import Table
 
-            t = Table(title="Post-processing", border_style="dim", title_style="bold")
-            t.add_column("Step")
-            t.add_column("Result", justify="right")
-            if n_path_removed:
-                t.add_row("Items removed (bad path)", f"[red]{n_path_removed}[/red]")
-            if n_trim_fixed:
-                t.add_row("Trim points clamped", f"[yellow]{n_trim_fixed}[/yellow]")
-            if n_trim_removed:
-                t.add_row("Items removed (bad trim)", f"[red]{n_trim_removed}[/red]")
-            if n_dedup:
-                t.add_row("Duplicates removed", f"[yellow]{n_dedup}[/yellow]")
-            t.add_section()
-            t.add_row("[bold]Items", f"[bold]{items_before} \u2192 {items_after}")
-            Console(stderr=True).print(t)
-    except ImportError:
-        pass
+        t = Table(title="Post-processing", border_style="dim", title_style="bold")
+        t.add_column("Step")
+        t.add_column("Result", justify="right")
+        if n_path_removed:
+            t.add_row("Items removed (bad path)", f"[red]{n_path_removed}[/red]")
+        if n_trim_fixed:
+            t.add_row("Trim points clamped", f"[yellow]{n_trim_fixed}[/yellow]")
+        if n_trim_removed:
+            t.add_row("Items removed (bad trim)", f"[red]{n_trim_removed}[/red]")
+        if n_dedup:
+            t.add_row("Duplicates removed", f"[yellow]{n_dedup}[/yellow]")
+        t.add_section()
+        t.add_row("[bold]Items", f"[bold]{items_before} \u2192 {items_after}")
+        console.print(t)
 
     actual_dur = edl.estimated_duration()
     if actual_dur < pc.target_duration * 0.5:
@@ -270,10 +279,10 @@ All candidates:"""
     # Coverage by location
     loc_total: dict[str, int] = {}
     loc_selected: dict[str, int] = {}
-    for a in analysis_by_id.values():
+    for a in analysis_by_path.values():
         loc = a.get("district") or a.get("first_level") or a.get("country") or "unknown"
         loc_total[loc] = loc_total.get(loc, 0) + 1
-        if a.get("local_path") in selected_paths:
+        if a["local_path"] in selected_paths:
             loc_selected[loc] = loc_selected.get(loc, 0) + 1
     for loc in sorted(loc_total, key=lambda x: loc_total[x], reverse=True)[:10]:
         sel = loc_selected.get(loc, 0)
@@ -293,18 +302,14 @@ All candidates:"""
 def plan(
     cfg: Config, pc: PlanConfig, *, progress_callback: ProgressCallback = None
 ) -> tuple[EDL, int]:
-    """Generate an EDL from preprocessed + analysis data using the visual planner."""
-    if not cfg.preprocessed_path.exists():
-        raise FileNotFoundError(
-            f"Preprocessed data not found: {cfg.preprocessed_path}\n"
-            "Run the prepare stage first (e.g. vlog prepare -s local -p ./photos)"
-        )
+    """Generate an EDL from analysis data using the visual planner."""
     from ..prepare import load_analysis
 
     effective_focus = pc.focus or _default_focus(pc.trip_type)
-    preprocessed = json.loads(cfg.preprocessed_path.read_text())
     analysis_items = load_analysis(cfg)
-    analysis_by_id: dict[str, AnalysisEntry] = {str(a["id"]): a for a in analysis_items}
+    analysis_by_path: dict[str, AnalysisEntry] = {
+        a["local_path"]: a for a in analysis_items
+    }
 
     # Use a copy with effective_focus applied so _plan_visual gets the resolved focus
     from dataclasses import replace
@@ -312,8 +317,7 @@ def plan(
     visual_pc = replace(pc, focus=effective_focus)
     edl = _plan_visual(
         cfg,
-        preprocessed,
-        analysis_by_id,
+        analysis_by_path,
         visual_pc,
         progress_callback=progress_callback,
     )
@@ -323,18 +327,17 @@ def plan(
     validate_and_fix_edl(edl)
     for seg in edl.segments:
         for item in seg.items:
-            if item.media_type == "video" and item.effect != "none":
-                item.effect = "none"
+            if item.media_type == "video" and item.effect != Effect.NONE:
+                item.effect = Effect.NONE
 
     # Set metadata on the EDL — use user's target, not Gemini's
     edl.target_duration = pc.target_duration
     edl.trip_type = pc.trip_type
     edl.style = pc.style
     edl.language = pc.language  # type: ignore[assignment]  # validated by CLI
-    # intro_style/outro_style have defaults and both enum values are truthy — no fallback needed
     if not edl.date_range:
         all_dates = sorted(
-            {a["taken_iso"][:10] for a in analysis_by_id.values() if a.get("taken_iso")}
+            {a["taken_at"][:10] for a in analysis_by_path.values() if a.get("taken_at")}
         )
         edl.date_range = _format_date_range(all_dates) if all_dates else ""
 
@@ -342,17 +345,17 @@ def plan(
     if pc.music_file and pc.music_file != "auto" and Path(pc.music_file).exists():
         logger.info("Attaching music file: %s", pc.music_file)
         edl.music = MusicTrack(file=pc.music_file)
-        edl.music_mode = "file"
+        edl.music_mode = MusicMode.FILE
     elif pc.music_file == "auto":
-        edl.music_mode = "auto"
+        edl.music_mode = MusicMode.AUTO
         logger.info("Music mode: auto (will generate in generate_music step)")
 
     version = find_latest_version(cfg) + 1
     save_edl(cfg, edl, version)
 
-    clips_dir = cfg.clips_dir
-    if clips_dir.exists():
-        for f in clips_dir.iterdir():
+    render_dir = cfg.render_dir
+    if render_dir.exists():
+        for f in render_dir.iterdir():
             f.unlink(missing_ok=True)
 
     return edl, version

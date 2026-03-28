@@ -51,8 +51,6 @@ class TestPrepareVideo:
         from pipeline.prepare._prepare import _prepare_video
 
         entry = {
-            "id": 1,
-            "filename": "video.mp4",
             "local_path": str(tmp_path / "video.mp4"),
         }
         (tmp_path / "video.mp4").write_bytes(b"\x00" * 100)
@@ -81,11 +79,11 @@ class TestPrepareVideo:
                 )
             return result
 
-        cache_file = tmp_path / "cache" / "1.json"
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
         with patch("pipeline.prepare._prepare.run_subprocess", side_effect=fake_run):
-            with patch("pipeline.prepare._prepare._has_dense_keyframes", return_value=True):
-                _prepare_video(entry, 1, str(tmp_path / "video.mp4"), cache_file, 1, 1)
+            with patch(
+                "pipeline.prepare._prepare._has_dense_keyframes", return_value=True
+            ):
+                _prepare_video(entry, tmp_path / "video.mp4", 1, 1)
 
         assert (
             entry.get("video_duration") is not None
@@ -100,8 +98,9 @@ class TestPrepareFullFlow:
         from pipeline.config import Config
         from pipeline.prepare import PrepareConfig, prepare
 
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
+        cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
         # Create manifest
         from PIL import Image
@@ -111,30 +110,26 @@ class TestPrepareFullFlow:
 
         manifest = [
             {
-                "id": 1,
-                "filename": "photo.jpg",
                 "local_path": str(photo),
                 "item_type": 0,
                 "takentime": 1700000000,
-                "taken_iso": "2023-11-14T14:13:20+00:00",
+                "taken_at": "2023-11-14T14:13:20+00:00",
                 "filesize": 5000,
-                "metadata": {"persons": []},
             }
         ]
         cfg.manifest_path.write_text(json.dumps(manifest))
 
         prepare(cfg, PrepareConfig())
-        assert cfg.preprocessed_path.exists()
-        # Per-item cache should exist
-        assert (cfg.cache_dir / "1.json").exists()
+        assert cfg.analysis_path.exists()
 
-    def test_force_regenerates_cache(self, tmp_path):
-        """--force should regenerate per-item caches."""
+    def test_rerun_updates_analysis(self, tmp_path):
+        """Re-running prepare should overwrite analysis.json."""
         from pipeline.config import Config
         from pipeline.prepare import PrepareConfig, prepare
 
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
+        cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
         from PIL import Image
 
@@ -143,31 +138,24 @@ class TestPrepareFullFlow:
 
         manifest = [
             {
-                "id": 1,
-                "filename": "photo.jpg",
                 "local_path": str(photo),
                 "item_type": 0,
                 "takentime": 1700000000,
-                "taken_iso": "2023-11-14T14:13:20+00:00",
+                "taken_at": "2023-11-14T14:13:20+00:00",
                 "filesize": 5000,
-                "metadata": {"persons": []},
             }
         ]
         cfg.manifest_path.write_text(json.dumps(manifest))
 
-        # First prepare
         prepare(cfg, PrepareConfig())
-        cache_file = cfg.cache_dir / "1.json"
-        assert cache_file.exists()
-        first_mtime = cache_file.stat().st_mtime
+        assert cfg.analysis_path.exists()
+        first_mtime = cfg.analysis_path.stat().st_mtime
 
-        # Second prepare with --force
         import time
 
         time.sleep(0.05)
-        prepare(cfg, PrepareConfig(force=True))
-        second_mtime = cache_file.stat().st_mtime
-        assert second_mtime > first_mtime
+        prepare(cfg, PrepareConfig())
+        assert cfg.analysis_path.stat().st_mtime > first_mtime
 
 
 class TestHasDenseKeyframes:
@@ -213,35 +201,35 @@ class TestGenerateVideoPreview:
     """Test video preview generation."""
 
     def test_skips_existing_preview(self, tmp_path):
+        from pipeline._types import cache_id
         from pipeline.prepare._prepare import _generate_video_previews
 
         preview_dir = tmp_path / "previews"
         preview_dir.mkdir()
 
+        local_path = "/fake/video.mp4"
         # Pre-create preview
-        preview = preview_dir / "preview_123.mp4"
+        preview = preview_dir / f"preview_{cache_id(local_path)}.mp4"
         preview.write_bytes(b"\x00" * 1000)
 
-        video_items = [
-            {"id": 123, "local_path": "/fake/video.mp4", "video_duration": 30}
-        ]
+        video_items = [{"local_path": local_path, "video_duration": 30}]
         with patch("pipeline.prepare._prepare.run_subprocess") as mock_run:
             _generate_video_previews(video_items, preview_dir)
         # Should not call ffmpeg since preview exists
         mock_run.assert_not_called()
 
     def test_force_deletes_existing(self, tmp_path):
+        from pipeline._types import cache_id
         from pipeline.prepare._prepare import _generate_video_previews
 
         preview_dir = tmp_path / "previews"
         preview_dir.mkdir()
 
-        preview = preview_dir / "preview_123.mp4"
+        local_path = "/fake/video.mp4"
+        preview = preview_dir / f"preview_{cache_id(local_path)}.mp4"
         preview.write_bytes(b"\x00" * 1000)
 
-        video_items = [
-            {"id": 123, "local_path": "/fake/video.mp4", "video_duration": 30}
-        ]
+        video_items = [{"local_path": local_path, "video_duration": 30}]
 
         def fake_run(cmd, **kwargs):
             # Create a fake output file
@@ -253,5 +241,7 @@ class TestGenerateVideoPreview:
             return result
 
         with patch("pipeline.prepare._prepare.run_subprocess", side_effect=fake_run):
-            with patch("pipeline.prepare._prepare._has_dense_keyframes", return_value=False):
+            with patch(
+                "pipeline.prepare._prepare._has_dense_keyframes", return_value=False
+            ):
                 _generate_video_previews(video_items, preview_dir, force=True)

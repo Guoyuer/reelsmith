@@ -6,6 +6,8 @@ dist/
 build/
 venv/
 .venv/
+.coverage
+htmlcov/
 
 # Environment
 .env
@@ -30,3 +32,6 @@ Thumbs.db
 
 # Claude Code
 .claude/
+
+# Git worktrees
+.worktrees/

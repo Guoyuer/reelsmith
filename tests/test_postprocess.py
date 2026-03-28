@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from pipeline.edl import EDL, EditItem, Segment
 from pipeline.plan._postprocess import (
+    PostprocessReport,
     deduplicate_items,
     fix_hallucinated_paths,
     log_edl_summary,
@@ -17,7 +20,13 @@ from pipeline.plan._postprocess import (
 
 def _make_edl(items=None, segments=None) -> EDL:
     if segments:
-        return EDL(title="Test", target_duration=60.0, segments=segments)
+        return EDL(
+            title="Test",
+            target_duration=60.0,
+            trip_type="family",
+            style="upbeat",
+            segments=segments,
+        )
     if items is None:
         items = [
             EditItem(
@@ -27,6 +36,8 @@ def _make_edl(items=None, segments=None) -> EDL:
     return EDL(
         title="Test",
         target_duration=60.0,
+        trip_type="family",
+        style="upbeat",
         segments=[Segment(name="S1", items=items, transition="cut")],
     )
 
@@ -233,7 +244,9 @@ class TestValidateTrimPoints:
                 )
             ]
         )
-        analysis = {"1": {"local_path": "/media/clip.mp4", "video_duration": 60.0}}
+        analysis = {
+            "/media/clip.mp4": {"local_path": "/media/clip.mp4", "video_duration": 60.0}
+        }
         fixed, removed, _, _ = validate_trim_points(edl, analysis)
         assert fixed == 0
         assert removed == 0
@@ -251,7 +264,9 @@ class TestValidateTrimPoints:
                 )
             ]
         )
-        analysis = {"1": {"local_path": "/media/clip.mp4", "video_duration": 60.0}}
+        analysis = {
+            "/media/clip.mp4": {"local_path": "/media/clip.mp4", "video_duration": 60.0}
+        }
         fixed, removed, _, _ = validate_trim_points(edl, analysis)
         assert fixed == 1  # start clamped to vid_dur-2, end clamped to vid_dur
         assert removed == 0
@@ -270,7 +285,9 @@ class TestValidateTrimPoints:
                 )
             ]
         )
-        analysis = {"1": {"local_path": "/media/clip.mp4", "video_duration": 60.0}}
+        analysis = {
+            "/media/clip.mp4": {"local_path": "/media/clip.mp4", "video_duration": 60.0}
+        }
         fixed, _, _, _ = validate_trim_points(edl, analysis)
         assert fixed >= 1
         assert edl.all_items()[0].end_time == 60.0
@@ -431,3 +448,52 @@ class TestLogEdlSummary:
         assert "Test" in log_text  # title
         assert "1 photos" in log_text or "photo" in log_text
         assert "1 videos" in log_text or "video" in log_text
+
+
+# ---------------------------------------------------------------------------
+# PostprocessReport threshold alerting
+# ---------------------------------------------------------------------------
+
+
+class TestPostprocessReport:
+    def test_removal_rate(self):
+        r = PostprocessReport(
+            items_before=10, items_after=7, path_removed=2, dedup_removed=1
+        )
+        assert r.total_removed == 3
+        assert r.removal_rate == pytest.approx(0.3)
+
+    def test_no_items_safe(self):
+        r = PostprocessReport(items_before=0, items_after=0)
+        r.check_thresholds()  # should not raise
+
+    def test_below_threshold_ok(self):
+        r = PostprocessReport(
+            items_before=20, items_after=18, path_removed=1, trim_removed=1
+        )
+        r.check_thresholds()  # should not raise
+
+    def test_warn_at_30_percent(self, caplog):
+        import logging
+
+        r = PostprocessReport(
+            items_before=10, items_after=6, path_removed=3, trim_removed=1
+        )
+        with caplog.at_level(logging.WARNING, logger="vlog.plan"):
+            r.check_thresholds()
+        assert "severely wrong" in caplog.text
+
+    def test_fail_at_50_percent(self):
+        r = PostprocessReport(
+            items_before=10, items_after=4, path_removed=5, trim_removed=1
+        )
+        with pytest.raises(RuntimeError, match="severely broken"):
+            r.check_thresholds()
+
+    def test_path_hallucination_warning(self, caplog):
+        import logging
+
+        r = PostprocessReport(items_before=10, items_after=8, path_removed=3)
+        with caplog.at_level(logging.WARNING, logger="vlog.plan"):
+            r.check_thresholds()
+        assert "hallucinated paths" in caplog.text

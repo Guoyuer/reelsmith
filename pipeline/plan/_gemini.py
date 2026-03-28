@@ -10,6 +10,7 @@ import logging
 import os
 import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,9 @@ _PRICING: dict[str, tuple[float, float]] = {
     "gemini-3-pro-preview": (2.00, 12.00),
 }
 
+_MAX_OUTPUT_TOKENS = 65536
+_DEFAULT_TEMPERATURE = 1.0  # Gemini 3 default; lower values degrade reasoning
+
 
 def _short_enum(val) -> str:
     """Strip enum class prefix: 'HarmCategory.HARM_CATEGORY_X' → 'X'."""
@@ -39,60 +43,57 @@ def _short_enum(val) -> str:
 
 def _display_thinking(text: str) -> None:
     """Render Gemini thinking block as a Rich Markdown panel."""
-    try:
-        import sys
+    from ..utils import stderr_console
 
-        if not sys.stderr.isatty():
-            return
-        from rich.console import Console
-        from rich.markdown import Markdown
-        from rich.panel import Panel
-    except ImportError:
+    console = stderr_console()
+    if not console:
         return
-    Console(stderr=True).print(
+    from rich.markdown import Markdown
+    from rich.panel import Panel
+
+    console.print(
         Panel(Markdown(text), title="\U0001f4ad Thinking", border_style="dim")
     )
 
 
-def _display_api_summary(
-    *,
-    label: str,
-    model: str,
-    thinking_level: str,
-    elapsed: float,
-    content_len: int,
-    prompt_tokens: int,
-    content_tokens: int,
-    thinking_tokens: int,
-    total_tokens: int,
-    cached_tokens: int,
-    tool_use_tokens: int,
-    in_rate: float,
-    out_rate: float,
-    cost_est: float,
-    finish: str,
-    usage: Any,
-    candidate: Any,
-) -> None:
+@dataclass
+class _ApiStats:
+    """Aggregated stats from a Gemini API call — passed to display/logging."""
+
+    label: str
+    model: str
+    thinking_level: str
+    elapsed: float
+    content_len: int
+    prompt_tokens: int
+    content_tokens: int
+    thinking_tokens: int
+    total_tokens: int
+    cached_tokens: int
+    tool_use_tokens: int
+    in_rate: float
+    out_rate: float
+    cost_est: float
+    finish: str | None
+    usage: Any  # google.genai UsageMetadata
+    candidate: Any  # google.genai Candidate
+
+
+def _display_api_summary(stats: _ApiStats) -> None:
     """Render Gemini API call summary (token table + status) to terminal."""
-    try:
-        import sys
+    from ..utils import stderr_console
 
-        if not sys.stderr.isatty():
-            return
-        from rich.console import Console
-        from rich.table import Table
-    except ImportError:
+    console = stderr_console()
+    if not console:
         return
-
-    console = Console(stderr=True)
+    from rich.table import Table
 
     # Token & cost table
     t = Table(
-        title=f"\U0001f4ca Gemini API — {label}",
+        title=f"\U0001f4ca Gemini API — {stats.label}",
         border_style="dim",
         title_style="bold",
-        caption=f"Model: {model} | Thinking: {thinking_level} | {elapsed:.0f}s",
+        caption=f"Model: {stats.model} | Thinking: {stats.thinking_level} | {stats.elapsed:.0f}s",
         caption_style="dim",
     )
     t.add_column("", style="dim", min_width=10)
@@ -103,75 +104,73 @@ def _display_api_summary(
 
     # Prompt row with modality breakdown
     prompt_modality = ""
-    if usage and usage.prompt_tokens_details:
+    if stats.usage and stats.usage.prompt_tokens_details:
         parts = [
             f"{_short_enum(d.modality)}: {d.token_count:,}"
-            for d in usage.prompt_tokens_details
+            for d in stats.usage.prompt_tokens_details
             if d.token_count
         ]
         prompt_modality = " | ".join(parts)
     t.add_row(
         "Prompt",
-        f"{prompt_tokens:,}",
-        f"${in_rate}",
-        f"${prompt_tokens * in_rate / 1e6:.3f}",
+        f"{stats.prompt_tokens:,}",
+        f"${stats.in_rate}",
+        f"${stats.prompt_tokens * stats.in_rate / 1e6:.3f}",
         prompt_modality,
     )
-    if cached_tokens:
-        t.add_row("  cached", f"[dim]{cached_tokens:,}", "", "", "")
-    if tool_use_tokens:
-        t.add_row("  tool use", f"[dim]{tool_use_tokens:,}", "", "", "")
+    if stats.cached_tokens:
+        t.add_row("  cached", f"[dim]{stats.cached_tokens:,}", "", "", "")
+    if stats.tool_use_tokens:
+        t.add_row("  tool use", f"[dim]{stats.tool_use_tokens:,}", "", "", "")
 
     # Output rows
     output_modality = ""
-    if usage and usage.candidates_tokens_details:
+    if stats.usage and stats.usage.candidates_tokens_details:
         parts = [
             f"{_short_enum(d.modality)}: {d.token_count:,}"
-            for d in usage.candidates_tokens_details
+            for d in stats.usage.candidates_tokens_details
             if d.token_count
         ]
         output_modality = " | ".join(parts)
     t.add_row(
         "Content",
-        f"{content_tokens:,}",
-        f"${out_rate}",
-        f"${content_tokens * out_rate / 1e6:.3f}",
+        f"{stats.content_tokens:,}",
+        f"${stats.out_rate}",
+        f"${stats.content_tokens * stats.out_rate / 1e6:.3f}",
         output_modality,
     )
     t.add_row(
         "Thinking",
-        f"{thinking_tokens:,}",
-        f"${out_rate}",
-        f"${thinking_tokens * out_rate / 1e6:.3f}",
+        f"{stats.thinking_tokens:,}",
+        f"${stats.out_rate}",
+        f"${stats.thinking_tokens * stats.out_rate / 1e6:.3f}",
         "",
     )
 
     t.add_section()
     t.add_row(
         "[bold]Total",
-        f"[bold]{total_tokens:,}",
+        f"[bold]{stats.total_tokens:,}",
         "",
-        f"[bold]${cost_est:.3f}",
+        f"[bold]${stats.cost_est:.3f}",
         "",
     )
     console.print(t)
 
     # Status line: finish + confidence + safety
     status_parts = []
-    finish_style = "green" if finish == "STOP" else "red bold"
+    finish_style = "green" if stats.finish == "STOP" else "red bold"
     status_parts.append(
-        f"Finish: [{finish_style}]{_short_enum(finish)}[/{finish_style}]"
+        f"Finish: [{finish_style}]{_short_enum(stats.finish)}[/{finish_style}]"
     )
-    if candidate and candidate.avg_logprobs is not None:
-        lp = candidate.avg_logprobs
+    if stats.candidate and stats.candidate.avg_logprobs is not None:
+        lp = stats.candidate.avg_logprobs
         conf_style = "green" if lp > -0.5 else "yellow" if lp > -1.0 else "red"
-        status_parts.append(
-            f"Confidence: [{conf_style}]{lp:.4f}[/{conf_style}]"
-        )
-    status_parts.append(f"Output: {content_len:,} chars")
-    if candidate and candidate.safety_ratings:
+        status_parts.append(f"Confidence: [{conf_style}]{lp:.4f}[/{conf_style}]")
+    status_parts.append(f"Output: {stats.content_len:,} chars")
+    if stats.candidate and stats.candidate.safety_ratings:
         blocked = [
-            r for r in candidate.safety_ratings if getattr(r, "blocked", False)
+            r for r in stats.candidate.safety_ratings if getattr(r, "blocked", False)
         ]
         if blocked:
             status_parts.append(
@@ -179,10 +178,10 @@ def _display_api_summary(
             )
     console.print("  " + "  │  ".join(status_parts), highlight=False)
 
-    if candidate and candidate.safety_ratings:
+    if stats.candidate and stats.candidate.safety_ratings:
         safety_parts = [
             f"{_short_enum(r.category)}=[dim]{_short_enum(r.probability)}[/dim]"
-            for r in candidate.safety_ratings
+            for r in stats.candidate.safety_ratings
         ]
         console.print(f"  Safety: {', '.join(safety_parts)}", highlight=False)
 
@@ -194,23 +193,19 @@ def _display_api_summary(
 
 def _prepare_parts(
     user_parts: list, client, progress_callback: ProgressCallback = None
-) -> tuple[list, int]:
+) -> list:
     """Convert *user_parts* (str/dict) into Gemini API Part objects.
 
     Videos are uploaded via the Files API; images are inlined.
-    Returns ``(parts, n_uploaded)`` where *n_uploaded* is the number of
-    files uploaded via the Files API.
     """
     from google.genai import types
 
-    n_uploaded = 0
     parts = []
     for p in user_parts:
         if isinstance(p, str):
             parts.append(types.Part(text=p))
         elif isinstance(p, dict) and p.get("type") in (
             "image_bytes",
-            "audio_bytes",
             "video_bytes",
         ):
             is_video = p.get("type") == "video_bytes"
@@ -231,7 +226,6 @@ def _prepare_parts(
                         time.sleep(2)
                         uploaded = client.files.get(name=uploaded.name or "")
                     logger.info("  Video uploaded and ACTIVE: %s", uploaded.name)
-                    n_uploaded += 1
                 finally:
                     Path(tf_path).unlink(missing_ok=True)
                 parts.append(
@@ -248,17 +242,16 @@ def _prepare_parts(
         elif isinstance(p, types.Part):
             parts.append(p)
 
-    return parts, n_uploaded
+    return parts
 
 
 def _parse_response(response) -> str:
     """Extract text content from a Gemini response.
 
-    Logs thinking, executable_code, and code_execution_result parts.
-    Renders thinking to terminal via Rich when available.
+    Logs thinking parts and renders them to terminal via Rich.
     Returns the text content string (may be empty).
     """
-    # Log thinking, code execution, and other non-text parts
+    # Log thinking parts
     if response.candidates and response.candidates[0].content:
         for part in response.candidates[0].content.parts:
             if getattr(part, "thought", False) and part.text:
@@ -266,16 +259,6 @@ def _parse_response(response) -> str:
                 for line in part.text.split("\n"):
                     logger.info("  [Thinking] %s", line)
                 _display_thinking(part.text)
-            if getattr(part, "executable_code", None):
-                ec = part.executable_code  # type: ignore[union-attr]
-                code = ec.code or "" if ec else ""
-                for line in code.split("\n"):
-                    logger.info("  [Code] %s", line)
-            if getattr(part, "code_execution_result", None):
-                cer = part.code_execution_result  # type: ignore[union-attr]
-                if cer:
-                    for line in (cer.output or "").split("\n"):
-                        logger.info("  [CodeResult] %s: %s", cer.outcome, line)
 
     content = response.text or ""
     # Log finish reason if response is empty or blocked
@@ -324,7 +307,6 @@ def _edl_response_schema() -> dict[str, Any]:
                     "ken_burns_out",
                     "ken_burns_left",
                     "ken_burns_right",
-                    "static",
                     "none",
                 ],
             },
@@ -342,10 +324,12 @@ def _edl_response_schema() -> dict[str, Any]:
             "music_mood": {"type": "STRING"},
             "mode": {"type": "STRING", "enum": ["narrative", "montage"]},
             "color_temp": {"type": "STRING", "enum": ["neutral", "warm", "cool"]},
-            "segment_transition": {"type": "STRING", "enum": ["crossfade", "cut"]},
             "segment_transition_duration": {"type": "NUMBER"},
             "items": {"type": "ARRAY", "items": item_schema},
-            "transition": {"type": "STRING", "enum": ["crossfade", "cut"]},
+            "transition": {
+                "type": "STRING",
+                "enum": ["crossfade", "cut"],
+            },
             "transition_duration": {"type": "NUMBER"},
         },
         "required": ["name", "items"],
@@ -354,12 +338,11 @@ def _edl_response_schema() -> dict[str, Any]:
         "type": "OBJECT",
         "properties": {
             "title": {"type": "STRING"},
-            "target_duration": {"type": "NUMBER"},
             "intro_duration": {"type": "NUMBER"},
             "outro_duration": {"type": "NUMBER"},
             "segments": {"type": "ARRAY", "items": segment_schema},
         },
-        "required": ["title", "target_duration", "segments"],
+        "required": ["title", "segments"],
     }
 
 
@@ -378,9 +361,6 @@ def _gemini_call(
     """
     from google import genai
     from google.genai import types
-
-    if not model:
-        model = os.getenv("VLOG_MODEL", "gemini-3-flash-preview")
 
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key:
@@ -412,13 +392,13 @@ def _gemini_call(
         )
 
     # Convert user_parts into Gemini Part objects
-    parts, n_uploaded = _prepare_parts(user_parts, client, progress_callback)
+    parts = _prepare_parts(user_parts, client, progress_callback)
 
     # Log call details
     n_images = sum(
         1 for p in user_parts if isinstance(p, dict) and p.get("type") == "image_bytes"
     )
-    n_videos_count = sum(
+    n_videos = sum(
         1 for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes"
     )
     img_mb = (
@@ -449,7 +429,7 @@ def _gemini_call(
         text_chars,
         n_images,
         img_mb,
-        n_videos_count,
+        n_videos,
         vid_mb,
     )
     # System prompt at DEBUG
@@ -480,8 +460,8 @@ def _gemini_call(
     # Build config and call API
     config_kwargs: dict[str, Any] = {
         "system_instruction": system,
-        "max_output_tokens": 65536,
-        "temperature": 1.0,  # Gemini 3 default; lower values degrade reasoning
+        "max_output_tokens": _MAX_OUTPUT_TOKENS,
+        "temperature": _DEFAULT_TEMPERATURE,
         "media_resolution": types.MediaResolution.MEDIA_RESOLUTION_LOW,
         "response_mime_type": "application/json",
         "response_schema": _edl_response_schema(),
@@ -592,7 +572,7 @@ def _gemini_call(
         logger.info("  Safety: %s", ", ".join(parts))
     logger.info("--- End Response Summary ---")
 
-    _display_api_summary(
+    api_stats = _ApiStats(
         label=label,
         model=model,
         thinking_level=thinking_level,
@@ -611,6 +591,7 @@ def _gemini_call(
         usage=usage,
         candidate=cand,
     )
+    _display_api_summary(api_stats)
 
     # Report cost via callback metadata
     if progress_callback:

@@ -3,7 +3,6 @@
 Config is stored in grouped format with ``# default`` comments::
 
     source:
-      type: local
       path: /photos
 
     plan:
@@ -31,22 +30,22 @@ import yaml
 logger = logging.getLogger("vlog.plan")
 
 # Shared choice constants — used by Click options (_commands.py) and config validation.
-SOURCE_CHOICES = ("local", "nas")
 TRIP_TYPE_CHOICES = ("family", "solo", "food", "adventure", "architecture", "general")
 STYLE_CHOICES = ("upbeat", "cinematic", "reflective", "energetic")
 LANG_CHOICES = ("en", "cn", "both")
 
 # Which flat CLI params belong to which config group.
-_SOURCE_FIELDS = {
-    "source",
-    "path",
-    "from_date",
-    "to_date",
-    "country",
-    "district",
-    "item_types",
+_SOURCE_FIELDS = {"path"}
+_PLAN_FIELDS = {
+    "duration",
+    "model",
+    "lang",
+    "trip_type",
+    "style",
+    "focus",
+    "instruct",
+    "music",
 }
-_PLAN_FIELDS = {"duration", "model", "lang", "trip_type", "style", "focus", "music"}
 _ASSEMBLE_FIELDS = {"resolution", "bitrate"}
 
 _CONFIG_GLOB = "run_config_*.yaml"
@@ -60,13 +59,7 @@ _VALID_GROUPS = {"source", "plan", "assemble"}
 
 _GROUP_SCHEMA: dict[str, dict[str, dict[str, Any]]] = {
     "source": {
-        "type": {"type": str, "required": True, "choices": SOURCE_CHOICES},
-        "path": {"type": str},
-        "from_date": {"type": str},
-        "to_date": {"type": str},
-        "country": {"type": str},
-        "district": {"type": str},
-        "item_types": {"type": str},
+        "path": {"type": str, "required": True},
     },
     "plan": {
         "duration": {"type": int, "required": True},
@@ -75,6 +68,7 @@ _GROUP_SCHEMA: dict[str, dict[str, dict[str, Any]]] = {
         "trip_type": {"type": str, "choices": TRIP_TYPE_CHOICES},
         "style": {"type": str, "choices": STYLE_CHOICES},
         "focus": {"type": str},
+        "instruct": {"type": str},
         "music": {"type": str},
     },
     "assemble": {
@@ -160,9 +154,6 @@ def _dump_yaml_with_comments(grouped: dict[str, Any], defaults: set[str]) -> str
     *defaults* is a set of flat param names (e.g. ``{"trip_type", "style"}``).
     """
     lines: list[str] = []
-    # Map from grouped key back to flat param name for default detection.
-    # "source.type" → flat "source", rest are identity.
-    _GROUP_KEY_TO_FLAT = {"source": {"type": "source"}}
 
     for group_name in ("source", "plan", "assemble"):
         group = grouped.get(group_name)
@@ -171,9 +162,7 @@ def _dump_yaml_with_comments(grouped: dict[str, Any], defaults: set[str]) -> str
         if lines:
             lines.append("")  # blank line between groups
         lines.append(f"{group_name}:")
-        key_map = _GROUP_KEY_TO_FLAT.get(group_name, {})
         for key, value in group.items():
-            flat_name = key_map.get(key, key)
             # Format value for YAML
             if isinstance(value, bool):
                 yaml_val = "true" if value else "false"
@@ -184,12 +173,16 @@ def _dump_yaml_with_comments(grouped: dict[str, Any], defaults: set[str]) -> str
                     or any(c in value for c in ":{}[]#,&*?|>!%@`'\"\\")
                     or value != value.strip()
                 ):
-                    yaml_val = yaml.dump(value, default_flow_style=True).strip()
+                    yaml_val = (
+                        yaml.dump(value, default_flow_style=True)
+                        .removesuffix("\n...\n")
+                        .strip()
+                    )
                 else:
                     yaml_val = value
             else:
                 yaml_val = str(value)
-            comment = "  # default" if flat_name in defaults else ""
+            comment = "  # default" if key in defaults else ""
             lines.append(f"  {key}: {yaml_val}{comment}")
     lines.append("")  # trailing newline
     return "\n".join(lines)
@@ -213,8 +206,6 @@ def save_run_config(
     grouped: dict[str, Any] = {}
     source_cfg = _pick(_SOURCE_FIELDS)
     if source_cfg:
-        if "source" in source_cfg:
-            source_cfg["type"] = source_cfg.pop("source")
         grouped["source"] = source_cfg
     plan_cfg = _pick(_PLAN_FIELDS)
     if plan_cfg:
@@ -239,24 +230,21 @@ def save_run_config(
             logger.info("  %s", line)
 
     # Rich display to terminal
-    try:
-        import sys
+    from pipeline.utils import stderr_console
 
-        if sys.stderr.isatty():
-            from rich.console import Console
-            from rich.panel import Panel
-            from rich.syntax import Syntax
+    console = stderr_console()
+    if console:
+        from rich.panel import Panel
+        from rich.syntax import Syntax
 
-            Console(stderr=True).print(
-                Panel(
-                    Syntax(dest.read_text(), "yaml", theme="ansi_dark"),
-                    title=f"[bold]Run Config[/bold] — {dest.name}",
-                    border_style="dim",
-                    expand=False,
-                )
+        console.print(
+            Panel(
+                Syntax(dest.read_text(), "yaml", theme="ansi_dark"),
+                title=f"[bold]Run Config[/bold] — {dest.name}",
+                border_style="dim",
+                expand=False,
             )
-    except ImportError:
-        pass
+        )
 
     return dest
 

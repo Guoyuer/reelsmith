@@ -20,41 +20,33 @@ def sample_manifest() -> list[dict]:
 
     base_time = 1700000000  # 2023-11-14 ~14:13 UTC
 
-    def _item(item_id, filename, taken, **kw):
+    def _item(filename, taken, **kw):
         """Build a manifest item with required fields."""
         iso = datetime.fromtimestamp(taken, tz=timezone.utc).isoformat()
         return {
-            "id": item_id,
-            "filename": filename,
             "item_type": kw.pop("item_type", 0),
             "takentime": taken,
-            "taken_iso": iso,
-            "local_path": f"/fake/media/{item_id}_{filename}",
+            "taken_at": iso,
+            "local_path": f"/fake/media/{filename}",
             "filesize": kw.pop("filesize", 5000000),
-            "metadata": {"persons": kw.pop("persons", [])},
             **kw,
         }
 
     return [
         _item(
-            1,
             "IMG_001.jpg",
             base_time,
             district="Marina Bay",
             country="Singapore",
-            persons=["Alice", "Bob"],
         ),
         _item(
-            2,
             "IMG_002.jpg",
             base_time + 5,
             district="Marina Bay",
             country="Singapore",
-            persons=["Alice"],
             filesize=4000000,
         ),
         _item(
-            3,
             "VID_003.mp4",
             base_time + 20,
             item_type=1,
@@ -62,17 +54,13 @@ def sample_manifest() -> list[dict]:
             country="Singapore",
             filesize=30000000,
         ),
-        _item(4, "IMG_004.jpg", base_time + 30, filesize=6000000),
+        _item("IMG_004.jpg", base_time + 30, filesize=6000000),
+        _item("Screenshot_20231114.png", base_time + 40, filesize=1000000),
         _item(
-            5, "Screenshot_20231114.png", base_time + 40, item_type=3, filesize=1000000
-        ),
-        _item(
-            6,
             "IMG_006.jpg",
             base_time + 86400,
             district="Orchard",
             country="Singapore",
-            persons=["Alice", "Bob", "Charlie"],
             filesize=7000000,
         ),
     ]
@@ -84,6 +72,8 @@ def sample_edl() -> EDL:
     return EDL(
         title="Singapore Trip",
         target_duration=120.0,
+        trip_type="family",
+        style="upbeat",
         segments=[
             Segment(
                 name="Marina Bay",
@@ -142,8 +132,8 @@ def sample_edl() -> EDL:
 def mock_config(tmp_path: Path) -> Config:
     """Config with fake URLs pointed at tmp_path, directories created."""
     cfg = Config(
-        api_base="http://fake:8000",
-        workspace=tmp_path / "workspace",
+        workspace=tmp_path / "workspace" / "runs" / "test",
     )
     cfg.ensure_dirs()
+    cfg.media_dir.mkdir(parents=True, exist_ok=True)
     return cfg

@@ -5,11 +5,17 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from .. import constants as C
 from ..utils.media import run_subprocess
 from ._encoder import RenderContext
 from ._filters import escape_drawtext, find_font
 
 logger = logging.getLogger("vlog.assemble.render")
+
+
+def _base_encode_args(ctx: RenderContext) -> list[str]:
+    """Common encoding arguments for title card rendering."""
+    return [*ctx.get_encoder(), "-pix_fmt", "yuv420p", "-r", str(ctx.fps), "-an"]
 
 
 def render_title_card(
@@ -32,23 +38,33 @@ def render_title_card(
     font = find_font(language)
     font_arg = f":fontfile='{font}'" if font else ""
 
-    title_size = int(h * 0.08)
-    if len(title) > 25:
-        title_size = int(title_size * 25 / len(title))
+    title_size = int(h * C.TITLE_SCALE)
+    if len(title) > C.TITLE_LONG_THRESHOLD:
+        title_size = int(title_size * C.TITLE_LONG_THRESHOLD / len(title))
 
     # Decide background: hero photo or gradient fallback
     use_photo_bg = background_photo is not None and Path(background_photo).exists()
 
+    # HEIC not supported by -loop 1; convert to JPEG first
+    if (
+        use_photo_bg
+        and background_photo is not None
+        and Path(background_photo).suffix.lower() in {".heic", ".heif"}
+    ):
+        from ..utils.image import convert_heic
+
+        background_photo = str(convert_heic(Path(background_photo)))
+
     if use_photo_bg:
         photo_bg = (
             f"scale={w}:{h}:force_original_aspect_ratio=increase,"
-            f"crop={w}:{h},gblur=sigma=40,"
+            f"crop={w}:{h},gblur=sigma={C.BG_BLUR_SIGMA},"
             f"eq=brightness=-0.3:saturation=0.7,vignette=PI/5"
         )
     else:
         gradient = (
-            f"color=c=0x0f0c29:s={w}x{h}:d={duration}:r={fps}[bg1];"
-            f"color=c=0x302b63:s={w}x{h // 2}:d={duration}:r={fps}[bg2];"
+            f"color=c={C.GRADIENT_START}:s={w}x{h}:d={duration}:r={fps}[bg1];"
+            f"color=c={C.GRADIENT_END}:s={w}x{h // 2}:d={duration}:r={fps}[bg2];"
             f"[bg1][bg2]overlay=0:h/4:format=auto[grad]"
         )
 
@@ -57,16 +73,16 @@ def render_title_card(
         f"drawtext=text='{safe_title}'{font_arg}"
         f":fontsize={title_size}:fontcolor=white"
         f":x=(w-text_w)/2:y={title_y}"
-        f":alpha='if(lt(t,0.5),t/0.5,if(gt(t,{duration - 0.8}),(({duration}-t)/0.8),1))'"
+        f":alpha='if(lt(t,{C.FADE_IN_DURATION}),t/{C.FADE_IN_DURATION},if(gt(t,{duration - C.FADE_OUT_DURATION}),(({duration}-t)/{C.FADE_OUT_DURATION}),1))'"
     )
 
-    line_y = int(h * 0.55)
-    line_w = int(w * 0.15)
+    line_y = int(h * C.SEPARATOR_Y_RATIO)
+    line_w = int(w * C.SEPARATOR_WIDTH_RATIO)
     line_x = (w - line_w) // 2
     separator = (
         f",drawbox=x={line_x}:y={line_y}:w={line_w}:h=2"
         f":color=white@0.4:t=fill"
-        f":enable='between(t,0.8,{duration - 0.5})'"
+        f":enable='between(t,{C.FADE_OUT_DURATION},{duration - C.FADE_IN_DURATION})'"
     )
 
     sub_text = ""
@@ -75,34 +91,31 @@ def render_title_card(
         sub_text = (
             f",drawtext=text='{safe_sub}'{font_arg}"
             f":fontsize={int(h * 0.035)}:fontcolor=white@0.6"
-            f":x=(w-text_w)/2:y={int(h * 0.59)}"
-            f":alpha='if(lt(t,1.0),max(0,(t-0.7)/0.3),if(gt(t,{duration - 0.8}),(({duration}-t)/0.8),1))'"
+            f":x=(w-text_w)/2:y={int(h * C.SUBTITLE_Y_RATIO)}"
+            f":alpha='if(lt(t,1.0),max(0,(t-0.7)/0.3),if(gt(t,{duration - C.FADE_OUT_DURATION}),(({duration}-t)/{C.FADE_OUT_DURATION}),1))'"
         )
 
-    fade = f",fade=t=in:d=0.5,fade=t=out:st={duration - 0.8}:d=0.8"
+    fade = f",fade=t=in:d={C.FADE_IN_DURATION},fade=t=out:st={duration - C.FADE_OUT_DURATION}:d={C.FADE_OUT_DURATION}"
 
-    enc = ctx.get_encoder()
-
-    if use_photo_bg:
+    if use_photo_bg and background_photo is not None:
+        bg_path = Path(background_photo)
+        is_video = bg_path.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
+        if is_video:
+            # Extract first frame, loop it for duration
+            input_args = ["-i", background_photo]
+            bg_filter = f"select=eq(n\\,0),{photo_bg},loop=loop={int(duration * fps)}:size=1:start=0,setpts=N/{fps}/TB"
+        else:
+            input_args = ["-loop", "1", "-framerate", str(fps), "-i", background_photo]
+            bg_filter = photo_bg
         cmd = [
             "ffmpeg",
             "-y",
-            "-loop",
-            "1",
-            "-framerate",
-            str(fps),
-            "-i",
-            background_photo,
+            *input_args,
             "-t",
             str(duration),
             "-filter_complex",
-            f"{photo_bg}[bg];[bg]{title_text}{separator}{sub_text}{fade}",
-            *enc,
-            "-pix_fmt",
-            "yuv420p",
-            "-r",
-            str(fps),
-            "-an",
+            f"{bg_filter}[bg];[bg]{title_text}{separator}{sub_text}{fade}",
+            *_base_encode_args(ctx),
             str(output_path),
         ]
     else:
@@ -111,12 +124,7 @@ def render_title_card(
             "-y",
             "-filter_complex",
             f"{gradient};[grad]{title_text}{separator}{sub_text}{fade}",
-            *enc,
-            "-pix_fmt",
-            "yuv420p",
-            "-r",
-            str(fps),
-            "-an",
+            *_base_encode_args(ctx),
             str(output_path),
         ]
     result = run_subprocess(cmd, capture_output=True, text=True)

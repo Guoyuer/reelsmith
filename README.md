@@ -1,6 +1,6 @@
 # vlog
 
-Automated vlog generation from photos and videos. Fetches media from a local folder or Synology NAS, plans a narrative with Gemini (which sees actual photos and listens to video audio), generates background music via Gemini Lyria RealTime, and renders a polished highlight reel.
+Automated vlog generation from photos and videos. Fetches media from a local folder, plans a narrative with Gemini (which sees actual photos and listens to video audio), generates background music via Gemini Lyria RealTime, and renders a polished highlight reel.
 
 ## Architecture
 
@@ -28,7 +28,6 @@ flowchart LR
 - **Python 3.11+** — [python.org/downloads](https://www.python.org/downloads/)
 - **FFmpeg** — video processing (`brew install ffmpeg` / `apt install ffmpeg` / [ffmpeg.org](https://ffmpeg.org/download.html))
 - **Gemini API key** — get one at [ai.google.dev](https://ai.google.dev/) → "Get API key"
-- **Synology NAS** with Photos enabled (when using `--source nas`)
 
 ### 1. Clone and install
 
@@ -53,24 +52,13 @@ Create a `.env` file with your API key:
 GEMINI_API_KEY=your-key-here
 ```
 
-For NAS usage, also add:
-```
-SYNOLOGY_BASE_URL=http://your-nas-ip:port
-SYNOLOGY_USER=your-user
-SYNOLOGY_PASS=your-pass
-```
-
 ### 3. Run the pipeline
 
 ```bash
 # Full pipeline from local photos
-vlog full -n singapore -s local -p ./photos -r 4k60 \
+vlog full -n singapore -p ./photos -r 4k60 \
   --duration 180 --model balanced --style cinematic \
   --focus "happiness of family trip; exotic scenes of Singapore"
-
-# Full pipeline from NAS
-vlog full -n singapore -s nas -f 2025-06-13 -t 2025-06-17 -r 1080p30 \
-  --duration 180 --model balanced --lang cn
 ```
 
 ### Iteration workflow
@@ -79,7 +67,7 @@ Use low-res to iterate quickly, then do a final 4K render:
 
 ```bash
 # 1. Fast preview (~1min render) — check if story works
-vlog full -n sg-draft -s nas -f 2025-06-13 -t 2025-06-17 -r 720p30 \
+vlog full -n sg-draft -p ./photos -r 720p30 \
   --duration 180 --model fast --style energetic --bitrate 0.3
 
 # 2. Happy with the edit? Re-plan with tweaks
@@ -112,10 +100,7 @@ vlog full -n <name> [OPTIONS]
 
 | Flag | Description |
 |------|-------------|
-| `-s` / `--source` | `local` or `nas` |
-| `-p` / `--path` | Local folder path (required when `-s local`) |
-| `-f` / `--from-date` | NAS start date YYYY-MM-DD (required when `-s nas`) |
-| `-t` / `--to-date` | NAS end date YYYY-MM-DD (required when `-s nas`) |
+| `-p` / `--path` | Local folder path (required) |
 
 **Resolution (required):**
 
@@ -128,9 +113,6 @@ vlog full -n <name> [OPTIONS]
 | Flag | Default | Values | Description |
 |------|---------|--------|-------------|
 | `--trip-type` | `family` | `family`, `solo`, `food`, `adventure`, `architecture`, `general` | Narrative style and music mood |
-| `--item-types` | all | `photo`, `video`, `live`, `motion` (comma-separated) | Media types to fetch from NAS |
-| `--country` | — | any string | NAS filter by country |
-| `--district` | — | any string | NAS filter by district/city |
 | `--focus` | — | free text | What to emphasize (e.g. `"family happiness; street food"`) |
 | `--lang` | `en` | `en`, `cn`, `both` | Text language for title, overlays, chapters |
 
@@ -159,14 +141,14 @@ vlog full -n <name> [OPTIONS]
 
 **Family trip, cinematic, Chinese overlays:**
 ```bash
-vlog full -n singapore -s local -p ./photos -r 4k60 \
+vlog full -n singapore -p ./photos -r 4k60 \
   --duration 180 --model quality --style cinematic --lang cn \
   --focus "family reunion joy, parents exploring Singapore for the first time"
 ```
 
-**Solo travel montage from NAS:**
+**Solo travel montage:**
 ```bash
-vlog full -n tokyo -s nas -f 2025-03-01 -t 2025-03-05 -r 1080p30 \
+vlog full -n tokyo -p ./tokyo-photos -r 1080p30 \
   --trip-type solo --style energetic --duration 120 --model balanced \
   --focus "street culture, neon lights, temple serenity"
 ```
@@ -182,7 +164,6 @@ vlog plan -n singapore --style reflective --duration 120 --model balanced
 workspace/
   -- Shared across all runs (cached, reused) --
   media/                          <- raw photos/videos (downloaded once)
-  analysis_cache/                 <- per-file prepare results ({item_id}.json)
   thumbnails/                     <- 400px JPEG thumbnails (prepare stage)
   preview_clips/                  <- 480p 1fps MP4 previews sent to Gemini
   music/                          <- generated music tracks (Lyria)
@@ -232,8 +213,7 @@ source video                     read cached previews             source video (
   ↓                                (single FFmpeg call)             + color grade + text overlay
 ffprobe: duration, resolution,   → upload mega-preview             → portrait: blurred bg
   FPS, orientation                 via Files API                  → output duration =
-  → cache: analysis_cache/       → send to Gemini                   source_dur / speed
-    {id}.json
+  → analysis.json (per-run)      → send to Gemini                   source_dur / speed
                                  mega-preview cached across       cache: clips/seg_item_{res}.mp4
 generate 480p 1fps preview       plan re-runs (hash key)
   (with audio, for Gemini
@@ -247,7 +227,7 @@ generate 480p 1fps preview       plan re-runs (hash key)
 | Directory | Contents | Created by | Shared across runs |
 |-----------|----------|------------|--------------------|
 | `workspace/thumbnails/` | 400px JPEG per photo | prepare | yes |
-| `workspace/analysis_cache/` | ffprobe metadata per video | prepare | yes |
+| `workspace/runs/{name}/analysis.json` | all item metadata (EXIF, ffprobe) | prepare | no (per run) |
 | `workspace/preview_clips/` | 480p 1fps preview per video | prepare | yes |
 | `workspace/preview_clips/_mega_preview.*` | labeled concatenated preview | plan | yes (cached by hash) |
 | `workspace/heic_converted/` | full-size JPEG for HEIC photos | assemble | yes |
@@ -256,10 +236,10 @@ generate 480p 1fps preview       plan re-runs (hash key)
 ## Pipeline Stages
 
 ### 1. fetch
-Downloads photos/videos from Synology Photos API (filtered by date range, location, item types) or scans a local folder. Builds `manifest.json`.
+Scans a local folder for media files. Builds `manifest.json`.
 
 ### 2. prepare
-All heavy media processing happens here — plan and assemble only read cached outputs. Generates thumbnails, video metadata, and 480p previews. Also: family member auto-detection (NAS face data).
+All heavy media processing happens here — plan and assemble only read cached outputs. Generates thumbnails, video metadata, and 480p previews. Also: family member auto-detection.
 
 ### 3. plan
 Reads cached thumbnails and previews — no heavy processing. Calls Gemini once with structured JSON output.
@@ -307,7 +287,6 @@ Narrative guidance per trip type (editable in `pipeline/prompts/narrative_guidan
 - **Python 3.11+** with venv
 - **FFmpeg** — video processing (auto-detected: HEVC on GPU, H.264 on CPU)
 - **Gemini API key** — `GEMINI_API_KEY` in `.env`
-- **Synology Photos API** — only for `--source nas` (the [synology-photos-project](../synology-photos-project) backend)
 
 No local AI models needed — everything runs via Gemini API.
 

@@ -11,11 +11,13 @@ class TestAssembleConfigToEdlLoading:
     """Test that assemble() loads the correct EDL version."""
 
     def test_loads_specified_version(self, tmp_path):
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
         edl = EDL(
             title="V1",
             target_duration=60,
+            trip_type="family",
+            style="upbeat",
             segments=[
                 Segment(
                     name="S",
@@ -38,4 +40,3 @@ class TestAssembleConfigToEdlLoading:
 
         edl_loaded = EDLModel.model_validate_json(cfg.edl_path(1).read_text())
         assert edl_loaded.title == "V1"
-

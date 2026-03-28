@@ -11,13 +11,70 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
-from .._types import AnalysisEntry
-from ..edl import EDL, validate_edl
+from .. import constants as C
+from .._types import PHOTO_EXTENSIONS, AnalysisEntry
+from ..edl import EDL, Effect, MediaType, Transition, validate_edl
 from ._prompts import _timestamp_to_secs
 
 logger = logging.getLogger("vlog.plan")
+
+# ---------------------------------------------------------------------------
+# Post-processing report — tracks repair counts for threshold alerting
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PostprocessReport:
+    """Aggregated repair counts from post-processing pipeline."""
+
+    items_before: int
+    items_after: int = 0
+    path_removed: int = 0
+    trim_clamped: int = 0
+    trim_removed: int = 0
+    dedup_removed: int = 0
+    dur_fixed: int = 0
+    dur_delta: float = 0.0
+
+    @property
+    def total_removed(self) -> int:
+        return self.path_removed + self.trim_removed + self.dedup_removed
+
+    @property
+    def removal_rate(self) -> float:
+        return self.total_removed / self.items_before if self.items_before else 0.0
+
+    def check_thresholds(self) -> None:
+        """Log warnings or raise if repair counts exceed thresholds."""
+        if self.items_before == 0:
+            return
+
+        if self.removal_rate > C.FAIL_REMOVAL_RATE:
+            raise RuntimeError(
+                f"Post-processing removed {self.removal_rate:.0%} of items "
+                f"({self.total_removed}/{self.items_before}). "
+                f"Gemini output is likely severely broken — aborting."
+            )
+
+        if self.removal_rate > C.WARN_REMOVAL_RATE:
+            logger.warning(
+                "Post-processing removed %.0f%% of items (%d/%d). "
+                "Gemini output may be severely wrong.",
+                self.removal_rate * 100,
+                self.total_removed,
+                self.items_before,
+            )
+
+        if self.path_removed > self.items_before * C.WARN_PATH_RATE:
+            logger.warning(
+                "Over 20%% of items had hallucinated paths (%d/%d). "
+                "Consider re-running with --force to refresh media cache.",
+                self.path_removed,
+                self.items_before,
+            )
 
 
 def parse_and_convert_timestamps(
@@ -34,14 +91,14 @@ def parse_and_convert_timestamps(
             ps = item.pop("preview_start", None)
             pe = item.pop("preview_end", None)
             if ps and pe and preview_offset_table:
-                ps_secs = _timestamp_to_secs(ps)
-                pe_secs = _timestamp_to_secs(pe)
-                window = pe_secs - ps_secs
+                preview_start_secs = _timestamp_to_secs(ps)
+                preview_end_secs = _timestamp_to_secs(pe)
+                window = preview_end_secs - preview_start_secs
 
                 # Match by finding which clip's offset range contains the
                 # MIDPOINT of the selected window (robust against Gemini
                 # using clip-end as preview_start)
-                mid_secs = (ps_secs + pe_secs) / 2
+                mid_secs = (preview_start_secs + preview_end_secs) / 2
                 matched = None
                 for item_num, dur, offset in preview_offset_table:
                     if offset <= mid_secs < offset + dur:
@@ -52,15 +109,19 @@ def parse_and_convert_timestamps(
                     # Fallback: best overlap
                     best_overlap = 0.0
                     for item_num, dur, offset in preview_offset_table:
-                        ov = max(0, min(pe_secs, offset + dur) - max(ps_secs, offset))
+                        ov = max(
+                            0,
+                            min(preview_end_secs, offset + dur)
+                            - max(preview_start_secs, offset),
+                        )
                         if ov > best_overlap:
                             best_overlap = ov
                             matched = (item_num, dur, offset)
 
                 if matched:
                     _, dur, offset = matched
-                    local_start = max(0, ps_secs - offset)
-                    local_end = min(pe_secs - offset, dur)
+                    local_start = max(0, preview_start_secs - offset)
+                    local_end = min(preview_end_secs - offset, dur)
                     # If window fell mostly outside this clip (Gemini used
                     # clip-end as start), treat as "select from start"
                     if local_end - local_start < window * 0.5:
@@ -92,7 +153,7 @@ def parse_and_convert_timestamps(
                         (local_end - local_start) / speed, 1
                     )
                     n_converted += 1
-                    logger.info(
+                    logger.debug(
                         "  Preview %s-%s → clip #%s trim %s-%ss (%ss)",
                         ps,
                         pe,
@@ -108,6 +169,23 @@ def parse_and_convert_timestamps(
             "  Converted %d preview timestamps to local trim points", n_converted
         )
 
+    # Sanitize effect values: Gemini may hallucinate values like "static"
+    valid_effects = {e.value for e in Effect}
+    valid_transitions = {e.value for e in Transition}
+    for seg in raw.get("segments", []):
+        # Normalize removed/invalid transition values to "crossfade"
+        if seg.get("transition") not in valid_transitions:
+            seg["transition"] = "crossfade"
+        # Remove legacy segment_transition field (no longer in schema)
+        seg.pop("segment_transition", None)
+        for item in seg.get("items", []):
+            if item.get("effect") not in valid_effects:
+                item["effect"] = "none"
+
+    # Gemini doesn't output trip_type/style — inject placeholder defaults
+    # so EDL.model_validate succeeds; the orchestrator overwrites them afterward.
+    raw.setdefault("trip_type", "general")
+    raw.setdefault("style", "upbeat")
     edl = EDL.model_validate(raw)
     return edl
 
@@ -158,10 +236,10 @@ def fix_hallucinated_paths(edl: EDL, media_dir: Path) -> int:
                         [c.name for c in candidates[:5]],
                     )
                 else:
-                    logger.info("  Fixed path: %s → %s", name, candidates[0].name)
+                    logger.debug("  Fixed path: %s → %s", name, candidates[0].name)
                 valid_items.append(item)
             else:
-                logger.info("  Removed item with missing source: %s", name)
+                logger.debug("  Removed item with missing source: %s", name)
                 removed_count += 1
         seg.items = valid_items
     edl.segments = [s for s in edl.segments if s.items]
@@ -173,7 +251,7 @@ def fix_hallucinated_paths(edl: EDL, media_dir: Path) -> int:
 
 
 def validate_trim_points(
-    edl: EDL, analysis_by_id: dict[str, AnalysisEntry]
+    edl: EDL, analysis_by_path: dict[str, AnalysisEntry]
 ) -> tuple[int, int, int, float]:
     """Clamp or remove invalid video trim points. Returns (fixed, removed, dur_fixed, dur_delta)."""
     trim_fixed = 0
@@ -182,19 +260,8 @@ def validate_trim_points(
         valid_items = []
         for item in seg.items:
             if item.media_type == "video" and item.start_time is not None:
-                matched_id = next(
-                    (
-                        aid
-                        for aid, a in analysis_by_id.items()
-                        if a["local_path"] == item.source_file
-                    ),
-                    None,
-                )
-                vid_dur = (
-                    analysis_by_id[matched_id].get("video_duration")
-                    if matched_id is not None
-                    else None
-                )
+                matched = analysis_by_path.get(item.source_file)
+                vid_dur = matched.get("video_duration") if matched else None
                 if vid_dur and vid_dur > 0:
                     changed = False
                     st = item.start_time
@@ -216,7 +283,7 @@ def validate_trim_points(
                     item.start_time = st
                     item.end_time = et
                     if et is not None and st >= et:
-                        logger.info(
+                        logger.debug(
                             "  Trim removal: %s start=%.1f >= end=%.1f (duration=%.1fs)",
                             Path(item.source_file).name,
                             item.start_time,
@@ -226,7 +293,7 @@ def validate_trim_points(
                         trim_removed += 1
                         continue
                     if changed:
-                        logger.info(
+                        logger.debug(
                             "  Trim clamped: %s to [%.1f, %s] (duration=%.1fs)",
                             Path(item.source_file).name,
                             item.start_time,
@@ -241,6 +308,17 @@ def validate_trim_points(
         logger.info(
             "  Trim validation: %d clamped, %d removed", trim_fixed, trim_removed
         )
+
+    # Force speed=1.0 when keep_audio=true (speed changes distort speech)
+    for seg in edl.segments:
+        for item in seg.items:
+            if item.keep_audio and item.playback_speed != 1.0:
+                logger.info(
+                    "  Speed fix: %s keep_audio=true, playback_speed %.1f → 1.0",
+                    Path(item.source_file).name,
+                    item.playback_speed,
+                )
+                item.playback_speed = 1.0
 
     # Fix display_duration to match trim range / speed
     dur_fixed = 0
@@ -257,7 +335,7 @@ def validate_trim_points(
                 expected = trim_dur / speed
                 if abs(expected - item.display_duration) > 0.5:
                     delta = expected - item.display_duration
-                    logger.info(
+                    logger.debug(
                         "  Duration fix: %s display_duration %.1fs → %.1fs "
                         "(trim=%.1fs, speed=%s)",
                         Path(item.source_file).name,
@@ -287,7 +365,7 @@ def deduplicate_items(edl: EDL) -> int:
         unique_items = []
         for item in seg.items:
             if item.source_file in seen_sources:
-                logger.info(
+                logger.debug(
                     "  Dedup: removed duplicate %s", Path(item.source_file).name
                 )
                 dedup_removed += 1
@@ -311,20 +389,13 @@ def validate_and_fix_edl(edl: EDL) -> None:
             for seg in edl.segments:
                 for item in seg.items:
                     ext = Path(item.source_file).suffix.lower()
-                    if item.media_type == "video" and ext in {
-                        ".jpg",
-                        ".jpeg",
-                        ".png",
-                        ".heic",
-                        ".heif",
-                        ".webp",
-                    }:
+                    if item.media_type == "video" and ext in PHOTO_EXTENSIONS:
                         logger.info(
                             "  Auto-fix: %s video→photo",
                             Path(item.source_file).name,
                         )
-                        item.media_type = "photo"
-                        item.effect = "ken_burns_in"
+                        item.media_type = MediaType.PHOTO
+                        item.effect = Effect.KEN_BURNS_IN
                         item.start_time = None
                         item.end_time = None
                         item.keep_audio = False
@@ -332,74 +403,47 @@ def validate_and_fix_edl(edl: EDL) -> None:
 
 def log_edl_summary(edl: EDL, target_duration: int) -> None:
     """Log structured summary of the final EDL."""
-    actual_dur = edl.estimated_duration()
+    s = edl.summary()
+    actual_dur = s["estimated_duration"]
     all_items = edl.all_items()
-    n_videos = sum(1 for i in all_items if i.media_type == "video")
-    n_photos = len(all_items) - n_videos
-    n_keep_audio = sum(1 for i in all_items if i.keep_audio)
-    n_text_overlay = sum(1 for i in all_items if i.text_overlay)
+    n_videos = s["n_videos"]
+    n_photos = s["n_photos"]
+    n_keep_audio = s["n_keep_audio"]
+    n_montage = sum(1 for seg in edl.segments if seg.mode == "montage")
 
-    # Compute additional stats
-    video_items = [i for i in all_items if i.media_type == "video"]
-    trim_lengths = [
-        i.end_time - i.start_time
-        for i in video_items
-        if i.start_time is not None and i.end_time is not None
-    ]
-    avg_trim = sum(trim_lengths) / len(trim_lengths) if trim_lengths else 0.0
-    speeds = {}
-    for i in all_items:
-        s = i.playback_speed
-        speeds[s] = speeds.get(s, 0) + 1
-    n_montage = sum(1 for s in edl.segments if s.mode == "montage")
-
-    logger.info("=== [Gemini] PARSED EDL ===")
-    logger.info("  Title: %s", edl.title)
+    status = "OK" if actual_dur >= target_duration * 0.8 else "UNDERFILLED"
     logger.info(
-        "  Segments: %d (%d narrative, %d montage), Items: %d (%d photos + %d videos)",
+        "=== [Gemini] PARSED EDL === %s | %d segments (%d narrative, %d montage), "
+        "%d items (%d photos + %d videos), %.0fs (target %ds, %s), "
+        "speech=%d, overlays=%d",
+        edl.title,
         len(edl.segments),
         len(edl.segments) - n_montage,
         n_montage,
         len(all_items),
         n_photos,
         n_videos,
+        actual_dur,
+        target_duration,
+        status,
+        n_keep_audio,
+        s["n_text_overlay"],
     )
-    status = "OK" if actual_dur >= target_duration * 0.8 else "UNDERFILLED"
-    logger.info(
-        "  Duration: %.0fs (target: %ds, %s)", actual_dur, target_duration, status
-    )
-    logger.info("  Speech clips (keep_audio): %d", n_keep_audio)
-    logger.info("  Text overlays: %d", n_text_overlay)
-    if trim_lengths:
-        logger.info(
-            "  Video trims: avg %.1fs, min %.1fs, max %.1fs (%d videos with trims)",
-            avg_trim,
-            min(trim_lengths),
-            max(trim_lengths),
-            len(trim_lengths),
-        )
-    speed_parts = [f"{s}x: {c}" for s, c in sorted(speeds.items())]
-    logger.info("  Playback speeds: %s", ", ".join(speed_parts))
 
+    # Detailed per-segment/item breakdown at DEBUG (always in log file)
     for si, seg in enumerate(edl.segments):
         seg_dur = sum(i.display_duration for i in seg.items)
-        logger.info(
-            "  --- Segment %d: %s (%d items, %.0fs) ---",
+        logger.debug(
+            "  Segment %d: %s (%d items, %.0fs, %s, %s)",
             si,
             seg.name,
             len(seg.items),
             seg_dur,
-        )
-        logger.info(
-            "    Transition: %s (%ss) | Mode: %s | Color: %s",
-            seg.transition,
-            seg.transition_duration,
             seg.mode,
             seg.color_temp,
         )
-        logger.info("    Music mood: %s", seg.music_mood[:120])
         if seg.narrative_rationale:
-            logger.info("    Rationale: %s", seg.narrative_rationale[:150])
+            logger.debug("    Rationale: %s", seg.narrative_rationale)
         for item in seg.items:
             trim = (
                 f" trim={item.start_time:.0f}-{item.end_time:.0f}s"
@@ -414,30 +458,29 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
             if item.text_overlay:
                 flags.append(f'text="{item.text_overlay.text[:30]}"')
             flag_str = f" [{', '.join(flags)}]" if flags else ""
-            logger.info(
-                "    - %-5s %ss %-16s %s%s%s",
+            logger.debug(
+                "    - %-5s %ss %s%s%s",
                 item.media_type,
                 item.display_duration,
-                item.effect,
                 Path(item.source_file).name,
                 trim,
                 flag_str,
             )
 
     # Rich tree display to terminal
-    try:
-        import sys
+    from ..utils import stderr_console
 
-        from rich.console import Console
+    console = stderr_console()
+    if console:
         from rich.tree import Tree
 
-        status = (
+        rich_status = (
             "[green]OK[/green]"
             if actual_dur >= target_duration * 0.8
             else "[red]UNDERFILLED[/red]"
         )
         tree = Tree(
-            f"[bold]{edl.title}[/bold]  {actual_dur:.0f}s/{target_duration}s {status}"
+            f"[bold]{edl.title}[/bold]  {actual_dur:.0f}s/{target_duration}s {rich_status}"
         )
         for seg in edl.segments:
             seg_dur = sum(i.display_duration for i in seg.items)
@@ -468,7 +511,4 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
                     branch.add(
                         f"[green]\U0001f4f7 {item.display_duration}s[/green] {name}{flag_str}"
                     )
-        if sys.stderr.isatty():
-            Console(stderr=True).print(tree)
-    except ImportError:
-        pass
+        console.print(tree)

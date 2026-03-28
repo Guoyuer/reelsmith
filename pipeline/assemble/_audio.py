@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import bisect
 import logging
 import math
 import struct as _struct
 import wave
 from pathlib import Path
 
+from .. import constants as C
 from ..edl import EDL
 
 logger = logging.getLogger("vlog.assemble.audio")
@@ -22,45 +24,45 @@ def estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int |
     """Estimate BPM from WAV using energy envelope autocorrelation. Stdlib only."""
     try:
         with wave.open(str(wav_path)) as w:
-            sr = w.getframerate()
-            nc = w.getnchannels()
-            sw = w.getsampwidth()
+            sample_rate = w.getframerate()
+            num_channels = w.getnchannels()
+            sample_width = w.getsampwidth()
             n_frames = w.getnframes()
-            max_frames = min(n_frames, sr * 30)
+            max_frames = min(n_frames, sample_rate * 30)
             raw = w.readframes(max_frames)
     except (OSError, wave.Error) as e:
         logger.warning("BPM estimation: could not read %s: %s", wav_path, e)
         return None
 
-    n_samples = len(raw) // sw
-    if sw == 2:
+    n_samples = len(raw) // sample_width
+    if sample_width == 2:
         samples = _struct.unpack(f"<{n_samples}h", raw)
-    elif sw == 4:
+    elif sample_width == 4:
         samples = _struct.unpack(f"<{n_samples}i", raw)
     else:
         return None
 
-    if nc == 2:
+    if num_channels == 2:
         samples = [
             (samples[i] + samples[i + 1]) / 2 for i in range(0, n_samples - 1, 2)
         ]
-    elif nc > 2:
+    elif num_channels > 2:
         return None
 
-    if len(samples) < sr * 2:
+    if len(samples) < sample_rate * 2:
         return None
 
-    win = sr // 100
+    win = sample_rate // (1000 // C.ENERGY_WINDOW_MS)
     energy = []
     for i in range(0, len(samples), win):
         chunk = samples[i : i + win]
         if chunk:
             energy.append(math.sqrt(sum(s * s for s in chunk) / len(chunk)))
 
-    if len(energy) < 200:
+    if len(energy) < C.MIN_ENERGY_WINDOWS:
         return None
 
-    windows_per_sec = 100
+    windows_per_sec = 1000 // C.ENERGY_WINDOW_MS
     min_lag = int(60 / max_bpm * windows_per_sec)
     max_lag = int(60 / min_bpm * windows_per_sec)
     max_lag = min(max_lag, len(energy) // 2)
@@ -85,45 +87,39 @@ def estimate_bpm(wav_path: Path, min_bpm: int = 60, max_bpm: int = 180) -> int |
     return bpm
 
 
-def beat_snap_edl(edl: EDL, music_path: Path) -> int:
-    """Snap EDL transition points to music beats. Modifies edl in place.
+def _build_beat_grid(music_path: Path) -> tuple[list[float], int] | None:
+    """Build a half-beat timestamp grid from a music file.
 
-    Improvements over naive approach:
-    - #5: Segment boundaries are snapped (not just intra-segment transitions).
-    - #4: Speech skip is per-item, not per-segment. Only the item whose duration
-      would change is checked — if it has keep_audio=true, that transition is
-      skipped, but other transitions in the same segment are still eligible.
-
-    Returns the number of transitions snapped.
+    Returns (beats, bpm) or None if BPM cannot be estimated.
     """
-    import bisect
-
     bpm = estimate_bpm(music_path)
     if not bpm:
-        logger.info("Beat sync: could not estimate BPM, skipping")
-        return 0
-
-    logger.info("Beat sync: detected ~%d BPM", bpm)
+        return None
 
     beat_interval = 60.0 / bpm
     half_beat = beat_interval / 2
-    total_dur = edl.estimated_duration() + 10
-    beats = [i * half_beat for i in range(int(total_dur / half_beat) + 1)]
+    beats = [i * half_beat for i in range(int(3600 / half_beat) + 1)]
+    return beats, bpm
 
-    max_shift = 0.4
-    min_photo_dur = 2.0
-    min_video_dur = 3.0
 
+def _snap_transitions(edl: EDL, beats: list[float]) -> tuple[int, int]:
+    """Snap EDL transition points to the nearest beat in *beats*.
+
+    Modifies edl items' display_duration in place.
+
+    Returns (snapped_count, total_transitions_count).
+    """
     offset = 0.0
-    if edl.intro_style == "title_card":
-        offset += edl.intro_duration
+    offset += edl.intro_duration
 
     snapped = 0
     total_transitions = 0
     n_segments = len(edl.segments)
 
     for seg_idx, seg in enumerate(edl.segments):
-        seg_max_shift = 0.2 if seg.mode == "montage" else max_shift
+        seg_max_shift = (
+            C.MONTAGE_MAX_SHIFT if seg.mode == "montage" else C.MAX_BEAT_SHIFT
+        )
 
         for i, item in enumerate(seg.items):
             offset += item.display_duration
@@ -158,15 +154,40 @@ def beat_snap_edl(edl: EDL, music_path: Path) -> int:
             if abs(shift) > seg_max_shift:
                 continue
 
-            min_dur = min_photo_dur if item.media_type == "photo" else min_video_dur
+            min_dur = (
+                C.MIN_PHOTO_DURATION
+                if item.media_type == "photo"
+                else C.MIN_VIDEO_DURATION
+            )
             new_dur = item.display_duration + shift
             if new_dur < min_dur:
                 continue
 
-            item.display_duration = round(new_dur, 3)
+            item.display_duration = round(new_dur, C.BEAT_SNAP_PRECISION)
             offset = offset + shift
             snapped += 1
 
+    return snapped, total_transitions
+
+
+def beat_snap_edl(edl: EDL, music_path: Path) -> int:
+    """Snap EDL transition points to music beats. Modifies edl in place.
+
+    Improvements over naive approach:
+    - #5: Segment boundaries are snapped (not just intra-segment transitions).
+    - #4: Speech skip is per-item, not per-segment. Only the item whose duration
+      would change is checked — if it has keep_audio=true, that transition is
+      skipped, but other transitions in the same segment are still eligible.
+
+    Returns the number of transitions snapped.
+    """
+    result = _build_beat_grid(music_path)
+    if result is None:
+        logger.info("Beat sync: could not estimate BPM, skipping")
+        return 0
+    beats, bpm = result
+    logger.info("Beat sync: detected ~%d BPM", bpm)
+    snapped, total_transitions = _snap_transitions(edl, beats)
     if total_transitions > 0:
         pct = int(snapped / total_transitions * 100)
         logger.info(
@@ -176,7 +197,6 @@ def beat_snap_edl(edl: EDL, music_path: Path) -> int:
             pct,
             bpm,
         )
-
     return snapped
 
 
@@ -185,7 +205,7 @@ def write_chapters(edl: EDL, segment_durations: list[float], out_path: Path) -> 
 
     segment_durations: probed duration of each rendered segment file.
     """
-    offset = edl.intro_duration if edl.intro_style != "none" else 0.0
+    offset = edl.intro_duration
     lines = []
     for seg_idx, seg in enumerate(edl.segments):
         minutes = int(offset) // 60

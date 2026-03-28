@@ -15,19 +15,82 @@ from ..config import ProgressCallback
 
 logger = logging.getLogger("vlog.music")
 
+_MIN_SEGMENT_DURATION = 5  # seconds; floor for per-segment music
+_DEFAULT_CROSSFADE = 2.0  # seconds; crossfade between segments
+
 
 def _segment_duration(seg) -> float:
     """Calculate a segment's screen time from its items and transitions."""
     total = sum(item.display_duration for item in seg.items)
     if seg.transition != "cut" and len(seg.items) > 1:
         total -= (len(seg.items) - 1) * seg.transition_duration
-    return max(total, 5)  # at least 5s per segment
+    return max(
+        total, _MIN_SEGMENT_DURATION
+    )  # at least _MIN_SEGMENT_DURATION per segment
+
+
+def _trim_music_segments(
+    segment_tracks: list[tuple[float, Path]],
+    output_dir: Path,
+    crossfade: float,
+) -> list[Path]:
+    """Trim each segment's music to its duration + crossfade overlap.
+
+    Returns a list of trimmed file paths (only those that were successfully created).
+    """
+    from ..utils.media import run_subprocess
+
+    trimmed: list[Path] = []
+    for i, (duration, track) in enumerate(segment_tracks):
+        trim_duration = duration + (crossfade if i < len(segment_tracks) - 1 else 0)
+        trimmed_path = output_dir / f"_seg_music_{i}.wav"
+        result = run_subprocess(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(track),
+                "-t",
+                str(trim_duration),
+                "-c:a",
+                "pcm_s16le",
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+                str(trimmed_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            logger.warning("Trim failed for segment %d: %s", i, (result.stderr or ""))
+            continue
+        if trimmed_path.exists():
+            trimmed.append(trimmed_path)
+
+    return trimmed
+
+
+def _build_crossfade_filter(n_tracks: int, crossfade: float) -> str:
+    """Build the acrossfade filter chain string for *n_tracks* inputs.
+
+    Returns the filter string (semicolon-joined acrossfade steps).
+    """
+    filter_parts = []
+    for i in range(1, n_tracks):
+        in_label = "[0:a]" if i == 1 else f"[a{i - 1}]"
+        out_label = f"[a{i}]" if i < n_tracks - 1 else "[out]"
+        filter_parts.append(
+            f"{in_label}[{i}:a]acrossfade=d={crossfade}:c1=tri:c2=tri{out_label}"
+        )
+    return ";".join(filter_parts)
 
 
 def _build_composite_music(
     segment_tracks: list[tuple[float, Path]],
     output_path: Path,
-    crossfade: float = 2.0,
+    crossfade: float,
 ) -> bool:
     """Build composite music from per-segment tracks with crossfades.
 
@@ -47,36 +110,7 @@ def _build_composite_music(
         return True
 
     # Trim each segment's music to its duration + crossfade overlap, then chain acrossfade
-    trimmed: list[Path] = []
-    inputs: list[str] = []
-    for i, (dur, track) in enumerate(segment_tracks):
-        trim_dur = dur + (crossfade if i < len(segment_tracks) - 1 else 0)
-        trimmed_path = output_path.parent / f"_seg_music_{i}.wav"
-        result = run_subprocess(
-            [
-                "ffmpeg",
-                "-y",
-                "-i",
-                str(track),
-                "-t",
-                str(trim_dur),
-                "-c:a",
-                "pcm_s16le",
-                "-ar",
-                "48000",
-                "-ac",
-                "2",
-                str(trimmed_path),
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            logger.warning("Trim failed for segment %d: %s", i, (result.stderr or ""))
-            continue
-        if trimmed_path.exists():
-            trimmed.append(trimmed_path)
-            inputs += ["-i", str(trimmed_path)]
+    trimmed = _trim_music_segments(segment_tracks, output_path.parent, crossfade)
 
     if len(trimmed) < 2:
         if trimmed:
@@ -88,21 +122,19 @@ def _build_composite_music(
             return True
         return False
 
+    inputs: list[str] = []
+    for t in trimmed:
+        inputs += ["-i", str(t)]
+
     # Chain acrossfade filters
-    filter_parts = []
-    for i in range(1, len(trimmed)):
-        in_label = "[0:a]" if i == 1 else f"[a{i - 1}]"
-        out_label = f"[a{i}]" if i < len(trimmed) - 1 else "[out]"
-        filter_parts.append(
-            f"{in_label}[{i}:a]acrossfade=d={crossfade}:c1=tri:c2=tri{out_label}"
-        )
+    filter_str = _build_crossfade_filter(len(trimmed), crossfade)
 
     cmd = (
         ["ffmpeg", "-y"]
         + inputs
         + [
             "-filter_complex",
-            ";".join(filter_parts),
+            filter_str,
             "-map",
             "[out]",
             "-c:a",
@@ -167,10 +199,14 @@ def generate_music_for_edl(
     segment_tracks: list[tuple[float, Path]] = []
 
     for i, seg in enumerate(edl.segments):
-        seg_dur = int(_segment_duration(seg))
+        segment_duration = int(_segment_duration(seg))
         mood = seg.music_mood or f"{edl.style} travel vlog background music"
         logger.info(
-            '  Segment %d/%d: "%s" (%ds)', i + 1, len(edl.segments), seg.name, seg_dur
+            '  Segment %d/%d: "%s" (%ds)',
+            i + 1,
+            len(edl.segments),
+            seg.name,
+            segment_duration,
         )
         logger.info("    Mood: %s", mood)
 
@@ -179,12 +215,12 @@ def generate_music_for_edl(
         track = generate_music_gemini(
             trip_type=edl.trip_type,
             style=edl.style,
-            target_duration=seg_dur,
+            target_duration=segment_duration,
             cache_dir=music_cache,
             mood=mood,
         )
         if track:
-            segment_tracks.append((seg_dur, track))
+            segment_tracks.append((segment_duration, track))
             logger.info("    Generated: %s", track.name)
         else:
             logger.warning("    FAILED — segment will be silent")
@@ -201,7 +237,9 @@ def generate_music_for_edl(
         music_cache
         / f"composite_{edl.trip_type}_{edl.style}_{int(edl.estimated_duration())}s.wav"
     )
-    if not _build_composite_music(segment_tracks, composite_path, crossfade=2.0):
+    if not _build_composite_music(
+        segment_tracks, composite_path, crossfade=_DEFAULT_CROSSFADE
+    ):
         # Fallback: use first segment's track
         logger.warning("Composite build failed, using first segment track")
         composite_path = segment_tracks[0][1]

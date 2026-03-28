@@ -61,8 +61,9 @@ class TestBuildVisualContentBlocks:
     """Test the full content block builder."""
 
     def test_builds_blocks_with_photos(self, tmp_path):
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
+        cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
         # Create photo + thumbnail
         photo = cfg.media_dir / "photo.jpg"
@@ -70,21 +71,14 @@ class TestBuildVisualContentBlocks:
         thumb = cfg.thumbnails_dir / "photo_thumb.jpg"
         Image.new("RGB", (50, 50), "red").save(thumb, "JPEG")
 
-        preprocessed = {"family_names": []}
         analysis = {
-            "1": {
-                "id": 1,
-                "filename": "photo.jpg",
+            str(photo): {
                 "local_path": str(photo),
                 "media_type": "photo",
-                "family_count": 0,
-                "persons": [],
             }
         }
 
-        blocks, offset_table, _, _ = _build_visual_content_blocks(
-            preprocessed, analysis, cfg
-        )
+        blocks, offset_table, _, _ = _build_visual_content_blocks(analysis, cfg)
 
         texts = [b for b in blocks if isinstance(b, str)]
         images = [
@@ -96,38 +90,35 @@ class TestBuildVisualContentBlocks:
         assert "#01" in texts[0]
 
     def test_missing_thumbnail_raises(self, tmp_path):
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
+        cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
         photo = cfg.media_dir / "photo.jpg"
         Image.new("RGB", (100, 100), "red").save(photo, "JPEG")
         # Don't create thumbnail
 
-        preprocessed = {"family_names": []}
         analysis = {
-            "1": {
-                "id": 1,
-                "filename": "photo.jpg",
+            str(photo): {
                 "local_path": str(photo),
                 "media_type": "photo",
             }
         }
 
         with pytest.raises(FileNotFoundError, match="Thumbnail missing"):
-            _build_visual_content_blocks(preprocessed, analysis, cfg)
+            _build_visual_content_blocks(analysis, cfg)
 
     def test_empty_chapter_skipped(self, tmp_path):
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
-
-        preprocessed = {"family_names": []}
 
         with pytest.raises(RuntimeError, match="No photos"):
-            _build_visual_content_blocks(preprocessed, {}, cfg)
+            _build_visual_content_blocks({}, cfg)
 
     def test_video_entries_collected(self, tmp_path):
-        cfg = Config(workspace=tmp_path)
+        cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
+        cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
         # Create photo + thumb + video preview
         photo = cfg.media_dir / "photo.jpg"
@@ -136,22 +127,19 @@ class TestBuildVisualContentBlocks:
         Image.new("RGB", (50, 50), "red").save(thumb, "JPEG")
 
         # Create video file + preview
+        from pipeline._types import cache_id
+
         video = cfg.media_dir / "vid.mp4"
         video.write_bytes(b"\x00" * 500)
-        preview = cfg.preview_clips_dir / "preview_2.mp4"
+        preview = cfg.previews_dir / f"preview_{cache_id(str(video))}.mp4"
         preview.write_bytes(b"\x00" * 1000)
 
-        preprocessed = {"family_names": []}
         analysis = {
-            "1": {
-                "id": 1,
-                "filename": "photo.jpg",
+            str(photo): {
                 "local_path": str(photo),
                 "media_type": "photo",
             },
-            "2": {
-                "id": 2,
-                "filename": "vid.mp4",
+            str(video): {
                 "local_path": str(video),
                 "media_type": "video",
                 "video_duration": 30.0,
@@ -160,9 +148,7 @@ class TestBuildVisualContentBlocks:
 
         with patch("pipeline.plan._preview._concat_previews") as mock_concat:
             mock_concat.return_value = ([(2, 30.0, 0.0)], preview)
-            blocks, offset_table, _, _ = _build_visual_content_blocks(
-                preprocessed, analysis, cfg
-            )
+            blocks, offset_table, _, _ = _build_visual_content_blocks(analysis, cfg)
 
         # Should have text + image + video preview instruction + video bytes
         videos = [

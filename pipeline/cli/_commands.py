@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import click
 
 from ._config_io import (
     LANG_CHOICES,
-    SOURCE_CHOICES,
     STYLE_CHOICES,
     TRIP_TYPE_CHOICES,
     list_configs,
@@ -30,20 +31,6 @@ class _RequiredPrefixOption(click.Option):
             help_text = f"[required] {help_text}"
             return name, help_text
         return record
-
-
-ITEM_TYPE_NAMES = {"photo": 0, "video": 1, "live": 3, "motion": 6}
-
-
-def _parse_item_types(value: str) -> list[int]:
-    result = []
-    for part in value.split(","):
-        part = part.strip().lower()
-        if part in ITEM_TYPE_NAMES:
-            result.append(ITEM_TYPE_NAMES[part])
-        else:
-            result.append(int(part))
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +76,7 @@ def cli() -> None:
 
     \b
     Examples:
-      vlog full -n trip -s local -p ./photos -r 4k60 --duration 300 --model balanced
+      vlog full -n trip -p ./photos -r 4k60 --duration 300 --model balanced
       vlog plan -n trip --duration 300 --model quality --force
       vlog assemble -n trip -r 1080p30
     """
@@ -134,7 +121,7 @@ _plan_options = [
     ),
     click.option(
         "--trip-type",
-        default="family",
+        default="general",
         type=click.Choice(TRIP_TYPE_CHOICES),
         help="Narrative style: family=close-ups+laughter, solo=landscapes+wonder, food=dishes+markets, etc.",
     ),
@@ -148,6 +135,11 @@ _plan_options = [
         "--focus",
         default="",
         help="Creative focus guiding Gemini's selection (e.g. 'family reunion joy; parents exploring Singapore')",
+    ),
+    click.option(
+        "--instruct",
+        default="",
+        help="Free-form instructions for Gemini (e.g. 'no text overlays; prefer slow-motion shots')",
     ),
     click.option(
         "--lang",
@@ -276,9 +268,10 @@ def _apply_options(options):
 _use_cfg_option = click.option(
     "--use-cfg-file",
     default=None,
-    type=click.Path(exists=True, dir_okay=False),
-    help="Load parameters from a JSON config file (mutually exclusive with other options except -n, --force, -v). "
-    "Tip: a config is auto-saved to workspace/runs/{name}/run_config.json on every run.",
+    type=click.Path(dir_okay=False),
+    help="Load parameters from a YAML config file (mutually exclusive with other options except -n, --force, -v). "
+    "Looks in workspace/runs/{name}/ if not found at the given path. "
+    "Tip: a config is auto-saved on every run.",
 )
 
 # Params that are always allowed alongside --use-cfg-file
@@ -289,6 +282,8 @@ def _validate_use_cfg(ctx: click.Context) -> None:
     """Raise UsageError if --use-cfg-file is combined with explicitly-set params."""
     for param in ctx.command.params:
         if param.name in _CFG_ALLOWED_PARAMS:
+            continue
+        if param.name is None:
             continue
         source = ctx.get_parameter_source(param.name)
         if source == click.core.ParameterSource.COMMANDLINE:
@@ -313,6 +308,8 @@ def _collect_defaults(ctx: click.Context) -> set[str]:
     """Return set of param names whose values came from CLI defaults, not user input."""
     defaults = set()
     for param in ctx.command.params:
+        if param.name is None:
+            continue
         source = ctx.get_parameter_source(param.name)
         if source == click.core.ParameterSource.DEFAULT:
             defaults.add(param.name)
@@ -338,6 +335,15 @@ _CFG_SKIP_PARAMS = frozenset({"run_name", "use_cfg_file", "force", "version"})
 def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
     """Handle --use-cfg-file overrides, build cli_params and defaults.
 
+    Resolution order for each parameter:
+
+    1. If ``--use-cfg-file`` is set: cfg-file value wins (CLI explicit
+       params other than -n/--force raise an error via ``_validate_use_cfg``).
+    2. Otherwise: CLI value (explicit or default, tracked via
+       ``_collect_defaults``).
+
+    Defaults are annotated in saved ``run_config_*.yaml`` with ``# default``.
+
     Returns *(params, cli_params, defaults)* where *params* is a dict of all
     resolved parameter values (cfg-file overrides applied).
     """
@@ -346,21 +352,30 @@ def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
 
     if use_cfg_file:
         _validate_use_cfg(ctx)
-        saved = load_run_config(use_cfg_file)
-        if "source" in saved and "source" in p:
+        # Resolve path: try as-is first, then workspace/runs/{name}/
+        cfg_path = Path(use_cfg_file)
+        if not cfg_path.exists():
+            run_dir = Path("workspace/runs") / p.get("run_name", "") / use_cfg_file
+            if run_dir.exists():
+                cfg_path = run_dir
+            else:
+                raise click.BadParameter(
+                    f"File not found: '{use_cfg_file}' (also checked {run_dir})",
+                    param_hint="'--use-cfg-file'",
+                )
+        saved = load_run_config(str(cfg_path))
+        if "source" in saved and "path" in p:
             src = saved["source"]
-            p["source"] = src["type"]
-            for key in ("path", "from_date", "to_date", "country", "district", "item_types"):
-                if key in p:
-                    p[key] = src.get(key)
+            p["path"] = src.get("path")
         if "plan" in saved and "duration" in p:
             pl = saved["plan"]
             p["duration"] = pl["duration"]
             p["model"] = pl["model"]
             p["lang"] = pl.get("lang", "en")
-            p["trip_type"] = pl.get("trip_type", "family")
+            p["trip_type"] = pl.get("trip_type", "general")
             p["style"] = pl.get("style", "upbeat")
             p["focus"] = pl.get("focus", "")
+            p["instruct"] = pl.get("instruct", "")
             p["music"] = pl.get("music", "auto")
         if "assemble" in saved and "resolution" in p:
             a = saved["assemble"]
@@ -375,65 +390,19 @@ def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
 
 
 # ---------------------------------------------------------------------------
-# Shared source options (--source local|nas, --path, NAS filters)
+# Shared source option (--path for local folder)
 # ---------------------------------------------------------------------------
 
 _source_options = [
     click.option(
-        "--source",
-        "-s",
-        required=True,
-        cls=_RequiredPrefixOption,
-        type=click.Choice(SOURCE_CHOICES),
-        help="Media source: local folder or Synology NAS",
-    ),
-    click.option(
         "--path",
         "-p",
-        default=None,
+        required=True,
+        cls=_RequiredPrefixOption,
         type=click.Path(exists=True),
-        help="Local folder path (required when --source local)",
-    ),
-    click.option(
-        "-f",
-        "--from-date",
-        default=None,
-        help="NAS start date YYYY-MM-DD (required when --source nas)",
-    ),
-    click.option(
-        "-t",
-        "--to-date",
-        default=None,
-        help="NAS end date YYYY-MM-DD (required when --source nas)",
-    ),
-    click.option("--country", default=None, help="NAS filter: country"),
-    click.option("--district", default=None, help="NAS filter: district/city"),
-    click.option(
-        "--item-types", default=None, help="NAS filter: photo,video,live,motion"
+        help="Local folder path containing photos/videos",
     ),
 ]
-
-
-def _build_fetch_config(p: dict):
-    """Build FetchConfig from resolved params dict with validation."""
-    from pipeline.fetch import FetchConfig
-
-    if p["source"] == "local":
-        if not p.get("path"):
-            raise click.UsageError("--path is required when --source is local")
-        return FetchConfig(source_dir=p["path"])
-    if not p.get("from_date") or not p.get("to_date"):
-        raise click.UsageError(
-            "--from-date and --to-date are required when --source is nas"
-        )
-    item_types = p.get("item_types")
-    return FetchConfig(
-        from_date=p["from_date"],
-        to_date=p["to_date"],
-        country=p.get("country"),
-        district=p.get("district"),
-        item_types=_parse_item_types(item_types) if item_types else None,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -447,14 +416,14 @@ def _build_fetch_config(p: dict):
 @_use_cfg_option
 @_apply_options(_source_options)
 @_force_option
-def prepare(ctx, run_name, use_cfg_file, source, path, from_date, to_date, country, district, item_types, force):
+def prepare(ctx, run_name, use_cfg_file, path, force):
     """Fetch media and generate thumbnails + video previews (cached, use --force to regenerate)."""
     from pipeline.prepare import PrepareConfig
 
     p, cli_params, defaults = _resolve_params(ctx)
     _run_pipeline(
         run_name,
-        fetch=_build_fetch_config(p),
+        fetch=p["path"],
         prepare=PrepareConfig(force=force),
         stages=["fetch", "prepare"],
         cli_params=cli_params,
@@ -475,7 +444,23 @@ def prepare(ctx, run_name, use_cfg_file, source, path, from_date, to_date, count
 @_force_option
 @_apply_options(_plan_options)
 @_apply_options(_assemble_options)
-def full(ctx, run_name, use_cfg_file, source, path, from_date, to_date, country, district, item_types, force, duration, trip_type, style, focus, lang, model, music, resolution, quality):
+def full(
+    ctx,
+    run_name,
+    use_cfg_file,
+    path,
+    force,
+    duration,
+    trip_type,
+    style,
+    focus,
+    instruct,
+    lang,
+    model,
+    music,
+    resolution,
+    quality,
+):
     """Run the full pipeline end-to-end."""
     from pipeline.assemble import AssembleConfig
     from pipeline.plan import PlanConfig
@@ -493,12 +478,13 @@ def full(ctx, run_name, use_cfg_file, source, path, from_date, to_date, country,
 
     _run_pipeline(
         run_name,
-        fetch=_build_fetch_config(p),
+        fetch=p["path"],
         prepare=PrepareConfig(force=force),
         plan=PlanConfig(
             style=p["style"],
             target_duration=p["duration"],
             focus=p["focus"],
+            instruct=p["instruct"],
             trip_type=p["trip_type"],
             language=p["lang"],
             model=resolved_model,
@@ -519,7 +505,20 @@ def full(ctx, run_name, use_cfg_file, source, path, from_date, to_date, country,
 @_use_cfg_option
 @_apply_options(_plan_options)
 @_force_option
-def plan(ctx, run_name, use_cfg_file, duration, trip_type, style, focus, lang, model, music, force):
+def plan(
+    ctx,
+    run_name,
+    use_cfg_file,
+    duration,
+    trip_type,
+    style,
+    focus,
+    instruct,
+    lang,
+    model,
+    music,
+    force,
+):
     """Call Gemini to generate a new EDL (increments version). Requires prepare to have run first."""
     from pipeline.plan import PlanConfig
 
@@ -537,6 +536,7 @@ def plan(ctx, run_name, use_cfg_file, duration, trip_type, style, focus, lang, m
             style=p["style"],
             target_duration=p["duration"],
             focus=p["focus"],
+            instruct=p["instruct"],
             trip_type=p["trip_type"],
             language=p["lang"],
             model=resolved_model,
@@ -571,7 +571,9 @@ def assemble(ctx, run_name, use_cfg_file, version, resolution, quality):
 
     _run_pipeline(
         run_name,
-        assemble=AssembleConfig(w=w, h=h, fps=fps, quality=p["quality"], version=version),
+        assemble=AssembleConfig(
+            w=w, h=h, fps=fps, quality=p["quality"], version=version
+        ),
         stages=["assemble"],
         cli_params=cli_params,
         cli_defaults=defaults,

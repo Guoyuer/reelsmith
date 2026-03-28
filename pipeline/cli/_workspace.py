@@ -109,14 +109,14 @@ def _run_detail(run_dir: Path) -> dict[str, Any]:
     info["intermediate_bytes"] = sum(f.stat().st_size for f in intermediates)
     info["intermediate_files"] = intermediates
 
-    clips_dir = run_dir / "clips"
-    legacy = list(clips_dir.glob("*_txt.mp4")) if clips_dir.exists() else []
+    render_dir = run_dir / "render"
+    legacy = list(render_dir.glob("*_txt.mp4")) if render_dir.exists() else []
     info["legacy_txt_bytes"] = sum(f.stat().st_size for f in legacy)
     info["legacy_txt_files"] = legacy
 
-    clips_size, clips_count = _dir_size(clips_dir)
-    info["clips_size"] = clips_size
-    info["clips_count"] = clips_count - len(legacy)
+    render_size, render_count = _dir_size(render_dir)
+    info["render_size"] = render_size
+    info["render_count"] = render_count - len(legacy)
 
     return info
 
@@ -146,8 +146,7 @@ def workspace(clean, yes):
     shared = [
         ("media", "Source photos & videos", ws / "media"),
         ("music", "Generated music (Lyria cache)", ws / "music"),
-        ("preview_clips", "Video preview clips (shared)", ws / "preview_clips"),
-        ("analysis_cache", "Analysis cache", ws / "analysis_cache"),
+        ("previews", "Video preview clips (shared)", ws / "previews"),
         ("thumbnails", "Photo thumbnails", ws / "thumbnails"),
         ("heic_converted", "HEIC\u2192JPEG conversions", ws / "heic_converted"),
     ]
@@ -232,9 +231,9 @@ def workspace(clean, yes):
         else:
             click.echo("    Output: (none)")
 
-        if r["clips_count"] > 0:
+        if r["render_count"] > 0:
             click.echo(
-                f"    Clips: {r['clips_count']} cached ({_fmt_size(r['clips_size'])})"
+                f"    Render: {r['render_count']} cached ({_fmt_size(r['render_size'])})"
             )
 
         reclaim_parts = []
@@ -295,9 +294,8 @@ def workspace(clean, yes):
         targets.append(("media", ws / "media"))
     if clean in ("cache", "all"):
         targets += [
-            ("analysis_cache", ws / "analysis_cache"),
             ("thumbnails", ws / "thumbnails"),
-            ("preview_clips", ws / "preview_clips"),
+            ("previews", ws / "previews"),
             ("heic_converted", ws / "heic_converted"),
             ("music", ws / "music"),
         ]

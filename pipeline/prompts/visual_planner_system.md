@@ -80,16 +80,15 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
 - effect (PHOTOS ONLY — omit or set "none" for videos, the renderer ignores it):
   **ken_burns_in** (reveals, close-ups), **ken_burns_out** (departures, end of chapter),
   **ken_burns_left/right** (wide landscapes, match visual flow direction),
-  **static** (only for text overlays or ≤1.5s montage cuts).
+  **none** (only for text overlays or ≤1.5s montage cuts).
   Vary directions — never 3+ consecutive photos with the same direction.
 - playback_speed: 1.0 = normal (default). Use 0.5 SPARINGLY for dramatic slow-mo moments
   (a jump, a splash, a reaction) — especially effective on ≥48fps source videos.
   Use 1.5 for transitional walking/travel clips. Most clips = 1.0.
-- Transitions — all rendered as opacity fades. Only the DURATION matters:
+  **If keep_audio=true, playback_speed MUST be 1.0** — speed changes distort speech.
+- Transitions: "crossfade" = opacity fade (duration controls blend length), "cut" = instant switch (duration ignored).
   **transition_duration** (intra-segment, 0.3-0.8s): fade length between items within a chapter.
-  Set to 0 for hard cuts.
   **segment_transition_duration** (inter-segment, 0.8-1.5s): fade length between chapters.
-  Longer = smoother scene change, shorter = continuity.
 - mode: "narrative" (default) or "montage" — use montage for 1 energy burst segment max.
   Montage = rapid 2-3s cuts with transition="cut" and transition_duration ≤ 0.2s.
   Place before a calm narrative segment for contrast. Aim for 3-6 items per segment.
@@ -110,9 +109,11 @@ animation with cosine easing (max zoom ~30%). A subtle sharpening pass is applie
 **Videos**: Trimmed by your preview_start/preview_end timestamps.
 keep_audio=true → original audio at full volume. keep_audio=false → completely silent.
 If you want ambient sound from a video, you MUST set keep_audio=true.
+Speed changes (playback_speed ≠ 1.0) distort audio — so keep_audio=true requires speed 1.0.
 
-**Transitions**: All transitions are opacity fades. transition_duration controls the
-blend length — longer = smoother. Duration 0 = hard cut (no blend).
+**Transitions**: "crossfade" produces an opacity fade; "cut" is an instant switch.
+transition_duration controls the blend length. segment_transition_duration controls
+the fade between chapters.
 
 **Audio**: Background music generated per-segment from your music_mood. Music is
 **dynamically ducked** — when speech plays (keep_audio=true), music automatically fades
@@ -132,7 +133,6 @@ creative decisions — don't worry about getting the math pixel-perfect.
 ```json
 {{
   "title": "Singapore with the Whole Family",
-  "target_duration": 180,
   "intro_duration": 3.0,
   "outro_duration": 3.0,
   "segments": [
@@ -142,7 +142,6 @@ creative decisions — don't worry about getting the math pixel-perfect.
       "music_mood": "dreamy electronic pads with gentle piano arpeggios, wonder and discovery, nighttime magic",
       "mode": "narrative",
       "color_temp": "cool",
-      "segment_transition": "crossfade",
       "segment_transition_duration": 1.0,
       "items": [
         {{
@@ -199,7 +198,6 @@ creative decisions — don't worry about getting the math pixel-perfect.
       "music_mood": "upbeat ukulele with handclaps and shaker, playful summer energy, building joy",
       "mode": "narrative",
       "color_temp": "warm",
-      "segment_transition": "crossfade",
       "segment_transition_duration": 1.2,
       "items": [
         {{
@@ -256,7 +254,6 @@ creative decisions — don't worry about getting the math pixel-perfect.
       "music_mood": "funky bass with light percussion and wok sizzle texture, street food energy, playful",
       "mode": "montage",
       "color_temp": "warm",
-      "segment_transition": "crossfade",
       "segment_transition_duration": 0.8,
       "items": [
         {{

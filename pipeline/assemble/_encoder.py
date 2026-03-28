@@ -8,6 +8,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import constants as C
 from ..utils.media import probe_duration as _probe_duration_uncached
 from ..utils.media import run_subprocess
 
@@ -22,19 +23,10 @@ logger = logging.getLogger("vlog.assemble.encoder")
 def target_bitrate(width: int, height: int, fps: int, quality: float = 1.0) -> str:
     """Calculate target video bitrate based on resolution, fps, and quality."""
     pixels = width * height
-    if pixels >= 3840 * 2160:
-        base = 45
-    elif pixels >= 2560 * 1440:
-        base = 16
-    elif pixels >= 1920 * 1080:
-        base = 8
-    elif pixels >= 1280 * 720:
-        base = 5
-    else:
-        base = 3
+    base = next(mbps for threshold, mbps in C.BITRATE_TIERS if pixels >= threshold)
 
     if fps > 30:
-        base = int(base * 1.5)
+        base = int(base * C.HFR_MULTIPLIER)
     base = int(base * quality)
     return f"{max(base, 1)}M"
 
@@ -46,7 +38,7 @@ def detect_hw_encoder(
     import sys
 
     h264_br = target_bitrate(width, height, fps, quality)
-    hevc_br = f"{max(int(int(h264_br.rstrip('M')) * 0.65), 1)}M"
+    hevc_br = f"{max(int(int(h264_br.rstrip('M')) * C.HEVC_RATIO), 1)}M"
 
     _test_cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", "nullsrc=s=640x360:d=0.1:r=15"]
 
@@ -70,8 +62,18 @@ def detect_hw_encoder(
             text=True,
         )
         if test.returncode == 0:
-            return ["-c:v", codec, "-preset", "p4", "-rc", "vbr",
-                    "-b:v", bitrate, "-maxrate", bitrate]
+            return [
+                "-c:v",
+                codec,
+                "-preset",
+                "p4",
+                "-rc",
+                "vbr",
+                "-b:v",
+                bitrate,
+                "-maxrate",
+                bitrate,
+            ]
         return None
 
     try:
@@ -91,6 +93,44 @@ def detect_hw_encoder(
     return ["-c:v", "libx264", "-preset", "fast", "-b:v", h264_br]
 
 
+def _detect_hwaccel() -> list[str] | None:
+    """Detect hardware-accelerated decoder: CUDA (NVIDIA) or VideoToolbox (macOS)."""
+    import sys
+
+    candidates = (
+        [("-hwaccel", "videotoolbox")]
+        if sys.platform == "darwin"
+        else [("-hwaccel", "cuda")]
+    )
+    for args in candidates:
+        try:
+            result = run_subprocess(
+                [
+                    "ffmpeg",
+                    "-y",
+                    *args,
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "nullsrc=s=64x64:d=0.1",
+                    "-frames:v",
+                    "1",
+                    "-f",
+                    "null",
+                    "-",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                logger.info("Hardware decoder: %s", args[-1])
+                return list(args)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    logger.info("Hardware decoder: none (CPU fallback)")
+    return None
+
+
 # ---------------------------------------------------------------------------
 # RenderContext — per-run render state, passed explicitly (no globals)
 # ---------------------------------------------------------------------------
@@ -105,6 +145,7 @@ class RenderContext:
     fps: int
     quality: float = 1.0
     _encoder_cache: dict[tuple, list[str]] = field(default_factory=dict)
+    _hwaccel: list[str] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if self.w <= 0 or self.h <= 0:
@@ -113,9 +154,15 @@ class RenderContext:
             raise ValueError(f"Resolution must be even: {self.w}x{self.h}")
         if self.fps <= 0 or self.fps > 120:
             raise ValueError(f"Invalid fps: {self.fps}")
+        self._hwaccel = _detect_hwaccel()
 
     _dim_cache: dict[str, tuple[int, int]] = field(default_factory=dict)
     _dur_cache: dict[str, float] = field(default_factory=dict)
+
+    @property
+    def hwaccel_args(self) -> list[str]:
+        """Return hwaccel input args (e.g. ['-hwaccel', 'cuda']), or [] if unavailable."""
+        return list(self._hwaccel) if self._hwaccel else []
 
     def get_encoder(
         self,
@@ -178,16 +225,10 @@ class RenderContext:
         self._dim_cache[key] = dims
         return dims
 
-    def invalidate(self, path: Path) -> None:
-        """Remove cached probe results for a path (e.g. after re-encoding)."""
-        key = str(path)
-        self._dim_cache.pop(key, None)
-        self._dur_cache.pop(key, None)
-
     def probe_duration(self, path: Path) -> float:
         key = str(path)
         if key in self._dur_cache:
             return self._dur_cache[key]
-        dur = _probe_duration_uncached(path)
-        self._dur_cache[key] = dur
-        return dur
+        duration = _probe_duration_uncached(path)
+        self._dur_cache[key] = duration
+        return duration

@@ -12,12 +12,13 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from .. import constants as C
 from ..config import Config, ProgressCallback
 from ..edl import EDL, load_latest_edl, validate_edl
 from ..utils.media import run_subprocess
 from ._audio import beat_snap_edl, write_chapters
 from ._encoder import RenderContext
-from ._graph import build_segment_graph, compute_fade_params
+from ._graph import SegmentGraph, build_segment_graph, compute_fade_params
 from ._render import render_title_card
 
 logger = logging.getLogger("vlog.assemble")
@@ -98,6 +99,7 @@ def assemble(
 
     # Beat sync
     if has_music:
+        assert edl.music is not None
         beat_snap_edl(edl, Path(edl.music.file))
 
     t_start = time.monotonic()
@@ -139,32 +141,29 @@ def assemble(
         logger.info("Validation: all checks passed")
 
     # Rich validation panel to terminal
-    try:
-        import sys
+    from ..utils import stderr_console
 
-        if sys.stderr.isatty():
-            from rich.console import Console
-            from rich.panel import Panel
-            from rich.text import Text
+    console = stderr_console()
+    if console:
+        from rich.panel import Panel
+        from rich.text import Text
 
-            lines = Text()
-            for vi in val_issues:
-                icon = "\u2717" if vi["level"] == "error" else "\u26a0"
-                style = "red" if vi["level"] == "error" else "yellow"
-                lines.append(f" {icon} ", style=style)
-                lines.append(f"[{vi['check']}] {vi['message']}\n")
-            if not val_issues:
-                lines.append(" \u2713 All checks passed\n", style="green")
-            has_errors = any(vi["level"] == "error" for vi in val_issues)
-            Console(stderr=True).print(
-                Panel(
-                    lines,
-                    title="Validation",
-                    border_style="red" if has_errors else "green",
-                )
+        lines = Text()
+        for vi in val_issues:
+            icon = "\u2717" if vi["level"] == "error" else "\u26a0"
+            style = "red" if vi["level"] == "error" else "yellow"
+            lines.append(f" {icon} ", style=style)
+            lines.append(f"[{vi['check']}] {vi['message']}\n")
+        if not val_issues:
+            lines.append(" \u2713 All checks passed\n", style="green")
+        has_errors = any(vi["level"] == "error" for vi in val_issues)
+        console.print(
+            Panel(
+                lines,
+                title="Validation",
+                border_style="red" if has_errors else "green",
             )
-    except ImportError:
-        pass
+        )
 
     return output_path, val_issues
 
@@ -193,10 +192,10 @@ def _render_segments(
 
     # Title cards
     intro_path = _render_title_card_if_needed(
-        edl, "intro", cfg.clips_dir / f"intro_title_{res_label}.mp4", ctx, res_label
+        edl, "intro", cfg.render_dir / f"intro_title_{res_label}.mp4", ctx, res_label
     )
     outro_path = _render_title_card_if_needed(
-        edl, "outro", cfg.clips_dir / f"outro_title_{res_label}.mp4", ctx, res_label
+        edl, "outro", cfg.render_dir / f"outro_title_{res_label}.mp4", ctx, res_label
     )
 
     fade_params = compute_fade_params(edl)
@@ -206,6 +205,7 @@ def _render_segments(
 
     # Build per-segment FFmpeg commands (must be sequential — graph needs ctx.probe)
     segment_cmds: list[tuple[int, list[str]]] = []
+    segment_graphs: list[SegmentGraph] = []
     for seg_idx, segment in enumerate(edl.segments):
         graph = build_segment_graph(
             segment,
@@ -219,11 +219,12 @@ def _render_segments(
             if seg_idx == len(edl.segments) - 1
             else 0.0,
         )
+        segment_graphs.append(graph)
         script_path = output_dir / f"_seg_{seg_idx}_{res_label}.txt"
         script_path.write_text(graph.script, encoding="utf-8")
 
         enc = ctx.get_encoder()
-        cmd = ["ffmpeg", "-y"]
+        cmd = ["ffmpeg", "-y", *ctx.hwaccel_args]
         for inp in graph.inputs:
             cmd += [str(x) for x in inp]
         cmd += ["-filter_complex_script", str(script_path)]
@@ -239,18 +240,28 @@ def _render_segments(
             len(graph.inputs),
         )
 
+    # Pre-validate: render 1 frame per item to catch filter errors early
+    _prevalidate_items(
+        edl,
+        segment_graphs,
+        ctx,
+        output_dir,
+        res_label,
+        progress_callback=progress_callback,
+    )
+
     # Render segments in parallel (3 NVENC sessions max)
     from ..utils.parallel import run_parallel
 
     max_workers = 3 if "nvenc" in " ".join(ctx.get_encoder()) else 2
 
     if progress_callback:
-        progress_callback(0, 0, "rendering segments...")
+        progress_callback(0, len(segment_cmds), "render segments")
 
     def _render_seg(seg_idx, cmd):
         result = run_subprocess(cmd, capture_output=True, text=True, timeout=600)
         if result.returncode != 0:
-            raise RuntimeError(f"Segment {seg_idx} failed: {result.stderr}")
+            _report_segment_failure(seg_idx, segment_graphs[seg_idx], result.stderr)
         return seg_idx
 
     def _on_seg_done(done, total):
@@ -333,8 +344,8 @@ def _concat_and_mix(
     if result.returncode != 0:
         raise RuntimeError(f"Concat failed: {result.stderr}")
 
-    total_dur = ctx.probe_duration(nomix_path) or 0.0
-    logger.info("  Concat: %.1fs", total_dur)
+    total_duration = ctx.probe_duration(nomix_path) or 0.0
+    logger.info("  Concat: %.1fs", total_duration)
 
     # Music overlay
     if has_music:
@@ -342,29 +353,66 @@ def _concat_and_mix(
         if progress_callback:
             progress_callback(0, 0, "mixing music...")
         music_path = Path(edl.music.file)
-        music_dur = ctx.probe_duration(music_path) or total_dur
+        music_duration = ctx.probe_duration(music_path) or total_duration
         vol = edl.music.volume
         fade_in = edl.music.fade_in
         fade_out = edl.music.fade_out
 
         music_chain = "[1:a] "
-        if music_dur < total_dur:
-            loops = int(total_dur / music_dur) + 1
-            samples = int(music_dur * 48000)
-            music_chain += f"aloop=loop={loops}:size={samples},atrim=0:{total_dur:.3f},"
+        if music_duration < total_duration:
+            loops = int(total_duration / music_duration) + 1
+            samples = int(music_duration * C.SAMPLE_RATE)
+            music_chain += (
+                f"aloop=loop={loops}:size={samples},atrim=0:{total_duration:.3f},"
+            )
         music_chain += f"volume={vol:.3f},"
         music_chain += f"afade=t=in:d={fade_in},"
-        fade_out_start = max(0, total_dur - fade_out)
+        fade_out_start = max(0, total_duration - fade_out)
         music_chain += f"afade=t=out:st={fade_out_start:.3f}:d={fade_out} [bg]"
 
-        fc = (
+        mix_chain = (
             f"{music_chain};\n"
             f"[0:a] apad [sp];\n"
             f"[bg][sp] sidechaincompress="
-            f"threshold=0.02:ratio=6:attack=200:release=1000 [ducked];\n"
-            f"[sp][ducked] amix=inputs=2:duration=first,"
-            f"loudnorm=I=-16:TP=-1.5:LRA=11 [aout]"
+            f"threshold=0.02:ratio=6:attack=200:release=500 [ducked];\n"
+            f"[sp][ducked] amix=inputs=2:duration=first"
         )
+
+        # loudnorm pass 1: measure
+        measure_cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(nomix_path),
+            "-i",
+            str(music_path),
+            "-filter_complex",
+            f"{mix_chain},loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json [aout]",
+            "-map",
+            "[aout]",
+            "-f",
+            "null",
+            "-",
+        ]
+        measure_result = run_subprocess(
+            measure_cmd, capture_output=True, text=True, timeout=600
+        )
+        measured = _parse_loudnorm_stats(measure_result.stderr)
+
+        # loudnorm pass 2: apply with measured values
+        if measured:
+            loudnorm = (
+                f"loudnorm=I=-16:TP=-1.5:LRA=11:linear=true"
+                f":measured_I={measured['input_i']}"
+                f":measured_LRA={measured['input_lra']}"
+                f":measured_TP={measured['input_tp']}"
+                f":measured_thresh={measured['input_thresh']}"
+            )
+        else:
+            logger.warning("loudnorm measurement failed, falling back to single-pass")
+            loudnorm = "loudnorm=I=-16:TP=-1.5:LRA=11"
+
+        fc = f"{mix_chain},{loudnorm} [aout]"
 
         cmd = [
             "ffmpeg",
@@ -399,9 +447,14 @@ def _concat_and_mix(
     seg_durations = [ctx.probe_duration(f) or 0.0 for f in segment_files]
     write_chapters(edl, seg_durations, chapters_path)
 
-    # Clean up segment files
+    # Clean up transient intermediates
     for seg_file in segment_files:
         seg_file.unlink(missing_ok=True)
+    for i in range(len(edl.segments)):
+        (output_dir / f"_seg_{i}_{res_label}.txt").unlink(missing_ok=True)
+    list_path.unlink(missing_ok=True)
+    for tc in cfg.render_dir.glob(f"*_title_{res_label}.mp4"):
+        tc.unlink(missing_ok=True)
 
     return output_path
 
@@ -411,50 +464,118 @@ def _concat_and_mix(
 # ---------------------------------------------------------------------------
 
 
+def _prevalidate_items(
+    edl: EDL,
+    graphs: list[SegmentGraph],
+    ctx: RenderContext,
+    output_dir: Path,
+    res_label: str,
+    *,
+    progress_callback: ProgressCallback = None,
+) -> None:
+    """Decode 1 frame per input to catch corrupt/missing files early."""
+    # Collect unique inputs first for accurate progress total
+    unique_inputs: list[tuple[int, int, str, list]] = []
+    seen: set[str] = set()
+    for seg_idx, graph in enumerate(graphs):
+        for item_idx, (input_idx, source_name, _) in enumerate(graph.item_map):
+            if source_name in seen:
+                continue
+            seen.add(source_name)
+            unique_inputs.append(
+                (seg_idx, item_idx, source_name, graph.inputs[input_idx])
+            )
+
+    total = len(unique_inputs)
+    if progress_callback:
+        progress_callback(0, total, "validate inputs")
+
+    for i, (seg_idx, item_idx, source_name, inp) in enumerate(unique_inputs):
+        cmd = (
+            ["ffmpeg", "-y"]
+            + [str(x) for x in inp]
+            + ["-frames:v", "1", "-f", "null", "-"]
+        )
+        result = run_subprocess(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Input validation failed — segment {seg_idx}, "
+                f"item {item_idx} ({source_name}):\n{result.stderr[-500:]}"
+            )
+        if progress_callback:
+            progress_callback(i + 1, total, "validate inputs")
+
+    logger.info("  Pre-validation: %d inputs OK", total)
+
+
+def _report_segment_failure(seg_idx: int, graph: SegmentGraph, stderr: str) -> None:
+    """Log item mapping and raise with context when a segment render fails."""
+    lines = []
+    for item_idx, (input_idx, source_name, filter_line) in enumerate(graph.item_map):
+        lines.append(
+            f"  item {item_idx}: input [{input_idx}] = {source_name} (filter line {filter_line})"
+        )
+    logger.error("Segment %d item map:\n%s", seg_idx, "\n".join(lines))
+    raise RuntimeError(f"Segment {seg_idx} render failed:\n{stderr[-1000:]}")
+
+
+def _parse_loudnorm_stats(stderr: str) -> dict[str, str] | None:
+    """Parse loudnorm JSON stats from ffmpeg stderr (pass 1 measurement)."""
+    import json as _json
+
+    # loudnorm prints a JSON block at the end of stderr
+    idx = stderr.rfind("{")
+    if idx == -1:
+        return None
+    try:
+        data = _json.loads(stderr[idx : stderr.rfind("}") + 1])
+        # Verify required keys exist
+        for key in ("input_i", "input_lra", "input_tp", "input_thresh"):
+            if key not in data:
+                return None
+        return data
+    except (ValueError, KeyError):
+        return None
+
+
 def _render_title_card_if_needed(
     edl: EDL, kind: str, path: Path, ctx: RenderContext, res_label: str
 ) -> Path | None:
-    if kind == "intro" and edl.intro_style == "title_card" and edl.title:
-        if not path.exists():
-            bg = _find_first_photo(edl)
-            render_title_card(
-                edl.title,
-                edl.date_range,
-                path,
-                duration=edl.intro_duration,
-                language=edl.language,
-                ctx=ctx,
-                background_photo=bg,
-            )
+    if not edl.title:
+        return None
+    if kind == "intro":
+        bg = _find_first_frame(edl)
+        render_title_card(
+            edl.title,
+            edl.date_range,
+            path,
+            duration=edl.intro_duration,
+            language=edl.language,
+            ctx=ctx,
+            background_photo=bg,
+        )
         if not path.exists():
             raise RuntimeError(f"Intro title card render failed: {path}")
         return path
-    elif kind == "outro" and edl.outro_style == "fade_title" and edl.title:
-        if not path.exists():
-            render_title_card(
-                edl.title,
-                "",
-                path,
-                duration=edl.outro_duration,
-                language=edl.language,
-                ctx=ctx,
-            )
+    elif kind == "outro":
+        render_title_card(
+            edl.title,
+            "",
+            path,
+            duration=edl.outro_duration,
+            language=edl.language,
+            ctx=ctx,
+        )
         if not path.exists():
             raise RuntimeError(f"Outro title card render failed: {path}")
         return path
     return None
 
 
-def _find_first_photo(edl: EDL) -> str | None:
-    from ..utils.image import convert_heic
-
-    for seg in edl.segments:
-        for item in seg.items:
-            if item.media_type == "photo":
-                p = Path(item.source_file)
-                if p.suffix.lower() in {".heic", ".heif"}:
-                    p = convert_heic(p)
-                return str(p)
+def _find_first_frame(edl: EDL) -> str | None:
+    """Return path to the first item's source file (photo or video)."""
+    if edl.segments and edl.segments[0].items:
+        return edl.segments[0].items[0].source_file
     return None
 
 

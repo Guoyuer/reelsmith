@@ -6,8 +6,8 @@ import json
 import signal
 import sys
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ._display import (
@@ -22,7 +22,6 @@ if TYPE_CHECKING:
 
     from pipeline.assemble import AssembleConfig
     from pipeline.config import Config
-    from pipeline.fetch import FetchConfig
     from pipeline.plan import PlanConfig
     from pipeline.prepare import PrepareConfig
 
@@ -41,6 +40,9 @@ def _handle_sigint(sig, frame):
 
         os._exit(1)
     _interrupted = True
+    from pipeline.utils.media import set_interrupted
+
+    set_interrupted()
     print("\n\u26a0 Interrupted \u2014 press Ctrl+C again to force quit")
 
 
@@ -65,17 +67,33 @@ class _PipelineContext:
     cfg: Config
     logger: logging.Logger
     display: _PipelineDisplay | None = None
-    fetch: FetchConfig | None = None
+    fetch: str | None = None
     prepare: PrepareConfig | None = None
     plan: PlanConfig | None = None
     assemble: AssembleConfig | None = None
 
-    @property
-    def ws(self) -> Path:
-        return Path(self.cfg.workspace)
 
-    def log(self, msg: str) -> None:
-        self.logger.info(msg)
+# ---------------------------------------------------------------------------
+# Stage runner boilerplate
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _stage(pc: _PipelineContext, name: str):
+    """Shared stage boilerplate: interrupt check, display start, timing, progress callback."""
+    assert pc.display is not None
+    display = pc.display
+    _check_interrupted(display, pc.logger)
+    display.start(name)
+    t0 = time.monotonic()
+    cb = _progress_cb(pc.logger, display, name, t0)
+
+    def done(detail: str) -> float:
+        elapsed = time.monotonic() - t0
+        display.done(name, detail, elapsed)
+        return elapsed
+
+    yield cb, done
 
 
 # ---------------------------------------------------------------------------
@@ -84,154 +102,101 @@ class _PipelineContext:
 
 
 def _run_fetch(pc: _PipelineContext):
-    assert pc.fetch is not None and pc.display is not None
-    _check_interrupted(pc.display, pc.logger)
-    pc.display.start("fetch")
-    t0 = time.monotonic()
-    manifest_path = pc.cfg.manifest_path
-
-    if manifest_path.exists():
-        items = json.loads(manifest_path.read_text())
-        dur = time.monotonic() - t0
-        pc.log(f"Fetch: {len(items)} items (cached)")
-        pc.display.done("fetch", f"{len(items)} items", dur)
-    else:
-        fc = pc.fetch
-        cb = _progress_cb(pc.logger, pc.display, "fetch", t0)
-        if fc.source_dir:
+    assert pc.fetch is not None
+    with _stage(pc, "fetch") as (cb, done):
+        manifest_path = pc.cfg.manifest_path
+        force = pc.prepare is not None and pc.prepare.force
+        if manifest_path.exists() and not force:
+            items = json.loads(manifest_path.read_text())
+            pc.logger.info(f"Fetch: {len(items)} items (cached)")
+            done(f"{len(items)} items")
+        else:
             from pipeline.fetch import fetch_local
 
-            items = fetch_local(pc.cfg, fc, progress_callback=cb)
-        else:
-            from pipeline.fetch import fetch
-
-            items = fetch(pc.cfg, fc, progress_callback=cb)
-        dur = time.monotonic() - t0
-        pc.log(f"Fetch: {len(items)} items in {dur:.0f}s")
-        pc.display.done("fetch", f"{len(items)} items", dur)
+            items = fetch_local(pc.cfg, pc.fetch, progress_callback=cb)
+            elapsed = done(f"{len(items)} items")
+            pc.logger.info(f"Fetch: {len(items)} items in {elapsed:.0f}s")
 
 
 def _run_prepare(pc: _PipelineContext):
-    assert pc.prepare is not None and pc.display is not None
-    _check_interrupted(pc.display, pc.logger)
-    pc.display.start("prepare")
-    t0 = time.monotonic()
+    assert pc.prepare is not None
+    with _stage(pc, "prepare") as (cb, done):
+        from pipeline.prepare import load_analysis, prepare
 
-    from pipeline.prepare import load_analysis, prepare
-
-    prepare(
-        pc.cfg,
-        pc.prepare,
-        progress_callback=_progress_cb(pc.logger, pc.display, "prepare", t0),
-    )
-    dur = time.monotonic() - t0
-
-    results = load_analysis(pc.cfg)
-    n_photos = sum(1 for r in results if r.get("media_type") == "photo")
-    n_videos = len(results) - n_photos
-    pc.display.done("prepare", f"{n_photos} photos, {n_videos} videos", dur)
+        prepare(pc.cfg, pc.prepare, progress_callback=cb)
+        results = load_analysis(pc.cfg)
+        n_photos = sum(1 for r in results if r.get("media_type") == "photo")
+        n_videos = len(results) - n_photos
+        done(f"{n_photos} photos, {n_videos} videos")
 
 
 def _run_plan(pc: _PipelineContext):
-    """Execute the plan stage."""
-    assert pc.plan is not None and pc.display is not None
-    _check_interrupted(pc.display, pc.logger)
-    pc.display.start("plan")
-    t0 = time.monotonic()
+    assert pc.plan is not None
+    with _stage(pc, "plan") as (cb, done):
+        from pipeline.plan import plan as do_plan
 
-    from pipeline.plan import plan as do_plan
+        edl, version = do_plan(pc.cfg, pc.plan, progress_callback=cb)
+        s = edl.summary()
 
-    edl, version = do_plan(
-        pc.cfg,
-        pc.plan,
-        progress_callback=_progress_cb(pc.logger, pc.display, "plan", t0),
-    )
+        plan_detail = (
+            f"v{version}: {s['n_photos']}p({s['photo_time']:.0f}s)"
+            f"+{s['n_videos']}v({s['vid_time']:.0f}s), "
+            f"~{s['estimated_duration']:.0f}s"
+        )
+        elapsed = done(plan_detail)
 
-    all_items = edl.all_items()
-    n_videos = sum(1 for i in all_items if i.media_type == "video")
-    n_photos = len(all_items) - n_videos
-    n_keep_audio = sum(1 for i in all_items if i.keep_audio)
-    _out_dur = edl._item_output_duration
-    photo_time = sum(_out_dur(i) for i in all_items if i.media_type != "video")
-    vid_time = sum(_out_dur(i) for i in all_items if i.media_type == "video")
-    total_time = photo_time + vid_time
-    vid_pct = int(vid_time / total_time * 100) if total_time > 0 else 0
-
-    dur = time.monotonic() - t0
-    plan_detail = (
-        f"v{version}: {n_photos}p({photo_time:.0f}s)+{n_videos}v({vid_time:.0f}s), "
-        f"~{edl.estimated_duration():.0f}s"
-    )
-    pc.display.done("plan", plan_detail, dur)
-
-    pc.log(
-        f"Plan: EDL v{version} \u2014 {len(edl.segments)} segments, "
-        f"{n_photos} photos + {n_videos} videos ({vid_pct}% video), "
-        f"duration ~{edl.estimated_duration():.0f}s (target {edl.target_duration:.0f}s), planned in {dur:.0f}s"
-    )
-    if n_keep_audio:
-        pc.log(f"  Speech preserved: {n_keep_audio} clips")
-    for seg in edl.segments:
-        pc.log(f"  {seg.name}: {len(seg.items)} items, transition={seg.transition}")
+        pc.logger.info(
+            f"Plan: EDL v{version} \u2014 {len(edl.segments)} segments, "
+            f"{s['n_photos']} photos + {s['n_videos']} videos ({s['vid_pct']}% video), "
+            f"duration ~{s['estimated_duration']:.0f}s (target {edl.target_duration:.0f}s), planned in {elapsed:.0f}s"
+        )
+        if s["n_keep_audio"]:
+            pc.logger.info(f"  Speech preserved: {s['n_keep_audio']} clips")
+        for seg in edl.segments:
+            pc.logger.info(
+                f"  {seg.name}: {len(seg.items)} items, transition={seg.transition}"
+            )
 
 
 def _run_generate_music(pc: _PipelineContext):
-    """Execute the generate_music stage."""
-    assert pc.display is not None
-    _check_interrupted(pc.display, pc.logger)
-    pc.display.start("generate_music")
-    t0 = time.monotonic()
+    with _stage(pc, "generate_music") as (cb, done):
+        from pipeline.music import generate_music_for_edl
 
-    from pipeline.music import generate_music_for_edl
-
-    track = generate_music_for_edl(
-        pc.cfg,
-        progress_callback=_progress_cb(pc.logger, pc.display, "generate_music", t0),
-    )
-
-    dur = time.monotonic() - t0
-    if track:
-        pc.log(f"Music: generated {track.name} in {dur:.0f}s")
-        pc.display.done("generate_music", track.name, dur)
-    else:
-        pc.log("Music: skipped")
-        pc.display.done("generate_music", "skipped", dur)
+        track = generate_music_for_edl(pc.cfg, progress_callback=cb)
+        if track:
+            elapsed = done(track.name)
+            pc.logger.info(f"Music: generated {track.name} in {elapsed:.0f}s")
+        else:
+            pc.logger.info("Music: skipped")
+            done("skipped")
 
 
 def _run_assemble(pc: _PipelineContext):
-    assert pc.assemble is not None and pc.display is not None
-    _check_interrupted(pc.display, pc.logger)
-    pc.display.start("assemble")
-    t0 = time.monotonic()
-    ac = pc.assemble
+    assert pc.assemble is not None
+    with _stage(pc, "assemble") as (cb, done):
+        from pipeline.assemble import assemble as do_assemble
+        from pipeline.edl import find_latest_version
 
-    from pipeline.assemble import assemble as do_assemble
-    from pipeline.edl import find_latest_version
+        ac = pc.assemble
+        if not ac.version:
+            from dataclasses import replace
 
-    if not ac.version:
-        from dataclasses import replace
+            ac = replace(ac, version=find_latest_version(pc.cfg))
 
-        ac = replace(ac, version=find_latest_version(pc.cfg))
+        pc.logger.info(f"Render: {ac.w}x{ac.h} {ac.fps}fps (EDL v{ac.version})")
+        out, issues = do_assemble(pc.cfg, ac, progress_callback=cb)
 
-    pc.log(f"Render: {ac.w}x{ac.h} {ac.fps}fps (EDL v{ac.version})")
+        size_mb = round(out.stat().st_size / 1024 / 1024, 1) if out.exists() else 0
+        assert pc.display is not None
+        pc.display.output_file = str(out)
+        elapsed = done(f"{out.name} ({size_mb}MB)")
+        pc.logger.info(f"Assemble: {out.name} ({size_mb}MB) in {elapsed:.0f}s")
 
-    out, issues = do_assemble(
-        pc.cfg,
-        ac,
-        progress_callback=_progress_cb(pc.logger, pc.display, "assemble", t0),
-    )
-
-    dur = time.monotonic() - t0
-    size_mb = round(out.stat().st_size / 1024 / 1024, 1) if out.exists() else 0
-    pc.log(f"Assemble: {out.name} ({size_mb}MB) in {dur:.0f}s")
-    pc.display.output_file = str(out)
-    pc.display.done("assemble", f"{out.name} ({size_mb}MB)", dur)
-
-    for issue in issues:
-        level = issue.get("level", "warning")
-        pc.log(
-            f"  [{level.upper()}] {issue.get('check', '')}: {issue.get('message', '')}"
-        )
+        for issue in issues:
+            level = issue.get("level", "warning")
+            pc.logger.info(
+                f"  [{level.upper()}] {issue.get('check', '')}: {issue.get('message', '')}"
+            )
 
 
 _STAGE_RUNNERS = {
@@ -262,6 +227,9 @@ def _run_pipeline(
     """Execute pipeline stages directly in this process."""
     global _interrupted
     _interrupted = False
+    import pipeline.utils.media
+
+    pipeline.utils.media._interrupted = False
 
     from pipeline.config import Config
 
@@ -307,7 +275,7 @@ def _run_pipeline(
     if prepare:
         logger.info("  Prepare: force=%s", prepare.force)
     if fetch:
-        src = fetch.source_dir or "nas"
+        src = fetch
         logger.info("  Fetch: source=%s", src)
 
     pc = _PipelineContext(
