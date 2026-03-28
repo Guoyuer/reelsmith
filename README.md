@@ -8,7 +8,7 @@
 
 Gemini sees your actual photos and watches your videos (with audio), designs a narrative
 arc, picks the best moments, generates background music, and renders a finished vlog.
-~$0.05 per run.
+~$0.10/run with `--model fast`, ~$0.50 with `balanced`.
 
 <!-- TODO: Add a demo GIF or screenshot of the Rich terminal UI + final video output -->
 <!-- e.g. ![demo](docs/demo.gif) -->
