@@ -213,6 +213,10 @@ def _run_pipeline(
     pipeline.utils.media._interrupted = False
 
     from pipeline.config import Config
+    from pipeline.utils.media import check_ffmpeg
+
+    # Fail fast if FFmpeg is missing or too old.
+    check_ffmpeg()
 
     active = stages
     ws_path = Config.run_workspace(run_name=run_name)

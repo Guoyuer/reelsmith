@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import shutil
 import subprocess
 import sys
 
@@ -19,6 +21,84 @@ if sys.platform == "win32":
 
 _ffmpeg_logger = logging.getLogger("reelsmith.ffmpeg")
 logger = logging.getLogger("reelsmith.media")
+
+# ---------------------------------------------------------------------------
+# FFmpeg version requirement
+# ---------------------------------------------------------------------------
+
+#: Minimum supported FFmpeg major version.
+#: Key features that require this version:
+#:   - ``loudnorm`` filter (two-pass loudness normalization) — FFmpeg 3.1+
+#:   - ``-filter_complex_script`` flag — FFmpeg 4.0+
+#:   - Stable HEVC hardware encoding (nvenc / videotoolbox) — FFmpeg 5.0+
+MIN_FFMPEG_VERSION = (5, 0)
+
+
+def check_ffmpeg(*, required: bool = True) -> tuple[int, ...] | None:
+    """Verify that FFmpeg is installed and meets the minimum version requirement.
+
+    Parameters
+    ----------
+    required:
+        If *True* (default), raise :class:`SystemExit` when FFmpeg is missing
+        or too old.  If *False*, log a warning instead and return *None*.
+
+    Returns
+    -------
+    tuple[int, ...] | None
+        Parsed version tuple (e.g. ``(7, 1)``), or *None* when the check
+        fails and *required* is *False*.
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        msg = (
+            "FFmpeg not found on PATH. "
+            "Install FFmpeg %d.%d+ from https://ffmpeg.org/download.html"
+            % MIN_FFMPEG_VERSION
+        )
+        if required:
+            raise SystemExit(msg)
+        logger.warning(msg)
+        return None
+
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        first_line = (result.stdout or "").split("\n", 1)[0]
+    except (OSError, subprocess.SubprocessError) as exc:
+        msg = "Could not determine FFmpeg version: %s" % exc
+        if required:
+            raise SystemExit(msg)
+        logger.warning(msg)
+        return None
+
+    # Typical first line: "ffmpeg version 7.1 Copyright ..."
+    # or "ffmpeg version N-12345-gabcdef ..." (nightly builds).
+    match = re.search(r"ffmpeg version (\d+)(?:\.(\d+))?", first_line)
+    if not match:
+        logger.warning("Could not parse FFmpeg version from: %s", first_line)
+        # Don't block on unparseable output — might be a custom/nightly build.
+        return None
+
+    version = (int(match.group(1)), int(match.group(2) or 0))
+
+    if version < MIN_FFMPEG_VERSION:
+        msg = (
+            "FFmpeg %d.%d detected, but %d.%d+ is required. "
+            "Please upgrade: https://ffmpeg.org/download.html"
+            % (*version, *MIN_FFMPEG_VERSION)
+        )
+        if required:
+            raise SystemExit(msg)
+        logger.warning(msg)
+        return None
+
+    logger.debug("FFmpeg %d.%d detected (>= %d.%d required)", *version, *MIN_FFMPEG_VERSION)
+    return version
 
 # Set by CLI signal handler; checked by run_subprocess after child exits.
 _interrupted = False
