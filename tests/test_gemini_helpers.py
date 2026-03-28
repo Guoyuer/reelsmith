@@ -6,7 +6,6 @@ from unittest.mock import MagicMock
 
 from pipeline.plan._gemini import _parse_response, _short_enum
 
-
 # ---------------------------------------------------------------------------
 # _short_enum
 # ---------------------------------------------------------------------------
