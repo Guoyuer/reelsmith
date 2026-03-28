@@ -9,7 +9,7 @@
 AI plans the edit, FFmpeg renders locally at full resolution. Your raw media never
 leaves your machine — only compressed thumbnails and preview clips are sent to Gemini
 for planning. Rendering happens entirely on your GPU at 4K60 if you want.
-~$0.10/run with `--model fast`, ~$0.50 with `balanced`.
+About $0.10/run with `--model fast`, $0.50 with `balanced`.
 
 
 ![ui](docs/UI.png)
@@ -85,7 +85,7 @@ reelsmith assemble -n trip -r 4k60
 | `-n` / `--name` | yes | Run name (isolates workspace) |
 | `-p` / `--path` | yes | Path to photos/videos folder |
 | `--duration` | yes | Target length in seconds |
-| `--model` | yes | `fast` (~$0.24), `balanced` (~$0.48), `quality` (~$1.92) |
+| `--model` | yes | `fast` ($0.24), `balanced` ($0.48), `quality` ($1.92) |
 | `-r` / `--resolution` | yes | `4k60`, `1080p30`, `720p30`, or `WxHxFPS` |
 | `--style` | no | `upbeat` (default), `cinematic`, `reflective`, `energetic` |
 | `--trip-type` | no | `general` (default), `family`, `solo`, `food`, `adventure`, `architecture` |
