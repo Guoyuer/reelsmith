@@ -195,7 +195,7 @@ def _build_item_text(idx: int, entry: AnalysisEntry) -> tuple[str, Path | None]:
     label = f"#{idx:02d}:"
     parts = [label]
 
-    item_loc = entry.get("district") or entry.get("first_level") or entry.get("country")
+    item_loc = entry.get("district") or entry.get("country")
     if item_loc:
         parts.append(f"at={item_loc}")
 

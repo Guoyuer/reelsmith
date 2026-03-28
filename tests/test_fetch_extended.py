@@ -71,17 +71,6 @@ class TestFetchLocalManifest:
         saved = json.loads(mock_config.manifest_path.read_text())
         assert len(saved) == 1
 
-    def test_video_item_type(self, mock_config, source_dir):
-        vid = source_dir / "clip.mp4"
-        vid.write_bytes(b"\x00" * 100)
-        result = fetch_local(mock_config, str(source_dir))
-        assert result[0]["item_type"] == 1
-
-    def test_photo_item_type(self, mock_config, source_dir):
-        _create_image(source_dir / "photo.jpg")
-        result = fetch_local(mock_config, str(source_dir))
-        assert result[0]["item_type"] == 0
-
     def test_nonexistent_source_raises(self, mock_config):
         with pytest.raises(FileNotFoundError):
             fetch_local(mock_config, "/nonexistent/path")

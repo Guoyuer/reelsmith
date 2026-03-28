@@ -280,7 +280,7 @@ All candidates:"""
     loc_total: dict[str, int] = {}
     loc_selected: dict[str, int] = {}
     for a in analysis_by_path.values():
-        loc = a.get("district") or a.get("first_level") or a.get("country") or "unknown"
+        loc = a.get("district") or a.get("country") or "unknown"
         loc_total[loc] = loc_total.get(loc, 0) + 1
         if a["local_path"] in selected_paths:
             loc_selected[loc] = loc_selected.get(loc, 0) + 1
