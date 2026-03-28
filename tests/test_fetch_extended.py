@@ -10,21 +10,6 @@ import pytest
 from pipeline.fetch._local import _extract_gps, fetch_local
 
 
-@pytest.fixture
-def mock_config(tmp_path):
-    from pipeline.config import Config
-
-    cfg = Config(workspace=tmp_path / "workspace" / "runs" / "test")
-    cfg.ensure_dirs()
-    return cfg
-
-
-@pytest.fixture
-def source_dir(tmp_path):
-    src = tmp_path / "media"
-    src.mkdir()
-    return src
-
 
 def _create_image(path: Path):
     path.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100)

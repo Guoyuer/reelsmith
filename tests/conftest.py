@@ -13,6 +13,15 @@ from pipeline.config import Config
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
 
 
+@pytest.fixture(autouse=True)
+def _patch_hwaccel():
+    """Prevent RenderContext from shelling out to ffmpeg during tests."""
+    from unittest.mock import patch
+
+    with patch("pipeline.assemble._encoder._detect_hwaccel", return_value=None):
+        yield
+
+
 @pytest.fixture
 def sample_manifest() -> list[dict]:
     """List of 6 items with mixed types, varied takentimes, person metadata."""
@@ -137,3 +146,36 @@ def mock_config(tmp_path: Path) -> Config:
     cfg.ensure_dirs()
     cfg.media_dir.mkdir(parents=True, exist_ok=True)
     return cfg
+
+
+@pytest.fixture
+def source_dir(tmp_path: Path) -> Path:
+    """Temporary directory for source media files."""
+    src = tmp_path / "media_source"
+    src.mkdir()
+    return src
+
+
+def minimal_edl(**kwargs) -> EDL:
+    """Build a one-segment EDL with sensible defaults; kwargs override any field."""
+    defaults: dict = {
+        "title": "Test",
+        "target_duration": 60.0,
+        "trip_type": "family",
+        "style": "upbeat",
+        "segments": [
+            Segment(
+                name="Seg1",
+                items=[
+                    EditItem(
+                        source_file="a.jpg",
+                        media_type="photo",
+                        display_duration=4.0,
+                    )
+                ],
+                transition="cut",
+            )
+        ],
+    }
+    defaults.update(kwargs)
+    return EDL(**defaults)

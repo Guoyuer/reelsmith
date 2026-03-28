@@ -1,23 +1,73 @@
-"""Tests for pipeline.prepare._prepare — orchestration, video probing, preview generation."""
+"""Tests for pipeline.prepare — orchestration, video probing, EXIF, preview generation."""
 
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from PIL import Image
 
+from pipeline._types import cache_id
 from pipeline.config import Config
 from pipeline.prepare._prepare import (
     PrepareConfig,
     _base_analysis_entry,
+    _generate_video_previews,
     _prepare_video,
     _read_exif,
     load_analysis,
     prepare,
 )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_image(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (160, 90), color=(100, 150, 200)).save(path, "JPEG")
+    return path
+
+
+def _make_manifest_item(local_path: str, **extra) -> dict:
+    item = {
+        "local_path": local_path,
+        "item_type": 0,
+        "taken_at": "2025-01-01T00:00:00+00:00",
+        "takentime": 1700000000,
+    }
+    item.update(extra)
+    return item
+
+
+# ---------------------------------------------------------------------------
+# _read_exif
+# ---------------------------------------------------------------------------
+
+
+class TestReadExif:
+    def test_returns_dict_for_jpeg(self, tmp_path):
+        img_path = tmp_path / "photo.jpg"
+        Image.new("RGB", (100, 100), "red").save(img_path, "JPEG")
+        exif = _read_exif(img_path)
+        assert isinstance(exif, dict)
+        assert len(exif) == 0
+
+    def test_returns_empty_dict_when_exif_missing(self, tmp_path):
+        img_path = tmp_path / "photo.png"
+        Image.new("RGB", (100, 100)).save(img_path, "PNG")
+        exif = _read_exif(img_path)
+        assert isinstance(exif, dict)
+        assert len(exif) == 0
+
+    def test_returns_empty_dict_for_nonexistent_file(self, tmp_path):
+        exif = _read_exif(tmp_path / "nonexistent.jpg")
+        assert exif == {}
 
 
 # ---------------------------------------------------------------------------
@@ -118,13 +168,57 @@ class TestPrepareVideo:
         with patch("pipeline.prepare._prepare.run_subprocess", return_value=fake_result):
             _prepare_video(entry, Path("/media/video.mp4"), 1, 1)
 
-        assert entry["video_duration"] == 10.0  # fallback
+        assert entry["video_duration"] == 10.0
         assert entry["video_width"] == 0
         assert entry["video_orientation"] == "landscape"
 
 
 # ---------------------------------------------------------------------------
-# load_analysis validation
+# _generate_video_previews
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateVideoPreview:
+    def test_skips_existing_preview(self, tmp_path):
+        preview_dir = tmp_path / "previews"
+        preview_dir.mkdir()
+
+        local_path = "/fake/video.mp4"
+        preview = preview_dir / f"preview_{cache_id(local_path)}.mp4"
+        preview.write_bytes(b"\x00" * 1000)
+
+        video_items = [{"local_path": local_path, "video_duration": 30}]
+        with patch("pipeline.prepare._prepare.run_subprocess") as mock_run:
+            _generate_video_previews(video_items, preview_dir)
+        mock_run.assert_not_called()
+
+    def test_force_deletes_existing(self, tmp_path):
+        preview_dir = tmp_path / "previews"
+        preview_dir.mkdir()
+
+        local_path = "/fake/video.mp4"
+        preview = preview_dir / f"preview_{cache_id(local_path)}.mp4"
+        preview.write_bytes(b"\x00" * 1000)
+
+        video_items = [{"local_path": local_path, "video_duration": 30}]
+
+        def fake_run(cmd, **kwargs):
+            for i, c in enumerate(cmd):
+                if str(c).endswith(".mp4") and i > 0:
+                    Path(c).write_bytes(b"\x00" * 500)
+            result = MagicMock()
+            result.returncode = 0
+            return result
+
+        with patch("pipeline.prepare._prepare.run_subprocess", side_effect=fake_run):
+            with patch(
+                "pipeline.prepare._prepare._has_dense_keyframes", return_value=False
+            ):
+                _generate_video_previews(video_items, preview_dir, force=True)
+
+
+# ---------------------------------------------------------------------------
+# load_analysis
 # ---------------------------------------------------------------------------
 
 
@@ -148,13 +242,11 @@ class TestLoadAnalysis:
         cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
         data = [
-            # Valid
             {
                 "local_path": "/media/photo.jpg",
                 "media_type": "photo",
                 "taken_at": "2025-01-01T00:00:00+00:00",
             },
-            # Invalid — missing required field
             {"media_type": "photo"},
         ]
         cfg.analysis_path.write_text(json.dumps(data))
@@ -174,11 +266,6 @@ class TestLoadAnalysis:
 
 
 class TestPrepareOrchestration:
-    def _make_image(self, path: Path) -> Path:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (160, 90), color=(100, 150, 200)).save(path, "JPEG")
-        return path
-
     def test_missing_manifest_raises(self, tmp_path):
         cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
@@ -188,14 +275,7 @@ class TestPrepareOrchestration:
     def test_skips_nonexistent_files(self, tmp_path):
         cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
-        manifest = [
-            {
-                "local_path": "/nonexistent/photo.jpg",
-                "taken_at": "2025-01-01T00:00:00+00:00",
-                "takentime": 1700000000,
-                "item_type": 0,
-            }
-        ]
+        manifest = [_make_manifest_item("/nonexistent/photo.jpg")]
         cfg.manifest_path.write_text(json.dumps(manifest))
         prepare(cfg)
         data = json.loads(cfg.analysis_path.read_text())
@@ -205,15 +285,8 @@ class TestPrepareOrchestration:
         cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
         cfg.media_dir.mkdir(parents=True, exist_ok=True)
-        photo = self._make_image(cfg.media_dir / "photo.jpg")
-        manifest = [
-            {
-                "local_path": str(photo),
-                "taken_at": "2025-01-01T00:00:00+00:00",
-                "takentime": 1700000000,
-                "item_type": 0,
-            }
-        ]
+        photo = _make_image(cfg.media_dir / "photo.jpg")
+        manifest = [_make_manifest_item(str(photo))]
         cfg.manifest_path.write_text(json.dumps(manifest))
         prepare(cfg)
         data = json.loads(cfg.analysis_path.read_text())
@@ -236,14 +309,7 @@ class TestPrepareOrchestration:
         fake_result.stdout = json.dumps(probe_data)
         fake_result.returncode = 0
 
-        manifest = [
-            {
-                "local_path": str(video),
-                "taken_at": "2025-01-01T00:00:00+00:00",
-                "takentime": 1700000000,
-                "item_type": 1,
-            }
-        ]
+        manifest = [_make_manifest_item(str(video), item_type=1)]
         cfg.manifest_path.write_text(json.dumps(manifest))
 
         with patch("pipeline.prepare._prepare.run_subprocess", return_value=fake_result):
@@ -255,19 +321,41 @@ class TestPrepareOrchestration:
         assert data[0]["video_duration"] == 15.0
 
     def test_default_prepare_config(self, tmp_path):
-        """prepare() creates default PrepareConfig when none passed."""
         cfg = Config(workspace=tmp_path / "runs" / "test")
         cfg.ensure_dirs()
         cfg.media_dir.mkdir(parents=True, exist_ok=True)
-        photo = self._make_image(cfg.media_dir / "p.jpg")
+        photo = _make_image(cfg.media_dir / "p.jpg")
+        manifest = [_make_manifest_item(str(photo))]
+        cfg.manifest_path.write_text(json.dumps(manifest))
+        prepare(cfg, None)
+        assert cfg.analysis_path.exists()
+
+    def test_rerun_updates_analysis(self, tmp_path):
+        """Re-running prepare should overwrite analysis.json."""
+        cfg = Config(workspace=tmp_path / "runs" / "test")
+        cfg.ensure_dirs()
+        cfg.media_dir.mkdir(parents=True, exist_ok=True)
+        photo = _make_image(cfg.media_dir / "photo.jpg")
+        manifest = [_make_manifest_item(str(photo))]
+        cfg.manifest_path.write_text(json.dumps(manifest))
+
+        prepare(cfg, PrepareConfig())
+        first_mtime = cfg.analysis_path.stat().st_mtime
+        time.sleep(0.05)
+        prepare(cfg, PrepareConfig())
+        assert cfg.analysis_path.stat().st_mtime > first_mtime
+
+    def test_progress_callback(self, mock_config):
+        cfg = mock_config
+        img1 = _make_image(cfg.media_dir / "109_a.jpg")
+        img2 = _make_image(cfg.media_dir / "110_b.jpg")
         manifest = [
-            {
-                "local_path": str(photo),
-                "taken_at": "2025-01-01T00:00:00+00:00",
-                "takentime": 1700000000,
-                "item_type": 0,
-            }
+            _make_manifest_item(str(img1)),
+            _make_manifest_item(str(img2), takentime=1700000100),
         ]
         cfg.manifest_path.write_text(json.dumps(manifest))
-        prepare(cfg, None)  # explicit None
-        assert cfg.analysis_path.exists()
+        calls = []
+        prepare(cfg, progress_callback=lambda c, t, n: calls.append((c, t, n)))
+        photo_calls = [c for c in calls if c[2] == "photos"]
+        assert len(photo_calls) == 2
+        assert photo_calls[0][1] == 2

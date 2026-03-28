@@ -9,6 +9,19 @@ from pipeline.music._orchestrate import _DEFAULT_CROSSFADE, _build_composite_mus
 
 
 class TestBuildCompositeMusic:
+    def test_single_segment_copies(self, tmp_path):
+        track = tmp_path / "track.wav"
+        track.write_bytes(b"RIFF" + b"\x00" * 100)
+        out = tmp_path / "composite.wav"
+        assert _build_composite_music([(10.0, track)], out, crossfade=2.0) is True
+        assert out.exists()
+
+    def test_empty_returns_false(self, tmp_path):
+        assert (
+            _build_composite_music([], tmp_path / "composite.wav", crossfade=2.0)
+            is False
+        )
+
     def test_two_segments_crossfade(self, tmp_path):
         """Two segments should produce acrossfade filter chain."""
         t1 = tmp_path / "seg1.wav"

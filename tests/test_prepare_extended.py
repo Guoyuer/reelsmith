@@ -6,7 +6,6 @@ import json
 from unittest.mock import MagicMock, patch
 
 from pipeline.prepare._prepare import (
-    _base_analysis_entry,
     _has_dense_keyframes,
     _prepare_video,
 )
@@ -81,20 +80,6 @@ class TestPrepareVideoEdgeCases:
         assert entry["video_fps"] == 0.0
         assert entry["video_orientation"] == "landscape"
 
-    def test_portrait_detection(self, tmp_path):
-        """Height > width should set orientation=portrait."""
-        entry = {"local_path": str(tmp_path / "portrait.mp4")}
-        probe_data = {
-            "format": {"duration": "30.0"},
-            "streams": [{"width": 1080, "height": 1920, "r_frame_rate": "30/1"}],
-        }
-        mock = MagicMock(returncode=0, stdout=json.dumps(probe_data), stderr="")
-        with patch("pipeline.prepare._prepare.run_subprocess", return_value=mock):
-            _prepare_video(entry, tmp_path / "portrait.mp4", 1, 1)
-        assert entry["video_orientation"] == "portrait"
-        assert entry["video_width"] == 1080
-        assert entry["video_height"] == 1920
-
     def test_entry_fields_populated(self, tmp_path):
         """Entry dict should be populated with video metadata."""
         entry = {"local_path": str(tmp_path / "vid.mp4")}
@@ -121,49 +106,3 @@ class TestPrepareVideoEdgeCases:
         assert entry["video_fps"] == 24.0  # 24000/1001 ≈ 23.976 → rounded to 24.0
 
 
-# ---------------------------------------------------------------------------
-# _base_analysis_entry
-# ---------------------------------------------------------------------------
-
-
-class TestBaseAnalysisEntry:
-    def test_photo_entry(self):
-        item = {
-            "local_path": "/media/photo.jpg",
-            "taken_at": "2025-01-01T00:00:00",
-            "country": "Singapore",
-            "first_level": "Central",
-            "district": "Marina Bay",
-        }
-        entry = _base_analysis_entry(item, is_video=False)
-        assert entry["media_type"] == "photo"
-        assert entry["district"] == "Marina Bay"
-
-    def test_video_entry(self):
-        item = {
-            "local_path": "/media/clip.mp4",
-            "taken_at": "2025-01-01T00:00:00",
-        }
-        entry = _base_analysis_entry(item, is_video=True)
-        assert entry["media_type"] == "video"
-
-    def test_city_fallback_for_district(self):
-        """When district is empty, city is used as fallback."""
-        item = {
-            "local_path": "/media/photo.jpg",
-            "taken_at": "2025-01-01T00:00:00",
-            "city": "Singapore",
-        }
-        entry = _base_analysis_entry(item, is_video=False)
-        assert entry["district"] == "Singapore"
-
-    def test_missing_location(self):
-        """Missing location fields should be None."""
-        item = {
-            "local_path": "/media/photo.jpg",
-            "taken_at": "2025-01-01T00:00:00",
-        }
-        entry = _base_analysis_entry(item, is_video=False)
-        assert entry["country"] is None
-        assert entry["first_level"] is None
-        assert entry["district"] is None

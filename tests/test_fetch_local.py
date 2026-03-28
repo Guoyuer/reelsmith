@@ -27,21 +27,6 @@ def _create_fake_video(path: Path) -> None:
     path.write_bytes(b"\x00\x00\x00\x1c\x66\x74\x79\x70" + b"\x00" * 100)
 
 
-@pytest.fixture
-def mock_config(tmp_path: Path):
-    from pipeline.config import Config
-
-    cfg = Config(workspace=tmp_path / "workspace" / "runs" / "test")
-    cfg.ensure_dirs()
-    return cfg
-
-
-@pytest.fixture
-def source_dir(tmp_path: Path) -> Path:
-    src = tmp_path / "media_source"
-    src.mkdir()
-    return src
-
 
 # ---------------------------------------------------------------------------
 # Test: _parse_date_from_filename
@@ -127,6 +112,18 @@ class TestExtractDateFallback:
             assert _extract_date(video) == datetime(
                 2025, 6, 13, 12, 4, 15, tzinfo=timezone.utc
             )
+
+    def test_video_ffprobe_success_parses_date(self, tmp_path):
+        """Successful ffprobe should parse ISO datetime from creation_time."""
+        from unittest.mock import MagicMock
+
+        video = tmp_path / "clip.mp4"
+        _create_fake_video(video)
+        mock_result = MagicMock()
+        mock_result.stdout = "2025-06-13T12:04:15.000000Z\n"
+        with patch("pipeline.utils.media.run_subprocess", return_value=mock_result):
+            dt = _extract_date(video)
+        assert dt == datetime(2025, 6, 13, 12, 4, 15, tzinfo=timezone.utc)
 
     def test_no_date_anywhere_returns_none(self, tmp_path):
         photo = tmp_path / "random_photo.jpg"
