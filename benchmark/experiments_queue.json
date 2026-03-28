@@ -1,0 +1,68 @@
+[
+  {
+    "name": "vulkan-hevc-fallback",
+    "description": "Add Vulkan HEVC encoding as fallback for AMD/Intel GPUs (between NVENC and libx264)",
+    "target_files": ["pipeline/assemble/_encoder.py"],
+    "ffmpeg_feature": "hevc_vulkan encoder",
+    "min_ffmpeg": "7.1",
+    "hypothesis": "AMD/Intel users get HW-accelerated HEVC instead of falling back to CPU libx264",
+    "metrics": ["speed", "file_size"],
+    "priority": "high",
+    "status": "pending"
+  },
+  {
+    "name": "whisper-speech-detection",
+    "description": "Use FFmpeg whisper filter in prepare stage to detect speech timestamps per video",
+    "target_files": ["pipeline/prepare/_prepare.py", "pipeline/_types.py", "pipeline/plan/_preview.py"],
+    "ffmpeg_feature": "af_whisper filter",
+    "min_ffmpeg": "8.0",
+    "hypothesis": "Local speech timestamps give Gemini better trim guidance, improving keep_audio accuracy",
+    "metrics": ["speech_detection_accuracy", "trim_quality"],
+    "priority": "high",
+    "status": "pending"
+  },
+  {
+    "name": "av1-vulkan-encoder",
+    "description": "Add AV1 encoding via Vulkan as a --codec av1 option",
+    "target_files": ["pipeline/assemble/_encoder.py", "pipeline/cli/_commands.py"],
+    "ffmpeg_feature": "av1_vulkan encoder",
+    "min_ffmpeg": "8.0",
+    "hypothesis": "30%+ smaller files than HEVC at same quality, royalty-free",
+    "metrics": ["file_size", "speed", "vmaf"],
+    "priority": "medium",
+    "status": "pending"
+  },
+  {
+    "name": "d3d12-windows-fallback",
+    "description": "Add D3D12 H.264/AV1 encoding for Windows AMD/Intel GPUs",
+    "target_files": ["pipeline/assemble/_encoder.py"],
+    "ffmpeg_feature": "h264_d3d12va, av1_d3d12va encoders",
+    "min_ffmpeg": "8.1",
+    "hypothesis": "Windows AMD/Intel users get HW acceleration instead of CPU fallback",
+    "metrics": ["speed"],
+    "priority": "medium",
+    "status": "pending"
+  },
+  {
+    "name": "multithreaded-cli-verify",
+    "description": "Verify FFmpeg 7.0+ multi-threaded CLI gives automatic speedup on segment renders",
+    "target_files": [],
+    "ffmpeg_feature": "Multi-threaded CLI (demux/decode/filter/encode parallel)",
+    "min_ffmpeg": "7.0",
+    "hypothesis": "Complex filter graphs (Ken Burns + color grade + overlay) run faster without code changes",
+    "metrics": ["speed"],
+    "priority": "high",
+    "status": "pending"
+  },
+  {
+    "name": "hdr10-passthrough",
+    "description": "Preserve HDR10 metadata when source videos are HDR (iPhone/GoPro)",
+    "target_files": ["pipeline/assemble/_graph.py", "pipeline/assemble/_filters.py"],
+    "ffmpeg_feature": "HDR10 metadata passthrough with libx265/nvenc",
+    "min_ffmpeg": "7.0",
+    "hypothesis": "HDR source material retains dynamic range instead of being crushed to SDR",
+    "metrics": ["vmaf", "visual_quality"],
+    "priority": "low",
+    "status": "pending"
+  }
+]
