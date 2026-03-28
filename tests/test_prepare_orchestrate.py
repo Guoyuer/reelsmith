@@ -126,15 +126,15 @@ class TestPrepareVideo:
     def test_parses_probe_output(self):
         probe_data = {
             "format": {"duration": "30.5"},
-            "streams": [
-                {"width": 1920, "height": 1080, "r_frame_rate": "30000/1001"}
-            ],
+            "streams": [{"width": 1920, "height": 1080, "r_frame_rate": "30000/1001"}],
         }
         fake_result = MagicMock()
         fake_result.stdout = json.dumps(probe_data)
 
         entry = {"local_path": "/media/video.mp4"}
-        with patch("pipeline.prepare._prepare.run_subprocess", return_value=fake_result):
+        with patch(
+            "pipeline.prepare._prepare.run_subprocess", return_value=fake_result
+        ):
             _prepare_video(entry, Path("/media/video.mp4"), 1, 10)
 
         assert entry["video_duration"] == 30.5
@@ -146,15 +146,15 @@ class TestPrepareVideo:
     def test_portrait_orientation(self):
         probe_data = {
             "format": {"duration": "10"},
-            "streams": [
-                {"width": 1080, "height": 1920, "r_frame_rate": "30/1"}
-            ],
+            "streams": [{"width": 1080, "height": 1920, "r_frame_rate": "30/1"}],
         }
         fake_result = MagicMock()
         fake_result.stdout = json.dumps(probe_data)
 
         entry = {"local_path": "/media/video.mp4"}
-        with patch("pipeline.prepare._prepare.run_subprocess", return_value=fake_result):
+        with patch(
+            "pipeline.prepare._prepare.run_subprocess", return_value=fake_result
+        ):
             _prepare_video(entry, Path("/media/video.mp4"), 1, 1)
 
         assert entry["video_orientation"] == "portrait"
@@ -164,7 +164,9 @@ class TestPrepareVideo:
         fake_result.stdout = "not json"
 
         entry = {"local_path": "/media/video.mp4"}
-        with patch("pipeline.prepare._prepare.run_subprocess", return_value=fake_result):
+        with patch(
+            "pipeline.prepare._prepare.run_subprocess", return_value=fake_result
+        ):
             _prepare_video(entry, Path("/media/video.mp4"), 1, 1)
 
         assert entry["video_duration"] == 10.0
@@ -311,7 +313,9 @@ class TestPrepareOrchestration:
         manifest = [_make_manifest_item(str(video), item_type=1)]
         cfg.manifest_path.write_text(json.dumps(manifest))
 
-        with patch("pipeline.prepare._prepare.run_subprocess", return_value=fake_result):
+        with patch(
+            "pipeline.prepare._prepare.run_subprocess", return_value=fake_result
+        ):
             prepare(cfg)
 
         data = json.loads(cfg.analysis_path.read_text())

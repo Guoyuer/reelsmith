@@ -247,7 +247,9 @@ class TestBuildOffsetTable:
             (2, 15.0, Path("/p2.mp4")),
             (3, 20.0, Path("/p3.mp4")),
         ]
-        with patch("pipeline.plan._preview.probe_duration", side_effect=[10.0, 15.0, 20.0]):
+        with patch(
+            "pipeline.plan._preview.probe_duration", side_effect=[10.0, 15.0, 20.0]
+        ):
             table, valid = _build_offset_table(entries)
 
         assert len(table) == 3

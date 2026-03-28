@@ -23,13 +23,13 @@ from tests.conftest import minimal_edl
 class TestParseLoudnormStats:
     def test_parses_valid_json(self):
         stderr = (
-            'some ffmpeg output\n'
-            '{\n'
+            "some ffmpeg output\n"
+            "{\n"
             '    "input_i": "-14.0",\n'
             '    "input_lra": "6.0",\n'
             '    "input_tp": "-1.0",\n'
             '    "input_thresh": "-24.0"\n'
-            '}'
+            "}"
         )
         result = _parse_loudnorm_stats(stderr)
         assert result is not None
@@ -103,9 +103,7 @@ class TestFindFirstFrame:
         assert _find_first_frame(edl) is None
 
     def test_empty_items(self):
-        edl = minimal_edl(
-            segments=[Segment(name="Empty", items=[], transition="cut")]
-        )
+        edl = minimal_edl(segments=[Segment(name="Empty", items=[], transition="cut")])
         assert _find_first_frame(edl) is None
 
 
@@ -124,6 +122,7 @@ class TestRenderTitleCardIfNeeded:
         edl = minimal_edl(title="My Trip")
         path = tmp_path / "intro.mp4"
         with patch("pipeline.assemble._assemble.render_title_card") as m:
+
             def _create(*a, **kw):
                 path.write_bytes(b"\x00" * 100)
 
@@ -141,6 +140,7 @@ class TestRenderTitleCardIfNeeded:
         edl = minimal_edl()
         path = tmp_path / "outro.mp4"
         with patch("pipeline.assemble._assemble.render_title_card") as m:
+
             def _create(*a, **kw):
                 path.write_bytes(b"\x00" * 100)
 

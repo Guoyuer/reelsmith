@@ -59,7 +59,14 @@ class TestProgressCb:
         d = _PipelineDisplay.__new__(_PipelineDisplay)
         d._stages = stages
         d._stage_data = {
-            s: {"state": "running", "label": "", "current": 0, "total": 0, "subs": {}, "sub_order": []}
+            s: {
+                "state": "running",
+                "label": "",
+                "current": 0,
+                "total": 0,
+                "subs": {},
+                "sub_order": [],
+            }
             for s in stages
         }
         d._live = None
@@ -203,10 +210,13 @@ class TestRunPipeline:
             order.append("prepare")
 
         with (
-            patch("pipeline.cli._runner._STAGE_RUNNERS", {
-                "fetch": _mock_fetch,
-                "prepare": _mock_prepare,
-            }),
+            patch(
+                "pipeline.cli._runner._STAGE_RUNNERS",
+                {
+                    "fetch": _mock_fetch,
+                    "prepare": _mock_prepare,
+                },
+            ),
             patch("pipeline.cli._runner._PipelineDisplay") as MockDisplay,
             patch("pipeline.cli._runner._setup_logging") as mock_log,
         ):

@@ -104,5 +104,3 @@ class TestPrepareVideoEdgeCases:
         with patch("pipeline.prepare._prepare.run_subprocess", return_value=mock):
             _prepare_video(entry, tmp_path / "vid.mp4", 1, 1)
         assert entry["video_fps"] == 24.0  # 24000/1001 ≈ 23.976 → rounded to 24.0
-
-

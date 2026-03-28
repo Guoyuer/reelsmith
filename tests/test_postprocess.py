@@ -29,9 +29,7 @@ def _make_edl(items=None, segments=None) -> EDL:
                 source_file="/media/photo.jpg", media_type="photo", display_duration=4.0
             )
         ]
-    return minimal_edl(
-        segments=[Segment(name="S1", items=items, transition="cut")]
-    )
+    return minimal_edl(segments=[Segment(name="S1", items=items, transition="cut")])
 
 
 # ---------------------------------------------------------------------------
@@ -375,7 +373,6 @@ class TestValidateTrimPoints:
         item = edl.all_items()[0]
         assert item.end_time - item.start_time >= 2.0
         assert fixed >= 1
-
 
 
 # ---------------------------------------------------------------------------
