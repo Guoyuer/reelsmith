@@ -1,4 +1,4 @@
-"""Stage 3: Generate EDL — select photos/videos and arrange into a narrative.
+"""Stage 2: Generate EDL — select photos/videos and arrange into a narrative.
 
 Uses the visual planner (Gemini 3 Flash): Gemini sees actual photos via
 individual photo thumbnails and watches video clips (with audio) to create an EDL.

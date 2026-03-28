@@ -1,4 +1,4 @@
-"""Stage 2: Prepare media for visual planning.
+"""Stage 1: Prepare media for visual planning.
 
 - Photo thumbnails (400px JPEG, cached in thumbnails/)
 - EXIF extraction (recomputed each run — fast)
