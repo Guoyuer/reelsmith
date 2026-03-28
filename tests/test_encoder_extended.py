@@ -10,19 +10,25 @@ from pipeline.assemble._encoder import RenderContext, detect_hw_encoder
 
 class TestDetectHwEncoder:
     def test_fallback_to_libx264_no_ffmpeg(self):
-        """When ffmpeg not found, should return libx264 fallback."""
-        with patch(
-            "pipeline.assemble._encoder.run_subprocess",
-            side_effect=OSError("not found"),
+        """When ffmpeg not found on non-macOS, should return libx264 fallback."""
+        with (
+            patch(
+                "pipeline.assemble._encoder.run_subprocess",
+                side_effect=OSError("not found"),
+            ),
+            patch("sys.platform", "linux"),
         ):
             result = detect_hw_encoder(1920, 1080, 30)
         assert "-c:v" in result
         assert "libx264" in result
 
     def test_fallback_to_libx264_no_encoders(self):
-        """When no HW encoders available, should return libx264."""
+        """When no HW encoders available on non-macOS, should return libx264."""
         mock = MagicMock(returncode=0, stdout="libx264 -- no hw", stderr="")
-        with patch("pipeline.assemble._encoder.run_subprocess", return_value=mock):
+        with (
+            patch("pipeline.assemble._encoder.run_subprocess", return_value=mock),
+            patch("sys.platform", "linux"),
+        ):
             result = detect_hw_encoder(1920, 1080, 30)
         assert "libx264" in result
 
