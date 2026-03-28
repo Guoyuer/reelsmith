@@ -46,7 +46,11 @@ def render_title_card(
     use_photo_bg = background_photo is not None and Path(background_photo).exists()
 
     # HEIC not supported by -loop 1; convert to JPEG first
-    if use_photo_bg and Path(background_photo).suffix.lower() in {".heic", ".heif"}:
+    if (
+        use_photo_bg
+        and background_photo is not None
+        and Path(background_photo).suffix.lower() in {".heic", ".heif"}
+    ):
         from ..utils.image import convert_heic
 
         background_photo = str(convert_heic(Path(background_photo)))
@@ -93,7 +97,7 @@ def render_title_card(
 
     fade = f",fade=t=in:d={C.FADE_IN_DURATION},fade=t=out:st={duration - C.FADE_OUT_DURATION}:d={C.FADE_OUT_DURATION}"
 
-    if use_photo_bg:
+    if use_photo_bg and background_photo is not None:
         bg_path = Path(background_photo)
         is_video = bg_path.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
         if is_video:
