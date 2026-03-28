@@ -221,7 +221,6 @@ def generate_music_for_edl(
         )
         if track:
             segment_tracks.append((segment_duration, track))
-            logger.info("    Generated: %s", track.name)
         else:
             logger.warning("    FAILED — segment will be silent")
         if progress_callback:

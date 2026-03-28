@@ -60,11 +60,11 @@ def generate_music_gemini(
 
     prompt = mood
 
-    logger.info("=== Music Generation (Gemini Lyria RealTime) ===")
-    logger.info("Model: lyria-realtime-exp")
-    logger.info("Prompt: '%s'", prompt)
-    logger.info("Target duration: %ds", target_duration)
-    logger.info("Cache key: %s", cache_key)
+    logger.debug("=== Music Generation (Gemini Lyria RealTime) ===")
+    logger.debug("Model: lyria-realtime-exp")
+    logger.debug("Prompt: '%s'", prompt)
+    logger.debug("Target duration: %ds", target_duration)
+    logger.debug("Cache key: %s", cache_key)
 
     try:
         out_path = cache_dir / f"{cache_key}.wav"

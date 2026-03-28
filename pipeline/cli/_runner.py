@@ -145,15 +145,15 @@ def _run_plan(pc: _PipelineContext):
         )
         elapsed = done(plan_detail)
 
-        pc.logger.info(
+        pc.logger.debug(
             f"Plan: EDL v{version} \u2014 {len(edl.segments)} segments, "
             f"{s['n_photos']} photos + {s['n_videos']} videos ({s['vid_pct']}% video), "
             f"duration ~{s['estimated_duration']:.0f}s (target {edl.target_duration:.0f}s), planned in {elapsed:.0f}s"
         )
         if s["n_keep_audio"]:
-            pc.logger.info(f"  Speech preserved: {s['n_keep_audio']} clips")
+            pc.logger.debug(f"  Speech preserved: {s['n_keep_audio']} clips")
         for seg in edl.segments:
-            pc.logger.info(
+            pc.logger.debug(
                 f"  {seg.name}: {len(seg.items)} items, transition={seg.transition}"
             )
 

@@ -181,7 +181,7 @@ All candidates:"""
         progress_callback=progress_callback,
     )
 
-    logger.info("Gemini response: %d chars", len(edl_content))
+    logger.debug("Gemini response: %d chars", len(edl_content))
     for line in edl_content.split("\n"):
         logger.debug("  | %s", line)
 
@@ -322,6 +322,12 @@ def plan(
         progress_callback=progress_callback,
     )
 
+    # Set metadata on the EDL before validation — use user's target, not Gemini's
+    edl.target_duration = pc.target_duration
+    edl.trip_type = pc.trip_type
+    edl.style = pc.style
+    edl.language = pc.language  # type: ignore[assignment]  # validated by CLI
+
     # Fix media_type mismatches first (e.g. photo labeled as video),
     # then force effect="none" on actual videos.
     validate_and_fix_edl(edl)
@@ -329,12 +335,6 @@ def plan(
         for item in seg.items:
             if item.media_type == "video" and item.effect != Effect.NONE:
                 item.effect = Effect.NONE
-
-    # Set metadata on the EDL — use user's target, not Gemini's
-    edl.target_duration = pc.target_duration
-    edl.trip_type = pc.trip_type
-    edl.style = pc.style
-    edl.language = pc.language  # type: ignore[assignment]  # validated by CLI
     if not edl.date_range:
         all_dates = sorted(
             {a["taken_at"][:10] for a in analysis_by_path.values() if a.get("taken_at")}
