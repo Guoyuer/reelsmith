@@ -35,7 +35,7 @@ class PrepareConfig:
 def _base_analysis_entry(item: dict, *, is_video: bool) -> dict:
     """Build the common analysis entry dict from a manifest item."""
     return {
-        "local_path": item.get("local_path", ""),
+        "local_path": item["local_path"],
         "media_type": "video" if is_video else "photo",
         "taken_at": item["taken_at"],
         "country": item.get("country"),
@@ -106,7 +106,7 @@ def prepare(
     videos: list[dict] = []
 
     for i, item in enumerate(manifest, 1):
-        local_path_str = item.get("local_path", "")
+        local_path_str = item["local_path"]
         local_path = Path(local_path_str)
         if not local_path.exists():
             continue
@@ -259,7 +259,7 @@ def _generate_video_previews(
 
     tasks: list[tuple[Path, list[str]]] = []
     for vi in video_items:
-        source = Path(vi.get("local_path", ""))
+        source = Path(vi["local_path"])
         duration = vi.get("video_duration", 0)
         if not source.exists() or duration <= 0:
             continue

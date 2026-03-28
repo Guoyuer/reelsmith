@@ -139,7 +139,7 @@ def build_segment_graph(
                 if item.start_time is not None and item.end_time is not None
                 else item.display_duration
             )
-            speed = item.playback_speed or 1.0
+            speed = item.playback_speed
             if item.keep_audio:
                 parts = [
                     f"[{idx}:a] atrim=start={trim_start}:duration={trim_dur}",
@@ -347,7 +347,7 @@ def _video_filter(
         if item.start_time is not None and item.end_time is not None
         else item.display_duration
     )
-    speed = item.playback_speed or 1.0
+    speed = item.playback_speed
     output_dur = trim_dur / speed
 
     speed_vf = f",setpts={1 / speed:.4f}*PTS" if speed != 1.0 else ""

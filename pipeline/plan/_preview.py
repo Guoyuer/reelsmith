@@ -65,8 +65,8 @@ def _group_by_timestamp(
 
     bursts: list[list[AnalysisEntry]] = [[photos[0]]]
     for photo in photos[1:]:
-        prev_t = bursts[-1][-1].get("taken_at", "") or ""
-        curr_t = photo.get("taken_at", "") or ""
+        prev_t = bursts[-1][-1]["taken_at"]
+        curr_t = photo["taken_at"]
         try:
             t1 = datetime.fromisoformat(prev_t.replace("Z", "+00:00"))
             t2 = datetime.fromisoformat(curr_t.replace("Z", "+00:00"))
@@ -154,8 +154,8 @@ def _dedup_burst_photos(
     photos = []
     others = []
     for entry in items:
-        suffix = Path(entry.get("local_path", "")).suffix.lower()
-        if suffix not in VIDEO_EXTENSIONS and entry.get("media_type") != "video":
+        suffix = Path(entry["local_path"]).suffix.lower()
+        if suffix not in VIDEO_EXTENSIONS and entry["media_type"] != "video":
             photos.append(entry)
         else:
             others.append(entry)
@@ -163,7 +163,7 @@ def _dedup_burst_photos(
     if len(photos) < 2:
         return items
 
-    photos.sort(key=lambda x: x.get("taken_at", "") or "")
+    photos.sort(key=lambda x: x["taken_at"])
 
     bursts = _group_by_timestamp(photos, C.BURST_WINDOW_SECS)
     kept, removed_total = _select_from_bursts(bursts, thumbnails_dir, threshold)
@@ -181,8 +181,8 @@ def _dedup_burst_photos(
 
 def _build_item_text(idx: int, entry: AnalysisEntry) -> tuple[str, Path | None]:
     """Build text metadata for one item. Returns (text_line, photo_path_or_None)."""
-    local_path = entry.get("local_path", "")
-    media = entry.get("media_type", "photo")
+    local_path = entry["local_path"]
+    media = entry["media_type"]
 
     label = f"#{idx:02d}:"
     parts = [label]
@@ -345,9 +345,7 @@ def _collect_items(
 
     Returns (text_block, photo_paths, video_entries, n_photos, n_videos).
     """
-    all_items = sorted(
-        analysis_by_path.values(), key=lambda entry: entry.get("local_path", "")
-    )
+    all_items = sorted(analysis_by_path.values(), key=lambda entry: entry["local_path"])
     all_items = _dedup_burst_photos(all_items, cfg.thumbnails_dir)
 
     lines: list[str] = []
@@ -358,7 +356,7 @@ def _collect_items(
     n_videos = 0
 
     for entry in all_items:
-        local_path = entry.get("local_path", "")
+        local_path = entry["local_path"]
         if not local_path or not Path(local_path).exists():
             continue
 

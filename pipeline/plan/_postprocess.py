@@ -331,7 +331,7 @@ def validate_trim_points(
                 and item.end_time is not None
             ):
                 trim_dur = item.end_time - item.start_time
-                speed = item.playback_speed or 1.0
+                speed = item.playback_speed
                 expected = trim_dur / speed
                 if abs(expected - item.display_duration) > 0.5:
                     delta = expected - item.display_duration
