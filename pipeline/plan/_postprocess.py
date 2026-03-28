@@ -186,7 +186,7 @@ def validate_trim_points(
                     (
                         aid
                         for aid, a in analysis_by_id.items()
-                        if a.get("local_path") == item.source_file
+                        if a["local_path"] == item.source_file
                     ),
                     None,
                 )
@@ -253,7 +253,7 @@ def validate_trim_points(
                 and item.end_time is not None
             ):
                 trim_dur = item.end_time - item.start_time
-                speed = item.playback_speed or 1.0
+                speed = item.playback_speed
                 expected = trim_dur / speed
                 if abs(expected - item.display_duration) > 0.5:
                     delta = expected - item.display_duration

@@ -259,9 +259,8 @@ def _parse_response(response) -> str:
     Returns the text content string (may be empty).
     """
     # Log thinking, code execution, and other non-text parts
-    if response.candidates:
-        cand_content = response.candidates[0].content
-        for part in (cand_content.parts if cand_content else None) or []:
+    if response.candidates and response.candidates[0].content:
+        for part in response.candidates[0].content.parts:
             if getattr(part, "thought", False) and part.text:
                 logger.info("  [Thinking] %d chars", len(part.text))
                 for line in part.text.split("\n"):
@@ -509,12 +508,16 @@ def _gemini_call(
 
     # --- Collect all response metadata into a structured summary ---
     usage = response.usage_metadata
-    prompt_tokens = (usage.prompt_token_count or 0) if usage else 0
-    content_tokens = (usage.candidates_token_count or 0) if usage else 0
-    thinking_tokens = (usage.thoughts_token_count or 0) if usage else 0
-    total_tokens = (usage.total_token_count or 0) if usage else 0
-    cached_tokens = (usage.cached_content_token_count or 0) if usage else 0
-    tool_use_tokens = (usage.tool_use_prompt_token_count or 0) if usage else 0
+    if usage:
+        prompt_tokens = usage.prompt_token_count or 0
+        content_tokens = usage.candidates_token_count or 0
+        thinking_tokens = usage.thoughts_token_count or 0
+        total_tokens = usage.total_token_count or 0
+        cached_tokens = usage.cached_content_token_count or 0
+        tool_use_tokens = usage.tool_use_prompt_token_count or 0
+    else:
+        prompt_tokens = content_tokens = thinking_tokens = 0
+        total_tokens = cached_tokens = tool_use_tokens = 0
 
     in_rate, out_rate = _PRICING.get(model, (0.50, 3.00))
     cost_est = (

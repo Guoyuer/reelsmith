@@ -56,11 +56,11 @@ def load_analysis(cfg: Config) -> list[AnalysisEntry]:
     results = []
     for item in manifest:
         item_id = item["id"]
-        local_path_str = item.get("local_path", "")
+        local_path_str = item["local_path"]
         suffix = Path(local_path_str).suffix.lower() if local_path_str else ""
         is_video = suffix in VIDEO_EXTENSIONS
 
-        persons = item.get("metadata", {}).get("persons", [])
+        persons = item["metadata"].get("persons", [])
         family_in_photo = [p for p in persons if p in family_names]
 
         entry = {
@@ -118,7 +118,7 @@ def prepare(
     logger.info("Family members: %s", family_names)
 
     for item in manifest:
-        persons = item.get("metadata", {}).get("persons", [])
+        persons = item["metadata"].get("persons", [])
         family_in_photo = [p for p in persons if p in family_names]
         item["family_count"] = len(family_in_photo)
         item["family_names"] = family_in_photo
@@ -143,7 +143,7 @@ def prepare(
         if progress_callback:
             progress_callback(i, len(manifest), "scan")
 
-        local_path_str = item.get("local_path", "")
+        local_path_str = item["local_path"]
         local_path = Path(local_path_str)
         if not local_path.exists():
             continue
@@ -169,7 +169,7 @@ def prepare(
             "taken_iso": item["taken_iso"],
             "duration_ms": item.get("duration"),
             "family_count": item.get("family_count", 0),
-            "persons": item.get("metadata", {}).get("persons", []),
+            "persons": item["metadata"].get("persons", []),
             "country": item.get("country"),
             "first_level": item.get("first_level"),
             "district": item.get("district") or item.get("city"),
@@ -225,7 +225,7 @@ def prepare(
     n_photos = sum(
         1
         for item in manifest
-        if Path(item.get("local_path", "")).suffix.lower() not in VIDEO_EXTENSIONS
+        if Path(item["local_path"]).suffix.lower() not in VIDEO_EXTENSIONS
     )
     n_videos = len(manifest) - n_photos
     n_new = len(uncached_photos) + len(uncached_videos)
@@ -339,7 +339,7 @@ def _generate_video_previews(
     tasks: list[tuple[Path, list[str]]] = []
     for vi in video_items:
         vid_id = vi["id"]
-        source = Path(vi.get("local_path", ""))
+        source = Path(vi["local_path"])
         dur = vi.get("video_duration", 0)
         if not source.exists() or dur <= 0:
             continue
@@ -421,7 +421,7 @@ def _detect_family(manifest: list[ManifestEntry], top_n: int = 5) -> list[str]:
     """Auto-detect the most frequent persons as family members."""
     counts: dict[str, int] = defaultdict(int)
     for item in manifest:
-        for name in item.get("metadata", {}).get("persons", []):
+        for name in item["metadata"].get("persons", []):
             counts[name] += 1
     ranked = sorted(counts.items(), key=lambda x: -x[1])
     threshold = max(len(manifest) * 0.03, 5)

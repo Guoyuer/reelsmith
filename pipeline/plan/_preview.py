@@ -60,8 +60,8 @@ def _dedup_burst_photos(
     photos = []
     others = []
     for a in items:
-        suffix = Path(a.get("local_path", "")).suffix.lower()
-        if suffix not in VIDEO_EXTENSIONS and a.get("media_type") != "video":
+        suffix = Path(a["local_path"]).suffix.lower()
+        if suffix not in VIDEO_EXTENSIONS and a["media_type"] != "video":
             photos.append(a)
         else:
             others.append(a)
@@ -69,13 +69,13 @@ def _dedup_burst_photos(
     if len(photos) < 2:
         return items
 
-    photos.sort(key=lambda x: x.get("taken_iso", "") or "")
+    photos.sort(key=lambda x: x["taken_iso"])
 
     # Group consecutive photos within 10s (by filename timestamp as proxy)
     bursts: list[list[AnalysisEntry]] = [[photos[0]]]
     for p in photos[1:]:
-        prev_t = bursts[-1][-1].get("taken_iso", "") or ""
-        curr_t = p.get("taken_iso", "") or ""
+        prev_t = bursts[-1][-1]["taken_iso"]
+        curr_t = p["taken_iso"]
         # Compare ISO timestamps: if within 10s, same burst
         try:
             from datetime import datetime
@@ -99,7 +99,7 @@ def _dedup_burst_photos(
         # Load histograms from thumbnails (fast — 400px already cached)
         hists = []
         for p in burst:
-            thumb = thumbnails_dir / f"{Path(p.get('local_path', '')).stem}_thumb.jpg"
+            thumb = thumbnails_dir / f"{Path(p['local_path']).stem}_thumb.jpg"
             hists.append(_photo_histogram(thumb) if thumb.exists() else None)
 
         # Cluster similar photos
@@ -150,8 +150,8 @@ def _dedup_burst_photos(
 
 def _build_item_text(idx: int, a: AnalysisEntry) -> tuple[str, Path | None]:
     """Build text metadata for one item. Returns (text_line, photo_path_or_None)."""
-    local_path = a.get("local_path", "")
-    media = a.get("media_type", "photo")
+    local_path = a["local_path"]
+    media = a["media_type"]
     persons = a.get("persons", [])
 
     label = f"#{idx:02d}:"
@@ -307,7 +307,7 @@ def _collect_items(
 
     Returns (text_block, photo_paths, video_entries, n_photos, n_videos).
     """
-    all_items = sorted(analysis_by_id.values(), key=lambda a: a.get("id", 0))
+    all_items = sorted(analysis_by_id.values(), key=lambda a: a["id"])
     all_items = _dedup_burst_photos(all_items, cfg.thumbnails_dir)
 
     lines: list[str] = []
@@ -318,7 +318,7 @@ def _collect_items(
     n_videos = 0
 
     for a in all_items:
-        local_path = a.get("local_path", "")
+        local_path = a["local_path"]
         if not local_path or not Path(local_path).exists():
             continue
 

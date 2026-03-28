@@ -113,7 +113,7 @@ def build_segment_graph(
             # (FFmpeg 8 filter_complex ignores input-level -t)
             inputs.append(["-i", str(source)])
 
-            speed = item.playback_speed or 1.0
+            speed = item.playback_speed
             output_dur = duration / speed
             trim_start = item.start_time or 0.0
             vf = _video_filter(
@@ -296,7 +296,7 @@ def _video_filter(
     trim_duration: float = 0.0,
 ) -> str:
     w, h, fps = ctx.w, ctx.h, ctx.fps
-    speed = item.playback_speed or 1.0
+    speed = item.playback_speed
     speed_vf = f",setpts={1 / speed:.4f}*PTS" if speed != 1.0 else ""
     # Trim in filter chain (not -ss/-t on input — FFmpeg 8 filter_complex ignores those)
     trim_vf = (
