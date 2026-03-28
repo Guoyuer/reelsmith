@@ -169,11 +169,19 @@ def _dedup_burst_photos(
     kept, removed_total = _select_from_bursts(bursts, thumbnails_dir, threshold)
 
     if removed_total:
+        removed_bytes = 0
+        kept_paths = {e["local_path"] for e in kept}
+        for p in photos:
+            if p["local_path"] not in kept_paths:
+                thumb = thumbnails_dir / f"{Path(p['local_path']).stem}_thumb.jpg"
+                if thumb.exists():
+                    removed_bytes += thumb.stat().st_size
         logger.info(
-            "  Burst dedup: %d → %d photos (%d removed)",
+            "  Burst dedup: %d → %d photos (%d removed, %.1fMB saved)",
             len(photos),
             len(kept),
             removed_total,
+            removed_bytes / 1024 / 1024,
         )
 
     return kept + others
@@ -468,6 +476,17 @@ def _build_visual_content_blocks(
                 "data": thumb.read_bytes(),
             }
         )
+
+    photo_bytes = sum(
+        len(b.get("data", b""))
+        for b in blocks
+        if isinstance(b, dict) and b.get("type") == "image_bytes"
+    )
+    logger.info(
+        "Photo thumbnails: %d files, %.1fMB",
+        n_photos,
+        photo_bytes / 1024 / 1024,
+    )
 
     # --- Phase 3: build mega-preview and inject timestamps ---
     offset_table, mega_path = _build_mega_preview(
