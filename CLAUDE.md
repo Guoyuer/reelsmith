@@ -8,19 +8,20 @@ reelsmith/
 │   ├── _types.py              # Shared TypedDicts (ManifestEntry, AnalysisEntry, PreprocessedData)
 │   ├── config.py              # Config dataclass (workspace paths, env loading)
 │   ├── edl.py                 # EDL Pydantic model + all enums (MediaType, Effect, Transition, etc.)
-│   ├── prepare/               # Stage 2: media preprocessing
+│   ├── prepare/               # Stage 1: scan + media preprocessing
+│   │   ├── _scan.py           #   Local folder scanner + EXIF/GPS extraction
 │   │   └── _prepare.py        #   Thumbnails, ffprobe, preview clips
-│   ├── plan/                  # Stage 3: Gemini EDL generation
+│   ├── plan/                  # Stage 2: Gemini EDL generation
 │   │   ├── _gemini.py         #   Raw Gemini API interaction + logging
 │   │   ├── _orchestrate.py    #   Plan orchestrator (prepare input → call Gemini → postprocess)
 │   │   ├── _preview.py        #   Mega-preview video builder + inline thumbnails + metadata
 │   │   ├── _postprocess.py    #   Timestamp conversion, fuzzy paths, trim clamping, dedup
 │   │   └── _prompts.py        #   System prompt loading + trip-type/language templating
-│   ├── music/                 # Stage 4: Lyria music generation
+│   ├── music/                 # Stage 3: Lyria music generation
 │   │   ├── _gemini.py         #   Lyria RealTime API wrapper
 │   │   ├── _orchestrate.py    #   Per-segment music generation from EDL moods
 │   │   └── _prompts.py        #   Music mood templates
-│   ├── assemble/              # Stage 5: FFmpeg rendering
+│   ├── assemble/              # Stage 4: FFmpeg rendering
 │   │   ├── _assemble.py       #   Orchestrator (render → concat → music mix → validation)
 │   │   ├── _encoder.py        #   RenderContext, GPU detection, bitrate calculation
 │   │   ├── _filters.py        #   Ken Burns, color grade, text overlay, portrait filter
@@ -137,7 +138,7 @@ reelsmith plan -n singapore --duration 180 --lang cn
 # Render at 1080p30 (output: reelsmith_v1_1080p30.mp4)
 reelsmith assemble -n singapore -r 1080p30
 
-# Render at 4K60 (output: vlog_v1_2160p60.mp4, reuses 1080p clips won't conflict)
+# Render at 4K60 (output: reelsmith_v1_2160p60.mp4, reuses 1080p clips won't conflict)
 reelsmith assemble -n singapore -r 4k60
 
 # Custom resolution
@@ -211,7 +212,7 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 - display_duration for videos is auto-corrected from trim points — Gemini's value is guidance, not law.
 - Items with unfixable paths or invalid trims are REMOVED (item count can shrink).
 
-### Stage 3: assemble (`pipeline/assemble/`)
+### Stage 4: assemble (`pipeline/assemble/`)
 
 **Input:** EDL JSON + original media files + generated music (if any).
 

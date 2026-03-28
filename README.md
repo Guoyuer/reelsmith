@@ -72,7 +72,7 @@ reelsmith assemble -n trip -r 4k60
 | Command | What it does |
 |---------|-------------|
 | `reelsmith full` | End-to-end: prepare → plan → music → assemble |
-| `reelsmith prepare` | Fetch media + generate thumbnails and previews |
+| `reelsmith prepare` | Scan media folder + generate thumbnails and previews |
 | `reelsmith plan` | Re-plan with Gemini (reuses cached media) |
 | `reelsmith assemble` | Re-render from existing EDL |
 | `reelsmith config` | Show saved run config |
