@@ -31,8 +31,9 @@ logger = logging.getLogger("reelsmith.media")
 #:   - ``loudnorm`` filter (two-pass loudness normalization) — FFmpeg 3.1+
 #:   - ``-filter_complex_script`` flag — FFmpeg 4.0+
 #:   - Stable HEVC hardware encoding (nvenc / videotoolbox) — FFmpeg 5.0+
-#:   - FFmpeg 8 filter_complex behavioral changes (see _graph.py) — FFmpeg 8+
-MIN_FFMPEG_VERSION = (10, 0)
+#:   - Multi-threaded CLI (parallel demux/decode/filter/encode) — FFmpeg 7.0+
+#: Recommended: FFmpeg 8.0+ for Whisper speech filter and Vulkan AV1 encoding.
+MIN_FFMPEG_VERSION = (7, 0)
 
 
 def check_ffmpeg(*, required: bool = True) -> tuple[int, ...] | None:
