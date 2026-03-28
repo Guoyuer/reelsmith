@@ -309,6 +309,17 @@ def validate_trim_points(
             "  Trim validation: %d clamped, %d removed", trim_fixed, trim_removed
         )
 
+    # Force speed=1.0 when keep_audio=true (speed changes distort speech)
+    for seg in edl.segments:
+        for item in seg.items:
+            if item.keep_audio and item.playback_speed != 1.0:
+                logger.info(
+                    "  Speed fix: %s keep_audio=true, playback_speed %.1f → 1.0",
+                    Path(item.source_file).name,
+                    item.playback_speed,
+                )
+                item.playback_speed = 1.0
+
     # Fix display_duration to match trim range / speed
     dur_fixed = 0
     dur_delta = 0.0

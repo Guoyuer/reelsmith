@@ -85,6 +85,7 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
 - playback_speed: 1.0 = normal (default). Use 0.5 SPARINGLY for dramatic slow-mo moments
   (a jump, a splash, a reaction) — especially effective on ≥48fps source videos.
   Use 1.5 for transitional walking/travel clips. Most clips = 1.0.
+  **If keep_audio=true, playback_speed MUST be 1.0** — speed changes distort speech.
 - Transitions: "crossfade" = opacity fade (duration controls blend length), "cut" = instant switch (duration ignored).
   **transition_duration** (intra-segment, 0.3-0.8s): fade length between items within a chapter.
   **segment_transition_duration** (inter-segment, 0.8-1.5s): fade length between chapters.
@@ -108,6 +109,7 @@ animation with cosine easing (max zoom ~30%). A subtle sharpening pass is applie
 **Videos**: Trimmed by your preview_start/preview_end timestamps.
 keep_audio=true → original audio at full volume. keep_audio=false → completely silent.
 If you want ambient sound from a video, you MUST set keep_audio=true.
+Speed changes (playback_speed ≠ 1.0) distort audio — so keep_audio=true requires speed 1.0.
 
 **Transitions**: "crossfade" produces an opacity fade; "cut" is an instant switch.
 transition_duration controls the blend length. segment_transition_duration controls
