@@ -19,11 +19,9 @@ jobs:
       - uses: astral-sh/ruff-action@v3
         with:
           args: check
-          version: "0.15.7"
       - uses: astral-sh/ruff-action@v3
         with:
           args: format --check
-          version: "0.15.7"
 
   typecheck:
     runs-on: ubuntu-latest
