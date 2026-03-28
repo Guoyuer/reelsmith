@@ -161,6 +161,8 @@ class TestReverseGeocode:
     def test_no_gps_no_location(self, mock_config, source_dir):
         _create_fake_image(source_dir / "no_gps.jpg")
         with patch("pipeline.prepare._scan._extract_date", return_value=None):
-            with patch("pipeline.prepare._scan._extract_gps", return_value=(None, None)):
+            with patch(
+                "pipeline.prepare._scan._extract_gps", return_value=(None, None)
+            ):
                 result = fetch_local(mock_config, str(source_dir))
         assert "city" not in result[0]
