@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,9 +15,7 @@ from pipeline.plan._preview import (
     _group_by_timestamp,
     _histogram_similarity,
     _photo_histogram,
-    _select_from_bursts,
 )
-
 
 # ---------------------------------------------------------------------------
 # _photo_histogram

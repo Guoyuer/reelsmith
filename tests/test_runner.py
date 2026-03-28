@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pipeline.cli._display import _PipelineDisplay, _build_headline_from_args, _progress_cb
-
+from pipeline.cli._display import (
+    _build_headline_from_args,
+    _PipelineDisplay,
+    _progress_cb,
+)
 
 # ---------------------------------------------------------------------------
 # _build_headline_from_args

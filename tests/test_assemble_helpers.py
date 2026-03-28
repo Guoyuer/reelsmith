@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -13,10 +12,8 @@ from pipeline.assemble._assemble import (
     _render_title_card_if_needed,
 )
 from pipeline.assemble._encoder import RenderContext
-from pipeline.edl import EDL, EditItem, Segment
-
+from pipeline.edl import EditItem, Segment
 from tests.conftest import minimal_edl
-
 
 # ---------------------------------------------------------------------------
 # _parse_loudnorm_stats

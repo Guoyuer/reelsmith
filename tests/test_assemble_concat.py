@@ -14,7 +14,6 @@ from pipeline.assemble._assemble import (
 from pipeline.assemble._encoder import RenderContext
 from pipeline.config import Config
 from pipeline.edl import MusicTrack
-
 from tests.conftest import minimal_edl as _minimal_edl
 
 

@@ -1178,10 +1178,13 @@ dependencies = [
 dev = [
     { name = "pre-commit" },
     { name = "pyright" },
+    { name = "pytest" },
+    { name = "python-dotenv" },
     { name = "ruff" },
 ]
 test = [
     { name = "pytest" },
+    { name = "python-dotenv" },
 ]
 
 [package.metadata]
@@ -1193,8 +1196,11 @@ requires-dist = [
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "python-dotenv", marker = "extra == 'dev'", specifier = ">=1.0" },
+    { name = "python-dotenv", marker = "extra == 'test'", specifier = ">=1.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "reverse-geocode", specifier = ">=1.0" },
     { name = "rich", specifier = ">=13.0" },

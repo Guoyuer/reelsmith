@@ -10,7 +10,6 @@ import pytest
 from pipeline.fetch._local import _extract_gps, fetch_local
 
 
-
 def _create_image(path: Path):
     path.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
 
