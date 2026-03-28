@@ -162,3 +162,29 @@ class TestPlanOrchestration:
         dones = [c[0] for c in calls]
         assert dones == sorted(dones)
         assert calls[-1][0] == calls[-1][1]
+
+    def test_underfill_raises_runtime_error(self):
+        """EDL < 50% of target should raise RuntimeError."""
+        # Create EDL with very short durations (2s total vs 60s target)
+        short_edl = json.dumps(
+            {
+                "title": "Short",
+                "target_duration": 60,
+                "segments": [
+                    {
+                        "name": "S",
+                        "music_mood": "gentle",
+                        "items": [
+                            {
+                                "source_file": self.photo_paths[0],
+                                "media_type": "photo",
+                                "display_duration": 2.0,
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        with _patch_gemini(short_edl):
+            with pytest.raises(RuntimeError, match="less than 50%"):
+                self._plan()

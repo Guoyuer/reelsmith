@@ -13,6 +13,15 @@ from pipeline.config import Config
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
 
 
+@pytest.fixture(autouse=True)
+def _patch_hwaccel():
+    """Prevent RenderContext from shelling out to ffmpeg during tests."""
+    from unittest.mock import patch
+
+    with patch("pipeline.assemble._encoder._detect_hwaccel", return_value=None):
+        yield
+
+
 @pytest.fixture
 def sample_manifest() -> list[dict]:
     """List of 6 items with mixed types, varied takentimes, person metadata."""

@@ -113,6 +113,18 @@ class TestExtractDateFallback:
                 2025, 6, 13, 12, 4, 15, tzinfo=timezone.utc
             )
 
+    def test_video_ffprobe_success_parses_date(self, tmp_path):
+        """Successful ffprobe should parse ISO datetime from creation_time."""
+        from unittest.mock import MagicMock
+
+        video = tmp_path / "clip.mp4"
+        _create_fake_video(video)
+        mock_result = MagicMock()
+        mock_result.stdout = "2025-06-13T12:04:15.000000Z\n"
+        with patch("pipeline.utils.media.run_subprocess", return_value=mock_result):
+            dt = _extract_date(video)
+        assert dt == datetime(2025, 6, 13, 12, 4, 15, tzinfo=timezone.utc)
+
     def test_no_date_anywhere_returns_none(self, tmp_path):
         photo = tmp_path / "random_photo.jpg"
         _create_fake_image(photo)

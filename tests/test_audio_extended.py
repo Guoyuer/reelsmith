@@ -7,7 +7,12 @@ import wave
 from pathlib import Path
 from unittest.mock import patch
 
-from pipeline.assemble._audio import beat_snap_edl, estimate_bpm, write_chapters
+from pipeline.assemble._audio import (
+    _build_beat_grid,
+    beat_snap_edl,
+    estimate_bpm,
+    write_chapters,
+)
 from pipeline.edl import EDL, EditItem, Segment
 
 # ---------------------------------------------------------------------------
@@ -120,6 +125,42 @@ class TestEstimateBpm:
                 w.writeframes(struct.pack("<i", sample))
         result = estimate_bpm(path)
         assert result is None or isinstance(result, int)
+
+    def test_multichannel_returns_none(self, tmp_path):
+        """Audio with >2 channels should return None."""
+        path = tmp_path / "quad.wav"
+        sample_rate = 44100
+        n_frames = sample_rate * 3
+        with wave.open(str(path), "w") as w:
+            w.setnchannels(4)
+            w.setsampwidth(2)
+            w.setframerate(sample_rate)
+            for _ in range(n_frames):
+                w.writeframes(struct.pack("<hhhh", 0, 0, 0, 0))
+        assert estimate_bpm(path) is None
+
+
+# ---------------------------------------------------------------------------
+# _build_beat_grid
+# ---------------------------------------------------------------------------
+
+
+class TestBuildBeatGrid:
+    def test_returns_half_beat_grid(self):
+        """Grid should contain half-beat intervals for the given BPM."""
+        with patch("pipeline.assemble._audio.estimate_bpm", return_value=120):
+            result = _build_beat_grid(Path("/fake.wav"))
+        assert result is not None
+        beats, bpm = result
+        assert bpm == 120
+        # 120 BPM → beat_interval=0.5s, half_beat=0.25s
+        assert beats[0] == 0.0
+        assert beats[1] == 0.25
+        assert beats[2] == 0.50
+
+    def test_returns_none_when_no_bpm(self):
+        with patch("pipeline.assemble._audio.estimate_bpm", return_value=None):
+            assert _build_beat_grid(Path("/fake.wav")) is None
 
 
 # ---------------------------------------------------------------------------
@@ -276,3 +317,42 @@ class TestWriteChapters:
         out = tmp_path / "chapters.txt"
         write_chapters(edl, [], out)
         assert out.exists()
+
+    def test_beyond_one_hour(self, tmp_path):
+        """Chapters beyond 1 hour should format minutes > 60 correctly."""
+        edl = EDL(
+            title="T",
+            target_duration=7200,
+            trip_type="family",
+            style="upbeat",
+            segments=[
+                Segment(
+                    name="Early",
+                    items=[
+                        EditItem(
+                            source_file="a.jpg",
+                            media_type="photo",
+                            display_duration=4.0,
+                        )
+                    ],
+                    transition="cut",
+                ),
+                Segment(
+                    name="Late",
+                    items=[
+                        EditItem(
+                            source_file="b.jpg",
+                            media_type="photo",
+                            display_duration=4.0,
+                        )
+                    ],
+                    transition="cut",
+                ),
+            ],
+            intro_duration=0,
+        )
+        out = tmp_path / "chapters.txt"
+        write_chapters(edl, [3600.0, 1800.0], out)
+        lines = out.read_text().strip().split("\n")
+        assert lines[0] == "0:00 Early"
+        assert lines[1] == "60:00 Late"  # 3600s = 60 minutes

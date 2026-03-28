@@ -185,6 +185,41 @@ class TestFixHallucinatedPaths:
         assert removed == 0
         assert edl.all_items()[0].source_file == str(real)
 
+    def test_underscore_normalization_match(self, tmp_path):
+        """Underscore-normalized fuzzy match should find the file."""
+        real = tmp_path / "IMG_2025_0613_120415.jpg"
+        real.write_bytes(b"\xff\xd8")
+        edl = _make_edl(
+            [
+                EditItem(
+                    source_file="/wrong/IMG20250613120415.jpg",
+                    media_type="photo",
+                    display_duration=4.0,
+                )
+            ]
+        )
+        removed = fix_hallucinated_paths(edl, tmp_path)
+        assert removed == 0
+        assert edl.all_items()[0].source_file == str(real)
+
+    def test_multiple_candidates_uses_first(self, tmp_path):
+        """When multiple fuzzy matches exist, the first is used."""
+        for name in ("87681_IMG_001.jpg", "99999_IMG_001.jpg"):
+            (tmp_path / name).write_bytes(b"\xff\xd8")
+        edl = _make_edl(
+            [
+                EditItem(
+                    source_file="/wrong/IMG_001.jpg",
+                    media_type="photo",
+                    display_duration=4.0,
+                )
+            ]
+        )
+        removed = fix_hallucinated_paths(edl, tmp_path)
+        assert removed == 0
+        # Should use first candidate (sorted by iterdir order)
+        assert "IMG_001.jpg" in edl.all_items()[0].source_file
+
     def test_empty_segment_removed(self, tmp_path):
         edl = _make_edl(
             segments=[
@@ -298,6 +333,49 @@ class TestValidateTrimPoints:
         assert fixed == 0
         assert removed == 0
         assert len(edl.all_items()) == 1
+
+    def test_keep_audio_speed_reset_to_1(self):
+        """keep_audio=True with speed!=1.0 forces speed to 1.0."""
+        edl = _make_edl(
+            [
+                EditItem(
+                    source_file="/media/clip.mp4",
+                    media_type="video",
+                    display_duration=5.0,
+                    start_time=0.0,
+                    end_time=10.0,
+                    keep_audio=True,
+                    playback_speed=2.0,
+                )
+            ]
+        )
+        analysis = {
+            "/media/clip.mp4": {"local_path": "/media/clip.mp4", "video_duration": 60.0}
+        }
+        validate_trim_points(edl, analysis)
+        assert edl.all_items()[0].playback_speed == 1.0
+
+    def test_min_2s_widening_after_clamp(self):
+        """Trim clamped to <2s span should be widened to at least 2s."""
+        edl = _make_edl(
+            [
+                EditItem(
+                    source_file="/media/clip.mp4",
+                    media_type="video",
+                    display_duration=5.0,
+                    start_time=59.5,
+                    end_time=60.5,
+                )
+            ]
+        )
+        analysis = {
+            "/media/clip.mp4": {"local_path": "/media/clip.mp4", "video_duration": 60.0}
+        }
+        fixed, _, _, _ = validate_trim_points(edl, analysis)
+        item = edl.all_items()[0]
+        assert item.end_time - item.start_time >= 2.0
+        assert fixed >= 1
+
 
 
 # ---------------------------------------------------------------------------
