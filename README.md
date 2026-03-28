@@ -88,7 +88,7 @@ reelsmith assemble -n trip -r 4k60
 | `--model` | yes | `fast` ($0.24), `balanced` ($0.48), `quality` ($1.92) |
 | `-r` / `--resolution` | yes | `4k60`, `1080p30`, `720p30`, or `WxHxFPS` |
 | `--style` | no | `upbeat` (default), `cinematic`, `reflective`, `energetic` |
-| `--trip-type` | no | `general` (default), `family`, `solo`, `food`, `adventure`, `architecture` |
+| `--trip-type` | no | `general` (default), `family`, `solo`, `food`, `adventure`, `architecture`. Recommended — improves narrative quality |
 | `--focus` | no | Creative focus: `"family joy; exotic street markets"` |
 | `--instruct` | no | Free-form Gemini instructions: `"no text overlays"` |
 | `--lang` | no | `en` (default), `cn`, `both` — for titles and overlays |

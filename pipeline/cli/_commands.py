@@ -123,7 +123,7 @@ _plan_options = [
         "--trip-type",
         default="general",
         type=click.Choice(TRIP_TYPE_CHOICES),
-        help="Narrative style: family=close-ups+laughter, solo=landscapes+wonder, food=dishes+markets, etc.",
+        help="Narrative style (recommended to set). family=close-ups+laughter, solo=landscapes+wonder, food=dishes+markets, adventure=action+nature, architecture=buildings+compositions, general=balanced mix.",
     ),
     click.option(
         "--style",
