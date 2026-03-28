@@ -31,7 +31,8 @@ logger = logging.getLogger("reelsmith.media")
 #:   - ``loudnorm`` filter (two-pass loudness normalization) — FFmpeg 3.1+
 #:   - ``-filter_complex_script`` flag — FFmpeg 4.0+
 #:   - Stable HEVC hardware encoding (nvenc / videotoolbox) — FFmpeg 5.0+
-MIN_FFMPEG_VERSION = (5, 0)
+#:   - FFmpeg 8 filter_complex behavioral changes (see _graph.py) — FFmpeg 8+
+MIN_FFMPEG_VERSION = (10, 0)
 
 
 def check_ffmpeg(*, required: bool = True) -> tuple[int, ...] | None:
