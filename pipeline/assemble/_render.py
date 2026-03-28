@@ -10,7 +10,7 @@ from ..utils.media import run_subprocess
 from ._encoder import RenderContext
 from ._filters import escape_drawtext, find_font
 
-logger = logging.getLogger("vlog.assemble.render")
+logger = logging.getLogger("reelsmith.assemble.render")
 
 
 def _base_encode_args(ctx: RenderContext) -> list[str]:

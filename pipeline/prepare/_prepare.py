@@ -24,7 +24,7 @@ from ..config import Config, ProgressCallback
 from ..utils.image import generate_thumbnail
 from ..utils.media import run_subprocess
 
-logger = logging.getLogger("vlog.prepare")
+logger = logging.getLogger("reelsmith.prepare")
 
 
 @dataclass
@@ -52,7 +52,7 @@ def load_analysis(cfg: Config) -> list[AnalysisEntry]:
     if not cfg.analysis_path.exists():
         raise FileNotFoundError(
             f"Analysis not found: {cfg.analysis_path}\n"
-            "Run the prepare stage first (e.g. vlog prepare -p ./photos)"
+            "Run the prepare stage first (e.g. reelsmith prepare -p ./photos)"
         )
     raw = json.loads(cfg.analysis_path.read_text())
 
@@ -97,7 +97,7 @@ def prepare(
     if not cfg.manifest_path.exists():
         raise FileNotFoundError(
             f"Manifest not found: {cfg.manifest_path}\n"
-            "Run the fetch stage first (e.g. vlog full -p ./photos ...)"
+            "Run the fetch stage first (e.g. reelsmith full -p ./photos ...)"
         )
     manifest = json.loads(cfg.manifest_path.read_text())
 

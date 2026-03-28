@@ -3,7 +3,7 @@
 Generates per-segment music based on EDL music_mood descriptions,
 then crossfades them into a single composite track.
 
-Falls back gracefully if API unavailable — vlog renders without music.
+Falls back gracefully if API unavailable — pipeline renders without music.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pathlib import Path
 
 from ..config import ProgressCallback
 
-logger = logging.getLogger("vlog.music")
+logger = logging.getLogger("reelsmith.music")
 
 _MIN_SEGMENT_DURATION = 5  # seconds; floor for per-segment music
 _DEFAULT_CROSSFADE = 2.0  # seconds; crossfade between segments

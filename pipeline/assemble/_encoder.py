@@ -12,7 +12,7 @@ from .. import constants as C
 from ..utils.media import probe_duration as _probe_duration_uncached
 from ..utils.media import run_subprocess
 
-logger = logging.getLogger("vlog.assemble.encoder")
+logger = logging.getLogger("reelsmith.assemble.encoder")
 
 
 # ---------------------------------------------------------------------------

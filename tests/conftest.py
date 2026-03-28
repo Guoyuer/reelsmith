@@ -1,4 +1,4 @@
-"""Shared fixtures for vlog pipeline tests."""
+"""Shared fixtures for reelsmith pipeline tests."""
 
 from __future__ import annotations
 

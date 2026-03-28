@@ -1,4 +1,4 @@
-"""CLI package for the vlog pipeline.
+"""CLI package for the reelsmith pipeline.
 
 Exports the ``cli`` Click group and key symbols used by tests.
 """

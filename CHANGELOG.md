@@ -133,7 +133,7 @@ highlight reel — all from a single CLI command for ~$0.03 per run.
 ### Highlights
 
 - **5-stage pipeline** — `fetch → prepare → plan → generate_music → assemble`, running
-  in one Python process via the `vlog` CLI.
+  in one Python process via the `reelsmith` CLI.
 - **Gemini visual planning** — Gemini sees photo thumbnails and watches a concatenated
   video preview (with audio), then designs the narrative arc, selects items, and
   outputs a structured EDL in a single API call.
@@ -149,8 +149,8 @@ highlight reel — all from a single CLI command for ~$0.03 per run.
 
 ### Added
 
-- **CLI commands** — `vlog full`, `vlog prepare`, `vlog plan`, `vlog assemble`,
-  `vlog config`, `vlog workspace`.
+- **CLI commands** — `reelsmith full`, `reelsmith prepare`, `reelsmith plan`, `reelsmith assemble`,
+  `reelsmith config`, `reelsmith workspace`.
 - **Local folder source** — `--path PATH` scans a directory for photos and videos,
   extracting EXIF dates and GPS coordinates. Reverse geocoding to city/country names.
 - **Prepare stage** — generates 400px JPEG thumbnails, runs ffprobe on videos, and
@@ -235,10 +235,10 @@ This project evolved through 5 architectural phases over 11 days (743 commits):
    Removed Dagster — single-process direct execution.
 4. **Architecture rewrite** (Mar 21–22) — Split monolithic files into focused
    subpackages. Rich terminal UI with live progress. Per-segment FFmpeg rendering.
-   TS demuxer concat. `vlog` CLI entry point with resolution presets.
+   TS demuxer concat. `reelsmith` CLI entry point with resolution presets.
 5. **Polish** (Mar 23–25) — Structured output (`response_schema`). Ken Burns cosine
    easing. Blurred background fill. 148 tests (52% → 81% coverage). Prompt/code
    alignment audit. Type safety pass. Pre-commit hooks.
 
-[1.0.0]: https://github.com/Guoyuer/vlog/releases/tag/v1.0.0
-[0.1.0]: https://github.com/Guoyuer/vlog/releases/tag/v0.1.0
+[1.0.0]: https://github.com/Guoyuer/reelsmith/releases/tag/v1.0.0
+[0.1.0]: https://github.com/Guoyuer/reelsmith/releases/tag/v0.1.0

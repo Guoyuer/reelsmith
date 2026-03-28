@@ -46,7 +46,7 @@ class _CliGroup(click.Group):
             return super().parse_args(ctx, args)
         except click.UsageError as e:
             if "No such option" in str(e) or "no such option" in str(e):
-                hint = "Did you forget a command? Use: full, prepare, plan, assemble, workspace"
+                hint = "Did you forget a command? Try: reelsmith full, prepare, plan, assemble, workspace"
                 raise click.UsageError(f"{e}\n\nHint: {hint}") from None
             raise
 
@@ -72,13 +72,13 @@ class _CfgAwareCommand(click.Command):
 
 @click.group(cls=_CliGroup)
 def cli() -> None:
-    """Automated vlog pipeline: fetch \u2192 prepare \u2192 plan \u2192 generate_music \u2192 assemble.
+    """Automated highlight reel pipeline: fetch \u2192 prepare \u2192 plan \u2192 generate_music \u2192 assemble.
 
     \b
     Examples:
-      vlog full -n trip -p ./photos -r 4k60 --duration 300 --model balanced
-      vlog plan -n trip --duration 300 --model quality --force
-      vlog assemble -n trip -r 1080p30
+      reelsmith full -n trip -p ./photos -r 4k60 --duration 300 --model balanced
+      reelsmith plan -n trip --duration 300 --model quality --force
+      reelsmith assemble -n trip -r 1080p30
     """
 
 

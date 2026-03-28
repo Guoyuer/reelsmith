@@ -1,13 +1,13 @@
-# vlog
+# reelsmith
 
-[![CI](https://github.com/Guoyuer/vlog/actions/workflows/ci.yml/badge.svg)](https://github.com/Guoyuer/vlog/actions/workflows/ci.yml)
+[![CI](https://github.com/Guoyuer/reelsmith/actions/workflows/ci.yml/badge.svg)](https://github.com/Guoyuer/reelsmith/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 **Turn a folder of photos and videos into a polished highlight reel — with one command.**
 
 Gemini sees your actual photos and watches your videos (with audio), designs a narrative
-arc, picks the best moments, generates background music, and renders a finished vlog.
+arc, picks the best moments, generates background music, and renders a finished highlight reel.
 ~$0.10/run with `--model fast`, ~$0.50 with `balanced`.
 
 <!-- TODO: Add a demo GIF or screenshot of the Rich terminal UI + final video output -->
@@ -36,7 +36,7 @@ arc, picks the best moments, generates background music, and renders a finished 
 [Gemini API key](https://ai.google.dev/)
 
 ```bash
-git clone https://github.com/Guoyuer/vlog.git && cd vlog
+git clone https://github.com/Guoyuer/reelsmith.git && cd reelsmith
 python -m venv venv && source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -e .
 cp .env.example .env   # then add your GEMINI_API_KEY
@@ -45,7 +45,7 @@ cp .env.example .env   # then add your GEMINI_API_KEY
 Run the full pipeline:
 
 ```bash
-vlog full -n my-trip -p ./photos --duration 60 --model balanced -r 1080p30
+reelsmith full -n my-trip -p ./photos --duration 60 --model balanced -r 1080p30
 ```
 
 That's it. Output lands in `workspace/runs/my-trip/output/`.
@@ -54,26 +54,26 @@ That's it. Output lands in `workspace/runs/my-trip/output/`.
 
 ```bash
 # 1. Fast draft (~1min render)
-vlog full -n trip -p ./photos --duration 120 --model fast -r 720p30
+reelsmith full -n trip -p ./photos --duration 120 --model fast -r 720p30
 
 # 2. Re-plan with tweaks (reuses cached media, ~10s)
-vlog plan -n trip --duration 90 --model balanced --style cinematic \
+reelsmith plan -n trip --duration 90 --model balanced --style cinematic \
   --focus "street food close-ups; temple serenity"
 
 # 3. Final render
-vlog assemble -n trip -r 4k60
+reelsmith assemble -n trip -r 4k60
 ```
 
 ## Commands
 
 | Command | What it does |
 |---------|-------------|
-| `vlog full` | End-to-end: fetch → prepare → plan → music → assemble |
-| `vlog prepare` | Fetch media + generate thumbnails and previews |
-| `vlog plan` | Re-plan with Gemini (reuses cached media) |
-| `vlog assemble` | Re-render from existing EDL |
-| `vlog config` | Show saved run config |
-| `vlog workspace` | Disk usage and cleanup |
+| `reelsmith full` | End-to-end: fetch → prepare → plan → music → assemble |
+| `reelsmith prepare` | Fetch media + generate thumbnails and previews |
+| `reelsmith plan` | Re-plan with Gemini (reuses cached media) |
+| `reelsmith assemble` | Re-render from existing EDL |
+| `reelsmith config` | Show saved run config |
+| `reelsmith workspace` | Disk usage and cleanup |
 
 ### Key Flags
 
@@ -91,7 +91,7 @@ vlog assemble -n trip -r 4k60
 | `--lang` | no | `en` (default), `cn`, `both` — for titles and overlays |
 | `--music` | no | `auto` (default), `none`, or `/path/to/track.mp3` |
 
-Run `vlog full --help` for all options.
+Run `reelsmith full --help` for all options.
 
 ## How It Works
 

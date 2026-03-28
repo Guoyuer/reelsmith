@@ -3,7 +3,7 @@
 ## Repository structure
 
 ```
-vlog/
+reelsmith/
 ├── pipeline/                  # Main source package
 │   ├── _types.py              # Shared TypedDicts (ManifestEntry, AnalysisEntry, PreprocessedData)
 │   ├── config.py              # Config dataclass (workspace paths, env loading)
@@ -69,7 +69,7 @@ vlog/
 
 **Dev:** pytest (≥8.0), ruff (≥0.8), pyright (≥1.1), pre-commit (≥4.0)
 
-Entry point: `vlog = "pipeline.cli:cli"` (pyproject.toml)
+Entry point: `reelsmith = "pipeline.cli:cli"` (pyproject.toml)
 
 ## Code Style / General Rules
 
@@ -124,26 +124,26 @@ Examples of past bugs caused by local-only thinking:
 
 ## Pipeline execution
 
-Run pipeline via `vlog` CLI. Stages execute directly in a single Python process — no external services needed. Each stage caches its output; re-running `full` is fast.
+Run pipeline via `reelsmith` CLI. Stages execute directly in a single Python process — no external services needed. Each stage caches its output; re-running `full` is fast.
 
 ```bash
 # Full pipeline from local folder
-vlog full -n singapore -p ./photos -r 4k60 --duration 180 --lang cn
+reelsmith full -n singapore -p ./photos -r 4k60 --duration 180 --lang cn
 
 # Prepare only (fetch + media processing)
-vlog prepare -n singapore -p ./photos
+reelsmith prepare -n singapore -p ./photos
 
 # Re-plan only (no render)
-vlog plan -n singapore --duration 180 --lang cn
+reelsmith plan -n singapore --duration 180 --lang cn
 
 # Render at 1080p30 (output: vlog_v1_1080p30.mp4)
-vlog assemble -n singapore -r 1080p30
+reelsmith assemble -n singapore -r 1080p30
 
 # Render at 4K60 (output: vlog_v1_2160p60.mp4, reuses 1080p clips won't conflict)
-vlog assemble -n singapore -r 4k60
+reelsmith assemble -n singapore -r 4k60
 
 # Custom resolution
-vlog assemble -n singapore -r 2560x1440x60
+reelsmith assemble -n singapore -r 2560x1440x60
 ```
 
 Logs go to terminal AND `workspace/runs/{name}/run_{timestamp}.log`.

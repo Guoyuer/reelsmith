@@ -165,8 +165,8 @@ class TestRunDetail:
         out_dir = run_dir / "output"
         out_dir.mkdir()
         # stem.split("_v")[1] must parse as int — use simple vlog_v{N}.mp4
-        (out_dir / "vlog_v1.mp4").write_bytes(b"\x00" * 5000)
-        (out_dir / "vlog_v2.mp4").write_bytes(b"\x00" * 8000)
+        (out_dir / "reelsmith_v1.mp4").write_bytes(b"\x00" * 5000)
+        (out_dir / "reelsmith_v2.mp4").write_bytes(b"\x00" * 8000)
         info = _run_detail(run_dir)
         assert len(info["outputs"]) == 2
         assert info["old_output_bytes"] == 5000
@@ -176,7 +176,7 @@ class TestRunDetail:
         run_dir.mkdir()
         out_dir = run_dir / "output"
         out_dir.mkdir()
-        (out_dir / "vlog_v1.mp4").write_bytes(b"\x00" * 5000)
+        (out_dir / "reelsmith_v1.mp4").write_bytes(b"\x00" * 5000)
         info = _run_detail(run_dir)
         assert info["old_output_bytes"] == 0
 

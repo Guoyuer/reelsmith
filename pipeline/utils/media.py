@@ -17,8 +17,8 @@ if sys.platform == "win32":
         os.environ["PATH"] = _winget_links + os.pathsep + os.environ.get("PATH", "")
 
 
-_ffmpeg_logger = logging.getLogger("vlog.ffmpeg")
-logger = logging.getLogger("vlog.media")
+_ffmpeg_logger = logging.getLogger("reelsmith.ffmpeg")
+logger = logging.getLogger("reelsmith.media")
 
 # Set by CLI signal handler; checked by run_subprocess after child exits.
 _interrupted = False

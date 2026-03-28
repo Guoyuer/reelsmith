@@ -19,7 +19,7 @@ from ..config import Config
 from ..utils.media import probe_duration, run_subprocess
 from ._prompts import _secs_to_timestamp
 
-logger = logging.getLogger("vlog.plan")
+logger = logging.getLogger("reelsmith.plan")
 
 
 # ---------------------------------------------------------------------------

@@ -33,7 +33,7 @@ from ._prompts import (
     _visual_system_prompt,
 )
 
-logger = logging.getLogger("vlog.plan")
+logger = logging.getLogger("reelsmith.plan")
 
 
 @dataclass

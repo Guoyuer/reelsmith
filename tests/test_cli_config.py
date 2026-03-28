@@ -4,7 +4,7 @@ Verifies that:
 - CLI parameters are auto-saved to run_config.yaml on every run
 - --use-cfg-file loads parameters from a YAML file
 - --use-cfg-file is mutually exclusive with other params (except -n, --force, -v)
-- vlog config -n {name} prints the saved config
+- reelsmith config -n {name} prints the saved config
 - Resolution round-trips correctly through save/load
 - Default annotations (# default) are present in saved YAML
 """
@@ -374,7 +374,7 @@ class TestConfigValidation:
 
 
 # ---------------------------------------------------------------------------
-# vlog config command tests
+# reelsmith config command tests
 # ---------------------------------------------------------------------------
 
 

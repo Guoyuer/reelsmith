@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .media import run_subprocess
 
-logger = logging.getLogger("vlog.image_utils")
+logger = logging.getLogger("reelsmith.image_utils")
 
 try:
     import pillow_heif
@@ -27,7 +27,7 @@ def convert_heic(source: Path, cache_dir: Path | None = None) -> Path:
     if cache_dir is None:
         import tempfile
 
-        cache_dir = Path(tempfile.gettempdir()) / "vlog_heic_cache"
+        cache_dir = Path(tempfile.gettempdir()) / "reelsmith_heic_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     jpeg_path = cache_dir / f"_converted_{source.stem}.jpg"
     if jpeg_path.exists():

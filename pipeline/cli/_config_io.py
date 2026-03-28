@@ -27,7 +27,7 @@ from typing import Any
 import click
 import yaml
 
-logger = logging.getLogger("vlog.plan")
+logger = logging.getLogger("reelsmith.plan")
 
 # Shared choice constants — used by Click options (_commands.py) and config validation.
 TRIP_TYPE_CHOICES = ("family", "solo", "food", "adventure", "architecture", "general")

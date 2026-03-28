@@ -16,7 +16,7 @@ from pathlib import Path
 from .._types import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS, ManifestEntry
 from ..config import Config, ProgressCallback
 
-logger = logging.getLogger("vlog.fetch.local")
+logger = logging.getLogger("reelsmith.fetch.local")
 
 
 def fetch_local(

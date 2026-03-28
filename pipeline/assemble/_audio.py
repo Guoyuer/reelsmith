@@ -12,7 +12,7 @@ from pathlib import Path
 from .. import constants as C
 from ..edl import EDL
 
-logger = logging.getLogger("vlog.assemble.audio")
+logger = logging.getLogger("reelsmith.assemble.audio")
 
 
 # ---------------------------------------------------------------------------

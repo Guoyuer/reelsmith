@@ -19,7 +19,7 @@ from .._types import PHOTO_EXTENSIONS, AnalysisEntry
 from ..edl import EDL, Effect, MediaType, Transition, validate_edl
 from ._prompts import _timestamp_to_secs
 
-logger = logging.getLogger("vlog.plan")
+logger = logging.getLogger("reelsmith.plan")
 
 # ---------------------------------------------------------------------------
 # Post-processing report — tracks repair counts for threshold alerting

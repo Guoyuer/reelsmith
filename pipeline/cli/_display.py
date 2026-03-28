@@ -223,7 +223,7 @@ class _PipelineDisplay:
             self._live.console.print(
                 Rule(f"[bold]{stage.replace('_', ' ')}[/bold]", style="dim")
             )
-        logging.getLogger("vlog").debug("--- %s ---", stage.replace("_", " "))
+        logging.getLogger("reelsmith").debug("--- %s ---", stage.replace("_", " "))
         self._refresh()
 
     def update(self, stage: str, detail: str) -> None:
@@ -356,7 +356,7 @@ def _setup_logging(
 
     When display has a live panel, uses RichHandler so logs print above it.
     """
-    logger = logging.getLogger("vlog")
+    logger = logging.getLogger("reelsmith")
     logger.setLevel(logging.DEBUG)
     logger.handlers.clear()
 

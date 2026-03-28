@@ -273,7 +273,7 @@ def _run_assemble(
 
     # Find the output
     run_dir = Path(f"workspace/runs/{run_name}/output")
-    outputs = sorted(run_dir.glob("vlog_v*.mp4"), key=lambda f: f.stat().st_mtime)
+    outputs = sorted(run_dir.glob("reelsmith_v*.mp4"), key=lambda f: f.stat().st_mtime)
     if not outputs:
         pytest.fail("No output video found")
     return outputs[-1]

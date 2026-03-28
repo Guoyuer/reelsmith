@@ -510,7 +510,7 @@ class TestLogEdlSummary:
                 ),
             ]
         )
-        with caplog.at_level(logging.INFO, logger="vlog.plan"):
+        with caplog.at_level(logging.INFO, logger="reelsmith.plan"):
             log_edl_summary(edl, 60)
         # Verify key info was logged
         log_text = caplog.text
@@ -549,7 +549,7 @@ class TestPostprocessReport:
         r = PostprocessReport(
             items_before=10, items_after=6, path_removed=3, trim_removed=1
         )
-        with caplog.at_level(logging.WARNING, logger="vlog.plan"):
+        with caplog.at_level(logging.WARNING, logger="reelsmith.plan"):
             r.check_thresholds()
         assert "severely wrong" in caplog.text
 
@@ -564,6 +564,6 @@ class TestPostprocessReport:
         import logging
 
         r = PostprocessReport(items_before=10, items_after=8, path_removed=3)
-        with caplog.at_level(logging.WARNING, logger="vlog.plan"):
+        with caplog.at_level(logging.WARNING, logger="reelsmith.plan"):
             r.check_thresholds()
         assert "hallucinated paths" in caplog.text

@@ -4,7 +4,7 @@ Uses the Lyria RealTime experimental model via WebSocket streaming.
 Generates instrumental background music from text prompts.
 Requires GEMINI_API_KEY in .env.
 
-Falls back gracefully if API unavailable — vlog renders without music.
+Falls back gracefully if API unavailable — pipeline renders without music.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import struct
 import time
 from pathlib import Path
 
-logger = logging.getLogger("vlog.music.gemini")
+logger = logging.getLogger("reelsmith.music.gemini")
 
 _LYRIA_GUIDANCE = 4.0
 _LYRIA_TEMPERATURE = 1.1

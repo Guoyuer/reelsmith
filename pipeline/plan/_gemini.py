@@ -16,7 +16,7 @@ from typing import Any
 
 from ..config import ProgressCallback
 
-logger = logging.getLogger("vlog.plan")
+logger = logging.getLogger("reelsmith.plan")
 
 # Per-model pricing (USD per million tokens, paid tier)
 _PRICING: dict[str, tuple[float, float]] = {

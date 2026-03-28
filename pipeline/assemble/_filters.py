@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import constants as C
 
-logger = logging.getLogger("vlog.assemble.filters")
+logger = logging.getLogger("reelsmith.assemble.filters")
 
 
 _VALID_COLOR_TEMPS = {"neutral", "warm", "cool"}

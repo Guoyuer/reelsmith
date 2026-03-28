@@ -1,4 +1,4 @@
-"""Stage 4: Render the vlog from an EDL.
+"""Stage 4: Render the final video from an EDL.
 
 7 FFmpeg calls total:
   Phase 1: 6 per-segment renders (filter_complex_script + concat=v=1:a=1) → .ts
@@ -21,7 +21,7 @@ from ._encoder import RenderContext
 from ._graph import SegmentGraph, build_segment_graph, compute_fade_params
 from ._render import render_title_card
 
-logger = logging.getLogger("vlog.assemble")
+logger = logging.getLogger("reelsmith.assemble")
 
 
 @dataclass
@@ -46,7 +46,7 @@ class AssembleConfig:
 def assemble(
     cfg: Config, ac: AssembleConfig, *, progress_callback: ProgressCallback = None
 ) -> tuple[Path, list[dict[str, str]]]:
-    """Render a vlog from an EDL. Returns (output_path, validation_issues)."""
+    """Render a video from an EDL. Returns (output_path, validation_issues)."""
     cfg.ensure_dirs()
 
     # Load & validate EDL
@@ -74,7 +74,7 @@ def assemble(
 
     ctx = RenderContext(w=ac.w, h=ac.h, fps=ac.fps, quality=ac.quality)
     res_label = f"{ac.h}p{ac.fps}"
-    output_path = cfg.output_dir / f"vlog_v{version}_{res_label}.mp4"
+    output_path = cfg.output_dir / f"reelsmith_v{version}_{res_label}.mp4"
 
     # Auto-generate music if music_mode=auto but file is missing
     has_music = edl.music and Path(edl.music.file).exists()
@@ -314,7 +314,7 @@ def _concat_and_mix(
     has_music = edl.music and Path(edl.music.file).exists()
 
     if has_music:
-        nomix_path = output_dir / f"vlog_v{version}_{res_label}_nomix.mp4"
+        nomix_path = output_dir / f"reelsmith_v{version}_{res_label}_nomix.mp4"
 
     # Concat demuxer with TS files.  TS has inline timestamps so the demuxer
     # adjusts PTS/DTS correctly across segments (unlike MP4 concat which fails

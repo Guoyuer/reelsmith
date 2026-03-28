@@ -39,7 +39,7 @@ from ._filters import (
     ken_burns_filter,
 )
 
-logger = logging.getLogger("vlog.assemble.graph")
+logger = logging.getLogger("reelsmith.assemble.graph")
 
 # Effect enum value → ken_burns direction string
 _EFFECT_DIRECTIONS = {

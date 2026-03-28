@@ -51,7 +51,7 @@ class TestConvertHeic:
 
         with patch("PIL.Image.open", return_value=mock_img):
             result = convert_heic(source)
-            assert "vlog_heic_cache" in str(result)
+            assert "reelsmith_heic_cache" in str(result)
 
 
 class TestGenerateThumbnailEdgeCases:

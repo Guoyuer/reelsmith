@@ -13,7 +13,7 @@ from typing import TypedDict
 
 from pydantic import BaseModel, ConfigDict
 
-logger = logging.getLogger("vlog.types")
+logger = logging.getLogger("reelsmith.types")
 
 # ---------------------------------------------------------------------------
 # Canonical file extension sets — used by fetch, prepare, plan, and edl
