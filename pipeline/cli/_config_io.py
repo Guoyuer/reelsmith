@@ -36,7 +36,16 @@ LANG_CHOICES = ("en", "cn", "both")
 
 # Which flat CLI params belong to which config group.
 _SOURCE_FIELDS = {"path"}
-_PLAN_FIELDS = {"duration", "model", "lang", "trip_type", "style", "focus", "music"}
+_PLAN_FIELDS = {
+    "duration",
+    "model",
+    "lang",
+    "trip_type",
+    "style",
+    "focus",
+    "instruct",
+    "music",
+}
 _ASSEMBLE_FIELDS = {"resolution", "bitrate"}
 
 _CONFIG_GLOB = "run_config_*.yaml"
@@ -59,6 +68,7 @@ _GROUP_SCHEMA: dict[str, dict[str, dict[str, Any]]] = {
         "trip_type": {"type": str, "choices": TRIP_TYPE_CHOICES},
         "style": {"type": str, "choices": STYLE_CHOICES},
         "focus": {"type": str},
+        "instruct": {"type": str},
         "music": {"type": str},
     },
     "assemble": {

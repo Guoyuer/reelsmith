@@ -137,6 +137,11 @@ _plan_options = [
         help="Creative focus guiding Gemini's selection (e.g. 'family reunion joy; parents exploring Singapore')",
     ),
     click.option(
+        "--instruct",
+        default="",
+        help="Free-form instructions for Gemini (e.g. 'no text overlays; prefer slow-motion shots')",
+    ),
+    click.option(
         "--lang",
         default="en",
         type=click.Choice(LANG_CHOICES),
@@ -370,6 +375,7 @@ def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
             p["trip_type"] = pl.get("trip_type", "general")
             p["style"] = pl.get("style", "upbeat")
             p["focus"] = pl.get("focus", "")
+            p["instruct"] = pl.get("instruct", "")
             p["music"] = pl.get("music", "auto")
         if "assemble" in saved and "resolution" in p:
             a = saved["assemble"]
@@ -448,6 +454,7 @@ def full(
     trip_type,
     style,
     focus,
+    instruct,
     lang,
     model,
     music,
@@ -477,6 +484,7 @@ def full(
             style=p["style"],
             target_duration=p["duration"],
             focus=p["focus"],
+            instruct=p["instruct"],
             trip_type=p["trip_type"],
             language=p["lang"],
             model=resolved_model,
@@ -505,6 +513,7 @@ def plan(
     trip_type,
     style,
     focus,
+    instruct,
     lang,
     model,
     music,
@@ -527,6 +536,7 @@ def plan(
             style=p["style"],
             target_duration=p["duration"],
             focus=p["focus"],
+            instruct=p["instruct"],
             trip_type=p["trip_type"],
             language=p["lang"],
             model=resolved_model,

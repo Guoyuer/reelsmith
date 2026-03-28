@@ -41,6 +41,7 @@ class PlanConfig:
     target_duration: int  # required — no default
     style: str = "upbeat"
     focus: str = ""
+    instruct: str = ""
     trip_type: str = "family"
     language: str = "en"
     model: str = ""  # resolved by CLI from --model (required)
@@ -87,6 +88,13 @@ def _plan_visual(
     if progress_callback:
         progress_callback(0, 0, f"{n_photos} photos, {n_videos} videos → Gemini")
 
+    instruct_block = (
+        f"\n**User instructions** (follow these; if they conflict with hard "
+        f"constraints above, the user's instructions win):\n{pc.instruct}\n"
+        if pc.instruct
+        else ""
+    )
+
     intro_text = f"""\
 Create a {pc.style} {trip_label} vlog EDL from the photos and videos shown below.
 
@@ -104,7 +112,7 @@ items of similar quality, pick the one that better supports this focus.
 - Video ratio: at least {vid_ratio}% videos for this {trip_label}.
 - Photo time cap: total photo duration ≤ {pc.target_duration * 0.3:.0f}s (30% of target). Photos are punctuation, not filler.
 - Location diversity: max 3 items per location, spread across all places visited.
-
+{instruct_block}
 **Think step-by-step:**
 
 1. **SCAN** — Look at ALL photos carefully. Watch the ENTIRE video preview with audio.
