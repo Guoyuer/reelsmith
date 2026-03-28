@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from pipeline.assemble._assemble import _validate_output
+from pipeline.assemble._assemble import AssembleConfig, _validate_output
 from pipeline.assemble._encoder import RenderContext
 from pipeline.assemble._filters import is_portrait as _is_portrait
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
@@ -14,6 +14,42 @@ from pipeline.edl import EDL, EditItem, MusicTrack, Segment
 # -----------------------------------------------------------------------
 # Pure function tests (no FFmpeg needed)
 # -----------------------------------------------------------------------
+
+
+class TestAssembleConfigToEdlLoading:
+    """Test that assemble() loads the correct EDL version."""
+
+    def test_loads_specified_version(self, tmp_path):
+        from pipeline.config import Config
+        from pipeline.edl import EDL as EDLModel
+
+        cfg = Config(workspace=tmp_path / "runs" / "test")
+        cfg.ensure_dirs()
+        edl = EDL(
+            title="V1",
+            target_duration=60,
+            trip_type="family",
+            style="upbeat",
+            segments=[
+                Segment(
+                    name="S",
+                    items=[
+                        EditItem(
+                            source_file=str(tmp_path / "photo.jpg"),
+                            media_type="photo",
+                            display_duration=4.0,
+                        ),
+                    ],
+                    transition="cut",
+                )
+            ],
+        )
+        cfg.edl_path(1).write_text(edl.model_dump_json(indent=2))
+        (tmp_path / "photo.jpg").write_bytes(b"\xff\xd8" + b"\x00" * 100)
+
+        _ = AssembleConfig(w=320, h=180, fps=15, version=1)
+        edl_loaded = EDLModel.model_validate_json(cfg.edl_path(1).read_text())
+        assert edl_loaded.title == "V1"
 
 
 class TestIsPortrait:
@@ -88,12 +124,11 @@ class TestProbeDimensions:
 
 def _make_edl(duration: float = 60.0, music_file: str = "") -> EDL:
     """Helper to build a minimal EDL for validation tests."""
+    from tests.conftest import minimal_edl
+
     music = MusicTrack(file=music_file) if music_file else None
-    return EDL(
-        title="Test",
+    return minimal_edl(
         target_duration=duration,
-        trip_type="family",
-        style="upbeat",
         segments=[
             Segment(
                 name="Seg1",

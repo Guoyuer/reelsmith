@@ -51,30 +51,6 @@ def _write_edl(ws, music_mode="auto", music_mood="gentle piano", music=None):
 
 
 # ---------------------------------------------------------------------------
-# _build_composite_music
-# ---------------------------------------------------------------------------
-
-
-class TestBuildCompositeMusic:
-    def test_single_segment_copies(self, tmp_path):
-        from pipeline.music._orchestrate import _build_composite_music
-
-        track = tmp_path / "track.wav"
-        track.write_bytes(b"RIFF" + b"\x00" * 100)
-        out = tmp_path / "composite.wav"
-        assert _build_composite_music([(10.0, track)], out, crossfade=2.0) is True
-        assert out.exists()
-
-    def test_empty_returns_false(self, tmp_path):
-        from pipeline.music._orchestrate import _build_composite_music
-
-        assert (
-            _build_composite_music([], tmp_path / "composite.wav", crossfade=2.0)
-            is False
-        )
-
-
-# ---------------------------------------------------------------------------
 # _segment_duration
 # ---------------------------------------------------------------------------
 

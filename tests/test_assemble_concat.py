@@ -13,35 +13,9 @@ from pipeline.assemble._assemble import (
 )
 from pipeline.assemble._encoder import RenderContext
 from pipeline.config import Config
-from pipeline.edl import EDL, EditItem, MusicTrack, Segment
+from pipeline.edl import MusicTrack
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _minimal_edl(**kw) -> EDL:
-    kw.setdefault("title", "Test")
-    kw.setdefault("target_duration", 60)
-    kw.setdefault("trip_type", "family")
-    kw.setdefault("style", "upbeat")
-    kw.setdefault(
-        "segments",
-        [
-            Segment(
-                name="S",
-                items=[
-                    EditItem(
-                        source_file="a.jpg",
-                        media_type="photo",
-                        display_duration=30.0,
-                    )
-                ],
-                transition="cut",
-            )
-        ],
-    )
-    return EDL(**kw)
+from tests.conftest import minimal_edl as _minimal_edl
 
 
 def _mock_run_ok(cmd, **kw):

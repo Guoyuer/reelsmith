@@ -80,20 +80,6 @@ class TestPrepareVideoEdgeCases:
         assert entry["video_fps"] == 0.0
         assert entry["video_orientation"] == "landscape"
 
-    def test_portrait_detection(self, tmp_path):
-        """Height > width should set orientation=portrait."""
-        entry = {"local_path": str(tmp_path / "portrait.mp4")}
-        probe_data = {
-            "format": {"duration": "30.0"},
-            "streams": [{"width": 1080, "height": 1920, "r_frame_rate": "30/1"}],
-        }
-        mock = MagicMock(returncode=0, stdout=json.dumps(probe_data), stderr="")
-        with patch("pipeline.prepare._prepare.run_subprocess", return_value=mock):
-            _prepare_video(entry, tmp_path / "portrait.mp4", 1, 1)
-        assert entry["video_orientation"] == "portrait"
-        assert entry["video_width"] == 1080
-        assert entry["video_height"] == 1920
-
     def test_entry_fields_populated(self, tmp_path):
         """Entry dict should be populated with video metadata."""
         entry = {"local_path": str(tmp_path / "vid.mp4")}

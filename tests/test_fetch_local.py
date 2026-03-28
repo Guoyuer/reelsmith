@@ -27,21 +27,6 @@ def _create_fake_video(path: Path) -> None:
     path.write_bytes(b"\x00\x00\x00\x1c\x66\x74\x79\x70" + b"\x00" * 100)
 
 
-@pytest.fixture
-def mock_config(tmp_path: Path):
-    from pipeline.config import Config
-
-    cfg = Config(workspace=tmp_path / "workspace" / "runs" / "test")
-    cfg.ensure_dirs()
-    return cfg
-
-
-@pytest.fixture
-def source_dir(tmp_path: Path) -> Path:
-    src = tmp_path / "media_source"
-    src.mkdir()
-    return src
-
 
 # ---------------------------------------------------------------------------
 # Test: _parse_date_from_filename

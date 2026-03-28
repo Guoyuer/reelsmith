@@ -19,26 +19,18 @@ from pipeline.plan._postprocess import (
 
 
 def _make_edl(items=None, segments=None) -> EDL:
+    from tests.conftest import minimal_edl
+
     if segments:
-        return EDL(
-            title="Test",
-            target_duration=60.0,
-            trip_type="family",
-            style="upbeat",
-            segments=segments,
-        )
+        return minimal_edl(segments=segments)
     if items is None:
         items = [
             EditItem(
                 source_file="/media/photo.jpg", media_type="photo", display_duration=4.0
             )
         ]
-    return EDL(
-        title="Test",
-        target_duration=60.0,
-        trip_type="family",
-        style="upbeat",
-        segments=[Segment(name="S1", items=items, transition="cut")],
+    return minimal_edl(
+        segments=[Segment(name="S1", items=items, transition="cut")]
     )
 
 

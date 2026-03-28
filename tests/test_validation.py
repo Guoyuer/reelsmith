@@ -109,28 +109,9 @@ class TestPlanConfigValidation:
 
 
 def _make_edl(**kwargs) -> EDL:
-    defaults = {
-        "title": "Test",
-        "target_duration": 60.0,
-        "trip_type": "family",
-        "style": "upbeat",
-        "segments": [
-            Segment(
-                name="Seg1",
-                items=[
-                    EditItem(
-                        source_file="/fake/photo.jpg",
-                        media_type="photo",
-                        display_duration=4.0,
-                    )
-                ],
-                transition="crossfade",
-                transition_duration=0.5,
-            )
-        ],
-    }
-    defaults.update(kwargs)
-    return EDL(**defaults)
+    from tests.conftest import minimal_edl
+
+    return minimal_edl(**kwargs)
 
 
 class TestValidateEdlTopLevel:
