@@ -223,6 +223,7 @@ plan:
   trip_type: solo
   style: cinematic
   focus: temples
+  instruct: ''
   music: auto
 
 assemble:

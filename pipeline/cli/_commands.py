@@ -365,22 +365,21 @@ def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
                 )
         saved = load_run_config(str(cfg_path))
         if "source" in saved and "path" in p:
-            src = saved["source"]
-            p["path"] = src.get("path")
+            p["path"] = saved["source"]["path"]
         if "plan" in saved and "duration" in p:
             pl = saved["plan"]
             p["duration"] = pl["duration"]
             p["model"] = pl["model"]
-            p["lang"] = pl.get("lang", "en")
-            p["trip_type"] = pl.get("trip_type", "general")
-            p["style"] = pl.get("style", "upbeat")
-            p["focus"] = pl.get("focus", "")
-            p["instruct"] = pl.get("instruct", "")
-            p["music"] = pl.get("music", "auto")
+            p["lang"] = pl["lang"]
+            p["trip_type"] = pl["trip_type"]
+            p["style"] = pl["style"]
+            p["focus"] = pl["focus"]
+            p["instruct"] = pl["instruct"]
+            p["music"] = pl["music"]
         if "assemble" in saved and "resolution" in p:
             a = saved["assemble"]
             p["resolution"] = _parse_resolution(None, None, a["resolution"])
-            p["quality"] = a.get("bitrate", 1.0)
+            p["quality"] = a["bitrate"]
 
     defaults = _collect_defaults(ctx) if not use_cfg_file else set()
     cli_params = _build_cli_params(
