@@ -32,7 +32,7 @@ class TestExtractGps:
         _create_image(photo)
         mock_img = MagicMock()
         # GPS tag 34853 with lat/lon data
-        mock_img._getexif.return_value = {
+        mock_img.getexif.return_value = {
             34853: {
                 1: "N",
                 2: (1, 17, 22.92),  # 1°17'22.92"N

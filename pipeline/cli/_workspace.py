@@ -110,13 +110,9 @@ def _run_detail(run_dir: Path) -> dict[str, Any]:
     info["intermediate_files"] = intermediates
 
     render_dir = run_dir / "render"
-    legacy = list(render_dir.glob("*_txt.mp4")) if render_dir.exists() else []
-    info["legacy_txt_bytes"] = sum(f.stat().st_size for f in legacy)
-    info["legacy_txt_files"] = legacy
-
     render_size, render_count = _dir_size(render_dir)
     info["render_size"] = render_size
-    info["render_count"] = render_count - len(legacy)
+    info["render_count"] = render_count
 
     return info
 
@@ -241,14 +237,8 @@ def workspace(clean, yes):
             reclaim_parts.append(f"{_fmt_size(r['old_output_bytes'])} old outputs")
         if r["intermediate_bytes"]:
             reclaim_parts.append(f"{_fmt_size(r['intermediate_bytes'])} intermediates")
-        if r["legacy_txt_bytes"]:
-            reclaim_parts.append(
-                f"{_fmt_size(r['legacy_txt_bytes'])} legacy _txt clips"
-            )
         if reclaim_parts:
-            r_total = (
-                r["old_output_bytes"] + r["intermediate_bytes"] + r["legacy_txt_bytes"]
-            )
+            r_total = r["old_output_bytes"] + r["intermediate_bytes"]
             total_reclaimable += r_total
             click.echo(f"    Prune: {', '.join(reclaim_parts)}")
 
@@ -272,7 +262,6 @@ def workspace(clean, yes):
             if r["old_output_bytes"]:
                 files += [o["path"] for o in r["outputs"][:-1]]
             files += r["intermediate_files"]
-            files += r["legacy_txt_files"]
             if files:
                 click.echo(
                     f"  {r['name']}: {len(files)} files ({_fmt_size(sum(f.stat().st_size for f in files))})"
