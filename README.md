@@ -6,8 +6,9 @@
 
 **Turn a folder of photos and videos into a polished highlight reel — with one command.**
 
-Gemini sees your actual photos and watches your videos (with audio), designs a narrative
-arc, picks the best moments, generates background music, and renders a finished highlight reel.
+AI plans the edit, FFmpeg renders locally at full resolution. Your raw media never
+leaves your machine — only compressed thumbnails and preview clips are sent to Gemini
+for planning. Rendering happens entirely on your GPU at 4K60 if you want.
 ~$0.10/run with `--model fast`, ~$0.50 with `balanced`.
 
 <!-- TODO: Add a demo GIF or screenshot of the Rich terminal UI + final video output -->
@@ -15,10 +16,12 @@ arc, picks the best moments, generates background music, and renders a finished 
 
 ## Features
 
-- **AI-driven editing** — Gemini plans the story, selects clips, chooses transitions,
-  writes text overlays, and assigns music moods. You provide the media; AI does the edit.
-- **Sees and hears everything** — photo thumbnails sent inline, video previews with
-  audio uploaded via Files API. No metadata-only planning — the model watches your clips.
+- **AI plans, local renders** — Gemini only sees 400px thumbnails and 480p preview
+  clips (~50MB total). Your original 4K photos and videos stay local. FFmpeg renders
+  the final output from source files at any resolution you choose.
+- **Sees and hears everything** — despite the compression, Gemini sees every photo
+  and watches every video clip with audio. It selects by visual and aural judgment,
+  not metadata.
 - **Per-segment AI music** — Lyria RealTime generates mood-matched background tracks,
   crossfaded into one composite. Dynamic ducking around speech via `sidechaincompress`.
 - **Beat-synced transitions** — cuts snap to music beats via BPM detection.
