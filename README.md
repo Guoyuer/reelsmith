@@ -10,7 +10,7 @@ AI plans the edit, FFmpeg renders locally at full resolution. Your raw media nev
 leaves your machine — only compressed thumbnails and preview clips are sent to Gemini
 for planning. Rendering happens entirely on your GPU at 4K60 if you want.
 ~$0.10/run with `--model fast`, ~$0.50 with `balanced`.
-
+![ui](docs/UI.png)
 <!-- TODO: Add a demo GIF or screenshot of the Rich terminal UI + final video output -->
 <!-- e.g. ![demo](docs/demo.gif) -->
 
