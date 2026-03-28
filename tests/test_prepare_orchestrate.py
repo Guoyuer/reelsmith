@@ -359,6 +359,6 @@ class TestPrepareOrchestration:
         cfg.manifest_path.write_text(json.dumps(manifest))
         calls = []
         prepare(cfg, progress_callback=lambda c, t, n: calls.append((c, t, n)))
-        photo_calls = [c for c in calls if c[2] == "photos"]
-        assert len(photo_calls) == 2
-        assert photo_calls[0][1] == 2
+        analyze_calls = [c for c in calls if c[2] == "extract metadata"]
+        assert len(analyze_calls) == 2
+        assert analyze_calls[0][1] == 2

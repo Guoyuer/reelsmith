@@ -1,4 +1,4 @@
-"""Extended tests for pipeline.fetch._local — GPS extraction, manifest output, progress."""
+"""Extended tests for pipeline.prepare._scan — GPS extraction, manifest output, progress."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pipeline.fetch._local import _extract_gps, fetch_local
+from pipeline.prepare._scan import _extract_gps, fetch_local
 
 
 def _create_image(path: Path):
@@ -50,7 +50,7 @@ class TestExtractGps:
 class TestFetchLocalManifest:
     @pytest.fixture(autouse=True)
     def _mock_date(self):
-        with patch("pipeline.fetch._local._extract_date", return_value=None):
+        with patch("pipeline.prepare._scan._extract_date", return_value=None):
             yield
 
     def test_manifest_written(self, mock_config, source_dir):

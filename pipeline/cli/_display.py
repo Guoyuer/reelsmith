@@ -15,7 +15,7 @@ import click
 # Constants
 # ---------------------------------------------------------------------------
 
-STAGES = ["fetch", "prepare", "plan", "generate_music", "assemble"]
+STAGES = ["prepare", "plan", "generate_music", "assemble"]
 
 _ICON_PENDING = "\u25cb"  # ○
 _ICON_RUNNING = "\u23f3"  # ⏳
@@ -90,7 +90,9 @@ class _PipelineDisplay:
         self._tick += 1
         elapsed = time.monotonic() - self._t_start
         term_w = shutil.get_terminal_size((80, 24)).columns
-        panel_w = min(max(term_w - 2, 50), 120)
+        panel_w = max(term_w - 2, 50)
+        # Bar width scales with panel: subtract icon(2) + stage(16) + name(22) + stats(14) + padding
+        self._bar_w = max(panel_w - 60, 16)
 
         table = Table.grid(padding=(0, 1))
         table.add_column(width=2)  # icon
@@ -161,16 +163,17 @@ class _PipelineDisplay:
 
         cur, total = d["current"], d["total"]
         label = d.get("label", "")
+        bar_w = getattr(self, "_bar_w", 20)
 
         if total > 0:
             row = InlineTable.grid(padding=(0, 1))
-            row.add_column(width=20)
-            row.add_column(width=12)
+            row.add_column(width=bar_w)
+            row.add_column(width=14)
             row.add_column()
             bar = ProgressBar(
                 total=total,
                 completed=cur,
-                width=20,
+                width=bar_w,
                 complete_style="cyan",
                 finished_style="green",
             )
@@ -191,15 +194,16 @@ class _PipelineDisplay:
         from rich.text import Text
 
         cur, total = sub["current"], sub["total"]
+        bar_w = max(getattr(self, "_bar_w", 20) - 6, 12)
         if total > 0:
             row = InlineTable.grid(padding=(0, 1))
-            row.add_column(width=18)
-            row.add_column(width=16)
+            row.add_column(width=22)
+            row.add_column(width=bar_w)
             row.add_column()
             bar = ProgressBar(
                 total=total,
                 completed=cur,
-                width=16,
+                width=bar_w,
                 complete_style="bar.complete",
                 finished_style="green",
             )

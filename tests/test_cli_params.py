@@ -86,7 +86,7 @@ def _capture_pipeline_call(cli_args, runner):
         run_name,
         *,
         stages,
-        fetch=None,
+        source_dir=None,
         prepare=None,
         plan=None,
         assemble=None,
@@ -95,7 +95,7 @@ def _capture_pipeline_call(cli_args, runner):
     ):
         captured["run_name"] = run_name
         captured["stages"] = stages
-        captured["fetch"] = fetch
+        captured["source_dir"] = source_dir
         captured["prepare"] = prepare
         captured["plan"] = plan
         captured["assemble"] = assemble
@@ -226,7 +226,7 @@ class TestFullCommandWiring:
 
     def test_all_stages_present(self, runner):
         c = self._run_full(runner)
-        assert c["stages"] == ["fetch", "prepare", "plan", "generate_music", "assemble"]
+        assert c["stages"] == ["prepare", "plan", "generate_music", "assemble"]
 
 
 class TestPlanCommandWiring:
