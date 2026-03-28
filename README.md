@@ -16,8 +16,8 @@ About $0.10/run with `--model fast`, $0.50 with `balanced`.
 
 ## Features
 
-- **AI plans, local renders** — Gemini only sees 400px thumbnails and 480p preview
-  clips (~50MB total). Your original 4K photos and videos stay local. FFmpeg renders
+- **AI plans, local renders** — Gemini only sees 400px thumbnails and 480p 1 fps preview
+  clips. Your original 4K photos and videos stay local. FFmpeg renders
   the final output from source files at any resolution you choose.
 - **Sees and hears everything** — despite the compression, Gemini sees every photo
   and watches every video clip with audio. It selects by visual and aural judgment,
@@ -30,8 +30,8 @@ About $0.10/run with `--model fast`, $0.50 with `balanced`.
   and decoding. Automatic fallback to CPU.
 - **Rich terminal UI** — live progress panel with per-stage status, sub-stage bars,
   cost tracking, and a summary table on completion.
-- **Iterate fast** — thumbnails and previews are cached. Re-planning is a single API
-  call (~10s). Re-rendering at a different resolution reuses cached segments.
+- **Iterate fast** — thumbnails and previews are cached. Re-planning is a single Gemini
+  call. Re-rendering at a different resolution without another API call.
 
 ## Quick Start
 
@@ -56,10 +56,10 @@ That's it. Output lands in `workspace/runs/my-trip/output/`.
 ## Iteration Workflow
 
 ```bash
-# 1. Fast draft (~1min render)
+# 1. Fast draft
 reelsmith full -n trip -p ./photos --duration 120 --model fast -r 720p30
 
-# 2. Re-plan with tweaks (reuses cached media, ~10s)
+# 2. Re-plan with tweaks
 reelsmith plan -n trip --duration 90 --model balanced --style cinematic \
   --focus "street food close-ups; temple serenity"
 
