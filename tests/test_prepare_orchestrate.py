@@ -80,15 +80,13 @@ class TestBaseAnalysisEntry:
             "local_path": "/media/IMG_001.jpg",
             "taken_at": "2025-01-01T00:00:00+00:00",
             "country": "Singapore",
-            "first_level": "Central",
-            "district": "Marina Bay",
             "city": "Singapore City",
         }
         entry = _base_analysis_entry(item, is_video=False)
         assert entry["media_type"] == "photo"
         assert entry["local_path"] == "/media/IMG_001.jpg"
         assert entry["country"] == "Singapore"
-        assert entry["district"] == "Marina Bay"
+        assert entry["district"] == "Singapore City"
 
     def test_video_entry(self):
         item = {

@@ -44,32 +44,23 @@ def fetch_local(
 
     manifest = []
     for i, src_path in enumerate(files, 1):
-        suffix = src_path.suffix.lower()
-        is_video = suffix in VIDEO_EXTENSIONS
-        item_type = 1 if is_video else 0
-
         # Extract date from EXIF or file mtime
         taken_dt = _extract_date(src_path)
         if taken_dt is None:
             taken_dt = datetime.fromtimestamp(src_path.stat().st_mtime, tz=timezone.utc)
 
-        takentime = int(taken_dt.timestamp())
         taken_at = taken_dt.isoformat()
 
         # Point directly to source file — no copying or linking
-        entry = {
-            "item_type": item_type,
-            "takentime": takentime,
+        entry: dict = {
             "taken_at": taken_at,
             "filesize": src_path.stat().st_size,
             "local_path": str(src_path),
         }
 
-        # Extract GPS location and reverse geocode
+        # Reverse geocode GPS → city/country
         lat, lon = _extract_gps(src_path)
         if lat is not None and lon is not None:
-            entry["latitude"] = lat
-            entry["longitude"] = lon
             try:
                 import reverse_geocode
 

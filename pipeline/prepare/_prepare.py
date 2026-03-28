@@ -38,9 +38,9 @@ def _base_analysis_entry(item: dict, *, is_video: bool) -> dict:
         "local_path": item["local_path"],
         "media_type": "video" if is_video else "photo",
         "taken_at": item["taken_at"],
+        "filesize": item.get("filesize", 0),
         "country": item.get("country"),
-        "first_level": item.get("first_level"),
-        "district": item.get("district") or item.get("city"),
+        "district": item.get("city"),
     }
 
 

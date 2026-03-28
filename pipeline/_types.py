@@ -46,18 +46,11 @@ class ManifestEntry(_ManifestRequired, total=False):
     Optional keys are present when EXIF GPS data is available.
     """
 
-    # From fetch_local
-    item_type: int  # 0=photo, 1=video
-    takentime: int
     filesize: int
 
-    # Location (from EXIF GPS)
-    latitude: float
-    longitude: float
+    # Location (from reverse geocode of EXIF GPS)
     city: str
     country: str
-    first_level: str  # region/state
-    district: str
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +83,6 @@ class AnalysisEntry(_AnalysisRequired, total=False):
 
     # Location
     country: str | None
-    first_level: str | None
     district: str | None
 
     # Photo-specific (from cache)
@@ -122,7 +114,6 @@ class _AnalysisEntryValidator(BaseModel):
 
     # Location (optional — not all items have GPS)
     country: str | None = None
-    first_level: str | None = None
     district: str | None = None
 
     # Photo-specific (from cache, optional)
