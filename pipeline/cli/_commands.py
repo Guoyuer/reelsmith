@@ -360,7 +360,7 @@ def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
                 cfg_path = run_dir
             else:
                 raise click.BadParameter(
-                    f"File not found: '{use_cfg_file}' " f"(also checked {run_dir})",
+                    f"File not found: '{use_cfg_file}' (also checked {run_dir})",
                     param_hint="'--use-cfg-file'",
                 )
         saved = load_run_config(str(cfg_path))

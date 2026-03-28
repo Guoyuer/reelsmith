@@ -22,8 +22,8 @@ dependencies = [
 include = ["pipeline*"]
 
 [project.optional-dependencies]
-test = ["pytest>=8.0"]
-dev = ["ruff>=0.8", "pyright>=1.1", "pre-commit>=4.0"]
+test = ["pytest>=8.0", "python-dotenv>=1.0"]
+dev = ["ruff>=0.8", "pyright>=1.1", "pre-commit>=4.0", "pytest>=8.0", "python-dotenv>=1.0"]
 
 [project.urls]
 Repository = "https://github.com/Guoyuer/vlog"
