@@ -1,8 +1,7 @@
-"""Fetch media from a local folder.
+"""Scan a local folder for media files.
 
 Scans a directory for photos and videos, extracts metadata from EXIF
-(date, GPS), and builds a manifest.json compatible with the rest of
-the pipeline.
+(date, GPS), and builds a manifest.json for the prepare stage.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ from pathlib import Path
 from .._types import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS, ManifestEntry
 from ..config import Config, ProgressCallback
 
-logger = logging.getLogger("reelsmith.fetch.local")
+logger = logging.getLogger("reelsmith.prepare.scan")
 
 
 def fetch_local(
@@ -85,7 +84,7 @@ def fetch_local(
 
         manifest.append(entry)
         if progress_callback:
-            progress_callback(i, len(files), src_path.name)
+            progress_callback(i, len(files), "scan")
         if i % 100 == 0 or i == len(files):
             logger.info("[%d/%d] Scanned", i, len(files))
 

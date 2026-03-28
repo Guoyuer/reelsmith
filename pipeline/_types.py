@@ -1,7 +1,7 @@
 """Shared TypedDicts and Pydantic models for cross-stage data contracts.
 
 These types define the data shapes flowing between pipeline stages
-(fetch → prepare → plan → assemble). TypedDicts provide static type-checking;
+(prepare → plan → assemble). TypedDicts provide static type-checking;
 Pydantic models add runtime validation at stage boundaries.
 """
 
@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict
 logger = logging.getLogger("reelsmith.types")
 
 # ---------------------------------------------------------------------------
-# Canonical file extension sets — used by fetch, prepare, plan, and edl
+# Canonical file extension sets — used by prepare, plan, and edl
 # ---------------------------------------------------------------------------
 
 PHOTO_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"})
@@ -29,7 +29,7 @@ def cache_id(local_path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Manifest entry — produced by fetch, consumed by prepare
+# Manifest entry — produced by scan, consumed by prepare
 # ---------------------------------------------------------------------------
 
 
@@ -41,7 +41,7 @@ class _ManifestRequired(TypedDict):
 
 
 class ManifestEntry(_ManifestRequired, total=False):
-    """One item in manifest.json (fetch → prepare).
+    """One item in manifest.json (scan → prepare).
 
     Optional keys are present when EXIF GPS data is available.
     """

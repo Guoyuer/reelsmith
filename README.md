@@ -71,7 +71,7 @@ reelsmith assemble -n trip -r 4k60
 
 | Command | What it does |
 |---------|-------------|
-| `reelsmith full` | End-to-end: fetch → prepare → plan → music → assemble |
+| `reelsmith full` | End-to-end: prepare → plan → music → assemble |
 | `reelsmith prepare` | Fetch media + generate thumbnails and previews |
 | `reelsmith plan` | Re-plan with Gemini (reuses cached media) |
 | `reelsmith assemble` | Re-render from existing EDL |
@@ -99,7 +99,7 @@ Run `reelsmith full --help` for all options.
 ## How It Works
 
 ```
-fetch ──▸ prepare ──▸ plan ──▸ generate_music ──▸ assemble
+prepare ──▸ plan ──▸ generate_music ──▸ assemble
   │          │          │            │                │
   │          │          │            │                ├─ per-segment FFmpeg render
   │          │          │            │                ├─ TS concat (no re-encode)

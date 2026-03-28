@@ -136,18 +136,18 @@ class TestPipelineDisplayStates:
         return d
 
     def test_start_sets_running(self):
-        d = self._make_display(["fetch"])
-        d.start("fetch")
-        assert d._stage_data["fetch"]["state"] == "running"
-        assert d._current_stage == "fetch"
+        d = self._make_display(["prepare"])
+        d.start("prepare")
+        assert d._stage_data["prepare"]["state"] == "running"
+        assert d._current_stage == "prepare"
 
     def test_done_sets_done(self):
-        d = self._make_display(["fetch"])
-        d.start("fetch")
-        d.done("fetch", "100 items", 2.5)
-        assert d._stage_data["fetch"]["state"] == "done"
-        assert d._stage_data["fetch"]["dur"] == 2.5
-        assert "100 items" in d._stage_data["fetch"]["detail"]
+        d = self._make_display(["prepare"])
+        d.start("prepare")
+        d.done("prepare", "100 items", 2.5)
+        assert d._stage_data["prepare"]["state"] == "done"
+        assert d._stage_data["prepare"]["dur"] == 2.5
+        assert "100 items" in d._stage_data["prepare"]["detail"]
 
     def test_fail_sets_failed(self):
         d = self._make_display(["plan"])
@@ -179,18 +179,18 @@ class TestPipelineDisplayStates:
         assert d._stage_data["plan"]["label"] == "calling Gemini..."
 
     def test_stop_is_safe(self):
-        d = self._make_display(["fetch"])
+        d = self._make_display(["prepare"])
         d.stop()  # should not raise
 
     def test_update_nonexistent_stage(self):
-        d = self._make_display(["fetch"])
+        d = self._make_display(["prepare"])
         d.update("nonexistent", "5/10")  # should not raise
 
     def test_done_cached(self):
-        d = self._make_display(["fetch"])
-        d.start("fetch")
-        d.done("fetch", "100 items", 0.1)  # < 0.5 → cached
-        assert "(cached)" in d._stage_data["fetch"]["detail"]
+        d = self._make_display(["prepare"])
+        d.start("prepare")
+        d.done("prepare", "100 items", 0.1)  # < 0.5 → cached
+        assert "(cached)" in d._stage_data["prepare"]["detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -203,18 +203,18 @@ class TestRunPipeline:
         monkeypatch.setenv("WORKSPACE", str(tmp_path / "workspace"))
         order = []
 
-        def _mock_fetch(pc):
-            order.append("fetch")
-
         def _mock_prepare(pc):
             order.append("prepare")
+
+        def _mock_plan(pc):
+            order.append("plan")
 
         with (
             patch(
                 "pipeline.cli._runner._STAGE_RUNNERS",
                 {
-                    "fetch": _mock_fetch,
                     "prepare": _mock_prepare,
+                    "plan": _mock_plan,
                 },
             ),
             patch("pipeline.cli._runner._PipelineDisplay") as MockDisplay,
@@ -223,14 +223,14 @@ class TestRunPipeline:
             mock_display = MagicMock()
             mock_display._live = None
             mock_display._stage_data = {
-                "fetch": {"state": "pending"},
                 "prepare": {"state": "pending"},
+                "plan": {"state": "pending"},
             }
             MockDisplay.return_value = mock_display
             mock_log.return_value = logging.getLogger("test_pipeline")
 
             from pipeline.cli._runner import _run_pipeline
 
-            _run_pipeline("test_run", stages=["fetch", "prepare"])
+            _run_pipeline("test_run", stages=["prepare", "plan"])
 
-        assert order == ["fetch", "prepare"]
+        assert order == ["prepare", "plan"]

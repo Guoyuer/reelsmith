@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from pipeline.fetch._local import (
+from pipeline.prepare._scan import (
     _extract_date,
     _parse_date_from_filename,
     fetch_local,
@@ -141,7 +141,7 @@ class TestFileFiltering:
         (source_dir / "data.json").write_text("{}")
         _create_fake_image(source_dir / "photo.jpg")
 
-        with patch("pipeline.fetch._local._extract_date", return_value=None):
+        with patch("pipeline.prepare._scan._extract_date", return_value=None):
             result = fetch_local(mock_config, str(source_dir))
 
         assert len(result) == 1
@@ -160,7 +160,7 @@ class TestReverseGeocode:
 
     def test_no_gps_no_location(self, mock_config, source_dir):
         _create_fake_image(source_dir / "no_gps.jpg")
-        with patch("pipeline.fetch._local._extract_date", return_value=None):
-            with patch("pipeline.fetch._local._extract_gps", return_value=(None, None)):
+        with patch("pipeline.prepare._scan._extract_date", return_value=None):
+            with patch("pipeline.prepare._scan._extract_gps", return_value=(None, None)):
                 result = fetch_local(mock_config, str(source_dir))
         assert "city" not in result[0]

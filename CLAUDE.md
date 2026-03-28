@@ -8,8 +8,6 @@ reelsmith/
 │   ├── _types.py              # Shared TypedDicts (ManifestEntry, AnalysisEntry, PreprocessedData)
 │   ├── config.py              # Config dataclass (workspace paths, env loading)
 │   ├── edl.py                 # EDL Pydantic model + all enums (MediaType, Effect, Transition, etc.)
-│   ├── fetch/                 # Stage 1: source fetching
-│   │   └── _local.py          #   Local folder scanner + EXIF extraction
 │   ├── prepare/               # Stage 2: media preprocessing
 │   │   └── _prepare.py        #   Thumbnails, ffprobe, preview clips
 │   ├── plan/                  # Stage 3: Gemini EDL generation
@@ -130,13 +128,13 @@ Run pipeline via `reelsmith` CLI. Stages execute directly in a single Python pro
 # Full pipeline from local folder
 reelsmith full -n singapore -p ./photos -r 4k60 --duration 180 --lang cn
 
-# Prepare only (fetch + media processing)
+# Prepare only (scan + media processing)
 reelsmith prepare -n singapore -p ./photos
 
 # Re-plan only (no render)
 reelsmith plan -n singapore --duration 180 --lang cn
 
-# Render at 1080p30 (output: vlog_v1_1080p30.mp4)
+# Render at 1080p30 (output: reelsmith_v1_1080p30.mp4)
 reelsmith assemble -n singapore -r 1080p30
 
 # Render at 4K60 (output: vlog_v1_2160p60.mp4, reuses 1080p clips won't conflict)
@@ -150,9 +148,9 @@ Logs go to terminal AND `workspace/runs/{name}/run_{timestamp}.log`.
 
 ## Pipeline stages
 
-`fetch -> prepare -> plan -> generate_music -> assemble`
+`prepare -> plan -> generate_music -> assemble`
 
-5 stages in a single Python process. Only `plan` and `generate_music` call Gemini API. Requires `GEMINI_API_KEY` in `.env`.
+4 stages in a single Python process. Only `plan` and `generate_music` call Gemini API. Requires `GEMINI_API_KEY` in `.env`.
 
 ## End-to-end data flow (prepare → plan → assemble)
 
@@ -352,10 +350,10 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - ffprobe results cached per assemble run via RenderContext (dimensions + duration)
 - Text overlays baked into clips via drawtext filter with drop shadow (no separate encode pass)
 - Title card uses first EDL photo as blurred background (fallback: purple gradient)
-- CLI `prepare` = fetch + prepare (thumbnails, EXIF, video probing); CLI `plan` = plan + generate_music (when `--music` is not `none`); CLI `assemble` = render. `full` = all stages
+- CLI `prepare` = scan + prepare (thumbnails, EXIF, video probing); CLI `plan` = plan + generate_music (when `--music` is not `none`); CLI `assemble` = render. `full` = all stages
 - `--path PATH` is required for `prepare` and `full` commands
 - `--resolution` / `-r` is required for both `full` and `assemble` — no default. Presets: 4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30, or custom WxHxFPS
 - Clips cached per resolution (`seg00_item00_1080p30.mp4`); switching resolution doesn't re-render existing clips
-- Output files include resolution: `vlog_v1_1080p30.mp4` — different resolutions coexist
+- Output files include resolution: `reelsmith_v1_1080p30.mp4` — different resolutions coexist
 - `workspace --clean safe|cache|media|all` — `safe` removes old outputs + intermediates only
 - RenderReport tracks per-clip status (ok/skipped/failed with reason)

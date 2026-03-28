@@ -72,7 +72,7 @@ class _CfgAwareCommand(click.Command):
 
 @click.group(cls=_CliGroup)
 def cli() -> None:
-    """Automated highlight reel pipeline: fetch \u2192 prepare \u2192 plan \u2192 generate_music \u2192 assemble.
+    """Automated highlight reel pipeline: prepare \u2192 plan \u2192 generate_music \u2192 assemble.
 
     \b
     Examples:
@@ -406,7 +406,7 @@ _source_options = [
 
 
 # ---------------------------------------------------------------------------
-# prepare: fetch + media processing
+# prepare: scan + media processing
 # ---------------------------------------------------------------------------
 
 
@@ -417,15 +417,15 @@ _source_options = [
 @_apply_options(_source_options)
 @_force_option
 def prepare(ctx, run_name, use_cfg_file, path, force):
-    """Fetch media and generate thumbnails + video previews (cached, use --force to regenerate)."""
+    """Scan media folder and generate thumbnails + video previews (cached, use --force to regenerate)."""
     from pipeline.prepare import PrepareConfig
 
     p, cli_params, defaults = _resolve_params(ctx)
     _run_pipeline(
         run_name,
-        fetch=p["path"],
+        source_dir=p["path"],
         prepare=PrepareConfig(force=force),
-        stages=["fetch", "prepare"],
+        stages=["prepare"],
         cli_params=cli_params,
         cli_defaults=defaults,
     )
@@ -470,7 +470,7 @@ def full(
     resolved_model, resolved_thinking = _resolve_planning(p["model"])
     w, h, fps = p["resolution"]
     music_val = p["music"]
-    stages = ["fetch", "prepare", "plan"]
+    stages = ["prepare", "plan"]
     music_file = None if music_val == "none" else music_val
     if music_val != "none":
         stages.append("generate_music")
@@ -478,7 +478,7 @@ def full(
 
     _run_pipeline(
         run_name,
-        fetch=p["path"],
+        source_dir=p["path"],
         prepare=PrepareConfig(force=force),
         plan=PlanConfig(
             style=p["style"],

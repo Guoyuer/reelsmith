@@ -82,11 +82,12 @@ def prepare(
     cfg: Config,
     pc: PrepareConfig | None = None,
     *,
+    source_dir: str | None = None,
     progress_callback: ProgressCallback = None,
 ) -> None:
     """Prepare all media for Gemini visual planning.
 
-    1. Read manifest
+    1. Scan source folder for media (if source_dir provided)
     2. Generate thumbnails + EXIF for photos, probe duration for videos
     3. Write analysis.json
     4. Generate video previews (480p 1fps)
@@ -94,10 +95,21 @@ def prepare(
     if pc is None:
         pc = PrepareConfig()
     cfg.ensure_dirs()
+
+    # --- Phase 0: Scan source folder ---
+    if source_dir:
+        if cfg.manifest_path.exists() and not pc.force:
+            items = json.loads(cfg.manifest_path.read_text())
+            logger.info("Scan: %d items (cached)", len(items))
+        else:
+            from ._scan import fetch_local
+
+            fetch_local(cfg, source_dir, progress_callback=progress_callback)
+
     if not cfg.manifest_path.exists():
         raise FileNotFoundError(
             f"Manifest not found: {cfg.manifest_path}\n"
-            "Run the fetch stage first (e.g. reelsmith full -p ./photos ...)"
+            "Run the prepare stage first (e.g. reelsmith prepare -p ./photos)"
         )
     manifest = json.loads(cfg.manifest_path.read_text())
 
@@ -116,15 +128,14 @@ def prepare(
         entry = _base_analysis_entry(item, is_video=is_video)
 
         if is_video:
-            if progress_callback:
-                progress_callback(i, len(manifest), "video probe")
             _prepare_video(entry, local_path, i, len(manifest))
             videos.append(entry)
         else:
-            if progress_callback:
-                progress_callback(i, len(manifest), "photos")
             _prepare_photo(entry, local_path, cfg)
             photos.append(entry)
+
+        if progress_callback:
+            progress_callback(i, len(manifest), "extract metadata")
 
     # Rich video probe summary table
     from ..utils import stderr_console
@@ -301,7 +312,7 @@ def _generate_video_previews(
 
     def _progress(done, total):
         if progress_callback:
-            progress_callback(done, total, "videos")
+            progress_callback(done, total, "generating previews")
 
     def _run_preview(cmd, path=None):
         result = run_subprocess(cmd, capture_output=True, text=True)

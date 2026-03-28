@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import signal
 import sys
 import time
@@ -67,7 +66,7 @@ class _PipelineContext:
     cfg: Config
     logger: logging.Logger
     display: _PipelineDisplay | None = None
-    fetch: str | None = None
+    source_dir: str | None = None
     prepare: PrepareConfig | None = None
     plan: PlanConfig | None = None
     assemble: AssembleConfig | None = None
@@ -101,29 +100,12 @@ def _stage(pc: _PipelineContext, name: str):
 # ---------------------------------------------------------------------------
 
 
-def _run_fetch(pc: _PipelineContext):
-    assert pc.fetch is not None
-    with _stage(pc, "fetch") as (cb, done):
-        manifest_path = pc.cfg.manifest_path
-        force = pc.prepare is not None and pc.prepare.force
-        if manifest_path.exists() and not force:
-            items = json.loads(manifest_path.read_text())
-            pc.logger.info(f"Fetch: {len(items)} items (cached)")
-            done(f"{len(items)} items")
-        else:
-            from pipeline.fetch import fetch_local
-
-            items = fetch_local(pc.cfg, pc.fetch, progress_callback=cb)
-            elapsed = done(f"{len(items)} items")
-            pc.logger.info(f"Fetch: {len(items)} items in {elapsed:.0f}s")
-
-
 def _run_prepare(pc: _PipelineContext):
     assert pc.prepare is not None
     with _stage(pc, "prepare") as (cb, done):
         from pipeline.prepare import load_analysis, prepare
 
-        prepare(pc.cfg, pc.prepare, progress_callback=cb)
+        prepare(pc.cfg, pc.prepare, source_dir=pc.source_dir, progress_callback=cb)
         results = load_analysis(pc.cfg)
         n_photos = sum(1 for r in results if r.get("media_type") == "photo")
         n_videos = len(results) - n_photos
@@ -200,7 +182,6 @@ def _run_assemble(pc: _PipelineContext):
 
 
 _STAGE_RUNNERS = {
-    "fetch": _run_fetch,
     "prepare": _run_prepare,
     "plan": _run_plan,
     "generate_music": _run_generate_music,
@@ -217,7 +198,7 @@ def _run_pipeline(
     run_name: str,
     *,
     stages: list[str],
-    fetch=None,
+    source_dir=None,
     prepare=None,
     plan=None,
     assemble=None,
@@ -275,13 +256,13 @@ def _run_pipeline(
         )
     if prepare:
         logger.debug("  Prepare: force=%s", prepare.force)
-    if fetch:
-        logger.debug("  Fetch: source=%s", fetch)
+    if source_dir:
+        logger.debug("  Source: %s", source_dir)
 
     pc = _PipelineContext(
         cfg=cfg,
         logger=logger,
-        fetch=fetch,
+        source_dir=source_dir,
         prepare=prepare,
         plan=plan,
         assemble=assemble,
