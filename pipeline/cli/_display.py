@@ -215,14 +215,15 @@ class _PipelineDisplay:
         self._current_stage = stage
         self._stage_t_start[stage] = time.monotonic()
         self._stage_data[stage].update(state="running", label="", current=0, total=0)
-        # Stage separator for file log (terminal gets Rich Rule)
-        logging.getLogger("vlog").info(f"--- {stage.replace('_', ' ')} ---")
+        # Stage separator: Rich Rule on terminal, DEBUG to log file only
+        # (terminal handler is INFO level, file handler is DEBUG)
         if self._live:
             from rich.rule import Rule
 
             self._live.console.print(
                 Rule(f"[bold]{stage.replace('_', ' ')}[/bold]", style="dim")
             )
+        logging.getLogger("vlog").debug("--- %s ---", stage.replace("_", " "))
         self._refresh()
 
     def update(self, stage: str, detail: str) -> None:
