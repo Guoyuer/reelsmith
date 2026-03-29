@@ -159,7 +159,7 @@ class TestPhotoFilter:
         result = _photo_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
         # Blurred background pipeline
         assert "[0:v] split [bg0][fg0]" in result
-        assert "gblur=sigma=50" in result
+        assert "boxblur=50:3" in result
         assert "overlay=(W-w)/2:(H-h)/2" in result
         # Ken Burns
         assert "crop=" in result
@@ -168,8 +168,7 @@ class TestPhotoFilter:
         assert result.endswith("[v0]")
         # Color grade
         assert "eq=contrast=" in result
-        # Sharpen
-        assert "unsharp=" in result
+        # No unsharp (removed for performance; imperceptible on compressed output)
 
     def test_with_fades(self):
         item = _photo()
@@ -258,7 +257,7 @@ class TestVideoFilter:
         result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
         assert "scale=1920:1080:force_original_aspect_ratio=decrease" in result
         assert "pad=1920:1080" in result
-        assert "gblur" not in result
+        assert "boxblur" not in result
         assert result.endswith("[v0]")
 
     def test_portrait_gets_blurred_bg(self):
@@ -268,7 +267,7 @@ class TestVideoFilter:
             seg = _seg([item])
             result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
             assert "split [bg0][fg0]" in result
-            assert "gblur=sigma=50" in result
+            assert "boxblur=50:3" in result
             assert "overlay=(W-w)/2:(H-h)/2" in result
 
     def test_non_16_9_landscape_gets_blur(self):
@@ -277,7 +276,7 @@ class TestVideoFilter:
             item = _video(duration=5.0)
             seg = _seg([item])
             result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
-            assert "gblur=sigma=50" in result
+            assert "boxblur=50:3" in result
 
     def test_trim_in_filter(self):
         """Video with start_time/end_time uses trim filter, not -ss/-t."""
@@ -345,7 +344,7 @@ class TestVideoFilter:
             item = _video(duration=5.0)
             seg = _seg([item])
             result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
-            assert "gblur" not in result
+            assert "boxblur" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -356,17 +355,17 @@ class TestVideoFilter:
 class TestBlurredBg:
     def test_contains_blur_and_overlay(self):
         result = _blurred_bg(0, 1920, 1080, 50)
-        assert "gblur=sigma=50" in result
+        assert "boxblur=50:3" in result
         assert "overlay=(W-w)/2:(H-h)/2" in result
         assert "[blurred0]" in result
         assert "[sharp0]" in result
 
-    def test_sigma_parameterized(self):
+    def test_blur_radius_parameterized(self):
         r50 = _blurred_bg(0, 1920, 1080, 50)
         r60 = _blurred_bg(0, 1920, 1080, 60)
-        assert "sigma=50" in r50
-        assert "sigma=60" in r60
-        assert "sigma=50" not in r60
+        assert "boxblur=50:3" in r50
+        assert "boxblur=60:3" in r60
+        assert "boxblur=50:3" not in r60
 
     def test_index_propagated(self):
         result = _blurred_bg(3, 1920, 1080, 50)

@@ -289,7 +289,7 @@ def _blurred_bg(idx: int, w: int, h: int, sigma: int) -> str:
     bg_parts = [
         f"scale={w}:{h}:force_original_aspect_ratio=increase",
         f"crop={w}:{h}",
-        f"gblur=sigma={sigma}",
+        f"boxblur={sigma}:3",
         "eq=brightness=-0.15:saturation=0.6",
     ]
     return (
@@ -316,15 +316,13 @@ def _photo_filter(
     overlay_vf = _overlay_vf(item, language, h)
     fade = _fade_expr(exact_dur, fade_in, fade_out)
     color_vf = color_grade(segment.color_temp)
-    sharpen = f",unsharp={C.UNSHARP_PARAMS}"
-
     direction = _EFFECT_DIRECTIONS.get(item.effect, "in")
     ken_burns_vf = ken_burns_filter(frames, w, h, fps, direction=direction)
 
     return (
         f"[{idx}:v] split [bg{idx}][fg{idx}];"
         f"{_blurred_bg(idx, w, h, C.BG_BLUR_SIGMA)},"
-        f"{ken_burns_vf},{color_vf}{sharpen}{overlay_vf}{fade} [v{idx}]"
+        f"{ken_burns_vf},{color_vf}{overlay_vf}{fade} [v{idx}]"
     )
 
 

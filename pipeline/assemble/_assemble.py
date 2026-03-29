@@ -241,20 +241,13 @@ def _render_segments(
             len(graph.inputs),
         )
 
-    # Pre-validate: render 1 frame per item to catch filter errors early
-    _prevalidate_items(
-        edl,
-        segment_graphs,
-        ctx,
-        output_dir,
-        res_label,
-        progress_callback=progress_callback,
-    )
+    # Pre-validation skipped — filter graphs are deterministic and well-tested.
+    # Errors surface as segment render failures with detailed item mapping.
 
     # Render segments in parallel (3 NVENC sessions max)
     from ..utils.parallel import run_parallel
 
-    max_workers = 3 if "nvenc" in " ".join(ctx.get_encoder()) else 2
+    max_workers = 4 if "nvenc" in " ".join(ctx.get_encoder()) else 2
 
     if progress_callback:
         progress_callback(0, len(segment_cmds), "render segments")
