@@ -59,6 +59,7 @@ reelsmith/
 
 - Python 3.11+ required
 - When installing Python packages, always use the project's virtual environment (e.g., `source venv/bin/activate` or `.venv/Scripts/activate` on Windows), never install to system Python
+- This is a Python project. Always use the project's virtual environment (venv), never install packages to system Python. On Windows, use `.venv\Scripts\activate`; on Mac/Linux, use `source .venv/bin/activate`.
 - External dependency: FFmpeg (required for prepare + assemble stages)
 - Requires `GEMINI_API_KEY` in `.env` (plan + music stages)
 
@@ -73,6 +74,7 @@ Entry point: `reelsmith = "pipeline.cli:cli"` (pyproject.toml)
 ## Code Style / General Rules
 
 - When making changes, do NOT abbreviate, shorten, or simplify user-provided content (commands, flag names, text strings) unless explicitly asked. Preserve original wording exactly.
+- Never abbreviate, shorten, or omit parts of commands, code, or flag names unless explicitly asked. Always show the complete version.
 - Use `logger.info("msg", arg)` formatting — no f-strings in log calls (lazy logging).
 - `StrEnum` for all categorical values in `edl.py` — not raw `Literal` types.
 - `TypedDict` for cross-stage data contracts in `_types.py`.
@@ -81,8 +83,11 @@ Entry point: `reelsmith = "pipeline.cli:cli"` (pyproject.toml)
 
 This project targets both Mac and Windows. Always consider cross-platform compatibility: use `os.path` or `pathlib`, handle both Unix and Windows venv paths, and test PATH handling for both platforms.
 
+When making cross-platform changes (Windows/Mac/Linux), always test path separators, shell syntax, and activation scripts for the target platform.
+
 ## Testing
 
+- Always run the full test suite after refactoring or code cleanup changes. Verify test count and all pass before committing.
 - After refactoring or removing code, always run the full test suite (`pytest`) before committing. Removing defensive patterns like `.get()` has previously exposed hidden bugs requiring fixture updates across multiple test files.
 - Default `pytest` excludes integration tests. Run `pytest -m integration` for FFmpeg tests.
 - Tests are organized by pipeline stage: `test_prepare.py`, `test_plan.py`, `test_assemble.py`, etc.
@@ -324,6 +329,10 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - **Color grading** — subtle contrast/saturation boost, temperature shift per segment
 - **YouTube chapter markers** — timestamps from EDL segment boundaries
 - **Text overlays** — baked into clips during render (single FFmpeg pass, no separate overlay step)
+
+## FFmpeg / Video Pipeline
+
+When working with FFmpeg commands, always verify the exact command works before moving on. FFmpeg issues (xfade, audio sync, HEVC timestamps, PATH conflicts) have been recurring friction points requiring multiple debug cycles.
 
 ## Debugging & iteration
 
