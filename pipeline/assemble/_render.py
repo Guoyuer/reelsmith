@@ -45,15 +45,7 @@ def render_title_card(
     # Decide background: hero photo or gradient fallback
     use_photo_bg = background_photo is not None and Path(background_photo).exists()
 
-    # HEIC not supported by -loop 1; convert to JPEG first
-    if (
-        use_photo_bg
-        and background_photo is not None
-        and Path(background_photo).suffix.lower() in {".heic", ".heif"}
-    ):
-        from ..utils.image import convert_heic
-
-        background_photo = str(convert_heic(Path(background_photo)))
+    # HEIC works natively with the loop filter (no -loop 1 needed)
 
     if use_photo_bg:
         photo_bg = (
@@ -100,13 +92,17 @@ def render_title_card(
     if use_photo_bg and background_photo is not None:
         bg_path = Path(background_photo)
         is_video = bg_path.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
+        frames = int(duration * fps)
         if is_video:
             # Extract first frame, loop it for duration
             input_args = ["-i", background_photo]
-            bg_filter = f"select=eq(n\\,0),{photo_bg},loop=loop={int(duration * fps)}:size=1:start=0,setpts=N/{fps}/TB"
+            bg_filter = f"select=eq(n\\,0),{photo_bg},loop=loop={frames}:size=1:start=0,setpts=N/{fps}/TB"
         else:
-            input_args = ["-loop", "1", "-framerate", str(fps), "-i", background_photo]
-            bg_filter = photo_bg
+            # Decode photo once, loop filter duplicates frames (no -loop 1 re-decode)
+            input_args = ["-i", background_photo]
+            bg_filter = (
+                f"loop=loop={frames - 1}:size=1:start=0,{photo_bg},setpts=N/{fps}/TB"
+            )
         cmd = [
             "ffmpeg",
             "-y",

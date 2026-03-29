@@ -158,7 +158,8 @@ class TestPhotoFilter:
         seg = _seg([item])
         result = _photo_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
         # Blurred background pipeline
-        assert "[0:v] split [bg0][fg0]" in result
+        assert "loop=loop=" in result
+        assert "split [bg0][fg0]" in result
         assert "boxblur=50:3" in result
         assert "overlay=(W-w)/2:(H-h)/2" in result
         # Ken Burns
@@ -219,7 +220,7 @@ class TestPhotoFilter:
         item = _photo()
         seg = _seg([item])
         result = _photo_filter(3, item, seg, _CTX, 0.0, 0.0, "en")
-        assert "[3:v] split [bg3][fg3]" in result
+        assert "split [bg3][fg3]" in result
         assert "[blurred3]" in result
         assert "[sharp3]" in result
         assert result.endswith("[v3]")
@@ -588,7 +589,8 @@ class TestBuildSegmentGraph:
         assert len(graph.inputs) == 1
         assert "concat=n=1:v=1:a=1" in graph.script
         assert "aevalsrc=0" in graph.script
-        assert "-loop" in graph.inputs[0]
+        assert "-i" in graph.inputs[0]
+        assert "loop=loop=" in graph.script  # loop filter in filter chain
 
     def test_single_video_no_audio(self):
         """Video with keep_audio=False: silence track, no speech."""
@@ -723,16 +725,14 @@ class TestBuildSegmentGraph:
         graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
         assert "[vout][aout]" in graph.script
 
-    def test_photo_input_has_loop_and_framerate(self):
-        """Photo inputs use -loop 1 -framerate fps -t duration."""
+    def test_photo_input_uses_loop_filter(self):
+        """Photo inputs use simple -i with loop filter in graph (no -loop 1)."""
         seg = _seg([_photo(duration=4.0)])
         graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
         inp = graph.inputs[0]
-        assert "-loop" in inp
-        assert "1" in inp
-        assert "-framerate" in inp
-        assert "30" in inp
-        assert "-t" in inp
+        assert "-i" in inp
+        assert "-loop" not in inp  # loop filter, not input flag
+        assert "loop=loop=119:size=1:start=0" in graph.script
 
     def test_video_input_no_ss_no_t(self):
         """Video inputs should NOT have -ss or -t (trim is in filter chain)."""
@@ -751,18 +751,13 @@ class TestBuildSegmentGraph:
         # Trim duration should be end - start = 8.0
         assert "trim=start=10.0:duration=8.0" in graph.script
 
-    def test_heic_photo_triggers_conversion(self):
-        """HEIC photo triggers convert_heic call."""
+    def test_heic_photo_no_conversion_needed(self):
+        """HEIC photos work natively with loop filter (no convert_heic)."""
         item = _photo()
         item.source_file = "/fake/photo.heic"
         seg = _seg([item])
-        with patch(
-            "pipeline.utils.image.convert_heic",
-            return_value=Path("/fake/photo_converted.jpg"),
-        ) as mock_conv:
-            graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
-            mock_conv.assert_called_once()
-        assert "photo_converted.jpg" in str(graph.inputs[0])
+        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
+        assert "photo.heic" in str(graph.inputs[0])
 
 
 # ---------------------------------------------------------------------------
