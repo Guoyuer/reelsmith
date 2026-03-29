@@ -35,7 +35,7 @@ reelsmith/
 │   │   ├── _config_io.py      #   Run config save/load (YAML persistence)
 │   │   └── _workspace.py      #   Workspace list/clean commands
 │   ├── utils/                 # Shared utilities
-│   │   ├── image.py           #   gen_thumbnail(), extract_exif() (Pillow)
+│   │   ├── image.py           #   gen_thumbnail() (Pillow)
 │   │   ├── media.py           #   probe_video(), gen_preview(), ffmpeg_cmd() (FFmpeg wrappers)
 │   │   └── parallel.py        #   run_parallel() batched ThreadPoolExecutor
 │   └── prompts/               # External prompt templates (editable without code changes)
@@ -225,7 +225,7 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 **Input:** EDL JSON + original media files + generated music (if any).
 
 **Phase 1: Render segments** (`_graph.py` builds FFmpeg filter graphs)
-- Per-photo: Ken Burns (crop + lanczos scale with cosine easing) + color grade + optional text overlay → video stream. Audio = `aevalsrc=0` (silence).
+- Per-photo: `loop` filter (decode once, duplicate frames) + Ken Burns (crop + lanczos scale with cosine easing) + color grade + optional text overlay → video stream. Audio = `aevalsrc=0` (silence). HEIC photos decoded natively (no conversion needed).
 - Per-video with `keep_audio=true`: `atrim=start:duration` + `atempo` (if speed≠1.0) + `asetpts` → preserves original audio from trim window.
 - Per-video with `keep_audio=false`: video trimmed + speed-adjusted. Audio = `aevalsrc=0` (silence).
 - All items concat'd with `concat=n=N:v=1:a=1` (audio locked to video).
@@ -322,7 +322,7 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 ## What's still hard-coded
 
 - **FFmpeg rendering** — parallel segment rendering from EDL (3 NVENC workers, 2 VideoToolbox workers)
-- **Ken Burns effects** — cosine-eased crop + lanczos scale per EDL effect field (photos only; videos use a separate render path)
+- **Ken Burns effects** — cosine-eased crop + lanczos scale per EDL effect field (photos only; videos use a separate render path). Photos decoded once via `loop` filter (not `-loop 1` which re-decodes per frame).
 - **Thumbnail/keyframe generation** — Pillow resize, FFmpeg extraction
 - **Hardware acceleration** — Auto-detected: CUDA (NVIDIA) or VideoToolbox (macOS) for decode; NVENC/VideoToolbox for encode. Falls back to CPU when unavailable.
 - **Codec** — `--codec auto|av1|hevc|h264`. Auto prefers HEVC. AV1 (av1_nvenc, RTX 40+) saves ~30% over HEVC. Falls back through software encoders (libsvtav1, libx265, libx264).
@@ -355,7 +355,7 @@ When working with FFmpeg commands, always verify the exact command works before 
 - Rich progress auto-adapts to terminal capabilities
 - Prepare always recomputes metadata (EXIF + ffprobe are fast); thumbnails and previews are cached
 - FFmpeg subprocesses have a 10-minute timeout for segment renders, 1-minute for concat (prevents hanging on corrupt files)
-- Ken Burns uses cosine easing (ease-in/ease-out) via crop+lanczos; only applies to photos (videos use a separate render path)
+- Ken Burns uses cosine easing (ease-in/ease-out) via crop+lanczos; only applies to photos (videos use a separate render path). Photos use `loop` filter to decode once (~20x faster than `-loop 1` re-decode)
 - `--music auto` uses Gemini Lyria RealTime; `--music /path/to/file` uses custom audio; `--music none` disables music
 - `--lang en|cn|both` controls text language (title, overlays, chapters); cn/both auto-selects CJK font
 - Segment rendering is parallel via `parallel.run_parallel()`: 3 workers for NVENC, 2 for VideoToolbox

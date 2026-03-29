@@ -6,9 +6,11 @@ import logging
 from pathlib import Path
 
 from .. import constants as C
+from .._types import VIDEO_EXTENSIONS
 from ..utils.media import run_subprocess
 from ._encoder import RenderContext
 from ._filters import escape_drawtext, find_font
+from ._graph import _loop_photo
 
 logger = logging.getLogger("reelsmith.assemble.render")
 
@@ -45,20 +47,12 @@ def render_title_card(
     # Decide background: hero photo or gradient fallback
     use_photo_bg = background_photo is not None and Path(background_photo).exists()
 
-    # HEIC not supported by -loop 1; convert to JPEG first
-    if (
-        use_photo_bg
-        and background_photo is not None
-        and Path(background_photo).suffix.lower() in {".heic", ".heif"}
-    ):
-        from ..utils.image import convert_heic
-
-        background_photo = str(convert_heic(Path(background_photo)))
+    # HEIC works natively with the loop filter (no -loop 1 needed)
 
     if use_photo_bg:
         photo_bg = (
             f"scale={w}:{h}:force_original_aspect_ratio=increase,"
-            f"crop={w}:{h},gblur=sigma={C.BG_BLUR_SIGMA},"
+            f"crop={w}:{h},boxblur={C.BG_BLUR_SIGMA}:3,"
             f"eq=brightness=-0.3:saturation=0.7,vignette=PI/5"
         )
     else:
@@ -99,14 +93,15 @@ def render_title_card(
 
     if use_photo_bg and background_photo is not None:
         bg_path = Path(background_photo)
-        is_video = bg_path.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
+        is_video = bg_path.suffix.lower() in VIDEO_EXTENSIONS
+        frames = int(duration * fps)
         if is_video:
-            # Extract first frame, loop it for duration
+            # Extract first frame, blur it, then loop for duration
             input_args = ["-i", background_photo]
-            bg_filter = f"select=eq(n\\,0),{photo_bg},loop=loop={int(duration * fps)}:size=1:start=0,setpts=N/{fps}/TB"
+            bg_filter = f"select=eq(n\\,0),{photo_bg},{_loop_photo(frames, fps)}"
         else:
-            input_args = ["-loop", "1", "-framerate", str(fps), "-i", background_photo]
-            bg_filter = photo_bg
+            input_args = ["-i", background_photo]
+            bg_filter = f"{_loop_photo(frames, fps)},{photo_bg}"
         cmd = [
             "ffmpeg",
             "-y",

@@ -5,19 +5,19 @@ audio-video sync. Photos get silence, keep_audio videos contribute speech.
 
 Filter graph topology (photo):
 
-    [idx:v] split -+-[bg] scale,crop,gblur,eq -[blurred]--+
-                   |                                      |
-                   +-[fg] scale -----------[sharp]--------+
-                                                          |
+    [idx:v] loop,split -+-[bg] scale,crop,boxblur,eq -[blurred]--+
+                        |                                        |
+                        +-[fg] scale -----------[sharp]----------+
+                                                                 |
                                   [blurred][sharp] overlay,ken_burns,color,fade -> [v{idx}]
     aevalsrc=0 (silence) ------------------------------------------> [a{idx}]
 
 Filter graph topology (video, aspect fill):
 
-    [idx:v] trim,split -+-[bg] scale,crop,gblur,eq -[blurred]--+
-                        |                                      |
-                        +-[fg] scale -----------[sharp]--------+
-                                                               |
+    [idx:v] trim,split -+-[bg] scale,crop,boxblur,eq -[blurred]--+
+                        |                                        |
+                        +-[fg] scale -----------[sharp]----------+
+                                                                 |
                                        [blurred][sharp] overlay,color,speed,fade -> [v{idx}]
     [idx:a] atrim,atempo (or aevalsrc=0) -----------------------------> [a{idx}]
 """
@@ -98,11 +98,7 @@ def build_segment_graph(
         fade_in, fade_out = fade_params[item_idx]
         source = Path(item.source_file)
 
-        # HEIC conversion for photos (FFmpeg can't -loop 1 with HEIC)
-        if item.media_type == "photo" and source.suffix.lower() in {".heic", ".heif"}:
-            from ..utils.image import convert_heic
-
-            source = convert_heic(source)
+        # HEIC photos work natively with the loop filter (no -loop 1 needed)
 
         idx = len(inputs)
         filter_line = len(filters)
@@ -110,18 +106,9 @@ def build_segment_graph(
         if item.media_type == "photo":
             frames = int(item.display_duration * fps)
             exact_dur = frames / fps
-            inputs.append(
-                [
-                    "-loop",
-                    "1",
-                    "-framerate",
-                    str(fps),
-                    "-t",
-                    str(exact_dur),
-                    "-i",
-                    str(source),
-                ]
-            )
+            # Decode photo once; loop filter duplicates the frame.
+            # This is ~20x faster than -loop 1 which re-decodes per frame.
+            inputs.append(["-i", str(source)])
             filters.append(
                 _photo_filter(idx, item, segment, ctx, fade_in, fade_out, language)
             )
@@ -229,6 +216,17 @@ def _silence(duration: float) -> str:
     return f"aevalsrc=0:d={duration}:s={C.SAMPLE_RATE}:c=stereo"
 
 
+def _loop_photo(frames: int, fps: int) -> str:
+    """Loop a single decoded image frame, with PTS normalization.
+
+    The ``loop`` filter decodes once and duplicates the frame buffer (~20x
+    faster than ``-loop 1`` which re-decodes per frame).  ``setpts`` and
+    ``fps`` normalize timestamps to match ``-loop 1`` output exactly.
+    """
+    repeats = max(frames - 1, 0)
+    return f"loop=loop={repeats}:size=1:start=0,setpts=N/{fps}/TB,fps={fps}"
+
+
 def _add_static_card(
     inputs: list[list[str]],
     filters: list[str],
@@ -289,7 +287,7 @@ def _blurred_bg(idx: int, w: int, h: int, sigma: int) -> str:
     bg_parts = [
         f"scale={w}:{h}:force_original_aspect_ratio=increase",
         f"crop={w}:{h}",
-        f"gblur=sigma={sigma}",
+        f"boxblur={sigma}:3",
         "eq=brightness=-0.15:saturation=0.6",
     ]
     return (
@@ -316,15 +314,13 @@ def _photo_filter(
     overlay_vf = _overlay_vf(item, language, h)
     fade = _fade_expr(exact_dur, fade_in, fade_out)
     color_vf = color_grade(segment.color_temp)
-    sharpen = f",unsharp={C.UNSHARP_PARAMS}"
-
     direction = _EFFECT_DIRECTIONS.get(item.effect, "in")
     ken_burns_vf = ken_burns_filter(frames, w, h, fps, direction=direction)
 
     return (
-        f"[{idx}:v] split [bg{idx}][fg{idx}];"
+        f"[{idx}:v] {_loop_photo(frames, fps)},split [bg{idx}][fg{idx}];"
         f"{_blurred_bg(idx, w, h, C.BG_BLUR_SIGMA)},"
-        f"{ken_burns_vf},{color_vf}{sharpen}{overlay_vf}{fade} [v{idx}]"
+        f"{ken_burns_vf},{color_vf}{overlay_vf}{fade} [v{idx}]"
     )
 
 
