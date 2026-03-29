@@ -69,18 +69,16 @@ def detect_hw_encoder(
 
     _test_cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", "nullsrc=s=640x360:d=0.1:r=15"]
 
-    def _try_encoder(enc_name: str, bitrate: str) -> tuple[str, str] | None:
+    def _try_encoder(enc_name: str) -> bool:
         try:
             test = run_subprocess(
                 _test_cmd + ["-c:v", enc_name, "-f", "null", "-"],
                 capture_output=True,
                 text=True,
             )
-            if test.returncode == 0:
-                return enc_name, bitrate
+            return test.returncode == 0
         except (OSError, subprocess.SubprocessError):
-            pass
-        return None
+            return False
 
     def _nvenc_args(enc_name: str, bitrate: str) -> list[str]:
         return [
@@ -141,25 +139,28 @@ def detect_hw_encoder(
     else:
         search_order = [codec]
 
+    tried: list[str] = []
     for family in search_order:
         br = _bitrate_for_codec(family, width, height, fps, quality)
         # Try hardware encoders
         for enc_name, args_fn in candidates.get(family, []):
-            result = _try_encoder(enc_name, br)
-            if result:
-                logger.info("Encoder: %s @ %s", result[0], result[1])
-                return args_fn(*result)
+            tried.append(enc_name)
+            if _try_encoder(enc_name):
+                logger.info("Encoder: %s @ %s", enc_name, br)
+                return args_fn(enc_name, br)
         # Try software fallback
         if family in sw_fallbacks:
             enc_name, args_fn = sw_fallbacks[family]
-            result = _try_encoder(enc_name, br)
-            if result:
-                logger.info("Encoder: %s (software) @ %s", result[0], result[1])
-                return args_fn(*result)
+            tried.append(enc_name)
+            if _try_encoder(enc_name):
+                logger.info("Encoder: %s (software) @ %s", enc_name, br)
+                return args_fn(enc_name, br)
 
     # Ultimate fallback: libx264
     h264_br = _bitrate_for_codec("h264", width, height, fps, quality)
-    logger.warning("No %s encoder found, falling back to libx264", codec)
+    logger.warning(
+        "No encoder found (tried %s), falling back to libx264", ", ".join(tried)
+    )
     return ["-c:v", "libx264", "-preset", "fast", "-b:v", h264_br]
 
 
