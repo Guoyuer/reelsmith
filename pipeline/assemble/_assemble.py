@@ -1,8 +1,7 @@
 """Stage 4: Render the final video from an EDL.
 
-7 FFmpeg calls total:
-  Phase 1: 6 per-segment renders (filter_complex_script + concat=v=1:a=1) → .mp4
-  Phase 2: 1 concat demuxer (copy) + music overlay → .mp4
+Phase 1: per-segment renders (filter_complex_script + concat=v=1:a=1) → .mp4
+Phase 2: concat demuxer (copy) + music overlay → .mp4
 """
 
 from __future__ import annotations
@@ -193,10 +192,10 @@ def _render_segments(
 
     # Title cards
     intro_path = _render_title_card_if_needed(
-        edl, "intro", cfg.render_dir / f"intro_title_{res_label}.mp4", ctx, res_label
+        edl, "intro", cfg.render_dir / f"intro_title_{res_label}.mp4", ctx
     )
     outro_path = _render_title_card_if_needed(
-        edl, "outro", cfg.render_dir / f"outro_title_{res_label}.mp4", ctx, res_label
+        edl, "outro", cfg.render_dir / f"outro_title_{res_label}.mp4", ctx
     )
 
     fade_params = compute_fade_params(edl)
@@ -240,9 +239,6 @@ def _render_segments(
             len(segment.items),
             len(graph.inputs),
         )
-
-    # Pre-validation skipped — filter graphs are deterministic and well-tested.
-    # Errors surface as segment render failures with detailed item mapping.
 
     # Render segments in parallel (3 NVENC sessions max)
     from ..utils.parallel import run_parallel
@@ -488,7 +484,7 @@ def _parse_loudnorm_stats(stderr: str) -> dict[str, str] | None:
 
 
 def _render_title_card_if_needed(
-    edl: EDL, kind: str, path: Path, ctx: RenderContext, res_label: str
+    edl: EDL, kind: str, path: Path, ctx: RenderContext
 ) -> Path | None:
     if not edl.title:
         return None

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -62,7 +63,6 @@ def detect_hw_encoder(
     hardware encoder is available, falls back to software (libx264 for h264,
     libsvtav1 for av1) or raises if truly unavailable.
     """
-    import sys
 
     if codec not in CODEC_CHOICES:
         raise ValueError(f"Invalid codec {codec!r}, expected one of {CODEC_CHOICES}")
@@ -166,8 +166,6 @@ def detect_hw_encoder(
 
 def _detect_hwaccel() -> list[str] | None:
     """Detect hardware-accelerated decoder: CUDA (NVIDIA) or VideoToolbox (macOS)."""
-    import sys
-
     candidates = (
         [("-hwaccel", "videotoolbox")]
         if sys.platform == "darwin"
