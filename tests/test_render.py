@@ -57,6 +57,7 @@ class TestRenderTitleCard:
             cmd_str = " ".join(str(c) for c in cmd)
             assert "boxblur=50:3" in cmd_str
             assert "loop=loop=" in cmd_str  # loop filter, not -loop 1
+            assert "-loop" not in cmd  # no -loop 1 input flag
             assert str(bg) in cmd_str
 
     def test_nonexistent_photo_uses_gradient(self, ctx, tmp_path):

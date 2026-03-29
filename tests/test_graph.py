@@ -733,6 +733,8 @@ class TestBuildSegmentGraph:
         assert "-i" in inp
         assert "-loop" not in inp  # loop filter, not input flag
         assert "loop=loop=119:size=1:start=0" in graph.script
+        assert "setpts=N/30/TB" in graph.script
+        assert ",fps=30" in graph.script
 
     def test_video_input_no_ss_no_t(self):
         """Video inputs should NOT have -ss or -t (trim is in filter chain)."""

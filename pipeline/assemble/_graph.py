@@ -223,7 +223,8 @@ def _loop_photo(frames: int, fps: int) -> str:
     faster than ``-loop 1`` which re-decodes per frame).  ``setpts`` and
     ``fps`` normalize timestamps to match ``-loop 1`` output exactly.
     """
-    return f"loop=loop={frames - 1}:size=1:start=0,setpts=N/{fps}/TB,fps={fps}"
+    repeats = max(frames - 1, 0)
+    return f"loop=loop={repeats}:size=1:start=0,setpts=N/{fps}/TB,fps={fps}"
 
 
 def _add_static_card(

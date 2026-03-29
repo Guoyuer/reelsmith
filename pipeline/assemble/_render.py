@@ -96,9 +96,9 @@ def render_title_card(
         is_video = bg_path.suffix.lower() in VIDEO_EXTENSIONS
         frames = int(duration * fps)
         if is_video:
-            # Extract first frame, loop it for duration
+            # Extract first frame, blur it, then loop for duration
             input_args = ["-i", background_photo]
-            bg_filter = f"select=eq(n\\,0),{photo_bg},loop=loop={frames}:size=1:start=0,setpts=N/{fps}/TB"
+            bg_filter = f"select=eq(n\\,0),{photo_bg},{_loop_photo(frames, fps)}"
         else:
             input_args = ["-i", background_photo]
             bg_filter = f"{_loop_photo(frames, fps)},{photo_bg}"
