@@ -42,7 +42,6 @@ AV1_RATIO = 0.45  # AV1 bitrate as fraction of H.264 (~30% savings over HEVC)
 # Blur / background
 # ---------------------------------------------------------------------------
 BG_BLUR_SIGMA = 50  # gaussian blur for blurred backgrounds (photos, videos, title card)
-UNSHARP_PARAMS = "3:3:0.5:3:3:0.0"  # luma:size:amount:chroma:size:amount
 
 # ---------------------------------------------------------------------------
 # Aspect ratio

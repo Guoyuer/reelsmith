@@ -27,6 +27,8 @@ from typing import Any
 import click
 import yaml
 
+from ..assemble._encoder import CODEC_CHOICES
+
 logger = logging.getLogger("reelsmith.plan")
 
 # Shared choice constants — used by Click options (_commands.py) and config validation.
@@ -74,7 +76,7 @@ _GROUP_SCHEMA: dict[str, dict[str, dict[str, Any]]] = {
     "assemble": {
         "resolution": {"type": str, "required": True},
         "bitrate": {"type": (int, float)},
-        "codec": {"type": str, "choices": ("auto", "av1", "hevc", "h264")},
+        "codec": {"type": str, "choices": CODEC_CHOICES},
     },
 }
 

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 
+from ..assemble._encoder import CODEC_CHOICES
 from ._config_io import (
     LANG_CHOICES,
     STYLE_CHOICES,
@@ -250,7 +251,7 @@ _assemble_options = [
     click.option(
         "--codec",
         default="auto",
-        type=click.Choice(["auto", "av1", "hevc", "h264"]),
+        type=click.Choice(list(CODEC_CHOICES)),
         help="Video codec.\n\n"
         "\b\n"
         "  auto  best available (HEVC preferred)\n"

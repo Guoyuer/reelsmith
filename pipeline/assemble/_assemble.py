@@ -457,50 +457,6 @@ def _concat_and_mix(
 # ---------------------------------------------------------------------------
 
 
-def _prevalidate_items(
-    edl: EDL,
-    graphs: list[SegmentGraph],
-    ctx: RenderContext,
-    output_dir: Path,
-    res_label: str,
-    *,
-    progress_callback: ProgressCallback = None,
-) -> None:
-    """Decode 1 frame per input to catch corrupt/missing files early."""
-    # Collect unique inputs first for accurate progress total
-    unique_inputs: list[tuple[int, int, str, list]] = []
-    seen: set[str] = set()
-    for seg_idx, graph in enumerate(graphs):
-        for item_idx, (input_idx, source_name, _) in enumerate(graph.item_map):
-            if source_name in seen:
-                continue
-            seen.add(source_name)
-            unique_inputs.append(
-                (seg_idx, item_idx, source_name, graph.inputs[input_idx])
-            )
-
-    total = len(unique_inputs)
-    if progress_callback:
-        progress_callback(0, total, "validate inputs")
-
-    for i, (seg_idx, item_idx, source_name, inp) in enumerate(unique_inputs):
-        cmd = (
-            ["ffmpeg", "-y"]
-            + [str(x) for x in inp]
-            + ["-frames:v", "1", "-f", "null", "-"]
-        )
-        result = run_subprocess(cmd, capture_output=True, text=True, timeout=30)
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Input validation failed — segment {seg_idx}, "
-                f"item {item_idx} ({source_name}):\n{result.stderr[-500:]}"
-            )
-        if progress_callback:
-            progress_callback(i + 1, total, "validate inputs")
-
-    logger.info("  Pre-validation: %d inputs OK", total)
-
-
 def _report_segment_failure(seg_idx: int, graph: SegmentGraph, stderr: str) -> None:
     """Log item mapping and raise with context when a segment render fails."""
     lines = []

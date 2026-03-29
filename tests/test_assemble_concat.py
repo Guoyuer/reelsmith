@@ -40,7 +40,7 @@ class TestConcatAndMixNoMusic:
         edl = _minimal_edl()
         output = cfg.output_dir / "out.mp4"
 
-        seg0 = cfg.output_dir / "_seg_0_1080p30.ts"
+        seg0 = cfg.output_dir / "_seg_0_1080p30.mp4"
         seg0.write_bytes(b"\x00" * 500)
 
         with (
@@ -61,7 +61,7 @@ class TestConcatAndMixNoMusic:
         edl = _minimal_edl()
         output = cfg.output_dir / "out.mp4"
 
-        seg0 = cfg.output_dir / "_seg_0_1080p30.ts"
+        seg0 = cfg.output_dir / "_seg_0_1080p30.mp4"
         seg0.write_bytes(b"\x00" * 500)
 
         fail = MagicMock(returncode=1, stderr="concat error", stdout="")
@@ -99,7 +99,7 @@ class TestConcatAndMixWithMusic:
         output = cfg.output_dir / "out.mp4"
         nomix = cfg.output_dir / "reelsmith_v1_1080p30_nomix.mp4"
 
-        seg0 = cfg.output_dir / "_seg_0_1080p30.ts"
+        seg0 = cfg.output_dir / "_seg_0_1080p30.mp4"
         seg0.write_bytes(b"\x00" * 500)
 
         calls = []
@@ -160,7 +160,7 @@ class TestConcatAndMixWithMusic:
         output = cfg.output_dir / "out.mp4"
         nomix = cfg.output_dir / "reelsmith_v1_1080p30_nomix.mp4"
 
-        seg0 = cfg.output_dir / "_seg_0_1080p30.ts"
+        seg0 = cfg.output_dir / "_seg_0_1080p30.mp4"
         seg0.write_bytes(b"\x00" * 500)
 
         calls = []
@@ -212,7 +212,7 @@ class TestConcatAndMixWithMusic:
         output = cfg.output_dir / "out.mp4"
         nomix = cfg.output_dir / "reelsmith_v1_1080p30_nomix.mp4"
 
-        seg0 = cfg.output_dir / "_seg_0_1080p30.ts"
+        seg0 = cfg.output_dir / "_seg_0_1080p30.mp4"
         seg0.write_bytes(b"\x00" * 500)
 
         call_count = [0]
@@ -275,7 +275,7 @@ class TestLoudnormFallback:
         edl = _minimal_edl(music=MusicTrack(file=str(music_file)))
         output = cfg.output_dir / "out.mp4"
         nomix = cfg.output_dir / "reelsmith_v1_1080p30_nomix.mp4"
-        seg0 = cfg.output_dir / "_seg_0_1080p30.ts"
+        seg0 = cfg.output_dir / "_seg_0_1080p30.mp4"
         seg0.write_bytes(b"\x00" * 500)
 
         calls = []

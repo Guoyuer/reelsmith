@@ -5,19 +5,19 @@ audio-video sync. Photos get silence, keep_audio videos contribute speech.
 
 Filter graph topology (photo):
 
-    [idx:v] split -+-[bg] scale,crop,gblur,eq -[blurred]--+
-                   |                                      |
-                   +-[fg] scale -----------[sharp]--------+
-                                                          |
+    [idx:v] loop,split -+-[bg] scale,crop,boxblur,eq -[blurred]--+
+                        |                                        |
+                        +-[fg] scale -----------[sharp]----------+
+                                                                 |
                                   [blurred][sharp] overlay,ken_burns,color,fade -> [v{idx}]
     aevalsrc=0 (silence) ------------------------------------------> [a{idx}]
 
 Filter graph topology (video, aspect fill):
 
-    [idx:v] trim,split -+-[bg] scale,crop,gblur,eq -[blurred]--+
-                        |                                      |
-                        +-[fg] scale -----------[sharp]--------+
-                                                               |
+    [idx:v] trim,split -+-[bg] scale,crop,boxblur,eq -[blurred]--+
+                        |                                        |
+                        +-[fg] scale -----------[sharp]----------+
+                                                                 |
                                        [blurred][sharp] overlay,color,speed,fade -> [v{idx}]
     [idx:a] atrim,atempo (or aevalsrc=0) -----------------------------> [a{idx}]
 """
@@ -216,6 +216,16 @@ def _silence(duration: float) -> str:
     return f"aevalsrc=0:d={duration}:s={C.SAMPLE_RATE}:c=stereo"
 
 
+def _loop_photo(frames: int, fps: int) -> str:
+    """Loop a single decoded image frame, with PTS normalization.
+
+    The ``loop`` filter decodes once and duplicates the frame buffer (~20x
+    faster than ``-loop 1`` which re-decodes per frame).  ``setpts`` and
+    ``fps`` normalize timestamps to match ``-loop 1`` output exactly.
+    """
+    return f"loop=loop={frames - 1}:size=1:start=0,setpts=N/{fps}/TB,fps={fps}"
+
+
 def _add_static_card(
     inputs: list[list[str]],
     filters: list[str],
@@ -306,11 +316,8 @@ def _photo_filter(
     direction = _EFFECT_DIRECTIONS.get(item.effect, "in")
     ken_burns_vf = ken_burns_filter(frames, w, h, fps, direction=direction)
 
-    # loop= duplicates the single decoded frame; avoids -loop 1 re-decode.
-    # setpts+fps normalize timestamps to match -loop 1 output exactly.
-    loop_vf = f"loop=loop={frames - 1}:size=1:start=0,setpts=N/{fps}/TB,fps={fps},"
     return (
-        f"[{idx}:v] {loop_vf}split [bg{idx}][fg{idx}];"
+        f"[{idx}:v] {_loop_photo(frames, fps)},split [bg{idx}][fg{idx}];"
         f"{_blurred_bg(idx, w, h, C.BG_BLUR_SIGMA)},"
         f"{ken_burns_vf},{color_vf}{overlay_vf}{fade} [v{idx}]"
     )

@@ -6,9 +6,11 @@ import logging
 from pathlib import Path
 
 from .. import constants as C
+from .._types import VIDEO_EXTENSIONS
 from ..utils.media import run_subprocess
 from ._encoder import RenderContext
 from ._filters import escape_drawtext, find_font
+from ._graph import _loop_photo
 
 logger = logging.getLogger("reelsmith.assemble.render")
 
@@ -91,18 +93,15 @@ def render_title_card(
 
     if use_photo_bg and background_photo is not None:
         bg_path = Path(background_photo)
-        is_video = bg_path.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
+        is_video = bg_path.suffix.lower() in VIDEO_EXTENSIONS
         frames = int(duration * fps)
         if is_video:
             # Extract first frame, loop it for duration
             input_args = ["-i", background_photo]
             bg_filter = f"select=eq(n\\,0),{photo_bg},loop=loop={frames}:size=1:start=0,setpts=N/{fps}/TB"
         else:
-            # Decode photo once, loop filter duplicates frames (no -loop 1 re-decode)
             input_args = ["-i", background_photo]
-            bg_filter = (
-                f"loop=loop={frames - 1}:size=1:start=0,{photo_bg},setpts=N/{fps}/TB"
-            )
+            bg_filter = f"{_loop_photo(frames, fps)},{photo_bg}"
         cmd = [
             "ffmpeg",
             "-y",
