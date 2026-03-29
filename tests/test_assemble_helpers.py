@@ -168,7 +168,5 @@ class TestRenderTitleCardIfNeeded:
 
     def test_unknown_kind_returns_none(self, tmp_path, ctx):
         edl = minimal_edl(title="My Trip")
-        result = _render_title_card_if_needed(
-            edl, "unknown", tmp_path / "x.mp4", ctx
-        )
+        result = _render_title_card_if_needed(edl, "unknown", tmp_path / "x.mp4", ctx)
         assert result is None
