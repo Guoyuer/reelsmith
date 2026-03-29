@@ -36,6 +36,7 @@ BITRATE_TIERS: list[tuple[int, int]] = [
 ]
 HFR_MULTIPLIER = 1.5  # bitrate bump for fps > 30
 HEVC_RATIO = 0.65  # HEVC bitrate as fraction of H.264
+AV1_RATIO = 0.45  # AV1 bitrate as fraction of H.264 (~30% savings over HEVC)
 
 # ---------------------------------------------------------------------------
 # Blur / background
