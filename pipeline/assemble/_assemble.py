@@ -247,7 +247,7 @@ def _render_segments(
     # Render segments in parallel (3 NVENC sessions max)
     from ..utils.parallel import run_parallel
 
-    max_workers = 4 if "nvenc" in " ".join(ctx.get_encoder()) else 2
+    max_workers = 3 if "nvenc" in " ".join(ctx.get_encoder()) else 2
 
     if progress_callback:
         progress_callback(0, len(segment_cmds), "render segments")
