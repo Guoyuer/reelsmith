@@ -41,7 +41,6 @@ HEVC_RATIO = 0.65  # HEVC bitrate as fraction of H.264
 # Blur / background
 # ---------------------------------------------------------------------------
 BG_BLUR_SIGMA = 50  # gaussian blur for blurred backgrounds (photos, videos, title card)
-UNSHARP_PARAMS = "3:3:0.5:3:3:0.0"  # luma:size:amount:chroma:size:amount
 
 # ---------------------------------------------------------------------------
 # Aspect ratio

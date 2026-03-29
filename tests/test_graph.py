@@ -158,8 +158,9 @@ class TestPhotoFilter:
         seg = _seg([item])
         result = _photo_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
         # Blurred background pipeline
-        assert "[0:v] split [bg0][fg0]" in result
-        assert "gblur=sigma=50" in result
+        assert "loop=loop=" in result
+        assert "split [bg0][fg0]" in result
+        assert "boxblur=50:3" in result
         assert "overlay=(W-w)/2:(H-h)/2" in result
         # Ken Burns
         assert "crop=" in result
@@ -168,8 +169,7 @@ class TestPhotoFilter:
         assert result.endswith("[v0]")
         # Color grade
         assert "eq=contrast=" in result
-        # Sharpen
-        assert "unsharp=" in result
+        # No unsharp (removed for performance; imperceptible on compressed output)
 
     def test_with_fades(self):
         item = _photo()
@@ -220,7 +220,7 @@ class TestPhotoFilter:
         item = _photo()
         seg = _seg([item])
         result = _photo_filter(3, item, seg, _CTX, 0.0, 0.0, "en")
-        assert "[3:v] split [bg3][fg3]" in result
+        assert "split [bg3][fg3]" in result
         assert "[blurred3]" in result
         assert "[sharp3]" in result
         assert result.endswith("[v3]")
@@ -258,7 +258,7 @@ class TestVideoFilter:
         result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
         assert "scale=1920:1080:force_original_aspect_ratio=decrease" in result
         assert "pad=1920:1080" in result
-        assert "gblur" not in result
+        assert "boxblur" not in result
         assert result.endswith("[v0]")
 
     def test_portrait_gets_blurred_bg(self):
@@ -268,7 +268,7 @@ class TestVideoFilter:
             seg = _seg([item])
             result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
             assert "split [bg0][fg0]" in result
-            assert "gblur=sigma=50" in result
+            assert "boxblur=50:3" in result
             assert "overlay=(W-w)/2:(H-h)/2" in result
 
     def test_non_16_9_landscape_gets_blur(self):
@@ -277,7 +277,7 @@ class TestVideoFilter:
             item = _video(duration=5.0)
             seg = _seg([item])
             result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
-            assert "gblur=sigma=50" in result
+            assert "boxblur=50:3" in result
 
     def test_trim_in_filter(self):
         """Video with start_time/end_time uses trim filter, not -ss/-t."""
@@ -345,7 +345,7 @@ class TestVideoFilter:
             item = _video(duration=5.0)
             seg = _seg([item])
             result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
-            assert "gblur" not in result
+            assert "boxblur" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -356,17 +356,17 @@ class TestVideoFilter:
 class TestBlurredBg:
     def test_contains_blur_and_overlay(self):
         result = _blurred_bg(0, 1920, 1080, 50)
-        assert "gblur=sigma=50" in result
+        assert "boxblur=50:3" in result
         assert "overlay=(W-w)/2:(H-h)/2" in result
         assert "[blurred0]" in result
         assert "[sharp0]" in result
 
-    def test_sigma_parameterized(self):
+    def test_blur_radius_parameterized(self):
         r50 = _blurred_bg(0, 1920, 1080, 50)
         r60 = _blurred_bg(0, 1920, 1080, 60)
-        assert "sigma=50" in r50
-        assert "sigma=60" in r60
-        assert "sigma=50" not in r60
+        assert "boxblur=50:3" in r50
+        assert "boxblur=60:3" in r60
+        assert "boxblur=50:3" not in r60
 
     def test_index_propagated(self):
         result = _blurred_bg(3, 1920, 1080, 50)
@@ -589,7 +589,8 @@ class TestBuildSegmentGraph:
         assert len(graph.inputs) == 1
         assert "concat=n=1:v=1:a=1" in graph.script
         assert "aevalsrc=0" in graph.script
-        assert "-loop" in graph.inputs[0]
+        assert "-i" in graph.inputs[0]
+        assert "loop=loop=" in graph.script  # loop filter in filter chain
 
     def test_single_video_no_audio(self):
         """Video with keep_audio=False: silence track, no speech."""
@@ -724,16 +725,14 @@ class TestBuildSegmentGraph:
         graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
         assert "[vout][aout]" in graph.script
 
-    def test_photo_input_has_loop_and_framerate(self):
-        """Photo inputs use -loop 1 -framerate fps -t duration."""
+    def test_photo_input_uses_loop_filter(self):
+        """Photo inputs use simple -i with loop filter in graph (no -loop 1)."""
         seg = _seg([_photo(duration=4.0)])
         graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
         inp = graph.inputs[0]
-        assert "-loop" in inp
-        assert "1" in inp
-        assert "-framerate" in inp
-        assert "30" in inp
-        assert "-t" in inp
+        assert "-i" in inp
+        assert "-loop" not in inp  # loop filter, not input flag
+        assert "loop=loop=119:size=1:start=0" in graph.script
 
     def test_video_input_no_ss_no_t(self):
         """Video inputs should NOT have -ss or -t (trim is in filter chain)."""
@@ -752,18 +751,13 @@ class TestBuildSegmentGraph:
         # Trim duration should be end - start = 8.0
         assert "trim=start=10.0:duration=8.0" in graph.script
 
-    def test_heic_photo_triggers_conversion(self):
-        """HEIC photo triggers convert_heic call."""
+    def test_heic_photo_no_conversion_needed(self):
+        """HEIC photos work natively with loop filter (no convert_heic)."""
         item = _photo()
         item.source_file = "/fake/photo.heic"
         seg = _seg([item])
-        with patch(
-            "pipeline.utils.image.convert_heic",
-            return_value=Path("/fake/photo_converted.jpg"),
-        ) as mock_conv:
-            graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
-            mock_conv.assert_called_once()
-        assert "photo_converted.jpg" in str(graph.inputs[0])
+        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
+        assert "photo.heic" in str(graph.inputs[0])
 
 
 # ---------------------------------------------------------------------------
@@ -794,7 +788,7 @@ class TestFadeParamsAndGraphIntegration:
         assert len(fades[1]) == 1
 
     def test_fade_params_feed_into_graph(self):
-        """End-to-end: compute fades → build graph for each segment."""
+        """End-to-end: compute fades -> build graph for each segment."""
         s1 = _seg([_photo(), _photo()], name="S1")
         s2 = _seg(
             [_video(duration=5.0, keep_audio=True, start=0.0, end=5.0)],
