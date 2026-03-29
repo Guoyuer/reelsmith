@@ -64,9 +64,12 @@ def detect_hw_encoder(
     """
     import sys
 
+    if codec not in CODEC_CHOICES:
+        raise ValueError(f"Invalid codec {codec!r}, expected one of {CODEC_CHOICES}")
+
     _test_cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", "nullsrc=s=640x360:d=0.1:r=15"]
 
-    def _try_encoder(enc_name: str, bitrate: str) -> list[str] | None:
+    def _try_encoder(enc_name: str, bitrate: str) -> tuple[str, str] | None:
         try:
             test = run_subprocess(
                 _test_cmd + ["-c:v", enc_name, "-f", "null", "-"],
@@ -242,7 +245,7 @@ class RenderContext:
         w = width or self.w
         h = height or self.h
         f = fps or self.fps
-        key = (w, h, f, self.quality)
+        key = (w, h, f, self.quality, self.codec)
         if key not in self._encoder_cache:
             self._encoder_cache[key] = detect_hw_encoder(
                 w, h, f, self.quality, codec=self.codec
