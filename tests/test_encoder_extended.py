@@ -24,9 +24,27 @@ class TestDetectHwEncoder:
 
     def test_fallback_to_libx264_no_encoders(self):
         """When no HW encoders available on non-macOS, should return libx264."""
-        mock = MagicMock(returncode=0, stdout="libx264 -- no hw", stderr="")
+
+        def _side_effect(cmd, **kw):
+            cmd_str = " ".join(str(c) for c in cmd)
+            m = MagicMock(stderr="")
+            # HW encoder probes should fail
+            if any(hw in cmd_str for hw in ("nvenc", "videotoolbox", "vulkan")):
+                m.returncode = 1
+                m.stdout = ""
+            # SW encoder probes: only libx264 succeeds
+            elif "libsvtav1" in cmd_str or "libx265" in cmd_str:
+                m.returncode = 1
+                m.stdout = ""
+            else:
+                m.returncode = 0
+                m.stdout = ""
+            return m
+
         with (
-            patch("pipeline.assemble._encoder.run_subprocess", return_value=mock),
+            patch(
+                "pipeline.assemble._encoder.run_subprocess", side_effect=_side_effect
+            ),
             patch("sys.platform", "linux"),
         ):
             result = detect_hw_encoder(1920, 1080, 30)

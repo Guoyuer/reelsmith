@@ -46,7 +46,7 @@ _PLAN_FIELDS = {
     "instruct",
     "music",
 }
-_ASSEMBLE_FIELDS = {"resolution", "bitrate"}
+_ASSEMBLE_FIELDS = {"resolution", "bitrate", "codec"}
 
 _CONFIG_GLOB = "run_config_*.yaml"
 _CONFIG_PREFIX = "run_config_"
@@ -74,6 +74,7 @@ _GROUP_SCHEMA: dict[str, dict[str, dict[str, Any]]] = {
     "assemble": {
         "resolution": {"type": str, "required": True},
         "bitrate": {"type": (int, float)},
+        "codec": {"type": str, "choices": ("auto", "av1", "hevc", "h264")},
     },
 }
 

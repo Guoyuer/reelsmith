@@ -1,8 +1,8 @@
 """Stage 4: Render the final video from an EDL.
 
 7 FFmpeg calls total:
-  Phase 1: 6 per-segment renders (filter_complex_script + concat=v=1:a=1) → .ts
-  Phase 2: 1 MPEG-TS concat (copy) + music overlay → .mp4
+  Phase 1: 6 per-segment renders (filter_complex_script + concat=v=1:a=1) → .mp4
+  Phase 2: 1 concat demuxer (copy) + music overlay → .mp4
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ class AssembleConfig:
     h: int
     fps: int
     quality: float = 1.0
+    codec: str = "auto"
     version: int | None = None
 
     def __post_init__(self) -> None:
@@ -72,7 +73,7 @@ def assemble(
         edl.estimated_duration(),
     )
 
-    ctx = RenderContext(w=ac.w, h=ac.h, fps=ac.fps, quality=ac.quality)
+    ctx = RenderContext(w=ac.w, h=ac.h, fps=ac.fps, quality=ac.quality, codec=ac.codec)
     res_label = f"{ac.h}p{ac.fps}"
     output_path = cfg.output_dir / f"reelsmith_v{version}_{res_label}.mp4"
 
@@ -183,7 +184,7 @@ def _render_segments(
 ) -> list[Path]:
     """Build segment filter graphs and encode segments in parallel.
 
-    Returns list of segment .ts file paths.
+    Returns list of segment .mp4 file paths.
     """
     t_start = time.monotonic()
     logger.info("Phase 1: Rendering %d segments...", len(edl.segments))
@@ -200,7 +201,7 @@ def _render_segments(
 
     fade_params = compute_fade_params(edl)
     segment_files: list[Path] = [
-        output_dir / f"_seg_{i}_{res_label}.ts" for i in range(len(edl.segments))
+        output_dir / f"_seg_{i}_{res_label}.mp4" for i in range(len(edl.segments))
     ]
 
     # Build per-segment FFmpeg commands (must be sequential — graph needs ctx.probe)
@@ -316,9 +317,8 @@ def _concat_and_mix(
     if has_music:
         nomix_path = output_dir / f"reelsmith_v{version}_{res_label}_nomix.mp4"
 
-    # Concat demuxer with TS files.  TS has inline timestamps so the demuxer
-    # adjusts PTS/DTS correctly across segments (unlike MP4 concat which fails
-    # with HEVC B-frames, and unlike TS byte-concat which creates DTS collisions).
+    # Concat demuxer: all segment files share identical codec parameters
+    # (same FFmpeg pipeline), so the demuxer handles PTS/DTS correctly.
     list_path = output_dir / f"_concat_{res_label}.txt"
     with open(list_path, "w") as f:
         for seg_file in segment_files:

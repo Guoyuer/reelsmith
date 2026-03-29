@@ -247,6 +247,17 @@ _assemble_options = [
         "  1.5  high    ~65 Mbps at 4K60\n"
         "  2.0  max     ~87 Mbps at 4K60",
     ),
+    click.option(
+        "--codec",
+        default="auto",
+        type=click.Choice(["auto", "av1", "hevc", "h264"]),
+        help="Video codec.\n\n"
+        "\b\n"
+        "  auto  best available (HEVC preferred)\n"
+        "  av1   AV1 (~30%% smaller than HEVC, needs RTX 40+)\n"
+        "  hevc  HEVC/H.265 (default on GPU)\n"
+        "  h264  H.264 (widest compatibility)",
+    ),
 ]
 
 
@@ -380,6 +391,8 @@ def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
             a = saved["assemble"]
             p["resolution"] = _parse_resolution(None, None, a["resolution"])
             p["quality"] = a["bitrate"]
+            if "codec" in a:
+                p["codec"] = a["codec"]
 
     defaults = _collect_defaults(ctx) if not use_cfg_file else set()
     cli_params = _build_cli_params(
@@ -459,6 +472,7 @@ def full(
     music,
     resolution,
     quality,
+    codec,
 ):
     """Run the full pipeline end-to-end."""
     from pipeline.assemble import AssembleConfig
@@ -491,7 +505,9 @@ def full(
             music_file=music_file,
             force=force,
         ),
-        assemble=AssembleConfig(w=w, h=h, fps=fps, quality=p["quality"]),
+        assemble=AssembleConfig(
+            w=w, h=h, fps=fps, quality=p["quality"], codec=p["codec"]
+        ),
         stages=stages,
         cli_params=cli_params,
         cli_defaults=defaults,
@@ -561,7 +577,7 @@ def plan(
     help="EDL version to render (default: latest)",
 )
 @_apply_options(_assemble_options)
-def assemble(ctx, run_name, use_cfg_file, version, resolution, quality):
+def assemble(ctx, run_name, use_cfg_file, version, resolution, quality, codec):
     """Render video from EDL. Uses latest version unless -v specified."""
     from pipeline.assemble import AssembleConfig
 
@@ -571,7 +587,7 @@ def assemble(ctx, run_name, use_cfg_file, version, resolution, quality):
     _run_pipeline(
         run_name,
         assemble=AssembleConfig(
-            w=w, h=h, fps=fps, quality=p["quality"], version=version
+            w=w, h=h, fps=fps, quality=p["quality"], codec=p["codec"], version=version
         ),
         stages=["assemble"],
         cli_params=cli_params,
