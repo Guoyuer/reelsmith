@@ -35,7 +35,7 @@ reelsmith/
 │   │   ├── _config_io.py      #   Run config save/load (YAML persistence)
 │   │   └── _workspace.py      #   Workspace list/clean commands
 │   ├── utils/                 # Shared utilities
-│   │   ├── image.py           #   gen_thumbnail(), extract_exif() (Pillow)
+│   │   ├── image.py           #   gen_thumbnail() (Pillow)
 │   │   ├── media.py           #   probe_video(), gen_preview(), ffmpeg_cmd() (FFmpeg wrappers)
 │   │   └── parallel.py        #   run_parallel() batched ThreadPoolExecutor
 │   └── prompts/               # External prompt templates (editable without code changes)
@@ -141,6 +141,9 @@ reelsmith assemble -n singapore -r 1080p30
 # Render at 4K60 (output: reelsmith_v1_2160p60.mp4, reuses 1080p clips won't conflict)
 reelsmith assemble -n singapore -r 4k60
 
+# AV1 encoding (~30% smaller files, needs RTX 40+)
+reelsmith assemble -n singapore -r 4k60 --codec av1
+
 # Custom resolution
 reelsmith assemble -n singapore -r 2560x1440x60
 ```
@@ -217,14 +220,14 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 **Input:** EDL JSON + original media files + generated music (if any).
 
 **Phase 1: Render segments** (`_graph.py` builds FFmpeg filter graphs)
-- Per-photo: Ken Burns (crop + lanczos scale with cosine easing) + color grade + optional text overlay → video stream. Audio = `aevalsrc=0` (silence).
+- Per-photo: `loop` filter (decode once, duplicate frames) + Ken Burns (crop + lanczos scale with cosine easing) + color grade + optional text overlay → video stream. Audio = `aevalsrc=0` (silence). HEIC photos decoded natively (no conversion needed).
 - Per-video with `keep_audio=true`: `atrim=start:duration` + `atempo` (if speed≠1.0) + `asetpts` → preserves original audio from trim window.
 - Per-video with `keep_audio=false`: video trimmed + speed-adjusted. Audio = `aevalsrc=0` (silence).
 - All items concat'd with `concat=n=N:v=1:a=1` (audio locked to video).
-- Encoded as AAC 192k + HEVC/H.264. Output: per-segment `.ts` files.
+- Encoded as AAC 192k + AV1/HEVC/H.264 (auto-detected or `--codec` flag). Output: per-segment `.mp4` files.
 
 **Phase 2: Concat + music mix** (`_assemble.py`)
-- TS demuxer concatenation (no re-encode: `-c:v copy -c:a copy`)
+- Concat demuxer concatenation (no re-encode: `-c:v copy -c:a copy`)
 - Music overlay: `sidechaincompress` dynamic ducking + `amix`
   - **Dynamic ducking** — music automatically fades down when speech plays, fades back up when speech stops
   - `sidechaincompress=threshold=0.02:ratio=6:attack=200:release=500` on music, keyed by speech track
@@ -258,7 +261,7 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 | plan | effect field (videos) | _orchestrate.py | Force-overwritten to "none" — prompt should not ask for video effects |
 | plan | display_duration | postprocess | Auto-corrected from trim+speed — Gemini's value is advisory |
 | plan | music_mood | generate_music | Sent directly to Lyria as text prompt |
-| assemble | segment .ts files | concat | Demuxer concat, no re-encode |
+| assemble | segment .mp4 files | concat | Demuxer concat, no re-encode |
 | assemble | keep_audio flag | beat sync | Per-item: keep_audio=true items skip beat snap, others in same segment still eligible |
 
 ## Module structure
@@ -314,11 +317,11 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 ## What's still hard-coded
 
 - **FFmpeg rendering** — parallel segment rendering from EDL (3 NVENC workers, 2 VideoToolbox workers)
-- **Ken Burns effects** — cosine-eased crop + lanczos scale per EDL effect field (photos only; videos use a separate render path)
+- **Ken Burns effects** — cosine-eased crop + lanczos scale per EDL effect field (photos only; videos use a separate render path). Photos decoded once via `loop` filter (not `-loop 1` which re-decodes per frame).
 - **Thumbnail/keyframe generation** — Pillow resize, FFmpeg extraction
 - **Hardware acceleration** — Auto-detected: CUDA (NVIDIA) or VideoToolbox (macOS) for decode; NVENC/VideoToolbox for encode. Falls back to CPU when unavailable.
-- **Codec** — HEVC (hevc_nvenc/hevc_videotoolbox) on GPU, H.264 (libx264) on CPU; auto-detected
-- **Bitrate** — HEVC at 65% of H.264 YouTube rates with `--quality` multiplier
+- **Codec** — `--codec auto|av1|hevc|h264`. Auto prefers HEVC. AV1 (av1_nvenc, RTX 40+) saves ~30% over HEVC. Falls back through software encoders (libsvtav1, libx265, libx264).
+- **Bitrate** — H.264 base rates per resolution, scaled by codec (HEVC ×0.65, AV1 ×0.45) and `--quality` multiplier
 - **Audio ducking** — Dynamic via `sidechaincompress`: music auto-ducks when speech detected, recovers when speech stops. Default music volume 0.40, ducked to ~15% during speech. Tight trims = less music suppression.
 - **Loudness normalization** — Two-pass `loudnorm` (pass 1 measures I/LRA/TP/thresh, pass 2 applies with `linear=true`). Falls back to single-pass if measurement fails.
 - **Color grading** — subtle contrast/saturation boost, temperature shift per segment
@@ -343,17 +346,18 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - Rich progress auto-adapts to terminal capabilities
 - Prepare always recomputes metadata (EXIF + ffprobe are fast); thumbnails and previews are cached
 - FFmpeg subprocesses have a 10-minute timeout for segment renders, 1-minute for concat (prevents hanging on corrupt files)
-- Ken Burns uses cosine easing (ease-in/ease-out) via crop+lanczos; only applies to photos (videos use a separate render path)
+- Ken Burns uses cosine easing (ease-in/ease-out) via crop+lanczos; only applies to photos (videos use a separate render path). Photos use `loop` filter to decode once (~20x faster than `-loop 1` re-decode)
 - `--music auto` uses Gemini Lyria RealTime; `--music /path/to/file` uses custom audio; `--music none` disables music
 - `--lang en|cn|both` controls text language (title, overlays, chapters); cn/both auto-selects CJK font
 - Segment rendering is parallel via `parallel.run_parallel()`: 3 workers for NVENC, 2 for VideoToolbox
-- HEVC auto-detected: hevc_nvenc (Win/Linux) or hevc_videotoolbox (macOS); falls back to H.264 NVENC → libx264
+- Codec auto-detection chain: AV1 (if `--codec av1`) → HEVC (hevc_nvenc/hevc_videotoolbox) → H.264 (h264_nvenc) → libx264. `--codec auto` defaults to HEVC
 - ffprobe results cached per assemble run via RenderContext (dimensions + duration)
 - Text overlays baked into clips via drawtext filter with drop shadow (no separate encode pass)
 - Title card uses first EDL photo as blurred background (fallback: purple gradient)
 - CLI `prepare` = scan + prepare (thumbnails, EXIF, video probing); CLI `plan` = plan + generate_music (when `--music` is not `none`); CLI `assemble` = render. `full` = all stages
 - `--path PATH` is required for `prepare` and `full` commands
 - `--resolution` / `-r` is required for both `full` and `assemble` — no default. Presets: 4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30, or custom WxHxFPS
+- `--codec auto|av1|hevc|h264` — default `auto` (HEVC preferred). AV1 requires RTX 40-series+ or libsvtav1
 - Clips cached per resolution (`seg00_item00_1080p30.mp4`); switching resolution doesn't re-render existing clips
 - Output files include resolution: `reelsmith_v1_1080p30.mp4` — different resolutions coexist
 - `workspace --clean safe|cache|media|all` — `safe` removes old outputs + intermediates only
