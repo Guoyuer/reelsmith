@@ -127,13 +127,13 @@ class TestRenderTitleCardIfNeeded:
                 path.write_bytes(b"\x00" * 100)
 
             m.side_effect = _create
-            result = _render_title_card_if_needed(edl, "intro", path, ctx, "1080p30")
+            result = _render_title_card_if_needed(edl, "intro", path, ctx)
         assert result == path
 
     def test_intro_none_style_returns_none(self, tmp_path, ctx):
         edl = minimal_edl(title="")
         path = tmp_path / "intro.mp4"
-        result = _render_title_card_if_needed(edl, "intro", path, ctx, "1080p30")
+        result = _render_title_card_if_needed(edl, "intro", path, ctx)
         assert result is None
 
     def test_outro_fade_title(self, tmp_path, ctx):
@@ -145,7 +145,7 @@ class TestRenderTitleCardIfNeeded:
                 path.write_bytes(b"\x00" * 100)
 
             m.side_effect = _create
-            result = _render_title_card_if_needed(edl, "outro", path, ctx, "1080p30")
+            result = _render_title_card_if_needed(edl, "outro", path, ctx)
         assert result == path
 
     def test_always_re_renders(self, tmp_path, ctx):
@@ -155,7 +155,7 @@ class TestRenderTitleCardIfNeeded:
         path.write_bytes(b"\x00" * 100)
         with patch("pipeline.assemble._assemble.render_title_card") as m:
             m.side_effect = lambda *a, **kw: path.write_bytes(b"\x00" * 100)
-            _render_title_card_if_needed(edl, "intro", path, ctx, "1080p30")
+            _render_title_card_if_needed(edl, "intro", path, ctx)
             m.assert_called_once()
 
     def test_render_failure_raises(self, tmp_path, ctx):
@@ -164,11 +164,11 @@ class TestRenderTitleCardIfNeeded:
         path = tmp_path / "intro.mp4"
         with patch("pipeline.assemble._assemble.render_title_card"):
             with pytest.raises(RuntimeError, match="title card render failed"):
-                _render_title_card_if_needed(edl, "intro", path, ctx, "1080p30")
+                _render_title_card_if_needed(edl, "intro", path, ctx)
 
     def test_unknown_kind_returns_none(self, tmp_path, ctx):
         edl = minimal_edl(title="My Trip")
         result = _render_title_card_if_needed(
-            edl, "unknown", tmp_path / "x.mp4", ctx, "1080p30"
+            edl, "unknown", tmp_path / "x.mp4", ctx
         )
         assert result is None

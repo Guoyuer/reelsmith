@@ -10,7 +10,7 @@ from .._types import VIDEO_EXTENSIONS
 from ..utils.media import run_subprocess
 from ._encoder import RenderContext
 from ._filters import escape_drawtext, find_font
-from ._graph import _loop_photo
+from ._graph import loop_photo
 
 logger = logging.getLogger("reelsmith.assemble.render")
 
@@ -46,8 +46,6 @@ def render_title_card(
 
     # Decide background: hero photo or gradient fallback
     use_photo_bg = background_photo is not None and Path(background_photo).exists()
-
-    # HEIC works natively with the loop filter (no -loop 1 needed)
 
     if use_photo_bg:
         photo_bg = (
@@ -98,10 +96,10 @@ def render_title_card(
         if is_video:
             # Extract first frame, blur it, then loop for duration
             input_args = ["-i", background_photo]
-            bg_filter = f"select=eq(n\\,0),{photo_bg},{_loop_photo(frames, fps)}"
+            bg_filter = f"select=eq(n\\,0),{photo_bg},{loop_photo(frames, fps)}"
         else:
             input_args = ["-i", background_photo]
-            bg_filter = f"{_loop_photo(frames, fps)},{photo_bg}"
+            bg_filter = f"{loop_photo(frames, fps)},{photo_bg}"
         cmd = [
             "ffmpeg",
             "-y",

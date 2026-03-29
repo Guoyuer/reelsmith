@@ -97,17 +97,12 @@ def build_segment_graph(
     for item_idx, item in enumerate(segment.items):
         fade_in, fade_out = fade_params[item_idx]
         source = Path(item.source_file)
-
-        # HEIC photos work natively with the loop filter (no -loop 1 needed)
-
         idx = len(inputs)
         filter_line = len(filters)
 
         if item.media_type == "photo":
             frames = int(item.display_duration * fps)
             exact_dur = frames / fps
-            # Decode photo once; loop filter duplicates the frame.
-            # This is ~20x faster than -loop 1 which re-decodes per frame.
             inputs.append(["-i", str(source)])
             filters.append(
                 _photo_filter(idx, item, segment, ctx, fade_in, fade_out, language)
@@ -216,7 +211,7 @@ def _silence(duration: float) -> str:
     return f"aevalsrc=0:d={duration}:s={C.SAMPLE_RATE}:c=stereo"
 
 
-def _loop_photo(frames: int, fps: int) -> str:
+def loop_photo(frames: int, fps: int) -> str:
     """Loop a single decoded image frame, with PTS normalization.
 
     The ``loop`` filter decodes once and duplicates the frame buffer (~20x
@@ -246,18 +241,13 @@ def _add_static_card(
 
 
 def _fade_expr(duration: float, fade_in: float, fade_out: float) -> str:
-    """Video normalization: format + SAR + PTS reset + fades + hard trim.
-
-    The trim at the end is CRITICAL — FFmpeg 8 filter_complex ignores
-    input-level -t, so without this, -loop 1 photos produce infinite frames.
-    """
+    """Video normalization: format + SAR + PTS reset + fades + hard trim."""
     parts = ["format=yuv420p", "setsar=1", "setpts=PTS-STARTPTS"]
     if fade_in > 0:
         parts.append(f"fade=t=in:d={fade_in}")
     if fade_out > 0:
         st = max(0, duration - fade_out)
         parts.append(f"fade=t=out:st={st:.3f}:d={fade_out}")
-    # Hard trim ensures finite output (prevents -loop 1 infinite frames)
     parts.append(f"trim=duration={duration:.6f}")
     parts.append("setpts=PTS-STARTPTS")
     return "," + ",".join(parts)
@@ -318,7 +308,7 @@ def _photo_filter(
     ken_burns_vf = ken_burns_filter(frames, w, h, fps, direction=direction)
 
     return (
-        f"[{idx}:v] {_loop_photo(frames, fps)},split [bg{idx}][fg{idx}];"
+        f"[{idx}:v] {loop_photo(frames, fps)},split [bg{idx}][fg{idx}];"
         f"{_blurred_bg(idx, w, h, C.BG_BLUR_SIGMA)},"
         f"{ken_burns_vf},{color_vf}{overlay_vf}{fade} [v{idx}]"
     )
