@@ -401,12 +401,7 @@ def _find_cfg_path(use_cfg_file: str, run_name: str) -> Path:
 def _apply_cfg_sections(
     p: dict, saved: dict, cmd_params: set[str]
 ) -> tuple[list[str], list[str]]:
-    """Apply only the config sections whose fields the command accepts.
-
-    Source and plan sections map 1:1 to CLI param names, so ``p.update()``
-    works directly. Assemble needs special handling for resolution string
-    parsing (preset name → tuple).
-    """
+    """Apply only the config sections whose fields the command accepts."""
     _SECTION_FIELDS = {
         "source": _SOURCE_FIELDS,
         "plan": _PLAN_FIELDS,
@@ -421,12 +416,10 @@ def _apply_cfg_sections(
         if not (fields & cmd_params):
             skipped.append(section)
             continue
-        if section == "assemble":
-            a = saved[section]
-            p["resolution"] = _parse_resolution(None, None, a.pop("resolution"))
-            p.update(a)
-        else:
-            p.update(saved[section])
+        cfg = dict(saved[section])
+        if "resolution" in cfg:
+            cfg["resolution"] = _parse_resolution(None, None, cfg["resolution"])
+        p.update(cfg)
         loaded.append(section)
 
     return loaded, skipped
