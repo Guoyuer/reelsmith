@@ -8,6 +8,9 @@ import click
 
 from ..assemble._encoder import CODEC_CHOICES
 from ._config_io import (
+    _ASSEMBLE_FIELDS,
+    _PLAN_FIELDS,
+    _SOURCE_FIELDS,
     LANG_CHOICES,
     STYLE_CHOICES,
     TRIP_TYPE_CHOICES,
@@ -238,7 +241,6 @@ _assemble_options = [
     ),
     click.option(
         "--bitrate",
-        "quality",
         default=1.0,
         type=float,
         help="Bitrate quality multiplier (default: 1.0).\n\n"
@@ -329,13 +331,11 @@ def _collect_defaults(ctx: click.Context) -> set[str]:
 
 
 def _build_cli_params(**kwargs) -> dict:
-    """Build a cli_params dict, converting resolution tuple and quality key."""
+    """Build a cli_params dict, converting resolution tuple to string."""
     params = {}
     for k, v in kwargs.items():
         if k == "resolution" and isinstance(v, tuple):
             params[k] = _format_resolution(v)
-        elif k == "quality":
-            params["bitrate"] = v
         else:
             params[k] = v
     return params
@@ -344,62 +344,85 @@ def _build_cli_params(**kwargs) -> dict:
 _CFG_SKIP_PARAMS = frozenset({"run_name", "use_cfg_file", "force", "version"})
 
 
-def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
+def _resolve_params(ctx: click.Context) -> tuple[dict, dict | None, set[str]]:
     """Handle --use-cfg-file overrides, build cli_params and defaults.
 
     Resolution order for each parameter:
 
     1. If ``--use-cfg-file`` is set: cfg-file value wins (CLI explicit
        params other than -n/--force raise an error via ``_validate_use_cfg``).
+       Only config sections relevant to the current command are loaded;
+       other sections are skipped with a log message. The config file is
+       never overwritten.
     2. Otherwise: CLI value (explicit or default, tracked via
        ``_collect_defaults``).
 
-    Defaults are annotated in saved ``run_config_*.yaml`` with ``# default``.
-
     Returns *(params, cli_params, defaults)* where *params* is a dict of all
     resolved parameter values (cfg-file overrides applied).
+    *cli_params* is ``None`` when loading from a config file (skip save).
     """
     p = dict(ctx.params)
     use_cfg_file = p.get("use_cfg_file")
 
     if use_cfg_file:
         _validate_use_cfg(ctx)
-        # Resolve path: try as-is first, then workspace/runs/{name}/
-        cfg_path = Path(use_cfg_file)
-        if not cfg_path.exists():
-            run_dir = Path("workspace/runs") / p.get("run_name", "") / use_cfg_file
-            if run_dir.exists():
-                cfg_path = run_dir
-            else:
-                raise click.BadParameter(
-                    f"File not found: '{use_cfg_file}' (also checked {run_dir})",
-                    param_hint="'--use-cfg-file'",
-                )
+        cfg_path = _find_cfg_path(use_cfg_file, p.get("run_name", ""))
         saved = load_run_config(str(cfg_path))
-        if "source" in saved and "path" in p:
-            p["path"] = saved["source"]["path"]
-        if "plan" in saved and "duration" in p:
-            pl = saved["plan"]
-            p["duration"] = pl["duration"]
-            p["model"] = pl["model"]
-            p["lang"] = pl["lang"]
-            p["trip_type"] = pl["trip_type"]
-            p["style"] = pl["style"]
-            p["focus"] = pl["focus"]
-            p["instruct"] = pl["instruct"]
-            p["music"] = pl["music"]
-        if "assemble" in saved and "resolution" in p:
-            a = saved["assemble"]
-            p["resolution"] = _parse_resolution(None, None, a["resolution"])
-            p["quality"] = a["bitrate"]
-            if "codec" in a:
-                p["codec"] = a["codec"]
 
-    defaults = _collect_defaults(ctx) if not use_cfg_file else set()
+        cmd_params = {pr.name for pr in ctx.command.params if pr.name}
+        loaded, skipped = _apply_cfg_sections(p, saved, cmd_params)
+
+        click.echo(
+            f"Config: {cfg_path.name} — loaded [{', '.join(loaded)}]"
+            + (f", skipped [{', '.join(skipped)}]" if skipped else "")
+        )
+        return p, None, set()
+
     cli_params = _build_cli_params(
         **{k: v for k, v in p.items() if k not in _CFG_SKIP_PARAMS}
     )
-    return p, cli_params, defaults
+    return p, cli_params, _collect_defaults(ctx)
+
+
+def _find_cfg_path(use_cfg_file: str, run_name: str) -> Path:
+    """Resolve --use-cfg-file to an existing path."""
+    cfg_path = Path(use_cfg_file)
+    if cfg_path.exists():
+        return cfg_path
+    run_dir = Path("workspace/runs") / run_name / use_cfg_file
+    if run_dir.exists():
+        return run_dir
+    raise click.BadParameter(
+        f"File not found: '{use_cfg_file}' (also checked {run_dir})",
+        param_hint="'--use-cfg-file'",
+    )
+
+
+def _apply_cfg_sections(
+    p: dict, saved: dict, cmd_params: set[str]
+) -> tuple[list[str], list[str]]:
+    """Apply only the config sections whose fields the command accepts."""
+    _SECTION_FIELDS = {
+        "source": _SOURCE_FIELDS,
+        "plan": _PLAN_FIELDS,
+        "assemble": _ASSEMBLE_FIELDS,
+    }
+    loaded: list[str] = []
+    skipped: list[str] = []
+
+    for section, fields in _SECTION_FIELDS.items():
+        if section not in saved:
+            continue
+        if not (fields & cmd_params):
+            skipped.append(section)
+            continue
+        cfg = dict(saved[section])
+        if "resolution" in cfg:
+            cfg["resolution"] = _parse_resolution(None, None, cfg["resolution"])
+        p.update(cfg)
+        loaded.append(section)
+
+    return loaded, skipped
 
 
 # ---------------------------------------------------------------------------
@@ -472,7 +495,7 @@ def full(
     model,
     music,
     resolution,
-    quality,
+    bitrate,
     codec,
 ):
     """Run the full pipeline end-to-end."""
@@ -507,7 +530,7 @@ def full(
             force=force,
         ),
         assemble=AssembleConfig(
-            w=w, h=h, fps=fps, quality=p["quality"], codec=p["codec"]
+            w=w, h=h, fps=fps, bitrate=p["bitrate"], codec=p["codec"]
         ),
         stages=stages,
         cli_params=cli_params,
@@ -578,7 +601,7 @@ def plan(
     help="EDL version to render (default: latest)",
 )
 @_apply_options(_assemble_options)
-def assemble(ctx, run_name, use_cfg_file, version, resolution, quality, codec):
+def assemble(ctx, run_name, use_cfg_file, version, resolution, bitrate, codec):
     """Render video from EDL. Uses latest version unless -v specified."""
     from pipeline.assemble import AssembleConfig
 
@@ -588,7 +611,7 @@ def assemble(ctx, run_name, use_cfg_file, version, resolution, quality, codec):
     _run_pipeline(
         run_name,
         assemble=AssembleConfig(
-            w=w, h=h, fps=fps, quality=p["quality"], codec=p["codec"], version=version
+            w=w, h=h, fps=fps, bitrate=p["bitrate"], codec=p["codec"], version=version
         ),
         stages=["assemble"],
         cli_params=cli_params,
