@@ -344,7 +344,7 @@ def _build_cli_params(**kwargs) -> dict:
 _CFG_SKIP_PARAMS = frozenset({"run_name", "use_cfg_file", "force", "version"})
 
 
-def _resolve_params(ctx: click.Context) -> tuple[dict, dict | None, set[str]]:
+def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
     """Handle --use-cfg-file overrides, build cli_params and defaults.
 
     Resolution order for each parameter:
@@ -352,14 +352,12 @@ def _resolve_params(ctx: click.Context) -> tuple[dict, dict | None, set[str]]:
     1. If ``--use-cfg-file`` is set: cfg-file value wins (CLI explicit
        params other than -n/--force raise an error via ``_validate_use_cfg``).
        Only config sections relevant to the current command are loaded;
-       other sections are skipped with a log message. The config file is
-       never overwritten.
+       other sections are skipped with a log message. A new config is
+       saved containing only the loaded subset.
     2. Otherwise: CLI value (explicit or default, tracked via
        ``_collect_defaults``).
 
-    Returns *(params, cli_params, defaults)* where *params* is a dict of all
-    resolved parameter values (cfg-file overrides applied).
-    *cli_params* is ``None`` when loading from a config file (skip save).
+    Returns *(params, cli_params, defaults)*.
     """
     p = dict(ctx.params)
     use_cfg_file = p.get("use_cfg_file")
@@ -376,12 +374,12 @@ def _resolve_params(ctx: click.Context) -> tuple[dict, dict | None, set[str]]:
             f"Config: {cfg_path.name} — loaded [{', '.join(loaded)}]"
             + (f", skipped [{', '.join(skipped)}]" if skipped else "")
         )
-        return p, None, set()
 
     cli_params = _build_cli_params(
         **{k: v for k, v in p.items() if k not in _CFG_SKIP_PARAMS}
     )
-    return p, cli_params, _collect_defaults(ctx)
+    defaults = set() if use_cfg_file else _collect_defaults(ctx)
+    return p, cli_params, defaults
 
 
 def _find_cfg_path(use_cfg_file: str, run_name: str) -> Path:
