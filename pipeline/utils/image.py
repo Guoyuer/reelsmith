@@ -43,12 +43,16 @@ def decode_heic_for_filter(source: Path) -> tuple[Path, bool]:
     if decoded.exists():
         return decoded, True
 
-    result = run_subprocess(
-        ["ffmpeg", "-y", "-i", str(source), "-q:v", "2", str(decoded)],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    try:
+        result = run_subprocess(
+            ["ffmpeg", "-y", "-i", str(source), "-q:v", "2", str(decoded)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except FileNotFoundError:
+        logger.warning("ffmpeg not found, skipping HEIC decode for %s", source.name)
+        return source, False
     if result.returncode != 0 or not decoded.exists():
         logger.warning(
             "HEIC decode failed for %s: %s", source.name, result.stderr[-200:]
