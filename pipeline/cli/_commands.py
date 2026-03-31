@@ -404,8 +404,8 @@ def _apply_cfg_sections(
     """Apply only the config sections whose fields the command accepts.
 
     Source and plan sections map 1:1 to CLI param names, so ``p.update()``
-    works directly. Assemble needs special handling for resolution parsing
-    and resolution parsing.
+    works directly. Assemble needs special handling for resolution string
+    parsing (preset name → tuple).
     """
     _SECTION_FIELDS = {
         "source": _SOURCE_FIELDS,
