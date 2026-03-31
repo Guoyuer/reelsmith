@@ -96,10 +96,6 @@ reelsmith assemble -n trip -r 4k60
 
 Run `reelsmith full --help` for all options.
 
-## Architecture
-
-See [docs/architecture.md](docs/architecture.md) for the full data flow diagram — inputs, caches, EDL, and render artifact paths across all 4 stages.
-
 ## How It Works
 
 ```
@@ -146,6 +142,17 @@ pytest -m integration        # FFmpeg integration tests
 ```
 
 Pre-commit hooks: `ruff check --fix`, `ruff format`, `pytest`.
+
+## Project History
+
+This project evolved through 5 phases over 11 days (743 commits). The short version:
+started with 6 local AI models (Ollama, Whisper, OpenCV, MusicGen) + Dagster
+orchestration, then systematically removed every component that Gemini could replace
+better. Each removal improved output quality. The current design is a single Python
+process with one Gemini API call for planning — smaller than the original codebase
+despite producing better results.
+
+Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
