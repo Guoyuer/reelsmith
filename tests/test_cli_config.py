@@ -179,7 +179,7 @@ class TestFullSavesConfig:
     def test_cli_params_bitrate(self, runner):
         c = _capture_cli_params(runner, _FULL_BASE + ["--bitrate", "2.0"])
         assert c["cli_params"]["bitrate"] == 2.0
-        assert "quality" not in c["cli_defaults"]
+        assert "bitrate" not in c["cli_defaults"]
 
     def test_cli_params_custom_resolution(self, runner):
         c = _capture_cli_params(runner, _FULL_BASE + ["-r", "2560x1440x60"])
@@ -201,7 +201,7 @@ class TestAssembleSavesConfig:
     def test_cli_params_passed(self, runner):
         c = _capture_cli_params(runner, ["assemble", "-n", "test", "-r", "4k60"])
         assert c["cli_params"]["resolution"] == "4k60"
-        assert "quality" in c["cli_defaults"]
+        assert "bitrate" in c["cli_defaults"]
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +255,7 @@ assemble:
             ),
             (
                 ["assemble", "-n", "test", "--use-cfg-file"],
-                lambda c: c["assemble"].w == 3840 and c["assemble"].quality == 1.5,
+                lambda c: c["assemble"].w == 3840 and c["assemble"].bitrate == 1.5,
             ),
         ],
         ids=["full", "plan", "assemble"],

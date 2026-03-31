@@ -21,22 +21,22 @@ logger = logging.getLogger("reelsmith.assemble.encoder")
 # ---------------------------------------------------------------------------
 
 
-def target_bitrate(width: int, height: int, fps: int, quality: float = 1.0) -> str:
-    """Calculate target video bitrate based on resolution, fps, and quality."""
+def target_bitrate(width: int, height: int, fps: int, bitrate: float = 1.0) -> str:
+    """Calculate target video bitrate based on resolution, fps, and multiplier."""
     pixels = width * height
     base = next(mbps for threshold, mbps in C.BITRATE_TIERS if pixels >= threshold)
 
     if fps > 30:
         base = int(base * C.HFR_MULTIPLIER)
-    base = int(base * quality)
+    base = int(base * bitrate)
     return f"{max(base, 1)}M"
 
 
 def _bitrate_for_codec(
-    codec_family: str, width: int, height: int, fps: int, quality: float
+    codec_family: str, width: int, height: int, fps: int, bitrate: float
 ) -> str:
     """Calculate target bitrate scaled by codec efficiency."""
-    h264_br = target_bitrate(width, height, fps, quality)
+    h264_br = target_bitrate(width, height, fps, bitrate)
     h264_mbps = int(h264_br.rstrip("M"))
     if codec_family == "av1":
         return f"{max(int(h264_mbps * C.AV1_RATIO), 1)}M"
@@ -53,7 +53,7 @@ def detect_hw_encoder(
     width: int = 3840,
     height: int = 2160,
     fps: int = 60,
-    quality: float = 1.0,
+    bitrate: float = 1.0,
     codec: str = "auto",
 ) -> list[str]:
     """Detect best hardware encoder, optionally constrained by *codec*.
@@ -141,7 +141,7 @@ def detect_hw_encoder(
 
     tried: list[str] = []
     for family in search_order:
-        br = _bitrate_for_codec(family, width, height, fps, quality)
+        br = _bitrate_for_codec(family, width, height, fps, bitrate)
         # Try hardware encoders
         for enc_name, args_fn in candidates.get(family, []):
             tried.append(enc_name)
@@ -157,7 +157,7 @@ def detect_hw_encoder(
                 return args_fn(enc_name, br)
 
     # Ultimate fallback: libx264
-    h264_br = _bitrate_for_codec("h264", width, height, fps, quality)
+    h264_br = _bitrate_for_codec("h264", width, height, fps, bitrate)
     logger.warning(
         "No encoder found (tried %s), falling back to libx264", ", ".join(tried)
     )
@@ -212,7 +212,7 @@ class RenderContext:
     w: int
     h: int
     fps: int
-    quality: float = 1.0
+    bitrate: float = 1.0
     codec: str = "auto"
     _encoder_cache: dict[tuple, list[str]] = field(default_factory=dict)
     _hwaccel: list[str] | None = field(default=None, repr=False)
@@ -244,10 +244,10 @@ class RenderContext:
         w = width or self.w
         h = height or self.h
         f = fps or self.fps
-        key = (w, h, f, self.quality, self.codec)
+        key = (w, h, f, self.bitrate, self.codec)
         if key not in self._encoder_cache:
             self._encoder_cache[key] = detect_hw_encoder(
-                w, h, f, self.quality, codec=self.codec
+                w, h, f, self.bitrate, codec=self.codec
             )
         return self._encoder_cache[key]
 

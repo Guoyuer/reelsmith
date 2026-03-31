@@ -196,8 +196,8 @@ class TestFullCommandWiring:
     @pytest.mark.parametrize(
         "extra_args, field, expected",
         [
-            (["--bitrate", "2.0"], "quality", 2.0),
-            ([], "quality", 1.0),
+            (["--bitrate", "2.0"], "bitrate", 2.0),
+            ([], "bitrate", 1.0),
         ],
         ids=["explicit_bitrate", "default_bitrate"],
     )
@@ -254,14 +254,14 @@ class TestAssembleCommandWiring:
         assert c["assemble"].w == 1280
         assert c["assemble"].h == 720
         assert c["assemble"].fps == 30
-        assert c["assemble"].quality == 1.0
+        assert c["assemble"].bitrate == 1.0
 
     def test_assemble_with_bitrate(self, runner):
         c = _capture_pipeline_call(
             ["assemble", "-n", "test", "-r", "4k60", "--bitrate", "1.5"],
             runner,
         )
-        assert c["assemble"].quality == 1.5
+        assert c["assemble"].bitrate == 1.5
 
 
 # ---------------------------------------------------------------------------

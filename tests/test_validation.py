@@ -28,8 +28,8 @@ class TestAssembleConfigValidation:
             ({"w": 1920, "h": 1081, "fps": 30}, "must be even"),
             ({"w": 1920, "h": 1080, "fps": 0}, "Invalid fps"),
             ({"w": 1920, "h": 1080, "fps": 121}, "Invalid fps"),
-            ({"w": 1920, "h": 1080, "fps": 30, "quality": 0}, "Invalid quality"),
-            ({"w": 1920, "h": 1080, "fps": 30, "quality": 6.0}, "Invalid quality"),
+            ({"w": 1920, "h": 1080, "fps": 30, "bitrate": 0}, "Invalid bitrate"),
+            ({"w": 1920, "h": 1080, "fps": 30, "bitrate": 6.0}, "Invalid bitrate"),
         ],
         ids=[
             "zero_width",
@@ -38,8 +38,8 @@ class TestAssembleConfigValidation:
             "odd_height",
             "zero_fps",
             "fps_over_120",
-            "zero_quality",
-            "quality_over_5",
+            "zero_bitrate",
+            "bitrate_over_5",
         ],
     )
     def test_invalid_raises(self, kwargs, match):
