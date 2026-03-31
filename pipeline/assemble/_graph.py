@@ -31,6 +31,7 @@ from pathlib import Path
 
 from .. import constants as C
 from ..edl import EDL, EditItem, Segment
+from ..utils.image import decode_heic_for_filter
 from ._encoder import RenderContext
 from ._filters import (
     color_grade,
@@ -59,6 +60,8 @@ class SegmentGraph:
     script: str
     # item_idx → (input_idx, source_name, filter_line_start) for error mapping
     item_map: list[tuple[int, str, int]] = dataclasses.field(default_factory=list)
+    # Temp files created by HEIC decode — caller must clean up
+    temp_files: list[Path] = dataclasses.field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +97,7 @@ def build_segment_graph(
         )
 
     # --- Content items ---
+    temp_files: list[Path] = []
     for item_idx, item in enumerate(segment.items):
         fade_in, fade_out = fade_params[item_idx]
         source = Path(item.source_file)
@@ -103,7 +107,10 @@ def build_segment_graph(
         if item.media_type == "photo":
             frames = int(item.display_duration * fps)
             exact_dur = frames / fps
-            inputs.append(["-i", str(source)])
+            decoded, was_temp = decode_heic_for_filter(source)
+            if was_temp:
+                temp_files.append(decoded)
+            inputs.append(["-i", str(decoded)])
             filters.append(
                 _photo_filter(idx, item, segment, ctx, fade_in, fade_out, language)
             )
@@ -150,6 +157,7 @@ def build_segment_graph(
         inputs=inputs,
         script=";\n".join(filters),
         item_map=item_map,
+        temp_files=temp_files,
     )
 
 

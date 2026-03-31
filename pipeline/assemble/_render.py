@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .. import constants as C
 from .._types import VIDEO_EXTENSIONS
+from ..utils.image import decode_heic_for_filter
 from ..utils.media import run_subprocess
 from ._encoder import RenderContext
 from ._filters import escape_drawtext, find_font
@@ -89,9 +90,15 @@ def render_title_card(
 
     fade = f",fade=t=in:d={C.FADE_IN_DURATION},fade=t=out:st={duration - C.FADE_OUT_DURATION}:d={C.FADE_OUT_DURATION}"
 
+    heic_temp: Path | None = None
     if use_photo_bg and background_photo is not None:
         bg_path = Path(background_photo)
         is_video = bg_path.suffix.lower() in VIDEO_EXTENSIONS
+        if not is_video:
+            decoded, was_temp = decode_heic_for_filter(bg_path)
+            if was_temp:
+                heic_temp = decoded
+                background_photo = str(decoded)
         frames = int(duration * fps)
         if is_video:
             # Extract first frame, blur it, then loop for duration
@@ -121,5 +128,7 @@ def render_title_card(
             str(output_path),
         ]
     result = run_subprocess(cmd, capture_output=True, text=True)
+    if heic_temp is not None:
+        heic_temp.unlink(missing_ok=True)
     if result.returncode != 0:
         raise RuntimeError(f"Title card render failed: {result.stderr}")

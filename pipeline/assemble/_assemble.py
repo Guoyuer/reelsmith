@@ -270,6 +270,11 @@ def _render_segments(
         dur = ctx.probe_duration(segment_files[seg_idx]) or 0.0
         logger.info("  Segment %d: %.1fs", seg_idx, dur)
 
+    # Clean up HEIC decode temp files
+    for graph in segment_graphs:
+        for tmp in graph.temp_files:
+            tmp.unlink(missing_ok=True)
+
     t_phase1 = time.monotonic() - t_start
     logger.info("Phase 1: %.0fs (%d segments)", t_phase1, len(segment_files))
 
