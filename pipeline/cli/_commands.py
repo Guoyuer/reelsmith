@@ -344,7 +344,7 @@ def _build_cli_params(**kwargs) -> dict:
 _CFG_SKIP_PARAMS = frozenset({"run_name", "use_cfg_file", "force", "version"})
 
 
-def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
+def _resolve_params(ctx: click.Context) -> tuple[dict, dict | None, set[str]]:
     """Handle --use-cfg-file overrides, build cli_params and defaults.
 
     Resolution order for each parameter:
