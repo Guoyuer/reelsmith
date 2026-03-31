@@ -13,10 +13,10 @@ from pipeline.assemble._encoder import RenderContext, target_bitrate
 
 class TestRenderContext:
     def test_new_context_has_empty_caches(self):
-        ctx1 = RenderContext(w=1920, h=1080, fps=30, quality=0.5)
+        ctx1 = RenderContext(w=1920, h=1080, fps=30, bitrate=0.5)
         ctx1._dim_cache["test"] = (100, 100)
-        ctx2 = RenderContext(w=1920, h=1080, fps=30, quality=1.0)
-        assert ctx2.quality == 1.0
+        ctx2 = RenderContext(w=1920, h=1080, fps=30, bitrate=1.0)
+        assert ctx2.bitrate == 1.0
         assert "test" not in ctx2._dim_cache
 
     def test_probe_dimensions_caches(self):
@@ -69,7 +69,7 @@ class TestRenderContext:
 
 class TestTargetBitrate:
     @pytest.mark.parametrize(
-        "w, h, fps, quality, expected",
+        "w, h, fps, bitrate, expected",
         [
             (3840, 2160, 30, 1.0, "45M"),
             (3840, 2160, 60, 1.0, "67M"),
@@ -79,5 +79,5 @@ class TestTargetBitrate:
             (320, 180, 24, 1.0, "3M"),
         ],
     )
-    def test_bitrate_calculation(self, w, h, fps, quality, expected):
-        assert target_bitrate(w, h, fps, quality) == expected
+    def test_bitrate_calculation(self, w, h, fps, bitrate, expected):
+        assert target_bitrate(w, h, fps, bitrate) == expected

@@ -444,7 +444,7 @@ class TestAssembleE2E:
             "style": "upbeat",
             "date_range": "June 2025",
             "language": "cn",
-            "quality": 0.5,
+            "bitrate": 0.5,
         }
         errors = validate_edl(edl)
         assert errors == [], f"EDL validation failed: {errors}"

@@ -28,7 +28,7 @@ class AssembleConfig:
     w: int
     h: int
     fps: int
-    quality: float = 1.0
+    bitrate: float = 1.0
     codec: str = "auto"
     version: int | None = None
 
@@ -39,8 +39,8 @@ class AssembleConfig:
             raise ValueError(f"Resolution must be even: {self.w}x{self.h}")
         if self.fps <= 0 or self.fps > 120:
             raise ValueError(f"Invalid fps: {self.fps}")
-        if self.quality <= 0 or self.quality > 5:
-            raise ValueError(f"Invalid quality: {self.quality}")
+        if self.bitrate <= 0 or self.bitrate > 5:
+            raise ValueError(f"Invalid bitrate: {self.bitrate}")
 
 
 def assemble(
@@ -72,7 +72,7 @@ def assemble(
         edl.estimated_duration(),
     )
 
-    ctx = RenderContext(w=ac.w, h=ac.h, fps=ac.fps, quality=ac.quality, codec=ac.codec)
+    ctx = RenderContext(w=ac.w, h=ac.h, fps=ac.fps, bitrate=ac.bitrate, codec=ac.codec)
     res_label = f"{ac.h}p{ac.fps}"
     output_path = cfg.output_dir / f"reelsmith_v{version}_{res_label}.mp4"
 

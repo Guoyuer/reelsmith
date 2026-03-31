@@ -248,11 +248,11 @@ def _run_pipeline(
         )
     if assemble:
         logger.debug(
-            "  Assemble: %dx%d@%d quality=%s",
+            "  Assemble: %dx%d@%d bitrate=%s",
             assemble.w,
             assemble.h,
             assemble.fps,
-            assemble.quality,
+            assemble.bitrate,
         )
     if prepare:
         logger.debug("  Prepare: force=%s", prepare.force)
