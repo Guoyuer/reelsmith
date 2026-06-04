@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import bisect
+import json
 import logging
 import math
 import struct as _struct
@@ -200,19 +201,103 @@ def beat_snap_edl(edl: EDL, music_path: Path) -> int:
     return snapped
 
 
+def _segment_boundaries(edl: EDL, segment_durations: list[float]) -> list[float]:
+    """Final-video time boundaries of each segment, in seconds.
+
+    Returns ``len(segments) + 1`` offsets: ``boundaries[i]`` is segment *i*'s
+    start (intro + cumulative length of preceding segments), and the final
+    entry is the end of the last segment (before any outro). Segment lengths
+    come from the probed rendered durations, falling back to the sum of the
+    segment's item ``display_duration`` when a probed value is unavailable.
+
+    This is the single source of truth for the timeline shared by
+    ``write_chapters`` (per-segment) and ``write_cue_sheet`` (per-item), so the
+    two artifacts agree on segment boundaries exactly.
+    """
+    boundaries: list[float] = []
+    offset = edl.intro_duration
+    for seg_idx, seg in enumerate(edl.segments):
+        boundaries.append(offset)
+        if seg_idx < len(segment_durations):
+            offset += segment_durations[seg_idx]
+        else:
+            offset += sum(it.display_duration for it in seg.items)
+    boundaries.append(offset)
+    return boundaries
+
+
 def write_chapters(edl: EDL, segment_durations: list[float], out_path: Path) -> None:
     """Write YouTube-compatible chapter markers from EDL segments.
 
     segment_durations: probed duration of each rendered segment file.
     """
-    offset = edl.intro_duration
+    boundaries = _segment_boundaries(edl, segment_durations)
     lines = []
     for seg_idx, seg in enumerate(edl.segments):
+        offset = boundaries[seg_idx]
         minutes = int(offset) // 60
         seconds = int(offset) % 60
         lines.append(f"{minutes}:{seconds:02d} {seg.name}")
-        if seg_idx < len(segment_durations):
-            offset += segment_durations[seg_idx]
 
     out_path.write_text("\n".join(lines))
     logger.info("YouTube chapters: %s (%d chapters)", out_path.name, len(lines))
+
+
+def write_cue_sheet(edl: EDL, segment_durations: list[float], out_path: Path) -> None:
+    """Write a per-item timeline manifest mapping final-video seconds → source files.
+
+    Unlike YouTube chapters (per-segment), this records every item's exact
+    [record_in, record_out) window in the *final* video, so any timestamp can be
+    mapped back to its source clip + trim points. Coverage is contiguous: each
+    item's record_out is the next item's record_in, and the last item of each
+    segment is anchored to the probed segment boundary (matches the chapters
+    file exactly, absorbing any rounding drift).
+
+    Assumes beat sync already ran — item.display_duration values are final.
+
+    segment_durations: probed duration of each rendered segment file (ground
+    truth for segment boundaries).
+    """
+    boundaries = _segment_boundaries(edl, segment_durations)
+    items: list[dict] = []
+    global_idx = 0
+
+    for seg_idx, seg in enumerate(edl.segments):
+        seg_start = boundaries[seg_idx]
+        seg_end = boundaries[seg_idx + 1]
+
+        local = seg_start
+        last = len(seg.items) - 1
+        for i, item in enumerate(seg.items):
+            record_out = seg_end if i == last else local + item.display_duration
+            items.append(
+                {
+                    "index": global_idx,
+                    "segment_index": seg_idx,
+                    "segment_name": seg.name,
+                    "record_in": round(local, 3),
+                    "record_out": round(record_out, 3),
+                    "source_file": item.source_file,
+                    "media_type": item.media_type,
+                    "trim_start": item.start_time,
+                    "trim_end": item.end_time,
+                    "playback_speed": item.playback_speed,
+                    "keep_audio": item.keep_audio,
+                    "display_duration": item.display_duration,
+                    "text_overlay": item.text_overlay.text
+                    if item.text_overlay
+                    else None,
+                }
+            )
+            local += item.display_duration
+            global_idx += 1
+
+    data = {
+        "title": edl.title,
+        "intro_duration": edl.intro_duration,
+        "outro_duration": edl.outro_duration,
+        "total_duration": round(boundaries[-1] + edl.outro_duration, 3),
+        "items": items,
+    }
+    out_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    logger.info("Cue sheet: %s (%d items)", out_path.name, len(items))
