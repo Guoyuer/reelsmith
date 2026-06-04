@@ -228,6 +228,7 @@ class RenderContext:
 
     _dim_cache: dict[str, tuple[int, int]] = field(default_factory=dict)
     _dur_cache: dict[str, float] = field(default_factory=dict)
+    _trc_cache: dict[str, str] = field(default_factory=dict)
 
     @property
     def hwaccel_args(self) -> list[str]:
@@ -304,3 +305,34 @@ class RenderContext:
         duration = _probe_duration_uncached(path)
         self._dur_cache[key] = duration
         return duration
+
+    def probe_color_transfer(self, path: Path) -> str:
+        """Return the video's color_transfer (e.g. 'smpte2084', 'arib-std-b67',
+        'bt709'), or '' if unknown. Cached per source path.
+
+        Used to decide HDR→SDR tone-mapping: HDR clips report a PQ
+        (``smpte2084``) or HLG (``arib-std-b67``) transfer; SDR clips report
+        ``bt709`` / ``bt470bg`` / unknown.
+        """
+        key = str(path)
+        if key in self._trc_cache:
+            return self._trc_cache[key]
+        result = run_subprocess(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=color_transfer",
+                "-of",
+                "default=nw=1:nk=1",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        trc = (result.stdout or "").strip().split("\n")[0].strip()
+        self._trc_cache[key] = trc
+        return trc

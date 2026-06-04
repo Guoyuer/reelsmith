@@ -5,8 +5,36 @@ from __future__ import annotations
 from pipeline.assemble._filters import (
     color_grade,
     escape_drawtext,
+    hdr_to_sdr_filter,
+    is_hdr_transfer,
     ken_burns_filter,
 )
+
+
+class TestHdrToSdr:
+    def test_pq_is_hdr(self):
+        assert is_hdr_transfer("smpte2084")
+
+    def test_hlg_is_hdr(self):
+        assert is_hdr_transfer("arib-std-b67")
+
+    def test_sdr_not_hdr(self):
+        assert not is_hdr_transfer("bt709")
+        assert not is_hdr_transfer("")
+
+    def test_pq_filter_builds_tonemap(self):
+        vf = hdr_to_sdr_filter("smpte2084")
+        assert "zscale" in vf and "tonemap" in vf
+        assert "bt709" in vf
+
+    def test_hlg_filter_builds_tonemap(self):
+        # HLG (DJI) must tone-map too — one chain handles both via zscale.
+        assert "tonemap" in hdr_to_sdr_filter("arib-std-b67")
+
+    def test_sdr_returns_empty(self):
+        # SDR clips must pass through untouched (no tone-map).
+        assert hdr_to_sdr_filter("bt709") == ""
+        assert hdr_to_sdr_filter("") == ""
 
 
 class TestEscapeDrawtext:

@@ -12,6 +12,36 @@ logger = logging.getLogger("reelsmith.assemble.filters")
 
 _VALID_COLOR_TEMPS = {"neutral", "warm", "cool"}
 
+# HDR transfer characteristics that require tone-mapping to SDR. PQ (HDR10) and
+# HLG cover essentially all consumer HDR capture (phones = PQ, DJI = HLG).
+_HDR_TRANSFERS = {"smpte2084", "arib-std-b67"}
+
+
+def is_hdr_transfer(color_transfer: str) -> bool:
+    """True if the clip's color_transfer needs HDR→SDR tone-mapping."""
+    return color_transfer.strip().lower() in _HDR_TRANSFERS
+
+
+def hdr_to_sdr_filter(color_transfer: str) -> str:
+    """Build an HDR→SDR tone-map chain, or '' for SDR input.
+
+    Source clips are often BT.2020 10-bit HDR (phones in PQ/``smpte2084``,
+    DJI drones in HLG/``arib-std-b67``). Squeezing those into 8-bit BT.709
+    SDR without conversion makes the output too bright (HDR luminance not
+    mapped down) and oversaturated (BT.2020 gamut shown as BT.709). zscale
+    reads the input transfer from stream metadata, so one chain handles both
+    PQ and HLG: linearize → convert primaries to BT.709 → Hable tone-map →
+    re-encode as BT.709 SDR.
+    """
+    if not is_hdr_transfer(color_transfer):
+        return ""
+    return (
+        "zscale=transfer=linear:npl=100,format=gbrpf32le,"
+        "zscale=primaries=bt709,"
+        "tonemap=tonemap=hable:desat=0,"
+        "zscale=transfer=bt709:matrix=bt709:range=limited"
+    )
+
 
 def escape_drawtext(text: str) -> str:
     """Escape text for FFmpeg drawtext filter (handles : [ ] = ' \\)."""
