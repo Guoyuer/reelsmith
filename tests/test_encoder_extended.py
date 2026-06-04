@@ -149,6 +149,14 @@ class TestRenderContextEdgeCases:
         assert enc1 == enc2
         mock_detect.assert_called_once()
 
+    def test_color_transfer_probe_missing_ffprobe_returns_unknown(self):
+        ctx = RenderContext(w=1920, h=1080, fps=30)
+        with patch(
+            "pipeline.assemble._encoder.run_subprocess",
+            side_effect=OSError("ffprobe not found"),
+        ):
+            assert ctx.probe_color_transfer(Path("/fake.mp4")) == ""
+
 
 class TestCodecSelection:
     """Tests for the --codec parameter in detect_hw_encoder."""

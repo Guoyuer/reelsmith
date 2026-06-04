@@ -365,22 +365,26 @@ class RenderContext:
         key = str(path)
         if key in self._trc_cache:
             return self._trc_cache[key]
-        result = run_subprocess(
-            [
-                "ffprobe",
-                "-v",
-                "error",
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "stream=color_transfer",
-                "-of",
-                "default=nw=1:nk=1",
-                str(path),
-            ],
-            capture_output=True,
-            text=True,
-        )
-        trc = (result.stdout or "").strip().split("\n")[0].strip()
+        try:
+            result = run_subprocess(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "v:0",
+                    "-show_entries",
+                    "stream=color_transfer",
+                    "-of",
+                    "default=nw=1:nk=1",
+                    str(path),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            trc = (result.stdout or "").strip().split("\n")[0].strip()
+        except (OSError, subprocess.SubprocessError):
+            logger.debug("Could not probe color transfer for %s", path, exc_info=True)
+            trc = ""
         self._trc_cache[key] = trc
         return trc
