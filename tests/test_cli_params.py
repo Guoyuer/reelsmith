@@ -22,8 +22,8 @@ class TestResolvePlanning:
     @pytest.mark.parametrize(
         "input_str, expected_model, expected_thinking",
         [
-            ("fast", "gemini-3.1-flash-lite-preview", "LOW"),
-            ("balanced", "gemini-3-flash-preview", "HIGH"),
+            ("fast", "gemini-3.1-flash-lite", "LOW"),
+            ("balanced", "gemini-3.5-flash", "HIGH"),
             ("quality", "gemini-3.1-pro-preview", "HIGH"),
             ("gemini-2.5-flash", "gemini-2.5-flash", "HIGH"),
             ("gemini-2.5-flash:low", "gemini-2.5-flash", "LOW"),
@@ -140,9 +140,9 @@ class TestFullCommandWiring:
     @pytest.mark.parametrize(
         "model_flag, expected_model, expected_thinking",
         [
-            (None, "gemini-3-flash-preview", "HIGH"),  # default: balanced
+            (None, "gemini-3.5-flash", "HIGH"),  # default: balanced
             ("quality", "gemini-3.1-pro-preview", "HIGH"),
-            ("fast", "gemini-3.1-flash-lite-preview", "LOW"),
+            ("fast", "gemini-3.1-flash-lite", "LOW"),
             ("gemini-2.5-flash:medium", "gemini-2.5-flash", "MEDIUM"),
         ],
         ids=["balanced_default", "quality", "fast", "custom_model"],
@@ -235,7 +235,7 @@ class TestPlanCommandWiring:
             ["plan", "-n", "test", "--duration", "120", "--model", "fast"],
             runner,
         )
-        assert c["plan"].model == "gemini-3.1-flash-lite-preview"
+        assert c["plan"].model == "gemini-3.1-flash-lite"
         assert c["plan"].thinking_level == "LOW"
         assert "plan" in c["stages"]
 

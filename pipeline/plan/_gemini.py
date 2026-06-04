@@ -20,7 +20,9 @@ logger = logging.getLogger("reelsmith.plan")
 
 # Per-model pricing (USD per million tokens, paid tier)
 _PRICING: dict[str, tuple[float, float]] = {
+    "gemini-3.1-flash-lite": (0.25, 1.50),
     "gemini-3.1-flash-lite-preview": (0.25, 1.50),
+    "gemini-3.5-flash": (1.50, 9.00),
     "gemini-3-flash-preview": (0.50, 3.00),
     "gemini-3.1-pro-preview": (2.00, 12.00),
     "gemini-3-pro-preview": (2.00, 12.00),

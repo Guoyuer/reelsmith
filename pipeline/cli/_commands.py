@@ -110,8 +110,8 @@ _force_option = click.option(
 # ---------------------------------------------------------------------------
 
 _PLANNING_PRESETS = {
-    "fast": ("gemini-3.1-flash-lite-preview", "LOW"),
-    "balanced": ("gemini-3-flash-preview", "HIGH"),
+    "fast": ("gemini-3.1-flash-lite", "LOW"),
+    "balanced": ("gemini-3.5-flash", "HIGH"),
     "quality": ("gemini-3.1-pro-preview", "HIGH"),
 }
 
@@ -157,9 +157,9 @@ _plan_options = [
         cls=_RequiredPrefixOption,
         help="Presets: fast / balanced / quality, or model:thinking.\n\n"
         "\b\n"
-        "  fast      3.1-flash-lite  LOW   ~$0.24/run\n"
-        "  balanced  3-flash         HIGH  ~$0.48/run\n"
-        "  quality   3.1-pro         HIGH  ~$1.92/run\n"
+        "  fast      3.1-flash-lite  LOW   lowest cost\n"
+        "  balanced  3.5-flash       HIGH  stable default\n"
+        "  quality   3.1-pro         HIGH  highest quality\n"
         "  custom    gemini-2.5-flash:medium",
     ),
     click.option(
