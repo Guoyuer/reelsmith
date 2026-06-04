@@ -15,6 +15,7 @@ _VALID_COLOR_TEMPS = {"neutral", "warm", "cool"}
 # HDR transfer characteristics that require tone-mapping to SDR. PQ (HDR10) and
 # HLG cover essentially all consumer HDR capture (phones = PQ, DJI = HLG).
 _HDR_TRANSFERS = {"smpte2084", "arib-std-b67"}
+_HLG_TRANSFERS = {"arib-std-b67"}
 
 
 def is_hdr_transfer(color_transfer: str) -> bool:
@@ -33,23 +34,30 @@ def hdr_to_sdr_filter(color_transfer: str, *, use_libplacebo: bool = False) -> s
     Two paths, chosen by *use_libplacebo* (set from
     ``RenderContext.vulkan_tonemap``):
 
-    - **libplacebo** (preferred, color-correct): applies HLG's OOTF and
-      perceptual gamut mapping, so colour balance is accurate and content-
-      adaptive — no warm cast, no neon highlights. Requires a Vulkan device
-      (hardware, or a software ICD like Mesa lavapipe). It auto-uploads the
-      software frame, tone-maps on the GPU, and outputs yuv420p back to the
-      software graph — needs ``-init_hw_device vulkan`` on the FFmpeg command
-      (added in _assemble when ``RenderContext.vulkan_tonemap`` is set).
+    - **libplacebo** (preferred, color-correct): applies HLG/PQ-aware tone
+      mapping and perceptual gamut mapping, so colour balance is accurate and
+      content-adaptive — no warm cast, no neon highlights. HLG uses BT.2446
+      Method A for conservative SDR delivery; PQ/HDR10 uses BT.2390. Requires a
+      Vulkan device (hardware, or a software ICD like Mesa lavapipe). It
+      auto-uploads the software frame, tone-maps on the GPU, and outputs
+      yuv420p back to the software graph — needs ``-init_hw_device vulkan`` on
+      the FFmpeg command (added in _assemble when
+      ``RenderContext.vulkan_tonemap`` is set).
     - **zscale** (CPU fallback, always available): linearize → BT.709 primaries
       → Hable tone-map → BT.709 SDR. ``desat=2`` tames neon highlights, but a
       fixed desat can't fully correct the per-scene colour cast the way
       libplacebo does — it's the best portable approximation.
     """
-    if not is_hdr_transfer(color_transfer):
+    trc = color_transfer.strip().lower()
+    if not is_hdr_transfer(trc):
         return ""
     if use_libplacebo:
+        # HLG is scene-referred and commonly lacks MaxCLL/MaxFALL; BT.2446
+        # Method A is the conservative HDR-to-SDR broadcast mapping. PQ/HDR10
+        # keeps BT.2390, which handles display-referred HDR10 material well.
+        tonemapping = "bt.2446a" if trc in _HLG_TRANSFERS else "bt.2390"
         return (
-            "libplacebo=tonemapping=bt.2390:colorspace=bt709:"
+            f"libplacebo=tonemapping={tonemapping}:colorspace=bt709:"
             "color_primaries=bt709:color_trc=bt709:range=tv:format=yuv420p"
         )
     return (
@@ -73,16 +81,16 @@ def escape_drawtext(text: str) -> str:
 
 
 def color_grade(color_temp: str = "neutral") -> str:
-    """Subtle color grade with optional temperature shift."""
+    """No-op color grade.
+
+    `color_temp` remains in the EDL schema for backward compatibility, but the
+    renderer does not apply creative warm/cool grading. Color should stay as
+    faithful to the source as possible after required technical conversions
+    such as HDR->SDR tone-mapping.
+    """
     if color_temp not in _VALID_COLOR_TEMPS:
         logger.warning("Unknown color_temp '%s', defaulting to neutral", color_temp)
-        color_temp = "neutral"
-    base = "eq=contrast=1.02:brightness=0.01:saturation=1.05"
-    if color_temp == "warm":
-        return f"{base},colorbalance=rs=0.02:gs=0.01:bs=-0.02"
-    elif color_temp == "cool":
-        return f"{base},colorbalance=rs=-0.02:gs=0.0:bs=0.02"
-    return base
+    return "null"
 
 
 def find_font(language: str = "en") -> str:

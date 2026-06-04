@@ -9,6 +9,7 @@ import pytest
 from pipeline.assemble._assemble import (
     _concat_and_mix,
     _parse_loudnorm_stats,
+    _render_segments,
     _validate_output,
 )
 from pipeline.assemble._encoder import RenderContext
@@ -24,6 +25,60 @@ def _mock_run_ok(cmd, **kw):
     m.stderr = ""
     m.stdout = "hevc,video,60.0\naac,audio,60.0\n"
     return m
+
+
+# ---------------------------------------------------------------------------
+# _render_segments
+# ---------------------------------------------------------------------------
+
+
+class TestRenderSegments:
+    def test_segment_encode_cmd_forces_bt709_metadata(self, tmp_path):
+        cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
+        cfg.ensure_dirs()
+        src = tmp_path / "clip.mp4"
+        src.write_bytes(b"\x00" * 500)
+        edl = _minimal_edl(
+            title="",
+            segments=[
+                {
+                    "name": "S",
+                    "items": [
+                        {
+                            "source_file": str(src),
+                            "media_type": "video",
+                            "start_time": 0.0,
+                            "end_time": 1.0,
+                            "display_duration": 1.0,
+                            "effect": "none",
+                        }
+                    ],
+                    "transition": "cut",
+                }
+            ],
+        )
+        ctx = RenderContext(w=1920, h=1080, fps=30)
+
+        calls = []
+
+        def _track(cmd, **kw):
+            calls.append(cmd)
+            return MagicMock(returncode=0, stderr="", stdout="")
+
+        with (
+            patch("pipeline.assemble._assemble.run_subprocess", side_effect=_track),
+            patch.object(ctx, "get_encoder", return_value=["-c:v", "libx264"]),
+            patch.object(ctx, "probe_dimensions", return_value=(1920, 1080)),
+            patch.object(ctx, "probe_color_transfer", return_value="bt709"),
+            patch.object(ctx, "probe_duration", return_value=1.0),
+        ):
+            _render_segments(edl, ctx, cfg, res_label="1080p30")
+
+        cmd = calls[0]
+        assert cmd[cmd.index("-color_primaries") + 1] == "bt709"
+        assert cmd[cmd.index("-color_trc") + 1] == "bt709"
+        assert cmd[cmd.index("-colorspace") + 1] == "bt709"
+        assert cmd[cmd.index("-color_range") + 1] == "tv"
 
 
 # ---------------------------------------------------------------------------
