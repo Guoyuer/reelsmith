@@ -56,6 +56,56 @@ class TestConcatPreviews:
                 with pytest.raises(RuntimeError, match="mismatch"):
                     _concat_previews(entries, out)
 
+    def test_drawtext_includes_fontfile(self, tmp_path):
+        """Regression: the mega-preview drawtext MUST carry an explicit fontfile.
+
+        Some ffmpeg builds (e.g. 8.1 gyan.dev) ship without a default fontconfig;
+        a fontfile-less drawtext then corrupts the output — silently dropping
+        ~half the frames while still exiting 0 — which collapsed the mega-preview
+        timeline and broke Gemini timestamp conversion.
+        """
+        p = tmp_path / "preview.mp4"
+        p.write_bytes(b"\x00" * 500)
+        entries = [(1, 10.0, p)]
+        out = tmp_path / "mega.mp4"
+
+        captured = {}
+
+        def fake_run(cmd, *args, **kwargs):
+            if cmd and cmd[0] == "ffmpeg":
+                captured["cmd"] = cmd
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch("pipeline.plan._preview.run_subprocess", side_effect=fake_run):
+            with patch(
+                "pipeline.plan._preview.probe_duration", side_effect=[10.0, 10.0]
+            ):
+                with patch(
+                    "pipeline.assemble._filters.find_font",
+                    return_value="C\\:/fake/font.ttf",
+                ):
+                    _concat_previews(entries, out)
+
+        vf = captured["cmd"][captured["cmd"].index("-vf") + 1]
+        assert "fontfile=" in vf, f"drawtext missing fontfile: {vf}"
+
+    def test_ffmpeg_nonzero_exit_raises(self, tmp_path):
+        """A non-zero ffmpeg exit must raise, not silently yield a broken mega."""
+        p = tmp_path / "preview.mp4"
+        p.write_bytes(b"\x00" * 500)
+        entries = [(1, 10.0, p)]
+        out = tmp_path / "mega.mp4"
+
+        def fake_run(cmd, *args, **kwargs):
+            if cmd and cmd[0] == "ffmpeg":
+                return MagicMock(returncode=139, stdout="", stderr="boom")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch("pipeline.plan._preview.run_subprocess", side_effect=fake_run):
+            with patch("pipeline.plan._preview.probe_duration", side_effect=[10.0]):
+                with pytest.raises(RuntimeError, match="ffmpeg failed"):
+                    _concat_previews(entries, out)
+
 
 class TestBuildVisualContentBlocks:
     """Test the full content block builder."""
