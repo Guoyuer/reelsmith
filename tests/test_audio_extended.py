@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import json
+import shutil
 import struct
+import subprocess
 import wave
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from pipeline.assemble._audio import (
+    CueSheetRenderInfo,
     _build_beat_grid,
     beat_snap_edl,
     estimate_bpm,
@@ -533,6 +538,117 @@ class TestWriteCueSheet:
         photo = items[0]  # IMG_001.jpg
         assert photo["trim_start"] is None
         assert photo["keep_audio"] is False
+
+    def test_render_frame_fields_when_output_fps_known(self, tmp_path):
+        edl = _cue_edl()
+        out = tmp_path / "cuesheet.json"
+        write_cue_sheet(
+            edl,
+            [15.0, 12.0],
+            _CUE_ITEM_DURS,
+            out,
+            CueSheetRenderInfo(
+                output_fps=30,
+                output_file="out.mp4",
+                output_width=1920,
+                output_height=1080,
+                edl_version=7,
+            ),
+        )
+        data = json.loads(out.read_text())
+        assert data["schema_version"] == 2
+        assert data["render"] == {
+            "output_file": "out.mp4",
+            "output_fps": 30,
+            "output_width": 1920,
+            "output_height": 1080,
+            "edl_version": 7,
+        }
+
+        first = data["items"][0]
+        assert first["record_frame_in"] == 90  # 3.0s * 30fps
+        assert first["record_frame_out"] == 210  # 7.0s * 30fps
+
+        video = data["items"][1]
+        assert video["record_in"] == 7.0
+        assert video["record_out"] == 12.0
+        assert video["record_duration"] == 5.0
+        assert video["record_frame_in"] == 210
+        assert video["record_frame_out"] == 360
+        assert video["source_time_in"] == 2.0
+        assert video["source_time_out"] == 7.0
+
+    def test_slow_motion_source_time_uses_playback_speed(self, tmp_path):
+        edl = _cue_edl()
+        out = tmp_path / "cuesheet.json"
+        write_cue_sheet(edl, [15.0, 12.0], _CUE_ITEM_DURS, out)
+        items = json.loads(out.read_text())["items"]
+        slowmo = next(i for i in items if i["source_file"] == "VID_004.mp4")
+        assert slowmo["record_duration"] == 6.0
+        assert slowmo["source_time_in"] == 0.0
+        assert slowmo["source_time_out"] == 3.0
+
+    def test_source_frame_fields_from_real_video_fps(self, tmp_path):
+        if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+            pytest.skip("ffmpeg/ffprobe unavailable")
+
+        src = tmp_path / "clip.mp4"
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=s=64x64:r=10:d=1",
+                "-pix_fmt",
+                "yuv420p",
+                str(src),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        edl = EDL(
+            title="T",
+            target_duration=1,
+            trip_type="family",
+            style="upbeat",
+            intro_duration=0,
+            outro_duration=0,
+            segments=[
+                Segment(
+                    name="S",
+                    items=[
+                        EditItem(
+                            source_file=str(src),
+                            media_type="video",
+                            start_time=0.2,
+                            end_time=0.7,
+                            display_duration=0.5,
+                            effect="none",
+                        )
+                    ],
+                    transition="cut",
+                )
+            ],
+        )
+
+        out = tmp_path / "cuesheet.json"
+        write_cue_sheet(
+            edl,
+            [0.5],
+            [[0.5]],
+            out,
+            CueSheetRenderInfo(output_fps=30),
+        )
+        item = json.loads(out.read_text())["items"][0]
+        assert item["source_fps"] == 10.0
+        assert item["source_frame_in"] == 2
+        assert item["source_frame_out"] == 7
+        assert item["source_metadata"]["size_bytes"] == src.stat().st_size
+        assert item["source_metadata"]["nb_frames"] == 10
 
     def test_missing_durations_fall_back_to_display_sum(self, tmp_path):
         """With neither probed segment durations nor renderer item durations,

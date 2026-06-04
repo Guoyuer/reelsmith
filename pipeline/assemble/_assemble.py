@@ -15,7 +15,7 @@ from .. import constants as C
 from ..config import Config, ProgressCallback
 from ..edl import EDL, load_latest_edl, validate_edl
 from ..utils.media import run_subprocess
-from ._audio import beat_snap_edl, write_chapters, write_cue_sheet
+from ._audio import CueSheetRenderInfo, beat_snap_edl, write_chapters, write_cue_sheet
 from ._encoder import RenderContext
 from ._graph import SegmentGraph, build_segment_graph, compute_fade_params
 from ._render import render_title_card
@@ -398,7 +398,19 @@ def _concat_and_mix(
     # Reads the renderer's exported per-item durations (ground truth), not
     # display_duration — keeps every item's window frame-accurate.
     cue_sheet_path = output_dir / f"cuesheet_v{version}_{res_label}.json"
-    write_cue_sheet(edl, seg_durations, seg_item_durations, cue_sheet_path)
+    write_cue_sheet(
+        edl,
+        seg_durations,
+        seg_item_durations,
+        cue_sheet_path,
+        CueSheetRenderInfo(
+            output_fps=ctx.fps,
+            output_file=str(output_path),
+            output_width=ctx.w,
+            output_height=ctx.h,
+            edl_version=version,
+        ),
+    )
 
     # Clean up transient intermediates
     for seg_file in segment_files:
