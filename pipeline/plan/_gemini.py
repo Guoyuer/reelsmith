@@ -34,8 +34,19 @@ _DEFAULT_TEMPERATURE = 1.0  # Gemini 3 default; lower values degrade reasoning
 
 def _short_enum(val) -> str:
     """Strip enum class prefix: 'HarmCategory.HARM_CATEGORY_X' → 'X'."""
-    s = str(val)
-    return s.rsplit(".", 1)[-1].removeprefix("HARM_CATEGORY_")
+    name = getattr(val, "name", None) or str(val).rsplit(".", 1)[-1]
+    return name.removeprefix("HARM_CATEGORY_")
+
+
+def _modality_breakdown(details) -> str:
+    """Format token-count-by-modality as 'IMAGE: 1,234 | TEXT: 567'."""
+    if not details:
+        return ""
+    return " | ".join(
+        f"{_short_enum(d.modality)}: {d.token_count:,}"
+        for d in details
+        if d.token_count
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -147,14 +158,9 @@ def _display_api_summary(stats: _ApiStats) -> None:
     t.add_column("Modality", style="dim")
 
     # Prompt row with modality breakdown
-    prompt_modality = ""
-    if stats.usage and stats.usage.prompt_tokens_details:
-        parts = [
-            f"{_short_enum(d.modality)}: {d.token_count:,}"
-            for d in stats.usage.prompt_tokens_details
-            if d.token_count
-        ]
-        prompt_modality = " | ".join(parts)
+    prompt_modality = _modality_breakdown(
+        stats.usage.prompt_tokens_details if stats.usage else None
+    )
     t.add_row(
         "Prompt",
         f"{stats.prompt_tokens:,}",
@@ -168,14 +174,9 @@ def _display_api_summary(stats: _ApiStats) -> None:
         t.add_row("  tool use", f"[dim]{stats.tool_use_tokens:,}", "", "", "")
 
     # Output rows
-    output_modality = ""
-    if stats.usage and stats.usage.candidates_tokens_details:
-        parts = [
-            f"{_short_enum(d.modality)}: {d.token_count:,}"
-            for d in stats.usage.candidates_tokens_details
-            if d.token_count
-        ]
-        output_modality = " | ".join(parts)
+    output_modality = _modality_breakdown(
+        stats.usage.candidates_tokens_details if stats.usage else None
+    )
     t.add_row(
         "Content",
         f"{stats.content_tokens:,}",

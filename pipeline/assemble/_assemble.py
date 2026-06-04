@@ -28,6 +28,11 @@ from ._render import render_title_card
 logger = logging.getLogger("reelsmith.assemble")
 
 
+def _has_music(edl: EDL) -> bool:
+    """True if the EDL references a music file that exists on disk."""
+    return edl.music is not None and Path(edl.music.file).exists()
+
+
 @dataclass
 class AssembleConfig:
     w: int
@@ -83,7 +88,7 @@ def assemble(
     output_path = cfg.output_dir / f"reelsmith_v{version}_{res_label}.mp4"
 
     # Auto-generate music if music_mode=auto but file is missing
-    has_music = edl.music and Path(edl.music.file).exists()
+    has_music = _has_music(edl)
     if edl.music_mode == "auto" and not has_music:
         logger.warning(
             "=== Music file missing (music_mode=auto) — auto-generating for EDL v%d... ===",
@@ -99,7 +104,7 @@ def assemble(
             # Reload EDL — generate_music_for_edl saved the music path into it
             edl_path = cfg.edl_path(version)
             edl = EDL.model_validate_json(edl_path.read_text())
-            has_music = edl.music and Path(edl.music.file).exists()
+            has_music = _has_music(edl)
         else:
             logger.warning("=== Music generation failed — rendering without music ===")
 
@@ -338,7 +343,7 @@ def _concat_and_mix(
 
     # Concat (video + speech audio copy, no re-encode)
     nomix_path = output_path  # if no music, this is the final output
-    has_music = edl.music and Path(edl.music.file).exists()
+    has_music = _has_music(edl)
 
     if has_music:
         nomix_path = output_dir / f"reelsmith_v{version}_{res_label}_nomix.mp4"

@@ -101,30 +101,16 @@ def detect_hw_encoder(
         return ["-c:v", enc_name, "-preset", "fast", "-b:v", bitrate]
 
     # --- Build candidate list based on codec preference and platform ---
-    if sys.platform == "darwin":
-        candidates = {
-            "av1": [
-                ("av1_videotoolbox", _vt_args),
-            ],
-            "hevc": [
-                ("hevc_videotoolbox", _vt_args),
-            ],
-            "h264": [
-                ("h264_videotoolbox", _vt_args),
-            ],
-        }
-    else:
-        candidates = {
-            "av1": [
-                ("av1_nvenc", _nvenc_args),
-            ],
-            "hevc": [
-                ("hevc_nvenc", _nvenc_args),
-            ],
-            "h264": [
-                ("h264_nvenc", _nvenc_args),
-            ],
-        }
+    # Hardware encoders share a name pattern: f"{family}_{suffix}".
+    hw_suffix, hw_args = (
+        ("videotoolbox", _vt_args)
+        if sys.platform == "darwin"
+        else ("nvenc", _nvenc_args)
+    )
+    candidates = {
+        family: [(f"{family}_{hw_suffix}", hw_args)]
+        for family in ("av1", "hevc", "h264")
+    }
 
     # Software fallbacks (cross-platform)
     sw_fallbacks = {

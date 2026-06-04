@@ -97,6 +97,8 @@ def _build_composite_music(
     segment_tracks: [(segment_duration, music_wav_path), ...]
     Returns True on success.
     """
+    import shutil
+
     from ..utils.media import run_subprocess
 
     if not segment_tracks:
@@ -104,8 +106,6 @@ def _build_composite_music(
 
     if len(segment_tracks) == 1:
         # Single segment — just copy
-        import shutil
-
         shutil.copy(str(segment_tracks[0][1]), str(output_path))
         return True
 
@@ -114,8 +114,6 @@ def _build_composite_music(
 
     if len(trimmed) < 2:
         if trimmed:
-            import shutil
-
             shutil.copy(str(trimmed[0]), str(output_path))
             for t in trimmed:
                 t.unlink(missing_ok=True)

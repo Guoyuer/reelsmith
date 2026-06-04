@@ -97,11 +97,10 @@ def prepare(
     cfg.ensure_dirs()
 
     # --- Phase 0: Scan source folder ---
+    scan_cached = False
     if source_dir:
-        if cfg.manifest_path.exists() and not pc.force:
-            items = json.loads(cfg.manifest_path.read_text())
-            logger.info("Scan: %d items (cached)", len(items))
-        else:
+        scan_cached = cfg.manifest_path.exists() and not pc.force
+        if not scan_cached:
             from ._scan import fetch_local
 
             fetch_local(cfg, source_dir, progress_callback=progress_callback)
@@ -112,6 +111,8 @@ def prepare(
             "Run the prepare stage first (e.g. reelsmith prepare -p ./photos)"
         )
     manifest = json.loads(cfg.manifest_path.read_text())
+    if scan_cached:
+        logger.info("Scan: %d items (cached)", len(manifest))
 
     # --- Phase 1: Process all items ---
     photos: list[dict] = []

@@ -25,11 +25,22 @@ from ._runner import _run_pipeline
 
 
 class _RequiredPrefixOption(click.Option):
-    """Show [required] at the start of help text instead of the end."""
+    """Show [required] at the start of help text instead of the end.
+
+    ``cfg_optional=True`` marks an option that is required on the command line
+    but may instead come from ``--use-cfg-file``: left non-required at the Click
+    level, enforced in ``_check_required``, still shown as ``[required]``.
+    """
+
+    def __init__(self, *args, cfg_optional: bool = False, **kwargs):
+        self.cfg_optional = cfg_optional
+        if cfg_optional:
+            kwargs["required"] = False
+        super().__init__(*args, **kwargs)
 
     def get_help_record(self, ctx):
         record = super().get_help_record(ctx)
-        if record and self.required:
+        if record and (self.required or self.cfg_optional):
             name, help_text = record
             help_text = help_text.removesuffix("  [required]")
             help_text = f"[required] {help_text}"
@@ -53,25 +64,6 @@ class _CliGroup(click.Group):
                 hint = "Did you forget a command? Try: reelsmith full, prepare, plan, assemble, workspace"
                 raise click.UsageError(f"{e}\n\nHint: {hint}") from None
             raise
-
-
-class _CfgAwareCommand(click.Command):
-    """Command that skips 'required' checks when --use-cfg-file is present."""
-
-    def parse_args(self, ctx, args):
-        # Peek: if --use-cfg-file is in args, temporarily disable required checks
-        # on all params except run_name (which is always required).
-        restored = []
-        if "--use-cfg-file" in args:
-            for param in self.params:
-                if param.name != "run_name" and getattr(param, "required", False):
-                    param.required = False
-                    restored.append(param)
-        try:
-            return super().parse_args(ctx, args)
-        finally:
-            for param in restored:
-                param.required = True
 
 
 @click.group(cls=_CliGroup)
@@ -118,7 +110,7 @@ _PLANNING_PRESETS = {
 _plan_options = [
     click.option(
         "--duration",
-        required=True,
+        cfg_optional=True,
         cls=_RequiredPrefixOption,
         type=int,
         help="Target duration in seconds (60=1min, 180=3min, 300=5min)",
@@ -153,7 +145,7 @@ _plan_options = [
     ),
     click.option(
         "--model",
-        required=True,
+        cfg_optional=True,
         cls=_RequiredPrefixOption,
         help="Presets: fast / balanced / quality, or model:thinking.\n\n"
         "\b\n"
@@ -252,7 +244,7 @@ _assemble_options = [
     click.option(
         "--resolution",
         "-r",
-        required=True,
+        cfg_optional=True,
         cls=_RequiredPrefixOption,
         callback=_parse_resolution,
         expose_value=True,
@@ -317,14 +309,24 @@ _use_cfg_option = click.option(
     "Tip: a config is auto-saved on every run.",
 )
 
-# Params that are always allowed alongside --use-cfg-file
-_CFG_ALLOWED_PARAMS = frozenset({"run_name", "use_cfg_file", "force", "version"})
+# Meta params: never part of a saved config and always allowed alongside
+# --use-cfg-file (run name, the flag itself, force, EDL version).
+_META_PARAMS = frozenset({"run_name", "use_cfg_file", "force", "version"})
+
+
+def _check_required(ctx: click.Context) -> None:
+    """Enforce cfg_optional options when --use-cfg-file is absent."""
+    for param in ctx.command.params:
+        if param.name is None or not getattr(param, "cfg_optional", False):
+            continue
+        if ctx.params.get(param.name) is None:
+            raise click.MissingParameter(ctx=ctx, param=param)
 
 
 def _validate_use_cfg(ctx: click.Context) -> None:
     """Raise UsageError if --use-cfg-file is combined with explicitly-set params."""
     for param in ctx.command.params:
-        if param.name in _CFG_ALLOWED_PARAMS:
+        if param.name in _META_PARAMS:
             continue
         if param.name is None:
             continue
@@ -348,43 +350,17 @@ def _format_resolution(resolution: tuple[int, int, int]) -> str:
 
 
 def _collect_defaults(ctx: click.Context) -> set[str]:
-    """Return set of param names whose values came from CLI defaults, not user input."""
-    defaults = set()
-    for param in ctx.command.params:
-        if param.name is None:
-            continue
-        source = ctx.get_parameter_source(param.name)
-        if source == click.core.ParameterSource.DEFAULT:
-            defaults.add(param.name)
-    return defaults
-
-
-def _build_cli_params(**kwargs) -> dict:
-    """Build a cli_params dict, converting resolution tuple to string."""
-    params = {}
-    for k, v in kwargs.items():
-        if k == "resolution" and isinstance(v, tuple):
-            params[k] = _format_resolution(v)
-        else:
-            params[k] = v
-    return params
-
-
-_CFG_SKIP_PARAMS = frozenset({"run_name", "use_cfg_file", "force", "version"})
+    """Param names whose values came from CLI defaults, not user input."""
+    default = click.core.ParameterSource.DEFAULT
+    return {
+        p.name
+        for p in ctx.command.params
+        if p.name and ctx.get_parameter_source(p.name) == default
+    }
 
 
 def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
-    """Handle --use-cfg-file overrides, build cli_params and defaults.
-
-    Resolution order for each parameter:
-
-    1. If ``--use-cfg-file`` is set: cfg-file value wins (CLI explicit
-       params other than -n/--force raise an error via ``_validate_use_cfg``).
-       Only config sections relevant to the current command are loaded;
-       other sections are skipped with a log message. A new config is
-       saved containing only the loaded subset.
-    2. Otherwise: CLI value (explicit or default, tracked via
-       ``_collect_defaults``).
+    """Resolve params from --use-cfg-file (cfg wins) or the CLI (explicit/default).
 
     Returns *(params, cli_params, defaults)*.
     """
@@ -403,10 +379,14 @@ def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
             f"Config: {cfg_path.name} — loaded [{', '.join(loaded)}]"
             + (f", skipped [{', '.join(skipped)}]" if skipped else "")
         )
+    else:
+        _check_required(ctx)
 
-    cli_params = _build_cli_params(
-        **{k: v for k, v in p.items() if k not in _CFG_SKIP_PARAMS}
-    )
+    cli_params = {
+        k: _format_resolution(v) if k == "resolution" and isinstance(v, tuple) else v
+        for k, v in p.items()
+        if k not in _META_PARAMS
+    }
     defaults = set() if use_cfg_file else _collect_defaults(ctx)
     return p, cli_params, defaults
 
@@ -460,7 +440,7 @@ _source_options = [
     click.option(
         "--path",
         "-p",
-        required=True,
+        cfg_optional=True,
         cls=_RequiredPrefixOption,
         type=click.Path(exists=True),
         help="Local folder path containing photos/videos",
@@ -473,7 +453,7 @@ _source_options = [
 # ---------------------------------------------------------------------------
 
 
-@cli.command(cls=_CfgAwareCommand)
+@cli.command()
 @click.pass_context
 @_name_option
 @_use_cfg_option
@@ -499,7 +479,7 @@ def prepare(ctx, run_name, use_cfg_file, path, force):
 # ---------------------------------------------------------------------------
 
 
-@cli.command(cls=_CfgAwareCommand)
+@cli.command()
 @click.pass_context
 @_name_option
 @_use_cfg_option
@@ -548,7 +528,7 @@ def full(
     )
 
 
-@cli.command(cls=_CfgAwareCommand)
+@cli.command()
 @click.pass_context
 @_name_option
 @_use_cfg_option
@@ -580,7 +560,7 @@ def plan(
     )
 
 
-@cli.command(cls=_CfgAwareCommand)
+@cli.command()
 @click.pass_context
 @_name_option
 @_use_cfg_option
