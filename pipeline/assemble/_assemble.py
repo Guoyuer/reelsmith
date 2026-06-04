@@ -15,7 +15,7 @@ from .. import constants as C
 from ..config import Config, ProgressCallback
 from ..edl import EDL, load_latest_edl, validate_edl
 from ..utils.media import run_subprocess
-from ._audio import beat_snap_edl, write_chapters
+from ._audio import beat_snap_edl, write_chapters, write_cue_sheet
 from ._encoder import RenderContext
 from ._graph import SegmentGraph, build_segment_graph, compute_fade_params
 from ._render import render_title_card
@@ -382,6 +382,10 @@ def _concat_and_mix(
     chapters_path = output_dir / f"chapters_v{version}_{res_label}.txt"
     seg_durations = [ctx.probe_duration(f) or 0.0 for f in segment_files]
     write_chapters(edl, seg_durations, chapters_path)
+
+    # Cue sheet: per-item final-timeline → source map (debugging / QA / re-edits)
+    cue_sheet_path = output_dir / f"cuesheet_v{version}_{res_label}.json"
+    write_cue_sheet(edl, seg_durations, cue_sheet_path)
 
     # Clean up transient intermediates
     for seg_file in segment_files:
