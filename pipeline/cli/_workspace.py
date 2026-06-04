@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 from pathlib import Path
@@ -11,6 +12,8 @@ from typing import Any
 import click
 
 from ._commands import cli
+
+logger = logging.getLogger("reelsmith.workspace")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -104,7 +107,8 @@ def _manifest_media_counts(runs_dir: Path) -> tuple[int, int]:
     for mf in runs_dir.rglob("manifest.json"):
         try:
             manifest = json.loads(mf.read_text())
-        except Exception:
+        except (json.JSONDecodeError, OSError) as e:
+            logger.debug("Skipping unreadable manifest %s: %s", mf, e)
             continue
         n_photos = n_videos = 0
         for item in manifest:
@@ -129,8 +133,8 @@ def _run_detail(run_dir: Path) -> dict[str, Any]:
     if edls:
         try:
             info.update(_edl_summary(edls[-1]))
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError, KeyError, TypeError) as e:
+            logger.debug("Skipping unreadable EDL %s: %s", edls[-1], e)
 
     output_dir = run_dir / "output"
     info["outputs"] = _output_details(output_dir)

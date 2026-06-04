@@ -84,6 +84,16 @@ def item_render_seconds(item: EditItem, fps: int) -> float:
     return trim_dur / item.playback_speed
 
 
+def _trim_params(item: EditItem) -> tuple[float, float, float]:
+    """Return (trim_start, trim_dur, speed) for an item's render/audio window."""
+    trim_start = item.start_time or 0.0
+    if item.start_time is not None and item.end_time is not None:
+        trim_dur = item.end_time - item.start_time
+    else:
+        trim_dur = item.display_duration
+    return trim_start, trim_dur, item.playback_speed
+
+
 @dataclass
 class SegmentGraph:
     """One segment's FFmpeg inputs + filter graph."""
@@ -232,13 +242,7 @@ def build_segment_graph(
 
             # Audio: preserve speech (atrim+atempo) or generate silence. Both
             # resolve to render_dur of final-video length.
-            trim_start = item.start_time or 0.0
-            trim_dur = (
-                item.end_time - item.start_time
-                if item.start_time is not None and item.end_time is not None
-                else item.display_duration
-            )
-            speed = item.playback_speed
+            trim_start, trim_dur, speed = _trim_params(item)
             if item.keep_audio:
                 parts = [
                     f"[{idx}:a] atrim=start={trim_start}:duration={trim_dur}",
@@ -446,13 +450,7 @@ def _video_filter(
     w, h, fps = settings.w, settings.h, settings.fps
 
     # Derive trim/speed from item
-    trim_start = item.start_time or 0.0
-    trim_dur = (
-        item.end_time - item.start_time
-        if item.start_time is not None and item.end_time is not None
-        else item.display_duration
-    )
-    speed = item.playback_speed
+    trim_start, trim_dur, speed = _trim_params(item)
     output_dur = trim_dur / speed
 
     speed_vf = f",setpts={1 / speed:.4f}*PTS" if speed != 1.0 else ""

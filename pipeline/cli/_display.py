@@ -163,7 +163,7 @@ class _PipelineDisplay:
 
         cur, total = d["current"], d["total"]
         label = d.get("label", "")
-        bar_w = getattr(self, "_bar_w", 20)
+        bar_w = self._bar_w
 
         if total > 0:
             row = InlineTable.grid(padding=(0, 1))
@@ -194,7 +194,7 @@ class _PipelineDisplay:
         from rich.text import Text
 
         cur, total = sub["current"], sub["total"]
-        bar_w = max(getattr(self, "_bar_w", 20) - 6, 12)
+        bar_w = max(self._bar_w - 6, 12)
         if total > 0:
             row = InlineTable.grid(padding=(0, 1))
             row.add_column(width=22)

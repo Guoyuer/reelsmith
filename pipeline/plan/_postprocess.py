@@ -78,6 +78,31 @@ class PostprocessReport:
             )
 
 
+def _match_clip(
+    mid_secs: float,
+    start_secs: float,
+    end_secs: float,
+    offset_table: list[tuple[int, float, float]],
+) -> tuple[int, float, float] | None:
+    """Find which preview clip a [start, end] window belongs to.
+
+    Prefers the clip whose offset range contains the window MIDPOINT (robust
+    against Gemini using clip-end as preview_start); falls back to the clip with
+    the largest overlap.
+    """
+    for item_num, dur, offset in offset_table:
+        if offset <= mid_secs < offset + dur:
+            return (item_num, dur, offset)
+    best_overlap = 0.0
+    matched = None
+    for item_num, dur, offset in offset_table:
+        ov = max(0, min(end_secs, offset + dur) - max(start_secs, offset))
+        if ov > best_overlap:
+            best_overlap = ov
+            matched = (item_num, dur, offset)
+    return matched
+
+
 def parse_and_convert_timestamps(
     edl_content: str,
     preview_offset_table: list[tuple[int, float, float]],
@@ -96,28 +121,13 @@ def parse_and_convert_timestamps(
                 preview_end_secs = _timestamp_to_secs(pe)
                 window = preview_end_secs - preview_start_secs
 
-                # Match by finding which clip's offset range contains the
-                # MIDPOINT of the selected window (robust against Gemini
-                # using clip-end as preview_start)
                 mid_secs = (preview_start_secs + preview_end_secs) / 2
-                matched = None
-                for item_num, dur, offset in preview_offset_table:
-                    if offset <= mid_secs < offset + dur:
-                        matched = (item_num, dur, offset)
-                        break
-
-                if not matched:
-                    # Fallback: best overlap
-                    best_overlap = 0.0
-                    for item_num, dur, offset in preview_offset_table:
-                        ov = max(
-                            0,
-                            min(preview_end_secs, offset + dur)
-                            - max(preview_start_secs, offset),
-                        )
-                        if ov > best_overlap:
-                            best_overlap = ov
-                            matched = (item_num, dur, offset)
+                matched = _match_clip(
+                    mid_secs,
+                    preview_start_secs,
+                    preview_end_secs,
+                    preview_offset_table,
+                )
 
                 if matched:
                     _, dur, offset = matched
@@ -501,44 +511,46 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
     from ..utils import stderr_console
 
     console = stderr_console()
-    if console:
-        from rich.tree import Tree
+    if not console:
+        return
 
-        rich_status = (
-            "[green]OK[/green]"
-            if actual_dur >= target_duration * 0.8
-            else "[red]UNDERFILLED[/red]"
+    from rich.tree import Tree
+
+    rich_status = (
+        "[green]OK[/green]"
+        if actual_dur >= target_duration * 0.8
+        else "[red]UNDERFILLED[/red]"
+    )
+    tree = Tree(
+        f"[bold]{edl.title}[/bold]  {actual_dur:.0f}s/{target_duration}s {rich_status}"
+    )
+    for seg in edl.segments:
+        seg_dur = sum(i.display_duration for i in seg.items)
+        branch = tree.add(
+            f"[bold cyan]{seg.name}[/bold cyan]  "
+            f"[dim]{len(seg.items)} items, {seg_dur:.0f}s[/dim]"
         )
-        tree = Tree(
-            f"[bold]{edl.title}[/bold]  {actual_dur:.0f}s/{target_duration}s {rich_status}"
-        )
-        for seg in edl.segments:
-            seg_dur = sum(i.display_duration for i in seg.items)
-            branch = tree.add(
-                f"[bold cyan]{seg.name}[/bold cyan]  "
-                f"[dim]{len(seg.items)} items, {seg_dur:.0f}s[/dim]"
-            )
-            for item in seg.items:
-                name = Path(item.source_file).name
-                flags = []
-                if item.keep_audio:
-                    flags.append("[yellow]speech[/yellow]")
-                if item.playback_speed != 1.0:
-                    flags.append(f"[magenta]{item.playback_speed}x[/magenta]")
-                if item.text_overlay:
-                    flags.append(f'[italic]"{item.text_overlay.text[:20]}"[/italic]')
-                flag_str = " " + " ".join(flags) if flags else ""
-                if item.media_type == "video":
-                    trim = (
-                        f" [{item.start_time:.0f}-{item.end_time:.0f}s]"
-                        if item.start_time is not None
-                        else ""
-                    )
-                    branch.add(
-                        f"[blue]\U0001f3ac {item.display_duration}s[/blue] {name}{trim}{flag_str}"
-                    )
-                else:
-                    branch.add(
-                        f"[green]\U0001f4f7 {item.display_duration}s[/green] {name}{flag_str}"
-                    )
-        console.print(tree)
+        for item in seg.items:
+            name = Path(item.source_file).name
+            flags = []
+            if item.keep_audio:
+                flags.append("[yellow]speech[/yellow]")
+            if item.playback_speed != 1.0:
+                flags.append(f"[magenta]{item.playback_speed}x[/magenta]")
+            if item.text_overlay:
+                flags.append(f'[italic]"{item.text_overlay.text[:20]}"[/italic]')
+            flag_str = " " + " ".join(flags) if flags else ""
+            if item.media_type == "video":
+                trim = (
+                    f" [{item.start_time:.0f}-{item.end_time:.0f}s]"
+                    if item.start_time is not None
+                    else ""
+                )
+                branch.add(
+                    f"[blue]\U0001f3ac {item.display_duration}s[/blue] {name}{trim}{flag_str}"
+                )
+            else:
+                branch.add(
+                    f"[green]\U0001f4f7 {item.display_duration}s[/green] {name}{flag_str}"
+                )
+    console.print(tree)
