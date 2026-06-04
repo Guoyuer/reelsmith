@@ -36,6 +36,7 @@ from ._encoder import RenderContext
 from ._filters import (
     color_grade,
     drawtext_filter,
+    hdr_to_sdr_filter,
     is_portrait,
     ken_burns_filter,
 )
@@ -356,6 +357,12 @@ def _video_filter(
     color_vf = color_grade(segment.color_temp)
     fade = _fade_expr(output_dur, fade_in, fade_out)
 
+    # HDR→SDR tone-map for BT.2020 PQ/HLG sources (phones, DJI drones). Runs
+    # first on the 10-bit HDR frames; empty for SDR clips. Without it the output
+    # is too bright and oversaturated. Trailing comma only when present.
+    tonemap = hdr_to_sdr_filter(ctx.probe_color_transfer(Path(item.source_file)))
+    tonemap_vf = f"{tonemap}," if tonemap else ""
+
     # Blurred background composite for non-matching aspect ratios (portrait AND
     # non-16:9 landscape like 2.35:1). Exact 16:9 videos pass through without
     # visible blur since the foreground covers the entire frame.
@@ -366,7 +373,7 @@ def _video_filter(
     )
     if needs_aspect_fill:
         return (
-            f"[{idx}:v] {trim_vf}format=yuv420p,split [bg{idx}][fg{idx}];"
+            f"[{idx}:v] {trim_vf}{tonemap_vf}format=yuv420p,split [bg{idx}][fg{idx}];"
             f"{_blurred_bg(idx, w, h, C.BG_BLUR_SIGMA)},"
             f"{color_vf}{speed_vf}{overlay_vf}{fade},fps={fps} [v{idx}]"
         )
@@ -376,6 +383,6 @@ def _video_filter(
             f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
         ]
         return (
-            f"[{idx}:v] {trim_vf}format=yuv420p,{','.join(direct_parts)},"
+            f"[{idx}:v] {trim_vf}{tonemap_vf}format=yuv420p,{','.join(direct_parts)},"
             f"{color_vf}{speed_vf}{overlay_vf}{fade},fps={fps} [v{idx}]"
         )
