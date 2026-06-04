@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import logging
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
+
+from .._types import cache_id
 
 logger = logging.getLogger("reelsmith.image_utils")
 
@@ -16,6 +19,26 @@ except ImportError:
     pass  # HEIC thumbnails require pillow-heif
 
 _HEIC_EXTENSIONS = frozenset({".heic", ".heif"})
+
+
+def thumbnail_path_for(source: Path, output_dir: Path) -> Path:
+    """Return the collision-resistant thumbnail cache path for a source image."""
+    return output_dir / f"{source.stem}_{cache_id(str(source))}_thumb.jpg"
+
+
+def resolve_thumbnail_path(entry: Mapping[str, object], output_dir: Path) -> Path:
+    """Return the prepared thumbnail path, with legacy stem fallback."""
+    explicit = entry.get("thumbnail_path")
+    if explicit:
+        path = Path(str(explicit))
+        if path.exists():
+            return path
+
+    local_path = Path(str(entry["local_path"]))
+    current = thumbnail_path_for(local_path, output_dir)
+    if current.exists():
+        return current
+    return output_dir / f"{local_path.stem}_thumb.jpg"
 
 
 def decode_heic_for_filter(source: Path) -> tuple[Path, bool]:
@@ -71,7 +94,7 @@ def generate_thumbnail(
     from PIL import Image
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / f"{source.stem}_thumb.jpg"
+    out_path = thumbnail_path_for(source, output_dir)
     if out_path.exists():
         return out_path
 

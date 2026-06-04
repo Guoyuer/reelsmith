@@ -46,7 +46,7 @@ pythonVersion = "3.11"
 typeCheckingMode = "basic"
 reportOptionalMemberAccess = "error"
 reportMissingTypeStubs = false
-exclude = ["tests/", ".venv/", "venv/"]
+exclude = ["tests/", ".venv/", "venv/", ".claude/", ".worktrees/", "workspace/"]
 
 [tool.pytest.ini_options]
 addopts = "-m 'not integration'"

@@ -30,7 +30,7 @@ flowchart LR
 ```
 workspace/
 ├── thumbnails/                          # SHARED — cached across all runs
-│   └── {stem}_thumb.jpg                 #   400px JPEG, keyed by photo filename
+│   └── {stem}_{path_hash}_thumb.jpg     #   400px JPEG, keyed by source path
 │
 ├── previews/                            # SHARED — cached across all runs
 │   ├── preview_{md5[:12]}.mp4           #   480p 1fps video preview (with audio)
@@ -62,7 +62,7 @@ workspace/
 
 | Cache | Key | Example |
 |-------|-----|---------|
-| Thumbnails | original stem | `IMG_0123_thumb.jpg` |
+| Thumbnails | original stem + path hash | `IMG_0123_a1b2c3d4e5f6_thumb.jpg` |
 | Previews | `md5(local_path)[:12]` | `preview_a1b2c3d4e5f6.mp4` |
 | Music | mood + generation params hash | `gemini_family_upbeat_180s_f7e8d9.wav` |
 | Render clips | segment index + resolution | `seg_0_1080p30.mp4` |
@@ -80,7 +80,7 @@ flowchart TD
 
     MAN --> META["Phase 1: Metadata<br/>thumbnails (photo)<br/>ffprobe (video)<br/>EXIF extraction"]
     META --> ANA["analysis.json<br/>(AnalysisEntry[])"]
-    META --> THM["thumbnails/{stem}_thumb.jpg<br/>400px JPEG"]
+    META --> THM["thumbnails/{stem}_{path_hash}_thumb.jpg<br/>400px JPEG"]
 
     MAN --> PREV["Phase 2: Previews<br/>480p 1fps + audio<br/>parallel workers"]
     PREV --> PRV["previews/preview_{hash}.mp4"]
@@ -98,7 +98,7 @@ flowchart TD
 |----------|--------|-----------|
 | `manifest.json` | `ManifestEntry[]` — `{taken_at, local_path, filesize?, city?, country?}` | prepare (internal) |
 | `analysis.json` | `AnalysisEntry[]` — manifest + thumbnail_path, exif, video_* | plan stage |
-| `thumbnails/{stem}_thumb.jpg` | 400px JPEG | plan (inline to Gemini) |
+| `thumbnails/{stem}_{path_hash}_thumb.jpg` | 400px JPEG | plan (inline to Gemini via `thumbnail_path`) |
 | `previews/preview_{hash}.mp4` | 480p 1fps, mono 64kbps AAC | plan (mega-preview) |
 
 ---

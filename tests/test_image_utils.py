@@ -43,6 +43,24 @@ class TestGenerateThumbnail:
         result2 = generate_thumbnail(src, thumb_dir, size=400)
         assert result2.stat().st_mtime == mtime1
 
+    def test_same_stem_different_paths_do_not_collide(self, tmp_path):
+        from pipeline.utils.image import generate_thumbnail
+
+        src_a = tmp_path / "a" / "photo.jpg"
+        src_b = tmp_path / "b" / "photo.jpg"
+        src_a.parent.mkdir()
+        src_b.parent.mkdir()
+        Image.new("RGB", (100, 100), "red").save(src_a, "JPEG")
+        Image.new("RGB", (100, 100), "blue").save(src_b, "JPEG")
+
+        thumb_dir = tmp_path / "thumbs"
+        result_a = generate_thumbnail(src_a, thumb_dir, size=400)
+        result_b = generate_thumbnail(src_b, thumb_dir, size=400)
+
+        assert result_a != result_b
+        assert result_a.exists()
+        assert result_b.exists()
+
     def test_handles_heic(self, tmp_path):
         from pipeline.utils.image import generate_thumbnail
 

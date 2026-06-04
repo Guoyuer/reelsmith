@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,67 @@ def _latest_mtime(path) -> float:
     return latest
 
 
+def _version_from_name(path: Path) -> int:
+    match = re.search(r"_v(\d+)", path.stem)
+    return int(match.group(1)) if match else -1
+
+
+def _edl_summary(edl_path: Path) -> dict[str, Any]:
+    data = json.loads(edl_path.read_text())
+    segs = data.get("segments", [])
+    items = [i for s in segs for i in s.get("items", [])]
+    return {
+        "edl_latest": _version_from_name(edl_path),
+        "title": data.get("title", ""),
+        "segments": len(segs),
+        "items": len(items),
+        "target_duration": data.get("target_duration", 0),
+        "language": data.get("language", "en"),
+        "n_videos": sum(1 for i in items if i.get("media_type") == "video"),
+        "n_keep_audio": sum(1 for i in items if i.get("keep_audio")),
+    }
+
+
+def _output_details(output_dir: Path) -> list[dict[str, Any]]:
+    if not output_dir.exists():
+        return []
+    versioned = [
+        (path, _version_from_name(path)) for path in output_dir.glob("reelsmith_v*.mp4")
+    ]
+    return [
+        {"path": path, "version": version, "size": path.stat().st_size}
+        for path, version in sorted(versioned, key=lambda x: x[1])
+        if version >= 0
+    ]
+
+
+def _intermediate_files(output_dir: Path) -> list[Path]:
+    if not output_dir.exists():
+        return []
+    patterns = ("*_nomix.mp4", "*_speech.wav", "_group_*.mp4", "_group_*.txt")
+    return [path for pattern in patterns for path in output_dir.glob(pattern)]
+
+
+def _manifest_media_counts(runs_dir: Path) -> tuple[int, int]:
+    """Return photo/video counts from the first available manifest."""
+    if not runs_dir.exists():
+        return 0, 0
+    for mf in runs_dir.rglob("manifest.json"):
+        try:
+            manifest = json.loads(mf.read_text())
+        except Exception:
+            continue
+        n_photos = n_videos = 0
+        for item in manifest:
+            item_type = item.get("item_type", item.get("type", 0))
+            if item_type == 0:
+                n_photos += 1
+            elif item_type == 1:
+                n_videos += 1
+        return n_photos, n_videos
+    return 0, 0
+
+
 def _run_detail(run_dir: Path) -> dict[str, Any]:
     info: dict[str, Any] = {"name": run_dir.name, "path": run_dir}
     size, count = _dir_size(run_dir)
@@ -62,54 +124,21 @@ def _run_detail(run_dir: Path) -> dict[str, Any]:
     info["file_count"] = count
     info["last_used"] = _latest_mtime(run_dir)
 
-    edls = sorted(run_dir.glob("edl_v*.json"), key=lambda f: f.name)
+    edls = sorted(run_dir.glob("edl_v*.json"), key=_version_from_name)
     info["edl_versions"] = len(edls)
     if edls:
         try:
-            data = json.loads(edls[-1].read_text())
-            segs = data.get("segments", [])
-            info["edl_latest"] = int(edls[-1].stem.split("_v")[1])
-            info["title"] = data.get("title", "")
-            info["segments"] = len(segs)
-            info["items"] = sum(len(s.get("items", [])) for s in segs)
-            info["target_duration"] = data.get("target_duration", 0)
-            info["language"] = data.get("language", "en")
-            info["n_videos"] = sum(
-                1
-                for s in segs
-                for i in s.get("items", [])
-                if i.get("media_type") == "video"
-            )
-            info["n_keep_audio"] = sum(
-                1 for s in segs for i in s.get("items", []) if i.get("keep_audio")
-            )
+            info.update(_edl_summary(edls[-1]))
         except Exception:
             pass
 
     output_dir = run_dir / "output"
-    outputs = sorted(output_dir.glob("reelsmith_v*.mp4")) if output_dir.exists() else []
-    info["outputs"] = [
-        {
-            "path": o,
-            "version": int(o.stem.split("_v")[1].split("_")[0]),
-            "size": o.stat().st_size,
-        }
-        for o in outputs
-    ]
+    info["outputs"] = _output_details(output_dir)
     info["old_output_bytes"] = (
         sum(o["size"] for o in info["outputs"][:-1]) if len(info["outputs"]) > 1 else 0
     )
 
-    intermediates = (
-        (
-            list(output_dir.glob("*_nomix.mp4"))
-            + list(output_dir.glob("*_speech.wav"))
-            + list(output_dir.glob("_group_*.mp4"))
-            + list(output_dir.glob("_group_*.txt"))
-        )
-        if output_dir.exists()
-        else []
-    )
+    intermediates = _intermediate_files(output_dir)
     info["intermediate_bytes"] = sum(f.stat().st_size for f in intermediates)
     info["intermediate_files"] = intermediates
 
@@ -158,21 +187,7 @@ def workspace(clean, yes):
     media_size, media_count = _dir_size(ws / "media")
     total += media_size
     if media_size > 0:
-        n_photos = n_videos = 0
-        for mf in (
-            (ws / "runs").rglob("manifest.json") if (ws / "runs").exists() else []
-        ):
-            try:
-                manifest = json.loads(mf.read_text())
-                for item in manifest:
-                    t = item.get("type", 0)
-                    if t == 0:
-                        n_photos += 1
-                    elif t == 1:
-                        n_videos += 1
-                break
-            except Exception:
-                pass
+        n_photos, n_videos = _manifest_media_counts(ws / "runs")
         media_detail = f"{media_count} files"
         if n_photos or n_videos:
             media_detail = f"{n_photos} photos, {n_videos} videos"

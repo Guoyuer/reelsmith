@@ -81,6 +81,48 @@ class _ApiStats:
     candidate: Any  # google.genai Candidate
 
 
+@dataclass
+class _PartSummary:
+    n_text_parts: int
+    text_chars: int
+    n_images: int
+    image_mb: float
+    n_videos: int
+    video_mb: float
+
+
+def _summarize_user_parts(user_parts: list) -> _PartSummary:
+    """Count user part types and bytes for logging."""
+    n_text_parts = sum(1 for p in user_parts if isinstance(p, str))
+    text_chars = sum(len(p) for p in user_parts if isinstance(p, str))
+    image_bytes = sum(
+        len(p.get("data", b""))
+        for p in user_parts
+        if isinstance(p, dict) and p.get("type") == "image_bytes"
+    )
+    video_bytes = sum(
+        len(p.get("data", b""))
+        for p in user_parts
+        if isinstance(p, dict) and p.get("type") == "video_bytes"
+    )
+    return _PartSummary(
+        n_text_parts=n_text_parts,
+        text_chars=text_chars,
+        n_images=sum(
+            1
+            for p in user_parts
+            if isinstance(p, dict) and p.get("type") == "image_bytes"
+        ),
+        image_mb=image_bytes / 1024 / 1024,
+        n_videos=sum(
+            1
+            for p in user_parts
+            if isinstance(p, dict) and p.get("type") == "video_bytes"
+        ),
+        video_mb=video_bytes / 1024 / 1024,
+    )
+
+
 def _display_api_summary(stats: _ApiStats) -> None:
     """Render Gemini API call summary (token table + status) to terminal."""
     from ..utils import stderr_console
@@ -348,6 +390,175 @@ def _edl_response_schema() -> dict[str, Any]:
     }
 
 
+def _validate_thinking_level(thinking_level: str) -> None:
+    valid_thinking = ("OFF", "MINIMAL", "LOW", "MEDIUM", "HIGH")
+    if thinking_level not in valid_thinking:
+        raise ValueError(
+            f"Invalid thinking_level '{thinking_level}'. Must be one of: {', '.join(valid_thinking)}"
+        )
+
+
+def _validate_model_available(client, model: str) -> None:
+    """Raise a clear error when the requested Gemini model is unavailable."""
+    model_id = model if model.startswith("models/") else f"models/{model}"
+    try:
+        client.models.get(model=model_id)
+    except Exception:
+        available = sorted(
+            (m.name or "").removeprefix("models/")
+            for m in client.models.list()
+            if "flash" in (m.name or "") or "pro" in (m.name or "")
+        )
+        raise RuntimeError(
+            f"Model '{model}' not available. Options:\n  " + "\n  ".join(available)
+        )
+
+
+def _build_generate_config(system: str, thinking_level: str):
+    """Build Gemini structured-output config."""
+    from google.genai import types
+
+    config_kwargs: dict[str, Any] = {
+        "system_instruction": system,
+        "max_output_tokens": _MAX_OUTPUT_TOKENS,
+        "temperature": _DEFAULT_TEMPERATURE,
+        "media_resolution": types.MediaResolution.MEDIA_RESOLUTION_LOW,
+        "response_mime_type": "application/json",
+        "response_schema": _edl_response_schema(),
+    }
+    if thinking_level != "OFF":
+        config_kwargs["thinking_config"] = types.ThinkingConfig(
+            thinking_level=thinking_level,  # type: ignore[arg-type]
+            include_thoughts=True,
+        )
+    return types.GenerateContentConfig(**config_kwargs)  # type: ignore[arg-type]
+
+
+def _stats_from_response(
+    *,
+    response,
+    content: str,
+    label: str,
+    model: str,
+    thinking_level: str,
+    elapsed: float,
+) -> _ApiStats:
+    """Collect response metadata, token counts, and estimated cost."""
+    usage = response.usage_metadata
+    if usage:
+        prompt_tokens = usage.prompt_token_count or 0
+        content_tokens = usage.candidates_token_count or 0
+        thinking_tokens = usage.thoughts_token_count or 0
+        total_tokens = usage.total_token_count or 0
+        cached_tokens = usage.cached_content_token_count or 0
+        tool_use_tokens = usage.tool_use_prompt_token_count or 0
+    else:
+        prompt_tokens = content_tokens = thinking_tokens = 0
+        total_tokens = cached_tokens = tool_use_tokens = 0
+
+    in_rate, out_rate = _PRICING.get(model, (0.50, 3.00))
+    cost_est = (
+        prompt_tokens * in_rate / 1_000_000
+        + (content_tokens + thinking_tokens) * out_rate / 1_000_000
+    )
+    cand = response.candidates[0] if response.candidates else None
+
+    return _ApiStats(
+        label=label,
+        model=model,
+        thinking_level=thinking_level,
+        elapsed=elapsed,
+        content_len=len(content),
+        prompt_tokens=prompt_tokens,
+        content_tokens=content_tokens,
+        thinking_tokens=thinking_tokens,
+        total_tokens=total_tokens,
+        cached_tokens=cached_tokens,
+        tool_use_tokens=tool_use_tokens,
+        in_rate=in_rate,
+        out_rate=out_rate,
+        cost_est=cost_est,
+        finish=cand.finish_reason if cand else "NO_CANDIDATES",
+        usage=usage,
+        candidate=cand,
+    )
+
+
+def _log_api_summary(stats: _ApiStats) -> None:
+    """Write Gemini API response summary to the log."""
+    cand = stats.candidate
+    logger.info("--- Gemini API Response Summary ---")
+    logger.info(
+        "  Model: %s | Thinking: %s | Time: %.1fs",
+        stats.model,
+        stats.thinking_level,
+        stats.elapsed,
+    )
+    logger.info(
+        "  Finish: %s | Response: %d chars",
+        _short_enum(stats.finish),
+        stats.content_len,
+    )
+    if cand and cand.finish_message:
+        logger.info("  Finish detail: %s", cand.finish_message)
+    if stats.finish != "STOP":
+        logger.warning("  ⚠ Non-STOP finish — output may be truncated or filtered")
+    if cand and cand.avg_logprobs is not None:
+        logger.info("  Confidence: avg_logprobs=%.4f", cand.avg_logprobs)
+    logger.info("  Tokens:")
+    logger.info(
+        "    Prompt:   %8s  ($%.3f)",
+        f"{stats.prompt_tokens:,}",
+        stats.prompt_tokens * stats.in_rate / 1e6,
+    )
+    logger.info(
+        "    Content:  %8s  ($%.3f)",
+        f"{stats.content_tokens:,}",
+        stats.content_tokens * stats.out_rate / 1e6,
+    )
+    logger.info(
+        "    Thinking: %8s  ($%.3f)",
+        f"{stats.thinking_tokens:,}",
+        stats.thinking_tokens * stats.out_rate / 1e6,
+    )
+    logger.info("    Total:    %8s   $%.3f", f"{stats.total_tokens:,}", stats.cost_est)
+    if stats.cached_tokens:
+        logger.info(
+            "    Cached:   %8s  (prompt tokens from cache)",
+            f"{stats.cached_tokens:,}",
+        )
+    if stats.tool_use_tokens:
+        logger.info(
+            "    Tool use: %8s  (prompt tokens for tools)",
+            f"{stats.tool_use_tokens:,}",
+        )
+    if stats.usage:
+        for breakdown_label, details in [
+            ("Prompt", stats.usage.prompt_tokens_details),
+            ("Output", stats.usage.candidates_tokens_details),
+            ("Cache", stats.usage.cache_tokens_details),
+        ]:
+            if details:
+                parts = [
+                    f"{_short_enum(d.modality)}={d.token_count:,}"
+                    for d in details
+                    if d.token_count
+                ]
+                if parts:
+                    logger.info(
+                        "    %s by modality: %s", breakdown_label, ", ".join(parts)
+                    )
+        if stats.usage.traffic_type:
+            logger.info("  Traffic type: %s", stats.usage.traffic_type)
+    if cand and cand.safety_ratings:
+        parts = [
+            f"{_short_enum(r.category)}={_short_enum(r.probability)}"
+            for r in cand.safety_ratings
+        ]
+        logger.info("  Safety: %s", ", ".join(parts))
+    logger.info("--- End Response Summary ---")
+
+
 def _gemini_call(
     system: str,
     user_parts: list,
@@ -372,67 +583,24 @@ def _gemini_call(
         )
     client = genai.Client(api_key=api_key)
 
-    # Validate model exists
-    model_id = model if model.startswith("models/") else f"models/{model}"
-    try:
-        client.models.get(model=model_id)
-    except Exception:
-        available = sorted(
-            (m.name or "").removeprefix("models/")
-            for m in client.models.list()
-            if "flash" in (m.name or "") or "pro" in (m.name or "")
-        )
-        raise RuntimeError(
-            f"Model '{model}' not available. Options:\n  " + "\n  ".join(available)
-        )
-
-    # Validate thinking_level
-    valid_thinking = ("OFF", "MINIMAL", "LOW", "MEDIUM", "HIGH")
-    if thinking_level not in valid_thinking:
-        raise ValueError(
-            f"Invalid thinking_level '{thinking_level}'. Must be one of: {', '.join(valid_thinking)}"
-        )
+    _validate_model_available(client, model)
+    _validate_thinking_level(thinking_level)
 
     # Convert user_parts into Gemini Part objects
     parts = _prepare_parts(user_parts, client, progress_callback)
 
     # Log call details
-    n_images = sum(
-        1 for p in user_parts if isinstance(p, dict) and p.get("type") == "image_bytes"
-    )
-    n_videos = sum(
-        1 for p in user_parts if isinstance(p, dict) and p.get("type") == "video_bytes"
-    )
-    img_mb = (
-        sum(
-            len(p.get("data", b""))
-            for p in user_parts
-            if isinstance(p, dict) and p.get("type") == "image_bytes"
-        )
-        / 1024
-        / 1024
-    )
-    vid_mb = (
-        sum(
-            len(p.get("data", b""))
-            for p in user_parts
-            if isinstance(p, dict) and p.get("type") == "video_bytes"
-        )
-        / 1024
-        / 1024
-    )
-    n_text_parts = sum(1 for p in user_parts if isinstance(p, str))
-    text_chars = sum(len(p) for p in user_parts if isinstance(p, str))
+    part_summary = _summarize_user_parts(user_parts)
     logger.info("Gemini API call: %s", label)
     logger.info("  Model: %s, thinking: %s", model, thinking_level)
     logger.info(
         "  %d text (%d chars), %d photos (%.0fMB), %d video (%.0fMB)",
-        n_text_parts,
-        text_chars,
-        n_images,
-        img_mb,
-        n_videos,
-        vid_mb,
+        part_summary.n_text_parts,
+        part_summary.text_chars,
+        part_summary.n_images,
+        part_summary.image_mb,
+        part_summary.n_videos,
+        part_summary.video_mb,
     )
     # System prompt at DEBUG
     logger.debug("  --- SYSTEM PROMPT ---")
@@ -459,21 +627,7 @@ def _gemini_call(
         progress_callback(0, 0, "calling Gemini API...")
     t0 = time.monotonic()
 
-    # Build config and call API
-    config_kwargs: dict[str, Any] = {
-        "system_instruction": system,
-        "max_output_tokens": _MAX_OUTPUT_TOKENS,
-        "temperature": _DEFAULT_TEMPERATURE,
-        "media_resolution": types.MediaResolution.MEDIA_RESOLUTION_LOW,
-        "response_mime_type": "application/json",
-        "response_schema": _edl_response_schema(),
-    }
-    if thinking_level != "OFF":
-        config_kwargs["thinking_config"] = types.ThinkingConfig(
-            thinking_level=thinking_level,  # type: ignore[arg-type]
-            include_thoughts=True,
-        )
-    config = types.GenerateContentConfig(**config_kwargs)  # type: ignore[arg-type]
+    config = _build_generate_config(system, thinking_level)
 
     response = client.models.generate_content(
         model=model,
@@ -488,120 +642,29 @@ def _gemini_call(
     # Parse response content
     content = _parse_response(response)
 
-    # --- Collect all response metadata into a structured summary ---
-    usage = response.usage_metadata
-    if usage:
-        prompt_tokens = usage.prompt_token_count or 0
-        content_tokens = usage.candidates_token_count or 0
-        thinking_tokens = usage.thoughts_token_count or 0
-        total_tokens = usage.total_token_count or 0
-        cached_tokens = usage.cached_content_token_count or 0
-        tool_use_tokens = usage.tool_use_prompt_token_count or 0
-    else:
-        prompt_tokens = content_tokens = thinking_tokens = 0
-        total_tokens = cached_tokens = tool_use_tokens = 0
-
-    in_rate, out_rate = _PRICING.get(model, (0.50, 3.00))
-    cost_est = (
-        prompt_tokens * in_rate / 1_000_000
-        + (content_tokens + thinking_tokens) * out_rate / 1_000_000
-    )
-
-    cand = response.candidates[0] if response.candidates else None
-    finish = cand.finish_reason if cand else "NO_CANDIDATES"
-
-    # --- Log file output (structured text block) ---
-    logger.info("--- Gemini API Response Summary ---")
-    logger.info(
-        "  Model: %s | Thinking: %s | Time: %.1fs", model, thinking_level, elapsed
-    )
-    logger.info("  Finish: %s | Response: %d chars", _short_enum(finish), len(content))
-    if cand and cand.finish_message:
-        logger.info("  Finish detail: %s", cand.finish_message)
-    if finish != "STOP":
-        logger.warning("  ⚠ Non-STOP finish — output may be truncated or filtered")
-    if cand and cand.avg_logprobs is not None:
-        logger.info("  Confidence: avg_logprobs=%.4f", cand.avg_logprobs)
-    logger.info("  Tokens:")
-    logger.info(
-        "    Prompt:   %8s  ($%.3f)",
-        f"{prompt_tokens:,}",
-        prompt_tokens * in_rate / 1e6,
-    )
-    logger.info(
-        "    Content:  %8s  ($%.3f)",
-        f"{content_tokens:,}",
-        content_tokens * out_rate / 1e6,
-    )
-    logger.info(
-        "    Thinking: %8s  ($%.3f)",
-        f"{thinking_tokens:,}",
-        thinking_tokens * out_rate / 1e6,
-    )
-    logger.info("    Total:    %8s   $%.3f", f"{total_tokens:,}", cost_est)
-    if cached_tokens:
-        logger.info(
-            "    Cached:   %8s  (prompt tokens from cache)", f"{cached_tokens:,}"
-        )
-    if tool_use_tokens:
-        logger.info(
-            "    Tool use: %8s  (prompt tokens for tools)", f"{tool_use_tokens:,}"
-        )
-    # Per-modality breakdown
-    if usage:
-        for breakdown_label, details in [
-            ("Prompt", usage.prompt_tokens_details),
-            ("Output", usage.candidates_tokens_details),
-            ("Cache", usage.cache_tokens_details),
-        ]:
-            if details:
-                parts = [
-                    f"{_short_enum(d.modality)}={d.token_count:,}"
-                    for d in details
-                    if d.token_count
-                ]
-                if parts:
-                    logger.info(
-                        "    %s by modality: %s", breakdown_label, ", ".join(parts)
-                    )
-        if usage.traffic_type:
-            logger.info("  Traffic type: %s", usage.traffic_type)
-    if cand and cand.safety_ratings:
-        parts = [
-            f"{_short_enum(r.category)}={_short_enum(r.probability)}"
-            for r in cand.safety_ratings
-        ]
-        logger.info("  Safety: %s", ", ".join(parts))
-    logger.info("--- End Response Summary ---")
-
-    api_stats = _ApiStats(
+    api_stats = _stats_from_response(
+        response=response,
+        content=content,
         label=label,
         model=model,
         thinking_level=thinking_level,
         elapsed=elapsed,
-        content_len=len(content),
-        prompt_tokens=prompt_tokens,
-        content_tokens=content_tokens,
-        thinking_tokens=thinking_tokens,
-        total_tokens=total_tokens,
-        cached_tokens=cached_tokens,
-        tool_use_tokens=tool_use_tokens,
-        in_rate=in_rate,
-        out_rate=out_rate,
-        cost_est=cost_est,
-        finish=finish,
-        usage=usage,
-        candidate=cand,
     )
+    _log_api_summary(api_stats)
     _display_api_summary(api_stats)
 
     # Report cost via callback metadata
     if progress_callback:
-        thinking_suffix = f", {thinking_tokens:,} thinking" if thinking_tokens else ""
+        thinking_suffix = (
+            f", {api_stats.thinking_tokens:,} thinking"
+            if api_stats.thinking_tokens
+            else ""
+        )
         progress_callback(
             0,
             0,
-            f"~${cost_est:.2f} ({prompt_tokens:,} prompt, {content_tokens:,} content{thinking_suffix})",
+            f"~${api_stats.cost_est:.2f} ({api_stats.prompt_tokens:,} prompt, "
+            f"{api_stats.content_tokens:,} content{thinking_suffix})",
         )
 
     return content
