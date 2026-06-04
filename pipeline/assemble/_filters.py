@@ -32,13 +32,21 @@ def hdr_to_sdr_filter(color_transfer: str) -> str:
     reads the input transfer from stream metadata, so one chain handles both
     PQ and HLG: linearize → convert primaries to BT.709 → Hable tone-map →
     re-encode as BT.709 SDR.
+
+    ``desat=2`` applies highlight desaturation during tone-mapping. Without it
+    (``desat=0``), bright HLG outdoor footage (DJI skies, foliage) maps to
+    neon-saturated SDR — the "fake"/over-vivid look. ``desat=2`` pulls
+    over-bright colors toward white as they clip, which reads as natural
+    without flattening the image. (libplacebo would handle HLG's OOTF more
+    correctly, but it OOMs the GPU at 4K under the parallel render and is not
+    deployable here.)
     """
     if not is_hdr_transfer(color_transfer):
         return ""
     return (
         "zscale=transfer=linear:npl=100,format=gbrpf32le,"
         "zscale=primaries=bt709,"
-        "tonemap=tonemap=hable:desat=0,"
+        "tonemap=tonemap=hable:desat=2,"
         "zscale=transfer=bt709:matrix=bt709:range=limited"
     )
 

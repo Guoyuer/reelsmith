@@ -31,6 +31,13 @@ class TestHdrToSdr:
         # HLG (DJI) must tone-map too — one chain handles both via zscale.
         assert "tonemap" in hdr_to_sdr_filter("arib-std-b67")
 
+    def test_highlight_desaturation_enabled(self):
+        # desat>0 tames neon-saturated HLG highlights (the "fake" look);
+        # desat=0 left bright outdoor footage over-vivid.
+        for trc in ("smpte2084", "arib-std-b67"):
+            assert "desat=2" in hdr_to_sdr_filter(trc)
+            assert "desat=0" not in hdr_to_sdr_filter(trc)
+
     def test_sdr_returns_empty(self):
         # SDR clips must pass through untouched (no tone-map).
         assert hdr_to_sdr_filter("bt709") == ""
