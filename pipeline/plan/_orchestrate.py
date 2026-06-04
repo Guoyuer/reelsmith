@@ -20,6 +20,7 @@ from ._postprocess import (
     fix_hallucinated_paths,
     log_edl_summary,
     parse_and_convert_timestamps,
+    source_candidates,
     validate_and_fix_edl,
     validate_trim_points,
 )
@@ -58,6 +59,91 @@ class PlanConfig:
             raise ValueError(
                 f"Unknown trip_type '{self.trip_type}'. Valid: {TRIP_TYPES}"
             )
+
+
+def _postprocess_visual_edl(
+    edl_content: str,
+    preview_offset_table: list[tuple[int, float, float]],
+    analysis_by_path: dict[str, AnalysisEntry],
+    cfg: Config,
+) -> EDL:
+    """Parse, repair, validate, and report Gemini visual EDL output."""
+    edl = parse_and_convert_timestamps(edl_content, preview_offset_table)
+    items_before = len(edl.all_items())
+    n_path_removed = fix_hallucinated_paths(
+        edl, source_candidates(analysis_by_path, cfg.media_dir)
+    )
+    n_trim_fixed, n_trim_removed, n_dur_fixed, dur_delta = validate_trim_points(
+        edl, analysis_by_path
+    )
+    n_dedup = deduplicate_items(edl)
+    items_after = len(edl.all_items())
+
+    report = PostprocessReport(
+        items_before=items_before,
+        items_after=items_after,
+        path_removed=n_path_removed,
+        trim_clamped=n_trim_fixed,
+        trim_removed=n_trim_removed,
+        dedup_removed=n_dedup,
+        dur_fixed=n_dur_fixed,
+        dur_delta=dur_delta,
+    )
+
+    pp_parts = []
+    if n_path_removed:
+        pp_parts.append(f"{n_path_removed} bad paths removed")
+    if n_trim_fixed:
+        pp_parts.append(f"{n_trim_fixed} trims clamped")
+    if n_trim_removed:
+        pp_parts.append(f"{n_trim_removed} bad trims removed")
+    if n_dedup:
+        pp_parts.append(f"{n_dedup} duplicates removed")
+    if n_dur_fixed:
+        pp_parts.append(f"{n_dur_fixed} durations corrected ({dur_delta:+.1f}s)")
+    if pp_parts:
+        logger.info(
+            "Post-processing: %s (%d → %d items)",
+            ", ".join(pp_parts),
+            items_before,
+            items_after,
+        )
+    else:
+        logger.info("Post-processing: no changes (%d items)", items_after)
+
+    report.check_thresholds()
+    _display_postprocess_report(report)
+    return edl
+
+
+def _display_postprocess_report(report: PostprocessReport) -> None:
+    from ..utils import stderr_console
+
+    console = stderr_console()
+    if not console or not (
+        report.path_removed
+        or report.trim_clamped
+        or report.trim_removed
+        or report.dedup_removed
+    ):
+        return
+
+    from rich.table import Table
+
+    t = Table(title="Post-processing", border_style="dim", title_style="bold")
+    t.add_column("Step")
+    t.add_column("Result", justify="right")
+    if report.path_removed:
+        t.add_row("Items removed (bad path)", f"[red]{report.path_removed}[/red]")
+    if report.trim_clamped:
+        t.add_row("Trim points clamped", f"[yellow]{report.trim_clamped}[/yellow]")
+    if report.trim_removed:
+        t.add_row("Items removed (bad trim)", f"[red]{report.trim_removed}[/red]")
+    if report.dedup_removed:
+        t.add_row("Duplicates removed", f"[yellow]{report.dedup_removed}[/yellow]")
+    t.add_section()
+    t.add_row("[bold]Items", f"[bold]{report.items_before} → {report.items_after}")
+    console.print(t)
 
 
 def _plan_visual(
@@ -188,73 +274,12 @@ All candidates:"""
     # --- Post-processing pipeline ---
     if progress_callback:
         progress_callback(0, 0, "post-processing...")
-    edl = parse_and_convert_timestamps(edl_content, preview_offset_table)
-    items_before = len(edl.all_items())
-    n_path_removed = fix_hallucinated_paths(edl, cfg.media_dir)
-    n_trim_fixed, n_trim_removed, n_dur_fixed, dur_delta = validate_trim_points(
-        edl, analysis_by_path
+    edl = _postprocess_visual_edl(
+        edl_content,
+        preview_offset_table,
+        analysis_by_path,
+        cfg,
     )
-    n_dedup = deduplicate_items(edl)
-    items_after = len(edl.all_items())
-
-    # Build report and check thresholds
-    report = PostprocessReport(
-        items_before=items_before,
-        items_after=items_after,
-        path_removed=n_path_removed,
-        trim_clamped=n_trim_fixed,
-        trim_removed=n_trim_removed,
-        dedup_removed=n_dedup,
-        dur_fixed=n_dur_fixed,
-        dur_delta=dur_delta,
-    )
-
-    # Log post-processing summary at INFO
-    pp_parts = []
-    if n_path_removed:
-        pp_parts.append(f"{n_path_removed} bad paths removed")
-    if n_trim_fixed:
-        pp_parts.append(f"{n_trim_fixed} trims clamped")
-    if n_trim_removed:
-        pp_parts.append(f"{n_trim_removed} bad trims removed")
-    if n_dedup:
-        pp_parts.append(f"{n_dedup} duplicates removed")
-    if n_dur_fixed:
-        pp_parts.append(f"{n_dur_fixed} durations corrected ({dur_delta:+.1f}s)")
-    if pp_parts:
-        logger.info(
-            "Post-processing: %s (%d → %d items)",
-            ", ".join(pp_parts),
-            items_before,
-            items_after,
-        )
-    else:
-        logger.info("Post-processing: no changes (%d items)", items_after)
-
-    # Check removal thresholds (raises RuntimeError if >50% removed)
-    report.check_thresholds()
-
-    # Rich post-processing diff
-    from ..utils import stderr_console
-
-    console = stderr_console()
-    if console and (n_path_removed or n_trim_fixed or n_trim_removed or n_dedup):
-        from rich.table import Table
-
-        t = Table(title="Post-processing", border_style="dim", title_style="bold")
-        t.add_column("Step")
-        t.add_column("Result", justify="right")
-        if n_path_removed:
-            t.add_row("Items removed (bad path)", f"[red]{n_path_removed}[/red]")
-        if n_trim_fixed:
-            t.add_row("Trim points clamped", f"[yellow]{n_trim_fixed}[/yellow]")
-        if n_trim_removed:
-            t.add_row("Items removed (bad trim)", f"[red]{n_trim_removed}[/red]")
-        if n_dedup:
-            t.add_row("Duplicates removed", f"[yellow]{n_dedup}[/yellow]")
-        t.add_section()
-        t.add_row("[bold]Items", f"[bold]{items_before} \u2192 {items_after}")
-        console.print(t)
 
     actual_dur = edl.estimated_duration()
     if actual_dur < pc.target_duration * 0.5:

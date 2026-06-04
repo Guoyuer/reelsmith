@@ -348,88 +348,30 @@ def _concat_and_mix(
             progress_callback(0, 0, "mixing music...")
         music_path = Path(edl.music.file)
         music_duration = ctx.probe_duration(music_path) or total_duration
-        vol = edl.music.volume
-        fade_in = edl.music.fade_in
-        fade_out = edl.music.fade_out
 
-        music_chain = "[1:a] "
-        if music_duration < total_duration:
-            loops = int(total_duration / music_duration) + 1
-            samples = int(music_duration * C.SAMPLE_RATE)
-            music_chain += (
-                f"aloop=loop={loops}:size={samples},atrim=0:{total_duration:.3f},"
-            )
-        music_chain += f"volume={vol:.3f},"
-        music_chain += f"afade=t=in:d={fade_in},"
-        fade_out_start = max(0, total_duration - fade_out)
-        music_chain += f"afade=t=out:st={fade_out_start:.3f}:d={fade_out} [bg]"
-
-        mix_chain = (
-            f"{music_chain};\n"
-            f"[0:a] apad [sp];\n"
-            f"[bg][sp] sidechaincompress="
-            f"threshold=0.02:ratio=6:attack=200:release=500 [ducked];\n"
-            f"[sp][ducked] amix=inputs=2:duration=first"
+        mix_chain = _build_music_mix_chain(
+            edl.music,
+            total_duration=total_duration,
+            music_duration=music_duration,
         )
 
         # loudnorm pass 1: measure
-        measure_cmd = [
-            "ffmpeg",
-            "-y",
-            "-i",
-            str(nomix_path),
-            "-i",
-            str(music_path),
-            "-filter_complex",
-            f"{mix_chain},loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json [aout]",
-            "-map",
-            "[aout]",
-            "-f",
-            "null",
-            "-",
-        ]
+        measure_cmd = _music_measure_cmd(nomix_path, music_path, mix_chain)
         measure_result = run_subprocess(
             measure_cmd, capture_output=True, text=True, timeout=600
         )
         measured = _parse_loudnorm_stats(measure_result.stderr)
 
         # loudnorm pass 2: apply with measured values
-        if measured:
-            loudnorm = (
-                f"loudnorm=I=-16:TP=-1.5:LRA=11:linear=true"
-                f":measured_I={measured['input_i']}"
-                f":measured_LRA={measured['input_lra']}"
-                f":measured_TP={measured['input_tp']}"
-                f":measured_thresh={measured['input_thresh']}"
-            )
-        else:
+        if not measured:
             logger.warning("loudnorm measurement failed, falling back to single-pass")
-            loudnorm = "loudnorm=I=-16:TP=-1.5:LRA=11"
-
-        fc = f"{mix_chain},{loudnorm} [aout]"
-
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-i",
-            str(nomix_path),
-            "-i",
-            str(music_path),
-            "-filter_complex",
-            fc,
-            "-map",
-            "0:v",
-            "-map",
-            "[aout]",
-            "-c:v",
-            "copy",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-shortest",
-            str(output_path),
-        ]
+        cmd = _music_apply_cmd(
+            nomix_path,
+            music_path,
+            output_path,
+            mix_chain,
+            measured,
+        )
         result = run_subprocess(cmd, capture_output=True, text=True, timeout=600)
         if not output_path.exists() or output_path.stat().st_size < 1024:
             raise RuntimeError(f"Music mix failed: {result.stderr}")
@@ -486,6 +428,96 @@ def _parse_loudnorm_stats(stderr: str) -> dict[str, str] | None:
         return data
     except (ValueError, KeyError):
         return None
+
+
+def _build_music_mix_chain(
+    music,
+    *,
+    total_duration: float,
+    music_duration: float,
+) -> str:
+    """Build the FFmpeg audio chain for music looping, fading, ducking, and mix."""
+    music_chain = "[1:a] "
+    if music_duration < total_duration:
+        loops = int(total_duration / music_duration) + 1
+        samples = int(music_duration * C.SAMPLE_RATE)
+        music_chain += (
+            f"aloop=loop={loops}:size={samples},atrim=0:{total_duration:.3f},"
+        )
+    music_chain += f"volume={music.volume:.3f},"
+    music_chain += f"afade=t=in:d={music.fade_in},"
+    fade_out_start = max(0, total_duration - music.fade_out)
+    music_chain += f"afade=t=out:st={fade_out_start:.3f}:d={music.fade_out} [bg]"
+
+    return (
+        f"{music_chain};\n"
+        f"[0:a] apad [sp];\n"
+        f"[bg][sp] sidechaincompress="
+        f"threshold=0.02:ratio=6:attack=200:release=500 [ducked];\n"
+        f"[sp][ducked] amix=inputs=2:duration=first"
+    )
+
+
+def _loudnorm_filter(measured: dict[str, str] | None) -> str:
+    if not measured:
+        return "loudnorm=I=-16:TP=-1.5:LRA=11"
+    return (
+        f"loudnorm=I=-16:TP=-1.5:LRA=11:linear=true"
+        f":measured_I={measured['input_i']}"
+        f":measured_LRA={measured['input_lra']}"
+        f":measured_TP={measured['input_tp']}"
+        f":measured_thresh={measured['input_thresh']}"
+    )
+
+
+def _music_measure_cmd(nomix_path: Path, music_path: Path, mix_chain: str) -> list[str]:
+    return [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(nomix_path),
+        "-i",
+        str(music_path),
+        "-filter_complex",
+        f"{mix_chain},loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json [aout]",
+        "-map",
+        "[aout]",
+        "-f",
+        "null",
+        "-",
+    ]
+
+
+def _music_apply_cmd(
+    nomix_path: Path,
+    music_path: Path,
+    output_path: Path,
+    mix_chain: str,
+    measured: dict[str, str] | None,
+) -> list[str]:
+    fc = f"{mix_chain},{_loudnorm_filter(measured)} [aout]"
+    return [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(nomix_path),
+        "-i",
+        str(music_path),
+        "-filter_complex",
+        fc,
+        "-map",
+        "0:v",
+        "-map",
+        "[aout]",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-shortest",
+        str(output_path),
+    ]
 
 
 def _render_title_card_if_needed(

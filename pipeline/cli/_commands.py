@@ -183,6 +183,35 @@ def _resolve_planning(planning: str) -> tuple[str, str]:
     return planning, "HIGH"
 
 
+def _music_file_from_param(music: str) -> str | None:
+    return None if music == "none" else music
+
+
+def _stages_with_music(stages: list[str], music: str) -> list[str]:
+    result = list(stages)
+    if music != "none":
+        result.append("generate_music")
+    return result
+
+
+def _build_plan_config(p: dict, *, force: bool):
+    from pipeline.plan import PlanConfig
+
+    resolved_model, resolved_thinking = _resolve_planning(p["model"])
+    return PlanConfig(
+        style=p["style"],
+        target_duration=p["duration"],
+        focus=p["focus"],
+        instruct=p["instruct"],
+        trip_type=p["trip_type"],
+        language=p["lang"],
+        model=resolved_model,
+        thinking_level=resolved_thinking,
+        music_file=_music_file_from_param(p["music"]),
+        force=force,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Resolution presets & parser
 # ---------------------------------------------------------------------------
@@ -498,35 +527,18 @@ def full(
 ):
     """Run the full pipeline end-to-end."""
     from pipeline.assemble import AssembleConfig
-    from pipeline.plan import PlanConfig
     from pipeline.prepare import PrepareConfig
 
     p, cli_params, defaults = _resolve_params(ctx)
-    resolved_model, resolved_thinking = _resolve_planning(p["model"])
     w, h, fps = p["resolution"]
-    music_val = p["music"]
-    stages = ["prepare", "plan"]
-    music_file = None if music_val == "none" else music_val
-    if music_val != "none":
-        stages.append("generate_music")
+    stages = _stages_with_music(["prepare", "plan"], p["music"])
     stages.append("assemble")
 
     _run_pipeline(
         run_name,
         source_dir=p["path"],
         prepare=PrepareConfig(force=force),
-        plan=PlanConfig(
-            style=p["style"],
-            target_duration=p["duration"],
-            focus=p["focus"],
-            instruct=p["instruct"],
-            trip_type=p["trip_type"],
-            language=p["lang"],
-            model=resolved_model,
-            thinking_level=resolved_thinking,
-            music_file=music_file,
-            force=force,
-        ),
+        plan=_build_plan_config(p, force=force),
         assemble=AssembleConfig(
             w=w, h=h, fps=fps, bitrate=p["bitrate"], codec=p["codec"]
         ),
@@ -557,31 +569,12 @@ def plan(
     force,
 ):
     """Call Gemini to generate a new EDL (increments version). Requires prepare to have run first."""
-    from pipeline.plan import PlanConfig
-
     p, cli_params, defaults = _resolve_params(ctx)
-    resolved_model, resolved_thinking = _resolve_planning(p["model"])
-    music_val = p["music"]
-    music_file = None if music_val == "none" else music_val
-    stages = ["plan"]
-    if music_val != "none":
-        stages.append("generate_music")
 
     _run_pipeline(
         run_name,
-        plan=PlanConfig(
-            style=p["style"],
-            target_duration=p["duration"],
-            focus=p["focus"],
-            instruct=p["instruct"],
-            trip_type=p["trip_type"],
-            language=p["lang"],
-            model=resolved_model,
-            thinking_level=resolved_thinking,
-            music_file=music_file,
-            force=force,
-        ),
-        stages=stages,
+        plan=_build_plan_config(p, force=force),
+        stages=_stages_with_music(["plan"], p["music"]),
         cli_params=cli_params,
         cli_defaults=defaults,
     )

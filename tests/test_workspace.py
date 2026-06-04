@@ -171,6 +171,17 @@ class TestRunDetail:
         assert len(info["outputs"]) == 2
         assert info["old_output_bytes"] == 5000
 
+    def test_outputs_sort_by_numeric_version(self, tmp_path: Path):
+        run_dir = tmp_path / "run_output_v10"
+        run_dir.mkdir()
+        out_dir = run_dir / "output"
+        out_dir.mkdir()
+        (out_dir / "reelsmith_v9_720p30.mp4").write_bytes(b"\x00" * 5000)
+        (out_dir / "reelsmith_v10_720p30.mp4").write_bytes(b"\x00" * 8000)
+        info = _run_detail(run_dir)
+        assert [o["version"] for o in info["outputs"]] == [9, 10]
+        assert info["old_output_bytes"] == 5000
+
     def test_single_output_no_old_bytes(self, tmp_path: Path):
         run_dir = tmp_path / "run_one"
         run_dir.mkdir()
@@ -204,6 +215,20 @@ class TestRunDetail:
         assert info["edl_versions"] == 3
         assert info["edl_latest"] == 3
         assert info["title"] == "V3"
+
+    def test_multiple_edl_versions_sort_numeric(self, tmp_path: Path):
+        run_dir = tmp_path / "run_multi_edl_v10"
+        run_dir.mkdir()
+        for v in [9, 10]:
+            edl_data = {
+                "title": f"V{v}",
+                "segments": [{"name": "S", "items": []}],
+            }
+            (run_dir / f"edl_v{v}.json").write_text(json.dumps(edl_data))
+        info = _run_detail(run_dir)
+        assert info["edl_versions"] == 2
+        assert info["edl_latest"] == 10
+        assert info["title"] == "V10"
 
 
 # ---------------------------------------------------------------------------

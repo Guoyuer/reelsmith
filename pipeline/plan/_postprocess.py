@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -190,13 +191,73 @@ def parse_and_convert_timestamps(
     return edl
 
 
-def fix_hallucinated_paths(edl: EDL, media_dir: Path) -> int:
+def source_candidates(
+    analysis_by_path: Mapping[str, AnalysisEntry],
+    media_dir: Path | None = None,
+) -> list[Path]:
+    """Return known source files from analysis first, then legacy media cache."""
+    candidates: list[Path] = []
+    seen: set[str] = set()
+
+    for entry in analysis_by_path.values():
+        local_path = entry.get("local_path")
+        if not local_path:
+            continue
+        path = Path(local_path)
+        key = str(path)
+        if key not in seen:
+            candidates.append(path)
+            seen.add(key)
+
+    if media_dir and media_dir.exists():
+        for path in media_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            key = str(path)
+            if key not in seen:
+                candidates.append(path)
+                seen.add(key)
+
+    return candidates
+
+
+def _match_source_path(source: Path, candidates: list[Path]) -> list[Path]:
+    """Find exact or fuzzy source-file matches from known candidates."""
+    name = source.name
+
+    exact = [p for p in candidates if p.name == name and p.exists()]
+    if exact:
+        return exact
+
+    parts = name.split("_", 1)
+    if len(parts) > 1:
+        suffix_matches = [
+            p for p in candidates if p.name.endswith(parts[-1]) and p.exists()
+        ]
+        if suffix_matches:
+            return suffix_matches
+
+    contains_matches = [p for p in candidates if p.name.endswith(name) and p.exists()]
+    if contains_matches:
+        return contains_matches
+
+    norm = name.replace("_", "").lower()
+    return [
+        p for p in candidates if p.exists() and p.name.replace("_", "").lower() == norm
+    ]
+
+
+def fix_hallucinated_paths(
+    edl: EDL,
+    known_sources: Iterable[Path],
+) -> int:
     """Resolve filenames to full paths, fuzzy-match hallucinated names.
 
     Gemini outputs just filenames (e.g. '87656_IMG.heic'). This resolves
-    them to full paths under media_dir, with fuzzy fallback for typos.
+    them to known source paths from analysis.json, with fuzzy fallback for typos.
     Returns count of removed items (unresolvable).
     """
+    candidates = list(known_sources)
     removed_count = 0
     for seg in edl.segments:
         valid_items = []
@@ -206,40 +267,22 @@ def fix_hallucinated_paths(edl: EDL, media_dir: Path) -> int:
             if source.exists():
                 valid_items.append(item)
                 continue
-            # Try as filename under media_dir
-            full = media_dir / source.name
-            if full.exists():
-                item.source_file = str(full)
-                valid_items.append(item)
-                continue
-            # Fuzzy match (Gemini may hallucinate parts of the filename)
-            name = source.name
-            parts = name.split("_", 1)
-            candidates = list(media_dir.glob(f"*{parts[-1]}")) if len(parts) > 1 else []
-            if not candidates:
-                candidates = list(media_dir.glob(f"*{name}"))
-            # Normalize underscores (Gemini adds/removes _ in timestamps)
-            if not candidates:
-                norm = name.replace("_", "").lower()
-                candidates = [
-                    f
-                    for f in media_dir.iterdir()
-                    if f.name.replace("_", "").lower() == norm
-                ]
-            if candidates:
-                item.source_file = str(candidates[0])
-                if len(candidates) > 1:
+            # Match against source paths from analysis.json, then legacy media cache.
+            matches = _match_source_path(source, candidates)
+            if matches:
+                item.source_file = str(matches[0])
+                if len(matches) > 1:
                     logger.warning(
                         "  Fuzzy path: %s matched %d candidates: %s — using first",
-                        name,
-                        len(candidates),
-                        [c.name for c in candidates[:5]],
+                        source.name,
+                        len(matches),
+                        [c.name for c in matches[:5]],
                     )
                 else:
-                    logger.debug("  Fixed path: %s → %s", name, candidates[0].name)
+                    logger.debug("  Fixed path: %s → %s", source.name, matches[0].name)
                 valid_items.append(item)
             else:
-                logger.debug("  Removed item with missing source: %s", name)
+                logger.debug("  Removed item with missing source: %s", source.name)
                 removed_count += 1
         seg.items = valid_items
     edl.segments = [s for s in edl.segments if s.items]

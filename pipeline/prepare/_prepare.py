@@ -243,64 +243,13 @@ def _generate_video_previews(
     """Generate one full-length preview per video (480p 1fps + audio)."""
     from ..utils.parallel import run_parallel
 
-    encoder = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "34"]
     max_workers = max(4, (os.cpu_count() or 4) // 2)
 
-    # When force=True, delete all existing previews so they get regenerated
     if force:
-        deleted = 0
-        for old in preview_dir.glob("preview_*.mp4"):
-            old.unlink()
-            deleted += 1
-        # Also delete mega-preview cache
-        for meta_file in preview_dir.glob("_mega_preview.*"):
-            meta_file.unlink()
-            deleted += 1
-        if deleted:
-            logger.info("Force: deleted %d cached preview files", deleted)
+        _clear_preview_cache(preview_dir)
+    _delete_orphan_previews(video_items, preview_dir)
 
-    # Clean orphaned previews
-    current_cids = {cache_id(vi["local_path"]) for vi in video_items}
-    for old in preview_dir.glob("preview_*.mp4"):
-        if old.name.startswith("_"):
-            continue
-        pid = old.stem.replace("preview_", "").split("_n")[0]
-        if pid not in current_cids:
-            old.unlink()
-
-    tasks: list[tuple[Path, list[str]]] = []
-    for vi in video_items:
-        source = Path(vi["local_path"])
-        duration = vi.get("video_duration", 0)
-        if not source.exists() or duration <= 0:
-            continue
-        preview_path = preview_dir / f"preview_{cache_id(vi['local_path'])}.mp4"
-        if not preview_path.exists():
-            skip = ["-skip_frame", "nokey"] if _has_dense_keyframes(source) else []
-            tasks.append(
-                (
-                    preview_path,
-                    [
-                        "ffmpeg",
-                        "-y",
-                        "-hwaccel",
-                        "auto",
-                        *skip,
-                        "-i",
-                        str(source),
-                        "-vf",
-                        "fps=1,scale=480:-2",
-                        *encoder,
-                        "-c:a",
-                        "aac",
-                        "-b:a",
-                        "64k",
-                        "-ac",
-                        "1",
-                        str(preview_path),
-                    ],
-                )
-            )
+    tasks = _build_preview_tasks(video_items, preview_dir)
 
     cached = len(video_items) - len(tasks)
     if cached:
@@ -346,6 +295,73 @@ def _generate_video_previews(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _preview_path(preview_dir: Path, local_path: str) -> Path:
+    return preview_dir / f"preview_{cache_id(local_path)}.mp4"
+
+
+def _clear_preview_cache(preview_dir: Path) -> None:
+    """Delete cached individual and mega preview files."""
+    deleted = 0
+    for pattern in ("preview_*.mp4", "_mega_preview.*"):
+        for old in preview_dir.glob(pattern):
+            old.unlink()
+            deleted += 1
+    if deleted:
+        logger.info("Force: deleted %d cached preview files", deleted)
+
+
+def _delete_orphan_previews(video_items: list[dict], preview_dir: Path) -> None:
+    """Remove preview files whose source is no longer in analysis."""
+    current_cids = {cache_id(vi["local_path"]) for vi in video_items}
+    for old in preview_dir.glob("preview_*.mp4"):
+        if old.name.startswith("_"):
+            continue
+        pid = old.stem.replace("preview_", "").split("_n")[0]
+        if pid not in current_cids:
+            old.unlink()
+
+
+def _preview_cmd(source: Path, preview_path: Path) -> list[str]:
+    encoder = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "34"]
+    skip = ["-skip_frame", "nokey"] if _has_dense_keyframes(source) else []
+    return [
+        "ffmpeg",
+        "-y",
+        "-hwaccel",
+        "auto",
+        *skip,
+        "-i",
+        str(source),
+        "-vf",
+        "fps=1,scale=480:-2",
+        *encoder,
+        "-c:a",
+        "aac",
+        "-b:a",
+        "64k",
+        "-ac",
+        "1",
+        str(preview_path),
+    ]
+
+
+def _build_preview_tasks(
+    video_items: list[dict],
+    preview_dir: Path,
+) -> list[tuple[Path, list[str]]]:
+    """Return ffmpeg preview generation tasks for uncached valid videos."""
+    tasks: list[tuple[Path, list[str]]] = []
+    for vi in video_items:
+        source = Path(vi["local_path"])
+        duration = vi.get("video_duration", 0)
+        if not source.exists() or duration <= 0:
+            continue
+        preview_path = _preview_path(preview_dir, vi["local_path"])
+        if not preview_path.exists():
+            tasks.append((preview_path, _preview_cmd(source, preview_path)))
+    return tasks
 
 
 def _prepare_video(

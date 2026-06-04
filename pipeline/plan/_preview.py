@@ -16,6 +16,7 @@ from pathlib import Path
 from .. import constants as C
 from .._types import VIDEO_EXTENSIONS, AnalysisEntry, cache_id
 from ..config import Config
+from ..utils.image import resolve_thumbnail_path
 from ..utils.media import probe_duration, run_subprocess
 from ._prompts import _secs_to_timestamp
 
@@ -98,9 +99,7 @@ def _select_from_bursts(
         # Load histograms from thumbnails (fast — 400px already cached)
         hists = []
         for photo in burst:
-            thumb = (
-                thumbnails_dir / f"{Path(photo.get('local_path', '')).stem}_thumb.jpg"
-            )
+            thumb = resolve_thumbnail_path(photo, thumbnails_dir)
             hists.append(_photo_histogram(thumb) if thumb.exists() else None)
 
         # Cluster similar photos
@@ -173,7 +172,7 @@ def _dedup_burst_photos(
         kept_paths = {e["local_path"] for e in kept}
         for p in photos:
             if p["local_path"] not in kept_paths:
-                thumb = thumbnails_dir / f"{Path(p['local_path']).stem}_thumb.jpg"
+                thumb = resolve_thumbnail_path(p, thumbnails_dir)
                 if thumb.exists():
                     removed_bytes += thumb.stat().st_size
         logger.info(
@@ -348,16 +347,16 @@ def _collect_items(
     analysis_by_path: dict[str, AnalysisEntry],
     cfg: Config,
     preview_dir: Path,
-) -> tuple[str, list[Path], list[tuple[int, float, Path]], int, int]:
+) -> tuple[str, list[AnalysisEntry], list[tuple[int, float, Path]], int, int]:
     """Iterate all items, build text lines, collect photo paths and video entries.
 
-    Returns (text_block, photo_paths, video_entries, n_photos, n_videos).
+    Returns (text_block, photo_entries, video_entries, n_photos, n_videos).
     """
     all_items = sorted(analysis_by_path.values(), key=lambda entry: entry["local_path"])
     all_items = _dedup_burst_photos(all_items, cfg.thumbnails_dir)
 
     lines: list[str] = []
-    photo_paths: list[Path] = []
+    photo_entries: list[AnalysisEntry] = []
     video_entries: list[tuple[int, float, Path]] = []
     idx = 1
     n_photos = 0
@@ -372,7 +371,7 @@ def _collect_items(
         lines.append(text_line)
 
         if photo_path:
-            photo_paths.append(photo_path)
+            photo_entries.append(entry)
             n_photos += 1
         else:
             # Video — collect for mega-preview
@@ -389,7 +388,7 @@ def _collect_items(
 
     header = f"--- All media ({n_photos} photos, {n_videos} videos) ---"
     text_block = header + "\n" + "\n".join(lines)
-    return text_block, photo_paths, video_entries, n_photos, n_videos
+    return text_block, photo_entries, video_entries, n_photos, n_videos
 
 
 def _build_mega_preview(
@@ -457,14 +456,15 @@ def _build_visual_content_blocks(
     preview_dir = cfg.previews_dir
 
     # --- Phase 1: collect items ---
-    text_block, photo_paths, video_entries, n_photos, n_videos = _collect_items(
+    text_block, photo_entries, video_entries, n_photos, n_videos = _collect_items(
         analysis_by_path, cfg, preview_dir
     )
     blocks.append(text_block)
 
     # --- Phase 2: add photo thumbnails inline ---
-    for photo in photo_paths:
-        thumb = cfg.thumbnails_dir / f"{photo.stem}_thumb.jpg"
+    for entry in photo_entries:
+        photo = Path(entry["local_path"])
+        thumb = resolve_thumbnail_path(entry, cfg.thumbnails_dir)
         if not thumb.exists():
             raise FileNotFoundError(
                 f"Thumbnail missing for {photo.name} — run prepare first"

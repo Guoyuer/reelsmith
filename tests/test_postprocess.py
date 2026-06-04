@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -30,6 +31,10 @@ def _make_edl(items=None, segments=None) -> EDL:
             )
         ]
     return minimal_edl(segments=[Segment(name="S1", items=items, transition="cut")])
+
+
+def _known_sources(path):
+    return [p for p in path.rglob("*") if p.is_file()]
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +154,7 @@ class TestFixHallucinatedPaths:
         edl = _make_edl(
             [EditItem(source_file=str(photo), media_type="photo", display_duration=4.0)]
         )
-        removed = fix_hallucinated_paths(edl, tmp_path)
+        removed = fix_hallucinated_paths(edl, _known_sources(tmp_path))
         assert removed == 0
         assert len(edl.all_items()) == 1
 
@@ -163,7 +168,7 @@ class TestFixHallucinatedPaths:
                 )
             ]
         )
-        removed = fix_hallucinated_paths(edl, tmp_path)
+        removed = fix_hallucinated_paths(edl, _known_sources(tmp_path))
         assert removed == 1
         assert len(edl.all_items()) == 0
 
@@ -179,7 +184,35 @@ class TestFixHallucinatedPaths:
                 )
             ]
         )
-        removed = fix_hallucinated_paths(edl, tmp_path)
+        removed = fix_hallucinated_paths(edl, _known_sources(tmp_path))
+        assert removed == 0
+        assert edl.all_items()[0].source_file == str(real)
+
+    def test_basename_resolves_from_analysis_paths_outside_media_dir(self, tmp_path):
+        source_dir = tmp_path / "source"
+        source_dir.mkdir()
+        real = source_dir / "IMG_001.jpg"
+        real.write_bytes(b"\xff\xd8")
+
+        edl = _make_edl(
+            [
+                EditItem(
+                    source_file="IMG_001.jpg", media_type="photo", display_duration=4.0
+                )
+            ]
+        )
+        analysis = {
+            str(real): {
+                "local_path": str(real),
+                "media_type": "photo",
+                "taken_at": "2025-01-01T00:00:00",
+            }
+        }
+
+        removed = fix_hallucinated_paths(
+            edl, [Path(entry["local_path"]) for entry in analysis.values()]
+        )
+
         assert removed == 0
         assert edl.all_items()[0].source_file == str(real)
 
@@ -196,7 +229,7 @@ class TestFixHallucinatedPaths:
                 )
             ]
         )
-        removed = fix_hallucinated_paths(edl, tmp_path)
+        removed = fix_hallucinated_paths(edl, _known_sources(tmp_path))
         assert removed == 0
         assert edl.all_items()[0].source_file == str(real)
 
@@ -213,7 +246,7 @@ class TestFixHallucinatedPaths:
                 )
             ]
         )
-        removed = fix_hallucinated_paths(edl, tmp_path)
+        removed = fix_hallucinated_paths(edl, _known_sources(tmp_path))
         assert removed == 0
         # Should use first candidate (sorted by iterdir order)
         assert "IMG_001.jpg" in edl.all_items()[0].source_file
@@ -246,7 +279,7 @@ class TestFixHallucinatedPaths:
             ]
         )
         (tmp_path / "exists.jpg").write_bytes(b"\xff\xd8")
-        fix_hallucinated_paths(edl, tmp_path)
+        fix_hallucinated_paths(edl, _known_sources(tmp_path))
         assert len(edl.segments) == 1
         assert edl.segments[0].name == "S2"
 
