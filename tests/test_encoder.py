@@ -8,44 +8,53 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pipeline.assemble._encoder import RenderContext, target_bitrate
+from pipeline.assemble._encoder import (
+    MediaProbe,
+    RenderContext,
+    RenderSettings,
+    target_bitrate,
+)
 
 
 class TestRenderContext:
     def test_new_context_has_empty_caches(self):
-        ctx1 = RenderContext(w=1920, h=1080, fps=30, bitrate=0.5)
-        ctx1._dim_cache["test"] = (100, 100)
-        ctx2 = RenderContext(w=1920, h=1080, fps=30, bitrate=1.0)
-        assert ctx2.bitrate == 1.0
-        assert "test" not in ctx2._dim_cache
+        ctx1 = RenderContext.without_capabilities(
+            RenderSettings(1920, 1080, 30, bitrate=0.5)
+        )
+        ctx1.probe._dim_cache["test"] = (100, 100)
+        ctx2 = RenderContext.without_capabilities(
+            RenderSettings(1920, 1080, 30, bitrate=1.0)
+        )
+        assert ctx2.settings.bitrate == 1.0
+        assert "test" not in ctx2.probe._dim_cache
 
     def test_probe_dimensions_caches(self):
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        probe = MediaProbe()
         fake = MagicMock()
         fake.stdout = json.dumps({"streams": [{"width": 1920, "height": 1080}]})
         with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
-            dims = ctx.probe_dimensions(Path("/fake/video.mp4"))
+            dims = probe.probe_dimensions(Path("/fake/video.mp4"))
         assert dims == (1920, 1080)
         # Second call should use cache, not subprocess
         with patch(
             "pipeline.assemble._encoder.run_subprocess",
             side_effect=RuntimeError("should not be called"),
         ):
-            assert ctx.probe_dimensions(Path("/fake/video.mp4")) == (1920, 1080)
+            assert probe.probe_dimensions(Path("/fake/video.mp4")) == (1920, 1080)
 
     def test_probe_duration_caches(self):
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        probe = MediaProbe()
         fake = MagicMock()
         fake.stdout = "123.45\n"
         with patch("pipeline.utils.media.run_subprocess", return_value=fake):
-            dur = ctx.probe_duration(Path("/fake/video.mp4"))
+            dur = probe.probe_duration(Path("/fake/video.mp4"))
         assert dur == 123.45
         # Second call should use cache
         with patch(
             "pipeline.utils.media.run_subprocess",
             side_effect=RuntimeError("should not be called"),
         ):
-            assert ctx.probe_duration(Path("/fake/video.mp4")) == 123.45
+            assert probe.probe_duration(Path("/fake/video.mp4")) == 123.45
 
     @pytest.mark.parametrize(
         "patch_target, method, stdout, expected",
@@ -60,11 +69,11 @@ class TestRenderContext:
         ],
     )
     def test_handles_bad_output(self, patch_target, method, stdout, expected):
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        probe = MediaProbe()
         fake = MagicMock()
         fake.stdout = stdout
         with patch(patch_target, return_value=fake):
-            assert getattr(ctx, method)(Path("/bad")) == expected
+            assert getattr(probe, method)(Path("/bad")) == expected
 
 
 class TestTargetBitrate:

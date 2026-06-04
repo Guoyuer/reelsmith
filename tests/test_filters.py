@@ -1,9 +1,8 @@
-"""Tests for pipeline.assemble._filters — escape, color grade, ken burns, drawtext."""
+"""Tests for pipeline.assemble._filters — escape, HDR tone-map, ken burns, drawtext."""
 
 from __future__ import annotations
 
 from pipeline.assemble._filters import (
-    color_grade,
     escape_drawtext,
     hdr_to_sdr_filter,
     is_hdr_transfer,
@@ -98,32 +97,6 @@ class TestEscapeDrawtext:
 
     def test_plain_text_unchanged(self):
         assert escape_drawtext("hello world") == "hello world"
-
-
-class TestColorGrade:
-    def test_neutral(self):
-        result = color_grade("neutral")
-        assert result == "null"
-        assert "eq=" not in result
-        assert "colorbalance" not in result
-
-    def test_warm_is_noop(self):
-        result = color_grade("warm")
-        assert result == "null"
-        assert "eq=" not in result
-        assert "colorbalance" not in result
-
-    def test_cool_is_noop(self):
-        result = color_grade("cool")
-        assert result == "null"
-        assert "eq=" not in result
-        assert "colorbalance" not in result
-
-    def test_unknown_defaults_to_neutral(self):
-        result = color_grade("sepia")
-        assert result == "null"
-        assert "eq=" not in result
-        assert "colorbalance" not in result
 
 
 class TestKenBurnsFilter:

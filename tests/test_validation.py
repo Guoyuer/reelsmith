@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from pipeline.assemble._assemble import AssembleConfig
-from pipeline.assemble._encoder import RenderContext
+from pipeline.assemble._encoder import RenderSettings
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment, validate_edl
 from pipeline.plan import PlanConfig
 
@@ -48,14 +48,14 @@ class TestAssembleConfigValidation:
 
 
 # ---------------------------------------------------------------------------
-# RenderContext validation
+# RenderSettings validation
 # ---------------------------------------------------------------------------
 
 
-class TestRenderContextValidation:
+class TestRenderSettingsValidation:
     def test_valid_context(self):
-        ctx = RenderContext(w=1920, h=1080, fps=30)
-        assert ctx.w == 1920
+        settings = RenderSettings(1920, 1080, 30)
+        assert settings.w == 1920
 
     @pytest.mark.parametrize(
         "kwargs, match",
@@ -68,7 +68,7 @@ class TestRenderContextValidation:
     )
     def test_invalid_raises(self, kwargs, match):
         with pytest.raises(ValueError, match=match):
-            RenderContext(**kwargs)
+            RenderSettings(**kwargs)
 
 
 # ---------------------------------------------------------------------------

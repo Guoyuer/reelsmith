@@ -27,7 +27,7 @@ def thumbnail_path_for(source: Path, output_dir: Path) -> Path:
 
 
 def resolve_thumbnail_path(entry: Mapping[str, object], output_dir: Path) -> Path:
-    """Return the prepared thumbnail path, with legacy stem fallback."""
+    """Return the prepared thumbnail path for an analysis entry."""
     explicit = entry.get("thumbnail_path")
     if explicit:
         path = Path(str(explicit))
@@ -35,10 +35,7 @@ def resolve_thumbnail_path(entry: Mapping[str, object], output_dir: Path) -> Pat
             return path
 
     local_path = Path(str(entry["local_path"]))
-    current = thumbnail_path_for(local_path, output_dir)
-    if current.exists():
-        return current
-    return output_dir / f"{local_path.stem}_thumb.jpg"
+    return thumbnail_path_for(local_path, output_dir)
 
 
 def decode_heic_for_filter(source: Path) -> tuple[Path, bool]:

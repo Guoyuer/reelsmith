@@ -92,8 +92,6 @@ Look for telltale signs: status bars, app UI elements, text-heavy layouts, flat 
 - mode: "narrative" (default) or "montage" — use montage for 1 energy burst segment max.
   Montage = rapid 2-3s cuts with transition="cut" and transition_duration ≤ 0.2s.
   Place before a calm narrative segment for contrast. Aim for 3-6 items per segment.
-- color_temp: "neutral" (default), "warm" (family/food/indoor), "cool" (night/architecture).
-  Use conservatively — most segments should be neutral.
 - CRITICAL: source_file must be the EXACT filename from the text metadata (the "file=" value).
   Copy-paste it character-for-character. Do NOT add, remove, or rearrange underscores or any characters.
 
@@ -141,7 +139,6 @@ creative decisions — don't worry about getting the math pixel-perfect.
       "narrative_rationale": "HOOK: flash-forward to the trip's most magical moment — supertree light show at night. Then ease into daytime arrival to ground the viewer.",
       "music_mood": "dreamy electronic pads with gentle piano arpeggios, wonder and discovery, nighttime magic",
       "mode": "narrative",
-      "color_temp": "cool",
       "segment_transition_duration": 1.0,
       "items": [
         {{
@@ -197,7 +194,6 @@ creative decisions — don't worry about getting the math pixel-perfect.
       "narrative_rationale": "Family energy peak — pool time with genuine laughter and a slow-mo splash moment. Ends with a breathing-room photo.",
       "music_mood": "upbeat ukulele with handclaps and shaker, playful summer energy, building joy",
       "mode": "narrative",
-      "color_temp": "warm",
       "segment_transition_duration": 1.2,
       "items": [
         {{
@@ -253,7 +249,6 @@ creative decisions — don't worry about getting the math pixel-perfect.
       "narrative_rationale": "Quick energy burst — food textures and reactions at hawker centers. Montage mode for rapid cuts, then the next segment (not shown) slows down.",
       "music_mood": "funky bass with light percussion and wok sizzle texture, street food energy, playful",
       "mode": "montage",
-      "color_temp": "warm",
       "segment_transition_duration": 0.8,
       "items": [
         {{

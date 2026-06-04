@@ -247,22 +247,19 @@ def _detect_hwaccel() -> list[str] | None:
 
 
 # ---------------------------------------------------------------------------
-# RenderContext — per-run render state, passed explicitly (no globals)
+# Render context: settings + detected capabilities + media probe cache
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class RenderContext:
-    """Per-run render state. Created by assemble(), passed to all render modules."""
+@dataclass(frozen=True)
+class RenderSettings:
+    """Static render settings selected by the user/CLI."""
 
     w: int
     h: int
     fps: int
     bitrate: float = 1.0
     codec: str = "auto"
-    _encoder_cache: dict[tuple, list[str]] = field(default_factory=dict)
-    _hwaccel: list[str] | None = field(default=None, repr=False)
-    vulkan_tonemap: bool = field(default=False)
 
     def __post_init__(self) -> None:
         if self.w <= 0 or self.h <= 0:
@@ -271,34 +268,44 @@ class RenderContext:
             raise ValueError(f"Resolution must be even: {self.w}x{self.h}")
         if self.fps <= 0 or self.fps > 120:
             raise ValueError(f"Invalid fps: {self.fps}")
-        self._hwaccel = _detect_hwaccel()
-        self.vulkan_tonemap = _detect_vulkan_tonemap()
+        if self.bitrate <= 0 or self.bitrate > 5:
+            raise ValueError(f"Invalid bitrate: {self.bitrate}")
+        if self.codec not in CODEC_CHOICES:
+            raise ValueError(
+                f"Invalid codec {self.codec!r}, expected one of {CODEC_CHOICES}"
+            )
+
+
+@dataclass(frozen=True)
+class RenderCapabilities:
+    """Hardware/filter capabilities detected once for a render run."""
+
+    hwaccel: tuple[str, ...] = ()
+    vulkan_tonemap: bool = False
+
+    @classmethod
+    def detect(cls) -> "RenderCapabilities":
+        return cls(
+            hwaccel=tuple(_detect_hwaccel() or ()),
+            vulkan_tonemap=_detect_vulkan_tonemap(),
+        )
+
+    @classmethod
+    def disabled(cls) -> "RenderCapabilities":
+        return cls()
+
+    @property
+    def hwaccel_args(self) -> list[str]:
+        return list(self.hwaccel)
+
+
+@dataclass
+class MediaProbe:
+    """Cached ffprobe queries used during assemble."""
 
     _dim_cache: dict[str, tuple[int, int]] = field(default_factory=dict)
     _dur_cache: dict[str, float] = field(default_factory=dict)
     _trc_cache: dict[str, str] = field(default_factory=dict)
-
-    @property
-    def hwaccel_args(self) -> list[str]:
-        """Return hwaccel input args (e.g. ['-hwaccel', 'cuda']), or [] if unavailable."""
-        return list(self._hwaccel) if self._hwaccel else []
-
-    def get_encoder(
-        self,
-        width: int | None = None,
-        height: int | None = None,
-        fps: int | None = None,
-    ) -> list[str]:
-        """Get encoder args, defaulting to this context's resolution. Cached."""
-        w = width or self.w
-        h = height or self.h
-        f = fps or self.fps
-        key = (w, h, f, self.bitrate, self.codec)
-        if key not in self._encoder_cache:
-            self._encoder_cache[key] = detect_hw_encoder(
-                w, h, f, self.bitrate, codec=self.codec
-            )
-        return self._encoder_cache[key]
 
     def probe_dimensions(self, path: Path) -> tuple[int, int]:
         """Return (width, height) accounting for rotation metadata.
@@ -388,3 +395,62 @@ class RenderContext:
             trc = ""
         self._trc_cache[key] = trc
         return trc
+
+
+@dataclass
+class EncoderSelector:
+    """Cached encoder argument selection for one render settings profile."""
+
+    settings: RenderSettings
+    _cache: dict[tuple[int, int, int, float, str], list[str]] = field(
+        default_factory=dict
+    )
+
+    def args(
+        self,
+        width: int | None = None,
+        height: int | None = None,
+        fps: int | None = None,
+    ) -> list[str]:
+        """Get encoder args, defaulting to this context's resolution. Cached."""
+        w = width or self.settings.w
+        h = height or self.settings.h
+        f = fps or self.settings.fps
+        key = (w, h, f, self.settings.bitrate, self.settings.codec)
+        if key not in self._cache:
+            self._cache[key] = detect_hw_encoder(
+                w,
+                h,
+                f,
+                self.settings.bitrate,
+                codec=self.settings.codec,
+            )
+        return self._cache[key]
+
+
+@dataclass
+class RenderContext:
+    """Explicit per-run render dependencies."""
+
+    settings: RenderSettings
+    capabilities: RenderCapabilities
+    probe: MediaProbe
+    encoder: EncoderSelector
+
+    @classmethod
+    def detect(cls, settings: RenderSettings) -> "RenderContext":
+        return cls(
+            settings=settings,
+            capabilities=RenderCapabilities.detect(),
+            probe=MediaProbe(),
+            encoder=EncoderSelector(settings),
+        )
+
+    @classmethod
+    def without_capabilities(cls, settings: RenderSettings) -> "RenderContext":
+        return cls(
+            settings=settings,
+            capabilities=RenderCapabilities.disabled(),
+            probe=MediaProbe(),
+            encoder=EncoderSelector(settings),
+        )

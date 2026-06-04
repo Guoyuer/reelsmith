@@ -1,7 +1,7 @@
 """Tests for pipeline.assemble._graph — filter graph builder.
 
 Covers: compute_fade_params, _fade_expr, _overlay_vf, _photo_filter,
-_video_filter, build_segment_graph (with mocked probe_dimensions).
+_video_filter, resolve_render_items, build_segment_graph.
 """
 
 from __future__ import annotations
@@ -9,10 +9,9 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
-from pipeline.assemble._encoder import RenderContext
+from pipeline.assemble._encoder import RenderContext, RenderSettings
 from pipeline.assemble._graph import (
+    ResolvedRenderItem,
     SegmentGraph,
     _blurred_bg,
     _fade_expr,
@@ -22,6 +21,8 @@ from pipeline.assemble._graph import (
     _video_filter,
     build_segment_graph,
     compute_fade_params,
+    item_render_seconds,
+    resolve_render_items,
 )
 from pipeline.edl import EDL, EditItem, Segment, TextOverlay
 
@@ -29,7 +30,8 @@ from pipeline.edl import EDL, EditItem, Segment, TextOverlay
 # Helpers
 # ---------------------------------------------------------------------------
 
-_CTX = RenderContext(w=1920, h=1080, fps=30)
+_SETTINGS = RenderSettings(1920, 1080, 30)
+_CTX = RenderContext.without_capabilities(_SETTINGS)
 
 
 def _photo(duration: float = 4.0, effect: str = "ken_burns_in", **kw) -> EditItem:
@@ -78,6 +80,63 @@ def _edl(segments: list[Segment], **kw) -> EDL:
     kw.setdefault("trip_type", "family")
     kw.setdefault("style", "upbeat")
     return EDL(segments=segments, **kw)
+
+
+def _resolved_item(
+    item: EditItem,
+    *,
+    dimensions: tuple[int, int] = (1920, 1080),
+    color_transfer: str = "bt709",
+    input_path: Path | None = None,
+    temp_file: Path | None = None,
+    use_libplacebo: bool = False,
+) -> ResolvedRenderItem:
+    source = Path(item.source_file)
+    is_photo = item.media_type == "photo"
+    return ResolvedRenderItem(
+        item=item,
+        source_path=source,
+        input_path=input_path or source,
+        render_duration=item_render_seconds(item, _SETTINGS.fps),
+        display_width=0 if is_photo else dimensions[0],
+        display_height=0 if is_photo else dimensions[1],
+        color_transfer="" if is_photo else color_transfer,
+        temp_file=temp_file,
+        use_libplacebo_tonemap=use_libplacebo,
+    )
+
+
+def _resolved_items(
+    segment: Segment,
+    *,
+    dimensions: tuple[int, int] = (1920, 1080),
+    color_transfer: str = "bt709",
+    use_libplacebo: bool = False,
+) -> list[ResolvedRenderItem]:
+    return [
+        _resolved_item(
+            item,
+            dimensions=dimensions,
+            color_transfer=color_transfer,
+            use_libplacebo=use_libplacebo,
+        )
+        for item in segment.items
+    ]
+
+
+def _graph(
+    segment: Segment,
+    *,
+    fade_params: list[tuple[float, float]],
+    resolved_items: list[ResolvedRenderItem] | None = None,
+    **kwargs,
+) -> SegmentGraph:
+    return build_segment_graph(
+        resolved_items or _resolved_items(segment),
+        _SETTINGS,
+        fade_params=fade_params,
+        **kwargs,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -155,8 +214,7 @@ class TestOverlayVf:
 class TestPhotoFilter:
     def test_basic_structure(self):
         item = _photo(duration=4.0)
-        seg = _seg([item])
-        result = _photo_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
+        result = _photo_filter(0, item, _SETTINGS, 0.0, 0.0, "en")
         # Blurred background pipeline
         assert "loop=loop=" in result
         assert "split [bg0][fg0]" in result
@@ -174,8 +232,7 @@ class TestPhotoFilter:
 
     def test_with_fades(self):
         item = _photo()
-        seg = _seg([item])
-        result = _photo_filter(0, item, seg, _CTX, 0.5, 1.0, "en")
+        result = _photo_filter(0, item, _SETTINGS, 0.5, 1.0, "en")
         assert "fade=t=in:d=0.5" in result
         assert "fade=t=out" in result
 
@@ -188,8 +245,7 @@ class TestPhotoFilter:
             ("none", "static"),
         ]:
             item = _photo(effect=effect)
-            seg = _seg([item])
-            result = _photo_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
+            result = _photo_filter(0, item, _SETTINGS, 0.0, 0.0, "en")
             # "none" has zoom=1, others have zoom expressions
             if expected_dir == "static":
                 # For static, ken_burns_filter uses zoom="1"
@@ -197,32 +253,16 @@ class TestPhotoFilter:
             else:
                 assert "crop=" in result
 
-    def test_color_temp_warm_is_noop(self):
-        item = _photo()
-        seg = _seg([item], color_temp="warm")
-        result = _photo_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
-        assert "eq=contrast" not in result
-        assert "colorbalance" not in result
-
-    def test_color_temp_cool_is_noop(self):
-        item = _photo()
-        seg = _seg([item], color_temp="cool")
-        result = _photo_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
-        assert "eq=contrast" not in result
-        assert "colorbalance" not in result
-
     def test_with_text_overlay(self):
         item = _photo(text_overlay=TextOverlay(text="Dawn"))
-        seg = _seg([item])
-        result = _photo_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
+        result = _photo_filter(0, item, _SETTINGS, 0.0, 0.0, "en")
         assert "drawtext=" in result
         assert "Dawn" in result
 
     def test_index_propagated(self):
         """Second item in segment uses idx=1 for all labels."""
         item = _photo()
-        seg = _seg([item])
-        result = _photo_filter(3, item, seg, _CTX, 0.0, 0.0, "en")
+        result = _photo_filter(3, item, _SETTINGS, 0.0, 0.0, "en")
         assert "split [bg3][fg3]" in result
         assert "[blurred3]" in result
         assert "[sharp3]" in result
@@ -231,8 +271,7 @@ class TestPhotoFilter:
     def test_trim_duration_matches_frame_aligned(self):
         """Display duration is frame-aligned (frames / fps)."""
         item = _photo(duration=3.7)
-        seg = _seg([item])
-        result = _photo_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
+        result = _photo_filter(0, item, _SETTINGS, 0.0, 0.0, "en")
         frames = int(3.7 * 30)  # 111 frames
         exact_dur = frames / 30  # 3.7
         assert f"trim=duration={exact_dur:.6f}" in result
@@ -244,21 +283,10 @@ class TestPhotoFilter:
 
 
 class TestVideoFilter:
-    @pytest.fixture(autouse=True)
-    def _mock_probe(self):
-        """Mock probe_dimensions so no FFmpeg is needed."""
-        with patch.object(
-            RenderContext,
-            "probe_dimensions",
-            return_value=(1920, 1080),
-        ):
-            yield
-
     def test_landscape_16_9_no_blur(self):
         """16:9 landscape video uses simple scale+pad, no blurred bg."""
         item = _video(duration=5.0)
-        seg = _seg([item])
-        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
+        result = _video_filter(0, _resolved_item(item), _SETTINGS, 0.0, 0.0, "en")
         assert "scale=1920:1080:force_original_aspect_ratio=decrease" in result
         assert "pad=1920:1080" in result
         assert "boxblur" not in result
@@ -266,90 +294,79 @@ class TestVideoFilter:
 
     def test_portrait_gets_blurred_bg(self):
         """Portrait video should get blurred background composite."""
-        with patch.object(RenderContext, "probe_dimensions", return_value=(1080, 1920)):
-            item = _video(duration=5.0)
-            seg = _seg([item])
-            result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
-            assert "split [bg0][fg0]" in result
-            assert "boxblur=50:3" in result
-            assert "overlay=(W-w)/2:(H-h)/2" in result
+        item = _video(duration=5.0)
+        resolved = _resolved_item(item, dimensions=(1080, 1920))
+        result = _video_filter(0, resolved, _SETTINGS, 0.0, 0.0, "en")
+        assert "split [bg0][fg0]" in result
+        assert "boxblur=50:3" in result
+        assert "overlay=(W-w)/2:(H-h)/2" in result
 
     def test_non_16_9_landscape_gets_blur(self):
         """Ultra-wide (2.35:1) should get blurred bg."""
-        with patch.object(RenderContext, "probe_dimensions", return_value=(2560, 1080)):
-            item = _video(duration=5.0)
-            seg = _seg([item])
-            result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
-            assert "boxblur=50:3" in result
+        item = _video(duration=5.0)
+        resolved = _resolved_item(item, dimensions=(2560, 1080))
+        result = _video_filter(0, resolved, _SETTINGS, 0.0, 0.0, "en")
+        assert "boxblur=50:3" in result
 
     def test_trim_in_filter(self):
         """Video with start_time/end_time uses trim filter, not -ss/-t."""
         item = _video(duration=5.0, start=10.0, end=15.0)
-        seg = _seg([item])
-        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
+        result = _video_filter(0, _resolved_item(item), _SETTINGS, 0.0, 0.0, "en")
         assert "trim=start=10.0:duration=5.0" in result
         assert "setpts=PTS-STARTPTS" in result
 
     def test_no_explicit_trim_uses_display_duration(self):
         """Video without start_time/end_time trims to display_duration."""
         item = _video(duration=5.0)
-        seg = _seg([item])
-        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
+        result = _video_filter(0, _resolved_item(item), _SETTINGS, 0.0, 0.0, "en")
         assert "trim=start=0.0:duration=5.0" in result
 
     def test_speed_change(self):
         """Playback speed != 1.0 adds setpts filter."""
         item = _video(duration=10.0, start=0.0, end=10.0, speed=0.5)
-        seg = _seg([item])
-        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
+        result = _video_filter(0, _resolved_item(item), _SETTINGS, 0.0, 0.0, "en")
         assert "setpts=2.0000*PTS" in result
 
     def test_normal_speed_no_setpts(self):
         """Speed 1.0 should NOT add speed setpts filter."""
         item = _video(duration=5.0, speed=1.0)
-        seg = _seg([item])
-        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
+        result = _video_filter(0, _resolved_item(item), _SETTINGS, 0.0, 0.0, "en")
         # _fade_expr adds setpts=PTS-STARTPTS, but no multiplier
         assert "*PTS" not in result
 
     def test_fades(self):
         item = _video(duration=5.0)
-        seg = _seg([item])
-        result = _video_filter(0, item, seg, _CTX, 0.5, 1.0, "en")
+        result = _video_filter(0, _resolved_item(item), _SETTINGS, 0.5, 1.0, "en")
         assert "fade=t=in:d=0.5" in result
         assert "fade=t=out" in result
 
     def test_fps_at_end(self):
         """Output always ends with fps=N before label."""
         item = _video(duration=5.0)
-        seg = _seg([item])
-        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
+        result = _video_filter(0, _resolved_item(item), _SETTINGS, 0.0, 0.0, "en")
         assert "fps=30 [v0]" in result
-
-    def test_color_temp_is_noop(self):
-        item = _video(duration=5.0)
-        seg = _seg([item], color_temp="cool")
-        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
-        assert "eq=" not in result
-        assert "colorbalance" not in result
 
     def test_with_text_overlay(self):
         item = _video(
             duration=5.0,
             text_overlay=TextOverlay(text="Market"),
         )
-        seg = _seg([item])
-        result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
+        result = _video_filter(0, _resolved_item(item), _SETTINGS, 0.0, 0.0, "en")
         assert "drawtext=" in result
         assert "Market" in result
 
     def test_zero_dimensions_no_blur(self):
         """When probe returns (0, 0), no aspect fill (guard against division by zero)."""
-        with patch.object(RenderContext, "probe_dimensions", return_value=(0, 0)):
-            item = _video(duration=5.0)
-            seg = _seg([item])
-            result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
-            assert "boxblur" not in result
+        item = _video(duration=5.0)
+        result = _video_filter(
+            0,
+            _resolved_item(item, dimensions=(0, 0)),
+            _SETTINGS,
+            0.0,
+            0.0,
+            "en",
+        )
+        assert "boxblur" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -572,24 +589,85 @@ class TestComputeFadeParams:
 
 
 # ---------------------------------------------------------------------------
+# resolve_render_items
+# ---------------------------------------------------------------------------
+
+
+class TestResolveRenderItems:
+    def test_photo_decode_result_is_explicit(self, tmp_path):
+        source = tmp_path / "photo.heic"
+        decoded = tmp_path / "photo.jpg"
+        source.write_bytes(b"heic")
+        decoded.write_bytes(b"jpg")
+        item = _photo(duration=3.0)
+        item.source_file = str(source)
+        seg = _seg([item])
+
+        with patch(
+            "pipeline.assemble._graph.decode_heic_for_filter",
+            return_value=(decoded, True),
+        ) as decode:
+            resolved = resolve_render_items(seg, _CTX)
+
+        decode.assert_called_once_with(source)
+        assert resolved[0].source_path == source
+        assert resolved[0].input_path == decoded
+        assert resolved[0].temp_file == decoded
+        assert resolved[0].render_duration == 3.0
+
+    def test_video_probe_result_is_explicit(self):
+        item = _video(duration=5.0)
+        seg = _seg([item])
+
+        with (
+            patch.object(_CTX.probe, "probe_dimensions", return_value=(1080, 1920)),
+            patch.object(
+                _CTX.probe,
+                "probe_color_transfer",
+                return_value="arib-std-b67",
+            ),
+        ):
+            resolved = resolve_render_items(seg, _CTX)
+
+        assert resolved[0].display_width == 1080
+        assert resolved[0].display_height == 1920
+        assert resolved[0].color_transfer == "arib-std-b67"
+
+    def test_graph_builder_does_not_probe_or_decode(self):
+        item = _video(duration=5.0)
+        seg = _seg([item])
+
+        with (
+            patch(
+                "pipeline.assemble._graph.decode_heic_for_filter",
+                side_effect=AssertionError("decode belongs in resolve"),
+            ),
+            patch.object(
+                _CTX.probe,
+                "probe_dimensions",
+                side_effect=AssertionError("probe belongs in resolve"),
+            ),
+            patch.object(
+                _CTX.probe,
+                "probe_color_transfer",
+                side_effect=AssertionError("probe belongs in resolve"),
+            ),
+        ):
+            graph = _graph(seg, fade_params=[(0.0, 0.0)])
+
+        assert len(graph.inputs) == 1
+
+
+# ---------------------------------------------------------------------------
 # build_segment_graph
 # ---------------------------------------------------------------------------
 
 
 class TestBuildSegmentGraph:
-    @pytest.fixture(autouse=True)
-    def _mock_probe(self):
-        with patch.object(
-            RenderContext,
-            "probe_dimensions",
-            return_value=(1920, 1080),
-        ):
-            yield
-
     def test_single_photo(self):
         """Single photo produces: 1 input, concat=n=1, silence, no speech."""
         seg = _seg([_photo(duration=3.0)])
-        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
+        graph = _graph(seg, fade_params=[(0.0, 0.0)])
         assert len(graph.inputs) == 1
         assert "concat=n=1:v=1:a=1" in graph.script
         assert "aevalsrc=0" in graph.script
@@ -599,7 +677,7 @@ class TestBuildSegmentGraph:
     def test_single_video_no_audio(self):
         """Video with keep_audio=False: silence track, no speech."""
         seg = _seg([_video(duration=5.0)])
-        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
+        graph = _graph(seg, fade_params=[(0.0, 0.0)])
         assert len(graph.inputs) == 1
         assert "aevalsrc=0" in graph.script
         assert "atrim" not in graph.script
@@ -607,7 +685,7 @@ class TestBuildSegmentGraph:
     def test_video_keep_audio(self):
         """Video with keep_audio=True: atrim audio preserved."""
         seg = _seg([_video(duration=5.0, start=2.0, end=7.0, keep_audio=True)])
-        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
+        graph = _graph(seg, fade_params=[(0.0, 0.0)])
         assert "atrim=start=2.0:duration=5.0" in graph.script
         assert "asetpts=PTS-STARTPTS" in graph.script
 
@@ -616,7 +694,7 @@ class TestBuildSegmentGraph:
         seg = _seg(
             [_video(duration=10.0, start=0.0, end=10.0, keep_audio=True, speed=1.5)]
         )
-        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
+        graph = _graph(seg, fade_params=[(0.0, 0.0)])
         assert "atempo=1.5" in graph.script
 
     def test_video_keep_audio_normal_speed_no_atempo(self):
@@ -624,13 +702,13 @@ class TestBuildSegmentGraph:
         seg = _seg(
             [_video(duration=5.0, start=0.0, end=5.0, keep_audio=True, speed=1.0)]
         )
-        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
+        graph = _graph(seg, fade_params=[(0.0, 0.0)])
         assert "atempo" not in graph.script
 
     def test_multiple_items_concat(self):
         """Two items produce concat=n=2."""
         seg = _seg([_photo(), _video(duration=5.0)])
-        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0), (0.0, 0.0)])
+        graph = _graph(seg, fade_params=[(0.0, 0.0), (0.0, 0.0)])
         assert len(graph.inputs) == 2
         assert "concat=n=2:v=1:a=1" in graph.script
 
@@ -639,9 +717,8 @@ class TestBuildSegmentGraph:
         title = tmp_path / "title.mp4"
         title.write_bytes(b"\x00" * 100)
         seg = _seg([_photo()])
-        graph = build_segment_graph(
+        graph = _graph(
             seg,
-            _CTX,
             fade_params=[(0.0, 0.0)],
             title_card_path=title,
             intro_duration=3.0,
@@ -656,9 +733,8 @@ class TestBuildSegmentGraph:
         outro = tmp_path / "outro.mp4"
         outro.write_bytes(b"\x00" * 100)
         seg = _seg([_photo()])
-        graph = build_segment_graph(
+        graph = _graph(
             seg,
-            _CTX,
             fade_params=[(0.0, 0.0)],
             outro_card_path=outro,
             outro_duration=2.5,
@@ -674,9 +750,8 @@ class TestBuildSegmentGraph:
         outro = tmp_path / "outro.mp4"
         outro.write_bytes(b"\x00" * 100)
         seg = _seg([_photo()])
-        graph = build_segment_graph(
+        graph = _graph(
             seg,
-            _CTX,
             fade_params=[(0.0, 0.0)],
             title_card_path=title,
             intro_duration=3.0,
@@ -689,9 +764,8 @@ class TestBuildSegmentGraph:
     def test_nonexistent_title_card_skipped(self):
         """Title card path that doesn't exist is ignored."""
         seg = _seg([_photo()])
-        graph = build_segment_graph(
+        graph = _graph(
             seg,
-            _CTX,
             fade_params=[(0.0, 0.0)],
             title_card_path=Path("/nonexistent/title.mp4"),
             intro_duration=3.0,
@@ -713,20 +787,20 @@ class TestBuildSegmentGraph:
                 ),
             ]
         )
-        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0), (0.0, 0.0)])
+        graph = _graph(seg, fade_params=[(0.0, 0.0), (0.0, 0.0)])
         assert "atrim" in graph.script
         assert "aevalsrc=0" in graph.script
 
     def test_script_semicolon_separated(self):
         """Filter graph lines are joined with semicolons."""
         seg = _seg([_photo()])
-        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
+        graph = _graph(seg, fade_params=[(0.0, 0.0)])
         assert ";\n" in graph.script
 
     def test_output_labels_vout_aout(self):
         """Concat output labels are [vout][aout]."""
         seg = _seg([_photo()])
-        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
+        graph = _graph(seg, fade_params=[(0.0, 0.0)])
         assert "[vcat][aout]" in graph.script
         assert "[vcat] setparams=" in graph.script
         assert "[vout]" in graph.script
@@ -734,7 +808,7 @@ class TestBuildSegmentGraph:
     def test_segment_output_forces_bt709_metadata(self):
         """Final segment frames are explicitly tagged as SDR BT.709."""
         seg = _seg([_photo()])
-        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
+        graph = _graph(seg, fade_params=[(0.0, 0.0)])
         assert "color_primaries=bt709" in graph.script
         assert "color_trc=bt709" in graph.script
         assert "colorspace=bt709" in graph.script
@@ -743,7 +817,7 @@ class TestBuildSegmentGraph:
     def test_photo_input_uses_loop_filter(self):
         """Photo inputs use simple -i with loop filter in graph (no -loop 1)."""
         seg = _seg([_photo(duration=4.0)])
-        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
+        graph = _graph(seg, fade_params=[(0.0, 0.0)])
         inp = graph.inputs[0]
         assert "-i" in inp
         assert "-loop" not in inp  # loop filter, not input flag
@@ -754,7 +828,7 @@ class TestBuildSegmentGraph:
     def test_video_input_no_ss_no_t(self):
         """Video inputs should NOT have -ss or -t (trim is in filter chain)."""
         seg = _seg([_video(duration=5.0, start=10.0, end=15.0)])
-        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
+        graph = _graph(seg, fade_params=[(0.0, 0.0)])
         inp = graph.inputs[0]
         assert "-ss" not in inp
         assert "-t" not in inp
@@ -764,16 +838,16 @@ class TestBuildSegmentGraph:
     def test_video_trim_duration_from_start_end(self):
         """Video with start/end uses their difference as trim duration, not display_duration."""
         seg = _seg([_video(duration=5.0, start=10.0, end=18.0)])
-        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
+        graph = _graph(seg, fade_params=[(0.0, 0.0)])
         # Trim duration should be end - start = 8.0
         assert "trim=start=10.0:duration=8.0" in graph.script
 
     def test_heic_photo_no_conversion_needed(self):
-        """HEIC photos work natively with loop filter (no convert_heic)."""
+        """Graph builder uses the resolved photo input path."""
         item = _photo()
         item.source_file = "/fake/photo.heic"
         seg = _seg([item])
-        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
+        graph = _graph(seg, fade_params=[(0.0, 0.0)])
         assert "photo.heic" in str(graph.inputs[0])
 
 
@@ -784,15 +858,6 @@ class TestBuildSegmentGraph:
 
 class TestFadeParamsAndGraphIntegration:
     """Verify that compute_fade_params output is compatible with build_segment_graph."""
-
-    @pytest.fixture(autouse=True)
-    def _mock_probe(self):
-        with patch.object(
-            RenderContext,
-            "probe_dimensions",
-            return_value=(1920, 1080),
-        ):
-            yield
 
     def test_fade_params_shape_matches_segments(self):
         """compute_fade_params returns one list per segment, one tuple per item."""
@@ -817,6 +882,6 @@ class TestFadeParamsAndGraphIntegration:
 
         # Build graph for each segment using its fade params
         for si, segment in enumerate(edl.segments):
-            graph = build_segment_graph(segment, _CTX, fade_params=fades[si])
+            graph = _graph(segment, fade_params=fades[si])
             assert isinstance(graph, SegmentGraph)
             assert len(graph.inputs) == len(segment.items)

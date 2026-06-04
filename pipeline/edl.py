@@ -80,12 +80,6 @@ class Transition(StrEnum):
     CUT = "cut"
 
 
-class ColorTemp(StrEnum):
-    WARM = "warm"
-    COOL = "cool"
-    NEUTRAL = "neutral"
-
-
 class SegmentMode(StrEnum):
     NARRATIVE = "narrative"
     MONTAGE = "montage"
@@ -152,7 +146,6 @@ class Segment(BaseModel):
     transition_duration: float = 0.4  # seconds
     segment_transition_duration: float = 1.0  # seconds; inter-segment fade length
     mode: SegmentMode = SegmentMode.NARRATIVE  # montage = quick-cut burst
-    color_temp: ColorTemp = ColorTemp.NEUTRAL  # Gemini sets per segment
 
 
 class MusicTrack(BaseModel):

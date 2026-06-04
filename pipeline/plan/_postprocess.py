@@ -177,8 +177,6 @@ def parse_and_convert_timestamps(
         # Normalize removed/invalid transition values to "crossfade"
         if seg.get("transition") not in valid_transitions:
             seg["transition"] = "crossfade"
-        # Remove legacy segment_transition field (no longer in schema)
-        seg.pop("segment_transition", None)
         for item in seg.get("items", []):
             if item.get("effect") not in valid_effects:
                 item["effect"] = "none"
@@ -193,9 +191,8 @@ def parse_and_convert_timestamps(
 
 def source_candidates(
     analysis_by_path: Mapping[str, AnalysisEntry],
-    media_dir: Path | None = None,
 ) -> list[Path]:
-    """Return known source files from analysis first, then legacy media cache."""
+    """Return known source files from analysis."""
     candidates: list[Path] = []
     seen: set[str] = set()
 
@@ -208,15 +205,6 @@ def source_candidates(
         if key not in seen:
             candidates.append(path)
             seen.add(key)
-
-    if media_dir and media_dir.exists():
-        for path in media_dir.rglob("*"):
-            if not path.is_file():
-                continue
-            key = str(path)
-            if key not in seen:
-                candidates.append(path)
-                seen.add(key)
 
     return candidates
 
@@ -267,7 +255,7 @@ def fix_hallucinated_paths(
             if source.exists():
                 valid_items.append(item)
                 continue
-            # Match against source paths from analysis.json, then legacy media cache.
+            # Match against source paths from analysis.json.
             matches = _match_source_path(source, candidates)
             if matches:
                 item.source_file = str(matches[0])
@@ -477,13 +465,12 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
     for si, seg in enumerate(edl.segments):
         seg_dur = sum(i.display_duration for i in seg.items)
         logger.debug(
-            "  Segment %d: %s (%d items, %.0fs, %s, %s)",
+            "  Segment %d: %s (%d items, %.0fs, %s)",
             si,
             seg.name,
             len(seg.items),
             seg_dur,
             seg.mode,
-            seg.color_temp,
         )
         if seg.narrative_rationale:
             logger.debug("    Rationale: %s", seg.narrative_rationale)
@@ -529,7 +516,7 @@ def log_edl_summary(edl: EDL, target_duration: int) -> None:
             seg_dur = sum(i.display_duration for i in seg.items)
             branch = tree.add(
                 f"[bold cyan]{seg.name}[/bold cyan]  "
-                f"[dim]{len(seg.items)} items, {seg_dur:.0f}s, {seg.color_temp}[/dim]"
+                f"[dim]{len(seg.items)} items, {seg_dur:.0f}s[/dim]"
             )
             for item in seg.items:
                 name = Path(item.source_file).name

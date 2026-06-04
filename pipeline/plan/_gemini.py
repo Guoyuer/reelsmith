@@ -367,7 +367,6 @@ def _edl_response_schema() -> dict[str, Any]:
             "narrative_rationale": {"type": "STRING"},
             "music_mood": {"type": "STRING"},
             "mode": {"type": "STRING", "enum": ["narrative", "montage"]},
-            "color_temp": {"type": "STRING", "enum": ["neutral", "warm", "cool"]},
             "segment_transition_duration": {"type": "NUMBER"},
             "items": {"type": "ARRAY", "items": item_schema},
             "transition": {

@@ -16,8 +16,13 @@ from ..config import Config, ProgressCallback
 from ..edl import EDL, load_latest_edl, validate_edl
 from ..utils.media import run_subprocess
 from ._audio import CueSheetRenderInfo, beat_snap_edl, write_chapters, write_cue_sheet
-from ._encoder import RenderContext
-from ._graph import SegmentGraph, build_segment_graph, compute_fade_params
+from ._encoder import RenderContext, RenderSettings
+from ._graph import (
+    SegmentGraph,
+    build_segment_graph,
+    compute_fade_params,
+    resolve_render_items,
+)
 from ._render import render_title_card
 
 logger = logging.getLogger("reelsmith.assemble")
@@ -72,7 +77,8 @@ def assemble(
         edl.estimated_duration(),
     )
 
-    ctx = RenderContext(w=ac.w, h=ac.h, fps=ac.fps, bitrate=ac.bitrate, codec=ac.codec)
+    settings = RenderSettings(ac.w, ac.h, ac.fps, bitrate=ac.bitrate, codec=ac.codec)
+    ctx = RenderContext.detect(settings)
     res_label = f"{ac.h}p{ac.fps}"
     output_path = cfg.output_dir / f"reelsmith_v{version}_{res_label}.mp4"
 
@@ -128,13 +134,14 @@ def assemble(
     if progress_callback:
         progress_callback(0, 0, "validating output...")
 
-    final_dur = ctx.probe_duration(output_path) or 0.0
+    final_dur = ctx.probe.probe_duration(output_path) or 0.0
     logger.info(
         "Done: %s (%.1fs, rendered in %.0fs)", output_path.name, final_dur, total_time
     )
 
     has_speech = any(item.keep_audio for item in edl.all_items())
-    val_issues = _validate_output(output_path, edl, has_speech, (ctx.w, ctx.h), ctx=ctx)
+    resolution = (ctx.settings.w, ctx.settings.h)
+    val_issues = _validate_output(output_path, edl, has_speech, resolution, ctx=ctx)
     for i in val_issues:
         level = "ERROR" if i["level"] == "error" else "WARNING"
         logger.info("  %s [%s]: %s", level, i["check"], i["message"])
@@ -207,13 +214,18 @@ def _render_segments(
         output_dir / f"_seg_{i}_{res_label}.mp4" for i in range(len(edl.segments))
     ]
 
-    # Build per-segment FFmpeg commands (must be sequential — graph needs ctx.probe)
+    # Resolve media probes/decodes first; graph construction stays pure.
     segment_cmds: list[tuple[int, list[str]]] = []
     segment_graphs: list[SegmentGraph] = []
+    temp_files: list[Path] = []
     for seg_idx, segment in enumerate(edl.segments):
+        resolved_items = resolve_render_items(segment, ctx)
+        temp_files.extend(
+            resolved.temp_file for resolved in resolved_items if resolved.temp_file
+        )
         graph = build_segment_graph(
-            segment,
-            ctx,
+            resolved_items,
+            ctx.settings,
             fade_params=fade_params[seg_idx],
             language=edl.language,
             title_card_path=intro_path if seg_idx == 0 else None,
@@ -227,13 +239,13 @@ def _render_segments(
         script_path = output_dir / f"_seg_{seg_idx}_{res_label}.txt"
         script_path.write_text(graph.script, encoding="utf-8")
 
-        enc = ctx.get_encoder()
+        enc = ctx.encoder.args()
         cmd = ["ffmpeg", "-y"]
         # libplacebo HDR tone-map needs a Vulkan filter device (only when this
         # segment actually has an HDR clip — photo/SDR segments skip it).
         if graph.uses_vulkan:
             cmd += ["-init_hw_device", "vulkan=vk", "-filter_hw_device", "vk"]
-        cmd += [*ctx.hwaccel_args]
+        cmd += [*ctx.capabilities.hwaccel_args]
         for inp in graph.inputs:
             cmd += [str(x) for x in inp]
         cmd += ["-filter_complex_script", str(script_path)]
@@ -262,7 +274,7 @@ def _render_segments(
     # Render segments in parallel (3 NVENC sessions max)
     from ..utils.parallel import run_parallel
 
-    max_workers = 3 if "nvenc" in " ".join(ctx.get_encoder()) else 2
+    max_workers = 3 if "nvenc" in " ".join(ctx.encoder.args()) else 2
 
     if progress_callback:
         progress_callback(0, len(segment_cmds), "render segments")
@@ -286,13 +298,12 @@ def _render_segments(
     for seg_idx, result in results:
         if isinstance(result, Exception):
             raise RuntimeError(f"Segment {seg_idx} render failed: {result}")
-        dur = ctx.probe_duration(segment_files[seg_idx]) or 0.0
+        dur = ctx.probe.probe_duration(segment_files[seg_idx]) or 0.0
         logger.info("  Segment %d: %.1fs", seg_idx, dur)
 
     # Clean up HEIC decode temp files
-    for graph in segment_graphs:
-        for tmp in graph.temp_files:
-            tmp.unlink(missing_ok=True)
+    for tmp in temp_files:
+        tmp.unlink(missing_ok=True)
 
     t_phase1 = time.monotonic() - t_start
     logger.info("Phase 1: %.0fs (%d segments)", t_phase1, len(segment_files))
@@ -359,7 +370,7 @@ def _concat_and_mix(
     if result.returncode != 0:
         raise RuntimeError(f"Concat failed: {result.stderr}")
 
-    total_duration = ctx.probe_duration(nomix_path) or 0.0
+    total_duration = ctx.probe.probe_duration(nomix_path) or 0.0
     logger.info("  Concat: %.1fs", total_duration)
 
     # Music overlay
@@ -368,7 +379,7 @@ def _concat_and_mix(
         if progress_callback:
             progress_callback(0, 0, "mixing music...")
         music_path = Path(edl.music.file)
-        music_duration = ctx.probe_duration(music_path) or total_duration
+        music_duration = ctx.probe.probe_duration(music_path) or total_duration
 
         mix_chain = _build_music_mix_chain(
             edl.music,
@@ -401,7 +412,7 @@ def _concat_and_mix(
 
     # Chapters (before cleanup — needs segment files for durations)
     chapters_path = output_dir / f"chapters_v{version}_{res_label}.txt"
-    seg_durations = [ctx.probe_duration(f) or 0.0 for f in segment_files]
+    seg_durations = [ctx.probe.probe_duration(f) or 0.0 for f in segment_files]
     write_chapters(edl, seg_durations, chapters_path)
 
     # Cue sheet: per-item final-timeline → source map (debugging / QA / re-edits).
@@ -414,10 +425,10 @@ def _concat_and_mix(
         seg_item_durations,
         cue_sheet_path,
         CueSheetRenderInfo(
-            output_fps=ctx.fps,
+            output_fps=ctx.settings.fps,
             output_file=str(output_path),
-            output_width=ctx.w,
-            output_height=ctx.h,
+            output_width=ctx.settings.w,
+            output_height=ctx.settings.h,
             edl_version=version,
         ),
     )
@@ -622,7 +633,7 @@ def _validate_output(
         _error("file", f"Output too small: {output_path.stat().st_size} bytes")
         return issues
 
-    actual_dur = ctx.probe_duration(output_path) if ctx else 0.0
+    actual_dur = ctx.probe.probe_duration(output_path) if ctx else 0.0
     if actual_dur == 0:
         _error("duration", "Could not probe duration")
     else:
@@ -654,7 +665,7 @@ def _validate_output(
         _warn("streams", "No audio stream")
 
     w, h = resolution
-    dims = ctx.probe_dimensions(output_path) if ctx else (0, 0)
+    dims = ctx.probe.probe_dimensions(output_path) if ctx else (0, 0)
     if dims != (0, 0) and dims != (w, h):
         _warn("resolution", f"Output {dims[0]}x{dims[1]} != expected {w}x{h}")
 

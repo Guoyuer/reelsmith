@@ -1,16 +1,10 @@
-"""FFmpeg filter string builders: color grade, text overlay, fonts, Ken Burns."""
+"""FFmpeg filter string builders: HDR mapping, text overlay, fonts, Ken Burns."""
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 from .. import constants as C
-
-logger = logging.getLogger("reelsmith.assemble.filters")
-
-
-_VALID_COLOR_TEMPS = {"neutral", "warm", "cool"}
 
 # HDR transfer characteristics that require tone-mapping to SDR. PQ (HDR10) and
 # HLG cover essentially all consumer HDR capture (phones = PQ, DJI = HLG).
@@ -31,8 +25,7 @@ def hdr_to_sdr_filter(color_transfer: str, *, use_libplacebo: bool = False) -> s
     SDR without conversion makes the output too bright (HDR luminance not
     mapped down) and oversaturated/colour-cast (BT.2020 gamut shown as BT.709).
 
-    Two paths, chosen by *use_libplacebo* (set from
-    ``RenderContext.vulkan_tonemap``):
+    Two paths, chosen by *use_libplacebo* from detected render capabilities:
 
     - **libplacebo** (preferred, color-correct): applies HLG/PQ-aware tone
       mapping and perceptual gamut mapping, so colour balance is accurate and
@@ -41,8 +34,7 @@ def hdr_to_sdr_filter(color_transfer: str, *, use_libplacebo: bool = False) -> s
       Vulkan device (hardware, or a software ICD like Mesa lavapipe). It
       auto-uploads the software frame, tone-maps on the GPU, and outputs
       yuv420p back to the software graph — needs ``-init_hw_device vulkan`` on
-      the FFmpeg command (added in _assemble when
-      ``RenderContext.vulkan_tonemap`` is set).
+      the FFmpeg command (added in _assemble when a resolved item uses it).
     - **zscale** (CPU fallback, always available): linearize → BT.709 primaries
       → Hable tone-map → BT.709 SDR. ``desat=2`` tames neon highlights, but a
       fixed desat can't fully correct the per-scene colour cast the way
@@ -78,19 +70,6 @@ def escape_drawtext(text: str) -> str:
         .replace("]", "\\]")
         .replace("=", "\\=")
     )
-
-
-def color_grade(color_temp: str = "neutral") -> str:
-    """No-op color grade.
-
-    `color_temp` remains in the EDL schema for backward compatibility, but the
-    renderer does not apply creative warm/cool grading. Color should stay as
-    faithful to the source as possible after required technical conversions
-    such as HDR->SDR tone-mapping.
-    """
-    if color_temp not in _VALID_COLOR_TEMPS:
-        logger.warning("Unknown color_temp '%s', defaulting to neutral", color_temp)
-    return "null"
 
 
 def find_font(language: str = "en") -> str:

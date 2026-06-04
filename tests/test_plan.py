@@ -181,10 +181,6 @@ class TestEdlFieldCompleteness:
         item = EditItem(source_file="a.mp4", media_type="video")
         assert item.playback_speed == 1.0
 
-    def test_color_temp_defaults_neutral(self):
-        seg = Segment(name="test", items=[], transition="crossfade")
-        assert seg.color_temp == "neutral"
-
     def test_mode_defaults_narrative(self):
         seg = Segment(name="test", items=[], transition="crossfade")
         assert seg.mode == "narrative"
