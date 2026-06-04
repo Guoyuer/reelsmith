@@ -106,7 +106,6 @@ def _make_edl(
                 "transition": transition,
                 "transition_duration": transition_duration,
                 "mode": "narrative",
-                "color_temp": "neutral",
             }
         ],
         "music": None,
@@ -405,7 +404,6 @@ class TestAssembleE2E:
                     "transition": "crossfade",
                     "transition_duration": 0.4,
                     "mode": "narrative",
-                    "color_temp": "warm",
                 },
                 {
                     "name": "Segment B",
@@ -435,7 +433,6 @@ class TestAssembleE2E:
                     "transition": "crossfade",
                     "transition_duration": 0.6,
                     "mode": "narrative",
-                    "color_temp": "cool",
                 },
             ],
             "music": None,

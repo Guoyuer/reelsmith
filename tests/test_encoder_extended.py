@@ -5,7 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from pipeline.assemble._encoder import RenderContext, detect_hw_encoder
+from pipeline.assemble._encoder import (
+    EncoderSelector,
+    MediaProbe,
+    RenderSettings,
+    detect_hw_encoder,
+)
 
 
 class TestDetectHwEncoder:
@@ -99,7 +104,7 @@ class TestRenderContextEdgeCases:
         """Rotation 180 should NOT swap dimensions (upside down, same aspect)."""
         import json
 
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        probe = MediaProbe()
         fake = MagicMock()
         fake.stdout = json.dumps(
             {
@@ -113,14 +118,14 @@ class TestRenderContextEdgeCases:
             }
         )
         with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
-            w, h = ctx.probe_dimensions(Path("/fake.mp4"))
+            w, h = probe.probe_dimensions(Path("/fake.mp4"))
         assert (w, h) == (1920, 1080)
 
     def test_rotation_270_swaps(self):
         """Rotation 270 should swap dimensions."""
         import json
 
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        probe = MediaProbe()
         fake = MagicMock()
         fake.stdout = json.dumps(
             {
@@ -134,28 +139,28 @@ class TestRenderContextEdgeCases:
             }
         )
         with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
-            w, h = ctx.probe_dimensions(Path("/fake.mp4"))
+            w, h = probe.probe_dimensions(Path("/fake.mp4"))
         assert (w, h) == (1080, 1920)
 
     def test_encoder_cached(self):
-        """get_encoder should cache result for same params."""
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        """EncoderSelector.args should cache result for same params."""
+        encoder = EncoderSelector(RenderSettings(1920, 1080, 30))
         with patch(
             "pipeline.assemble._encoder.detect_hw_encoder",
             return_value=["-c:v", "libx264", "-b:v", "8M"],
         ) as mock_detect:
-            enc1 = ctx.get_encoder()
-            enc2 = ctx.get_encoder()
+            enc1 = encoder.args()
+            enc2 = encoder.args()
         assert enc1 == enc2
         mock_detect.assert_called_once()
 
     def test_color_transfer_probe_missing_ffprobe_returns_unknown(self):
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        probe = MediaProbe()
         with patch(
             "pipeline.assemble._encoder.run_subprocess",
             side_effect=OSError("ffprobe not found"),
         ):
-            assert ctx.probe_color_transfer(Path("/fake.mp4")) == ""
+            assert probe.probe_color_transfer(Path("/fake.mp4")) == ""
 
 
 class TestCodecSelection:

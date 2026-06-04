@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from pipeline.assemble._assemble import AssembleConfig, _validate_output
-from pipeline.assemble._encoder import RenderContext
+from pipeline.assemble._encoder import RenderContext, RenderSettings
 from pipeline.assemble._filters import is_portrait as _is_portrait
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
 
@@ -84,11 +84,11 @@ class TestProbeDimensions:
         fake_result.stdout = json.dumps({"streams": [{"width": 3840, "height": 2160}]})
         fake_result.returncode = 0
 
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
         with patch(
             "pipeline.assemble._encoder.run_subprocess", return_value=fake_result
         ):
-            w, h = ctx.probe_dimensions(Path("/fake/video.mp4"))
+            w, h = ctx.probe.probe_dimensions(Path("/fake/video.mp4"))
         assert (w, h) == (3840, 2160)
 
     def test_probe_dimensions_rotation(self):
@@ -109,11 +109,11 @@ class TestProbeDimensions:
         )
         fake_result.returncode = 0
 
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
         with patch(
             "pipeline.assemble._encoder.run_subprocess", return_value=fake_result
         ):
-            w, h = ctx.probe_dimensions(Path("/fake/rotated.mp4"))
+            w, h = ctx.probe.probe_dimensions(Path("/fake/rotated.mp4"))
         assert (w, h) == (2160, 3840)
 
 
@@ -199,7 +199,7 @@ def _patch_validation(**kwargs):
         patch("pipeline.assemble._encoder.run_subprocess", side_effect=mock_fn),
         patch("pipeline.utils.media.run_subprocess", side_effect=mock_fn),
     ):
-        yield RenderContext(w=1920, h=1080, fps=30)
+        yield RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
 
 
 class TestValidateOutputFileChecks:

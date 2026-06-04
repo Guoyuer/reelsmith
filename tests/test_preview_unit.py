@@ -125,6 +125,7 @@ class TestBuildVisualContentBlocks:
             str(photo): {
                 "local_path": str(photo),
                 "media_type": "photo",
+                "thumbnail_path": str(thumb),
             }
         }
 
@@ -188,6 +189,7 @@ class TestBuildVisualContentBlocks:
             str(photo): {
                 "local_path": str(photo),
                 "media_type": "photo",
+                "thumbnail_path": str(thumb),
             },
             str(video): {
                 "local_path": str(video),

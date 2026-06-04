@@ -190,7 +190,7 @@ class TestEdlResponseSchema:
     def test_segment_has_required_fields(self, schema):
         seg_schema = schema["properties"]["segments"]["items"]
         assert seg_schema["type"] == "OBJECT"
-        for field in ("name", "items", "music_mood", "mode", "color_temp"):
+        for field in ("name", "items", "music_mood", "mode"):
             assert field in seg_schema["properties"]
         assert set(seg_schema["required"]) == {"name", "items"}
 
@@ -269,7 +269,6 @@ class TestStructuredOutputParsing:
                         "narrative_rationale": "Opening",
                         "music_mood": "gentle guitar",
                         "mode": "narrative",
-                        "color_temp": "warm",
                         "segment_transition_duration": 1.0,
                         "items": [
                             {
@@ -332,7 +331,6 @@ class TestStructuredOutputParsing:
                     {
                         "name": "Quick Cuts",
                         "mode": "montage",
-                        "color_temp": "warm",
                         "items": [
                             {
                                 "source_file": "IMG_A.jpg",

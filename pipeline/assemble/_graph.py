@@ -32,9 +32,8 @@ from pathlib import Path
 from .. import constants as C
 from ..edl import EDL, EditItem, Segment
 from ..utils.image import decode_heic_for_filter
-from ._encoder import RenderContext
+from ._encoder import RenderContext, RenderSettings
 from ._filters import (
-    color_grade,
     drawtext_filter,
     hdr_to_sdr_filter,
     is_hdr_transfer,
@@ -93,8 +92,6 @@ class SegmentGraph:
     script: str
     # item_idx → (input_idx, source_name, filter_line_start) for error mapping
     item_map: list[tuple[int, str, int]] = dataclasses.field(default_factory=list)
-    # Temp files created by HEIC decode — caller must clean up
-    temp_files: list[Path] = dataclasses.field(default_factory=list)
     # True if any item tone-maps via libplacebo — caller must add the Vulkan
     # device (-init_hw_device vulkan) to this segment's FFmpeg command.
     uses_vulkan: bool = False
@@ -104,14 +101,82 @@ class SegmentGraph:
     item_durations: list[float] = dataclasses.field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class ResolvedRenderItem:
+    """A segment item with all probe/decode decisions resolved up front."""
+
+    item: EditItem
+    source_path: Path
+    input_path: Path
+    render_duration: float
+    display_width: int = 0
+    display_height: int = 0
+    color_transfer: str = ""
+    temp_file: Path | None = None
+    use_libplacebo_tonemap: bool = False
+
+    @property
+    def input_args(self) -> list[str]:
+        return ["-i", str(self.input_path)]
+
+    @property
+    def uses_vulkan(self) -> bool:
+        return (
+            self.item.media_type != "photo"
+            and self.use_libplacebo_tonemap
+            and is_hdr_transfer(self.color_transfer)
+        )
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
+def resolve_render_items(
+    segment: Segment, ctx: RenderContext
+) -> list[ResolvedRenderItem]:
+    """Resolve probe/decode work for a segment before graph construction."""
+    resolved: list[ResolvedRenderItem] = []
+    fps = ctx.settings.fps
+    for item in segment.items:
+        source = Path(item.source_file)
+        render_duration = item_render_seconds(item, fps)
+
+        if item.media_type == "photo":
+            decoded, was_temp = decode_heic_for_filter(source)
+            resolved.append(
+                ResolvedRenderItem(
+                    item=item,
+                    source_path=source,
+                    input_path=decoded,
+                    render_duration=render_duration,
+                    temp_file=decoded if was_temp else None,
+                )
+            )
+            continue
+
+        width, height = ctx.probe.probe_dimensions(source)
+        color_transfer = ctx.probe.probe_color_transfer(source)
+        resolved.append(
+            ResolvedRenderItem(
+                item=item,
+                source_path=source,
+                input_path=source,
+                render_duration=render_duration,
+                display_width=width,
+                display_height=height,
+                color_transfer=color_transfer,
+                use_libplacebo_tonemap=ctx.capabilities.vulkan_tonemap,
+            )
+        )
+
+    return resolved
+
+
 def build_segment_graph(
-    segment: Segment,
-    ctx: RenderContext,
+    resolved_items: list[ResolvedRenderItem],
+    settings: RenderSettings,
     *,
     fade_params: list[tuple[float, float]],
     language: str = "en",
@@ -125,7 +190,11 @@ def build_segment_graph(
     Returns inputs + script for a single FFmpeg call.
     Video and audio are concat'd together (v=1:a=1) for perfect sync.
     """
-    fps = ctx.fps
+    if len(resolved_items) != len(fade_params):
+        raise ValueError(
+            f"resolved item count {len(resolved_items)} != fade count {len(fade_params)}"
+        )
+    fps = settings.fps
     inputs: list[list[str]] = []
     filters: list[str] = []
     v_a_pairs: list[tuple[str, str]] = []
@@ -137,37 +206,28 @@ def build_segment_graph(
         )
 
     # --- Content items ---
-    temp_files: list[Path] = []
     item_durations: list[float] = []
     uses_vulkan = False
-    for item_idx, item in enumerate(segment.items):
+    for item_idx, resolved in enumerate(resolved_items):
+        item = resolved.item
         fade_in, fade_out = fade_params[item_idx]
-        source = Path(item.source_file)
         idx = len(inputs)
         filter_line = len(filters)
-        # Single source of truth for this item's final-video length — drives
-        # both its silence/audio length here and the exported cue-sheet timing.
-        render_dur = item_render_seconds(item, fps)
+        render_dur = resolved.render_duration
         item_durations.append(render_dur)
 
-        if item.media_type != "photo" and ctx.vulkan_tonemap:
-            uses_vulkan = uses_vulkan or is_hdr_transfer(
-                ctx.probe_color_transfer(source)
-            )
+        uses_vulkan = uses_vulkan or resolved.uses_vulkan
 
         if item.media_type == "photo":
-            decoded, was_temp = decode_heic_for_filter(source)
-            if was_temp:
-                temp_files.append(decoded)
-            inputs.append(["-i", str(decoded)])
+            inputs.append(resolved.input_args)
             filters.append(
-                _photo_filter(idx, item, segment, ctx, fade_in, fade_out, language)
+                _photo_filter(idx, item, settings, fade_in, fade_out, language)
             )
             filters.append(f"{_silence(render_dur)} [a{idx}]")
         else:
-            inputs.append(["-i", str(source)])
+            inputs.append(resolved.input_args)
             filters.append(
-                _video_filter(idx, item, segment, ctx, fade_in, fade_out, language)
+                _video_filter(idx, resolved, settings, fade_in, fade_out, language)
             )
 
             # Audio: preserve speech (atrim+atempo) or generate silence. Both
@@ -190,7 +250,7 @@ def build_segment_graph(
                 filters.append(f"{_silence(render_dur)} [a{idx}]")
 
         v_a_pairs.append((f"[v{idx}]", f"[a{idx}]"))
-        item_map.append((idx, source.name, filter_line))
+        item_map.append((idx, resolved.source_path.name, filter_line))
 
     # --- Outro card (appended to last segment) ---
     if outro_card_path and outro_card_path.exists():
@@ -209,7 +269,6 @@ def build_segment_graph(
         inputs=inputs,
         script=";\n".join(filters),
         item_map=item_map,
-        temp_files=temp_files,
         uses_vulkan=uses_vulkan,
         item_durations=item_durations,
     )
@@ -352,41 +411,39 @@ def _blurred_bg(idx: int, w: int, h: int, sigma: int) -> str:
 def _photo_filter(
     idx: int,
     item: EditItem,
-    segment: Segment,
-    ctx: RenderContext,
+    settings: RenderSettings,
     fade_in: float,
     fade_out: float,
     language: str,
 ) -> str:
     """Photo filter: blurred-bg composite + Ken Burns."""
-    w, h, fps = ctx.w, ctx.h, ctx.fps
+    w, h, fps = settings.w, settings.h, settings.fps
     frames = int(item.display_duration * fps)
     exact_dur = frames / fps
 
     overlay_vf = _overlay_vf(item, language, h)
     fade = _fade_expr(exact_dur, fade_in, fade_out)
-    color_vf = color_grade(segment.color_temp)
     direction = _EFFECT_DIRECTIONS.get(item.effect, "in")
     ken_burns_vf = ken_burns_filter(frames, w, h, fps, direction=direction)
 
     return (
         f"[{idx}:v] {loop_photo(frames, fps)},split [bg{idx}][fg{idx}];"
         f"{_blurred_bg(idx, w, h, C.BG_BLUR_SIGMA)},"
-        f"{ken_burns_vf},{color_vf}{overlay_vf}{fade} [v{idx}]"
+        f"{ken_burns_vf}{overlay_vf}{fade} [v{idx}]"
     )
 
 
 def _video_filter(
     idx: int,
-    item: EditItem,
-    segment: Segment,
-    ctx: RenderContext,
+    resolved: ResolvedRenderItem,
+    settings: RenderSettings,
     fade_in: float,
     fade_out: float,
     language: str,
 ) -> str:
     """Video filter: trim + speed + aspect fill or direct scale."""
-    w, h, fps = ctx.w, ctx.h, ctx.fps
+    item = resolved.item
+    w, h, fps = settings.w, settings.h, settings.fps
 
     # Derive trim/speed from item
     trim_start = item.start_time or 0.0
@@ -406,17 +463,17 @@ def _video_filter(
     )
 
     overlay_vf = _overlay_vf(item, language, h)
-    src_w, src_h = ctx.probe_dimensions(Path(item.source_file))
-    color_vf = color_grade(segment.color_temp)
+    src_w, src_h = resolved.display_width, resolved.display_height
     fade = _fade_expr(output_dur, fade_in, fade_out)
+    post_vf = f"{speed_vf}{overlay_vf}{fade},fps={fps}".lstrip(",")
 
     # HDR→SDR tone-map for BT.2020 PQ/HLG sources (phones, DJI drones). Runs
     # first on the 10-bit HDR frames; empty for SDR clips. Without it the output
     # is too bright and oversaturated. libplacebo (color-correct) when a Vulkan
     # device is available, else zscale (CPU). Trailing comma only when present.
     tonemap = hdr_to_sdr_filter(
-        ctx.probe_color_transfer(Path(item.source_file)),
-        use_libplacebo=ctx.vulkan_tonemap,
+        resolved.color_transfer,
+        use_libplacebo=resolved.use_libplacebo_tonemap,
     )
     tonemap_vf = f"{tonemap}," if tonemap else ""
 
@@ -432,7 +489,7 @@ def _video_filter(
         return (
             f"[{idx}:v] {trim_vf}{tonemap_vf}format=yuv420p,split [bg{idx}][fg{idx}];"
             f"{_blurred_bg(idx, w, h, C.BG_BLUR_SIGMA)},"
-            f"{color_vf}{speed_vf}{overlay_vf}{fade},fps={fps} [v{idx}]"
+            f"{post_vf} [v{idx}]"
         )
     else:
         direct_parts = [
@@ -441,5 +498,5 @@ def _video_filter(
         ]
         return (
             f"[{idx}:v] {trim_vf}{tonemap_vf}format=yuv420p,{','.join(direct_parts)},"
-            f"{color_vf}{speed_vf}{overlay_vf}{fade},fps={fps} [v{idx}]"
+            f"{post_vf} [v{idx}]"
         )

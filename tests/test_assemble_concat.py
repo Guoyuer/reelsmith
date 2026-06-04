@@ -12,7 +12,7 @@ from pipeline.assemble._assemble import (
     _render_segments,
     _validate_output,
 )
-from pipeline.assemble._encoder import RenderContext
+from pipeline.assemble._encoder import RenderContext, RenderSettings
 from pipeline.config import Config
 from pipeline.edl import MusicTrack
 from tests.conftest import minimal_edl as _minimal_edl
@@ -57,7 +57,7 @@ class TestRenderSegments:
                 }
             ],
         )
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
 
         calls = []
 
@@ -67,10 +67,10 @@ class TestRenderSegments:
 
         with (
             patch("pipeline.assemble._assemble.run_subprocess", side_effect=_track),
-            patch.object(ctx, "get_encoder", return_value=["-c:v", "libx264"]),
-            patch.object(ctx, "probe_dimensions", return_value=(1920, 1080)),
-            patch.object(ctx, "probe_color_transfer", return_value="bt709"),
-            patch.object(ctx, "probe_duration", return_value=1.0),
+            patch.object(ctx.encoder, "args", return_value=["-c:v", "libx264"]),
+            patch.object(ctx.probe, "probe_dimensions", return_value=(1920, 1080)),
+            patch.object(ctx.probe, "probe_color_transfer", return_value="bt709"),
+            patch.object(ctx.probe, "probe_duration", return_value=1.0),
         ):
             _render_segments(edl, ctx, cfg, res_label="1080p30")
 
@@ -91,7 +91,7 @@ class TestConcatAndMixNoMusic:
         """Without music, concat copies directly to output_path."""
         cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
         cfg.ensure_dirs()
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
         edl = _minimal_edl()
         output = cfg.output_dir / "out.mp4"
 
@@ -102,7 +102,7 @@ class TestConcatAndMixNoMusic:
             patch(
                 "pipeline.assemble._assemble.run_subprocess", side_effect=_mock_run_ok
             ),
-            patch.object(ctx, "probe_duration", return_value=60.0),
+            patch.object(ctx.probe, "probe_duration", return_value=60.0),
         ):
             _concat_and_mix(
                 [seg0], [], edl, ctx, cfg, output, version=1, res_label="1080p30"
@@ -112,7 +112,7 @@ class TestConcatAndMixNoMusic:
         """Non-zero ffmpeg concat raises RuntimeError."""
         cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
         cfg.ensure_dirs()
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
         edl = _minimal_edl()
         output = cfg.output_dir / "out.mp4"
 
@@ -123,7 +123,7 @@ class TestConcatAndMixNoMusic:
 
         with (
             patch("pipeline.assemble._assemble.run_subprocess", return_value=fail),
-            patch.object(ctx, "probe_duration", return_value=60.0),
+            patch.object(ctx.probe, "probe_duration", return_value=60.0),
         ):
             with pytest.raises(RuntimeError, match="Concat failed"):
                 _concat_and_mix(
@@ -141,7 +141,7 @@ class TestConcatAndMixWithMusic:
         """With music, verify sidechaincompress + loudnorm in filter chain."""
         cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
         cfg.ensure_dirs()
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
 
         music_file = tmp_path / "music.mp3"
         music_file.write_bytes(b"\x00" * 500)
@@ -180,7 +180,7 @@ class TestConcatAndMixWithMusic:
             patch(
                 "pipeline.assemble._assemble.run_subprocess", side_effect=_track_calls
             ),
-            patch.object(ctx, "probe_duration", return_value=60.0),
+            patch.object(ctx.probe, "probe_duration", return_value=60.0),
         ):
             _concat_and_mix(
                 [seg0], [], edl, ctx, cfg, output, version=1, res_label="1080p30"
@@ -206,7 +206,7 @@ class TestConcatAndMixWithMusic:
         """When music shorter than video, aloop filter is added."""
         cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
         cfg.ensure_dirs()
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
 
         music_file = tmp_path / "short_music.mp3"
         music_file.write_bytes(b"\x00" * 500)
@@ -243,7 +243,7 @@ class TestConcatAndMixWithMusic:
 
         with (
             patch("pipeline.assemble._assemble.run_subprocess", side_effect=_track),
-            patch.object(ctx, "probe_duration", side_effect=_probe),
+            patch.object(ctx.probe, "probe_duration", side_effect=_probe),
         ):
             _concat_and_mix(
                 [seg0], [], edl, ctx, cfg, output, version=1, res_label="1080p30"
@@ -258,7 +258,7 @@ class TestConcatAndMixWithMusic:
         """Music mix failure raises RuntimeError."""
         cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
         cfg.ensure_dirs()
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
 
         music_file = tmp_path / "music.mp3"
         music_file.write_bytes(b"\x00" * 500)
@@ -293,7 +293,7 @@ class TestConcatAndMixWithMusic:
 
         with (
             patch("pipeline.assemble._assemble.run_subprocess", side_effect=_mock),
-            patch.object(ctx, "probe_duration", return_value=60.0),
+            patch.object(ctx.probe, "probe_duration", return_value=60.0),
         ):
             with pytest.raises(RuntimeError, match="Music mix failed"):
                 _concat_and_mix(
@@ -322,7 +322,7 @@ class TestLoudnormFallback:
     def test_fallback_on_bad_measurement(self, tmp_path):
         cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
         cfg.ensure_dirs()
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
 
         music_file = tmp_path / "music.mp3"
         music_file.write_bytes(b"\x00" * 500)
@@ -349,7 +349,7 @@ class TestLoudnormFallback:
 
         with (
             patch("pipeline.assemble._assemble.run_subprocess", side_effect=_mock),
-            patch.object(ctx, "probe_duration", return_value=60.0),
+            patch.object(ctx.probe, "probe_duration", return_value=60.0),
         ):
             _concat_and_mix(
                 [seg0], [], edl, ctx, cfg, output, version=1, res_label="1080p30"
@@ -392,11 +392,11 @@ class TestValidateOutputEdgeCases:
             m.stdout = "hevc,video,60.0\n"  # no audio stream
             return m
 
-        ctx = RenderContext(w=1920, h=1080, fps=30)
+        ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
         with (
             patch("pipeline.assemble._assemble.run_subprocess", side_effect=_mock_run),
-            patch.object(ctx, "probe_duration", return_value=60.0),
-            patch.object(ctx, "probe_dimensions", return_value=(1920, 1080)),
+            patch.object(ctx.probe, "probe_duration", return_value=60.0),
+            patch.object(ctx.probe, "probe_dimensions", return_value=(1920, 1080)),
         ):
             issues = _validate_output(
                 out, edl, has_speech=True, resolution=(1920, 1080), ctx=ctx

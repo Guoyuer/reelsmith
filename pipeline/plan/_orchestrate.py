@@ -70,9 +70,7 @@ def _postprocess_visual_edl(
     """Parse, repair, validate, and report Gemini visual EDL output."""
     edl = parse_and_convert_timestamps(edl_content, preview_offset_table)
     items_before = len(edl.all_items())
-    n_path_removed = fix_hallucinated_paths(
-        edl, source_candidates(analysis_by_path, cfg.media_dir)
-    )
+    n_path_removed = fix_hallucinated_paths(edl, source_candidates(analysis_by_path))
     n_trim_fixed, n_trim_removed, n_dur_fixed, dur_delta = validate_trim_points(
         edl, analysis_by_path
     )

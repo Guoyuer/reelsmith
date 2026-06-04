@@ -11,7 +11,7 @@ from pipeline.assemble._assemble import (
     _parse_loudnorm_stats,
     _render_title_card_if_needed,
 )
-from pipeline.assemble._encoder import RenderContext
+from pipeline.assemble._encoder import RenderContext, RenderSettings
 from pipeline.edl import EditItem, Segment
 from tests.conftest import minimal_edl
 
@@ -115,7 +115,7 @@ class TestFindFirstFrame:
 class TestRenderTitleCardIfNeeded:
     @pytest.fixture
     def ctx(self):
-        return RenderContext(w=1920, h=1080, fps=30)
+        return RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
 
     def test_intro_title_card(self, tmp_path, ctx):
         """Returns path when title exists."""

@@ -6,21 +6,20 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pipeline.assemble._encoder import RenderContext
+from pipeline.assemble._encoder import RenderContext, RenderSettings
 from pipeline.assemble._render import render_title_card
 
 
 @pytest.fixture
 def ctx():
-    return RenderContext(w=1920, h=1080, fps=30)
+    return RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
 
 
 @pytest.fixture(autouse=True)
 def _mock_encoder():
     """Mock hardware encoder detection — no real FFmpeg needed."""
-    with patch.object(
-        RenderContext,
-        "get_encoder",
+    with patch(
+        "pipeline.assemble._encoder.detect_hw_encoder",
         return_value=["-c:v", "libx264", "-preset", "fast", "-b:v", "8M"],
     ):
         yield
@@ -118,7 +117,7 @@ class TestRenderTitleCard:
 
     def test_resolution_affects_font(self, tmp_path):
         """4K context produces different font sizes than 1080p."""
-        ctx_4k = RenderContext(w=3840, h=2160, fps=60)
+        ctx_4k = RenderContext.without_capabilities(RenderSettings(3840, 2160, 60))
         out = tmp_path / "title.mp4"
         mock_result = MagicMock(returncode=0, stderr="")
         with patch(

@@ -18,7 +18,14 @@ logger = logging.getLogger("reelsmith.assemble.render")
 
 def _base_encode_args(ctx: RenderContext) -> list[str]:
     """Common encoding arguments for title card rendering."""
-    return [*ctx.get_encoder(), "-pix_fmt", "yuv420p", "-r", str(ctx.fps), "-an"]
+    return [
+        *ctx.encoder.args(),
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        str(ctx.settings.fps),
+        "-an",
+    ]
 
 
 def render_title_card(
@@ -36,7 +43,7 @@ def render_title_card(
     If *background_photo* is provided and the file exists, the gradient is replaced
     with a heavily blurred, darkened, vignetted version of the photo.
     """
-    w, h, fps = ctx.w, ctx.h, ctx.fps
+    w, h, fps = ctx.settings.w, ctx.settings.h, ctx.settings.fps
     safe_title = escape_drawtext(title)
     font = find_font(language)
     font_arg = f":fontfile='{font}'" if font else ""
