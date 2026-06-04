@@ -239,6 +239,16 @@ def _render_segments(
         cmd += ["-filter_complex_script", str(script_path)]
         cmd += ["-map", "[vout]", "-map", "[aout]"]
         cmd += [*enc, "-pix_fmt", "yuv420p"]
+        cmd += [
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-color_range",
+            "tv",
+        ]
         cmd += ["-c:a", "aac", "-b:a", "192k"]
         cmd += [str(segment_files[seg_idx])]
         segment_cmds.append((seg_idx, cmd))

@@ -53,6 +53,10 @@ _EFFECT_DIRECTIONS = {
     "none": "static",
 }
 
+_SDR_SET_PARAMS = (
+    "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv"
+)
+
 
 def item_render_seconds(item: EditItem, fps: int) -> float:
     """Duration this item occupies in the final video — the renderer's own value.
@@ -197,7 +201,9 @@ def build_segment_graph(
     # --- Concat all v/a pairs ---
     n = len(v_a_pairs)
     concat_in = "".join(f"{v}{a}" for v, a in v_a_pairs)
-    filters.append(f"{concat_in} concat=n={n}:v=1:a=1 [vout][aout]")
+    filters.append(
+        f"{concat_in} concat=n={n}:v=1:a=1 [vcat][aout];[vcat] {_SDR_SET_PARAMS} [vout]"
+    )
 
     return SegmentGraph(
         inputs=inputs,

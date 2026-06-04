@@ -167,8 +167,9 @@ class TestPhotoFilter:
         assert "scale=1920:1080:flags=lanczos" in result
         # Output label
         assert result.endswith("[v0]")
-        # Color grade
-        assert "eq=contrast=" in result
+        # Creative color grade is intentionally disabled; the only remaining
+        # `eq` in photo filters belongs to the blurred background.
+        assert "eq=contrast=" not in result
         # No unsharp (removed for performance; imperceptible on compressed output)
 
     def test_with_fades(self):
@@ -196,17 +197,19 @@ class TestPhotoFilter:
             else:
                 assert "crop=" in result
 
-    def test_color_temp_warm(self):
+    def test_color_temp_warm_is_noop(self):
         item = _photo()
         seg = _seg([item], color_temp="warm")
         result = _photo_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
-        assert "colorbalance=rs=0.02" in result
+        assert "eq=contrast" not in result
+        assert "colorbalance" not in result
 
-    def test_color_temp_cool(self):
+    def test_color_temp_cool_is_noop(self):
         item = _photo()
         seg = _seg([item], color_temp="cool")
         result = _photo_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
-        assert "colorbalance=rs=-0.02" in result
+        assert "eq=contrast" not in result
+        assert "colorbalance" not in result
 
     def test_with_text_overlay(self):
         item = _photo(text_overlay=TextOverlay(text="Dawn"))
@@ -323,11 +326,12 @@ class TestVideoFilter:
         result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
         assert "fps=30 [v0]" in result
 
-    def test_color_temp(self):
+    def test_color_temp_is_noop(self):
         item = _video(duration=5.0)
         seg = _seg([item], color_temp="cool")
         result = _video_filter(0, item, seg, _CTX, 0.0, 0.0, "en")
-        assert "colorbalance=rs=-0.02" in result
+        assert "eq=" not in result
+        assert "colorbalance" not in result
 
     def test_with_text_overlay(self):
         item = _video(
@@ -723,7 +727,18 @@ class TestBuildSegmentGraph:
         """Concat output labels are [vout][aout]."""
         seg = _seg([_photo()])
         graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
-        assert "[vout][aout]" in graph.script
+        assert "[vcat][aout]" in graph.script
+        assert "[vcat] setparams=" in graph.script
+        assert "[vout]" in graph.script
+
+    def test_segment_output_forces_bt709_metadata(self):
+        """Final segment frames are explicitly tagged as SDR BT.709."""
+        seg = _seg([_photo()])
+        graph = build_segment_graph(seg, _CTX, fade_params=[(0.0, 0.0)])
+        assert "color_primaries=bt709" in graph.script
+        assert "color_trc=bt709" in graph.script
+        assert "colorspace=bt709" in graph.script
+        assert "range=tv" in graph.script
 
     def test_photo_input_uses_loop_filter(self):
         """Photo inputs use simple -i with loop filter in graph (no -loop 1)."""

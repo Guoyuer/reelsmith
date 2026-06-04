@@ -44,9 +44,20 @@ class TestHdrToSdr:
         for trc in ("smpte2084", "arib-std-b67"):
             vf = hdr_to_sdr_filter(trc, use_libplacebo=True)
             assert "libplacebo" in vf
-            assert "tonemapping=bt.2390" in vf
             assert "format=yuv420p" in vf
             assert "zscale" not in vf and "tonemap=tonemap" not in vf
+
+    def test_libplacebo_uses_bt2446a_for_hlg(self):
+        # HLG/DJI material is scene-referred and usually lacks reliable peak
+        # metadata, so use the conservative HDR-to-SDR broadcast mapping.
+        vf = hdr_to_sdr_filter("arib-std-b67", use_libplacebo=True)
+        assert "tonemapping=bt.2446a" in vf
+
+    def test_libplacebo_uses_bt2390_for_pq(self):
+        # PQ/HDR10 is display-referred, where BT.2390 remains the preferred
+        # default.
+        vf = hdr_to_sdr_filter("smpte2084", use_libplacebo=True)
+        assert "tonemapping=bt.2390" in vf
 
     def test_libplacebo_skipped_for_sdr(self):
         # SDR passes through untouched even when libplacebo is available.
@@ -92,21 +103,26 @@ class TestEscapeDrawtext:
 class TestColorGrade:
     def test_neutral(self):
         result = color_grade("neutral")
-        assert "eq=contrast=1.02" in result
+        assert result == "null"
+        assert "eq=" not in result
         assert "colorbalance" not in result
 
-    def test_warm(self):
+    def test_warm_is_noop(self):
         result = color_grade("warm")
-        assert "colorbalance=rs=0.02" in result
-        assert "bs=-0.02" in result
+        assert result == "null"
+        assert "eq=" not in result
+        assert "colorbalance" not in result
 
-    def test_cool(self):
+    def test_cool_is_noop(self):
         result = color_grade("cool")
-        assert "colorbalance=rs=-0.02" in result
-        assert "bs=0.02" in result
+        assert result == "null"
+        assert "eq=" not in result
+        assert "colorbalance" not in result
 
     def test_unknown_defaults_to_neutral(self):
         result = color_grade("sepia")
+        assert result == "null"
+        assert "eq=" not in result
         assert "colorbalance" not in result
 
 
