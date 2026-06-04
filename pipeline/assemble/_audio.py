@@ -202,26 +202,42 @@ def beat_snap_edl(edl: EDL, music_path: Path) -> int:
 
 
 def _segment_boundaries(edl: EDL, segment_durations: list[float]) -> list[float]:
-    """Final-video time boundaries of each segment, in seconds.
+    """Final-video time boundaries of each segment's *item region*, in seconds.
 
-    Returns ``len(segments) + 1`` offsets: ``boundaries[i]`` is segment *i*'s
-    start (intro + cumulative length of preceding segments), and the final
-    entry is the end of the last segment (before any outro). Segment lengths
-    come from the probed rendered durations, falling back to the sum of the
-    segment's item ``display_duration`` when a probed value is unavailable.
+    Returns ``len(segments) + 1`` offsets: ``boundaries[i]`` is where segment
+    *i*'s items begin in the final video, and the last entry is where the last
+    segment's items end.
 
-    This is the single source of truth for the timeline shared by
-    ``write_chapters`` (per-segment) and ``write_cue_sheet`` (per-item), so the
-    two artifacts agree on segment boundaries exactly.
+    Critical: the rendered segment FILES embed the title cards — the intro card
+    is prepended to the first segment and the outro card appended to the last —
+    so their probed durations *include* those cards. We strip them here (the
+    intro becomes the start offset; the outro is dropped from the tail) so the
+    boundaries track item regions, not file spans. Without this the cards are
+    double-counted and every boundary after the first drifts late by
+    ``intro_duration`` (≈ the whole timeline is off by intro + outro).
+
+    Falls back to the sum of a segment's item ``display_duration`` when a probed
+    value is unavailable — display sums already exclude the cards, so no
+    stripping is applied on that path.
+
+    Single source of truth shared by ``write_chapters`` (per-segment) and
+    ``write_cue_sheet`` (per-item), so the two artifacts agree exactly.
     """
+    n = len(edl.segments)
     boundaries: list[float] = []
-    offset = edl.intro_duration
+    offset = edl.intro_duration  # the first segment's items begin after the intro
     for seg_idx, seg in enumerate(edl.segments):
         boundaries.append(offset)
         if seg_idx < len(segment_durations):
-            offset += segment_durations[seg_idx]
+            dur = segment_durations[seg_idx]
+            if seg_idx == 0:
+                dur -= edl.intro_duration  # already counted in the start offset
+            if seg_idx == n - 1:
+                dur -= edl.outro_duration  # outro card is not an item
+            dur = max(0.0, dur)
         else:
-            offset += sum(it.display_duration for it in seg.items)
+            dur = sum(it.display_duration for it in seg.items)
+        offset += dur
     boundaries.append(offset)
     return boundaries
 
@@ -243,20 +259,32 @@ def write_chapters(edl: EDL, segment_durations: list[float], out_path: Path) -> 
     logger.info("YouTube chapters: %s (%d chapters)", out_path.name, len(lines))
 
 
-def write_cue_sheet(edl: EDL, segment_durations: list[float], out_path: Path) -> None:
+def write_cue_sheet(
+    edl: EDL,
+    segment_durations: list[float],
+    segment_item_durations: list[list[float]],
+    out_path: Path,
+) -> None:
     """Write a per-item timeline manifest mapping final-video seconds → source files.
 
     Unlike YouTube chapters (per-segment), this records every item's exact
     [record_in, record_out) window in the *final* video, so any timestamp can be
     mapped back to its source clip + trim points. Coverage is contiguous: each
     item's record_out is the next item's record_in, and the last item of each
-    segment is anchored to the probed segment boundary (matches the chapters
-    file exactly, absorbing any rounding drift).
+    segment is anchored to the probed segment boundary, absorbing sub-frame
+    container rounding.
 
-    Assumes beat sync already ran — item.display_duration values are final.
+    segment_durations: probed duration of each rendered segment FILE (ground
+    truth for the segment boundaries; intro/outro cards stripped inside
+    ``_segment_boundaries``).
 
-    segment_durations: probed duration of each rendered segment file (ground
-    truth for segment boundaries).
+    segment_item_durations: per-segment list of each item's *rendered* duration
+    in the final video, as computed and exported by the renderer
+    (``build_segment_graph`` via ``item_render_seconds``). This is the single
+    source of truth — emphatically NOT ``item.display_duration``, which
+    beat_snap_edl rewrites and the video renderer ignores. Using it keeps
+    per-item boundaries frame-accurate instead of drifting by the beat-snap
+    delta.
     """
     boundaries = _segment_boundaries(edl, segment_durations)
     items: list[dict] = []
@@ -265,11 +293,21 @@ def write_cue_sheet(edl: EDL, segment_durations: list[float], out_path: Path) ->
     for seg_idx, seg in enumerate(edl.segments):
         seg_start = boundaries[seg_idx]
         seg_end = boundaries[seg_idx + 1]
+        # Renderer-exported per-item durations (ground truth). Fall back to
+        # display_duration per item only when a value is unavailable (e.g. an
+        # older call site that didn't thread them through) so the manifest stays
+        # well-formed instead of crashing.
+        durs = (
+            segment_item_durations[seg_idx]
+            if seg_idx < len(segment_item_durations)
+            else []
+        )
 
         local = seg_start
         last = len(seg.items) - 1
         for i, item in enumerate(seg.items):
-            record_out = seg_end if i == last else local + item.display_duration
+            dur = durs[i] if i < len(durs) else item.display_duration
+            record_out = seg_end if i == last else local + dur
             items.append(
                 {
                     "index": global_idx,
@@ -283,13 +321,13 @@ def write_cue_sheet(edl: EDL, segment_durations: list[float], out_path: Path) ->
                     "trim_end": item.end_time,
                     "playback_speed": item.playback_speed,
                     "keep_audio": item.keep_audio,
-                    "display_duration": item.display_duration,
+                    "render_duration": round(dur, 3),
                     "text_overlay": item.text_overlay.text
                     if item.text_overlay
                     else None,
                 }
             )
-            local += item.display_duration
+            local += dur
             global_idx += 1
 
     data = {

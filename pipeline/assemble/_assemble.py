@@ -105,13 +105,14 @@ def assemble(
     t_start = time.monotonic()
 
     # Phase 1: render segments
-    segment_files = _render_segments(
+    segment_files, seg_item_durations = _render_segments(
         edl, ctx, cfg, res_label=res_label, progress_callback=progress_callback
     )
 
     # Phase 2: concat + music mix
     _concat_and_mix(
         segment_files,
+        seg_item_durations,
         edl,
         ctx,
         cfg,
@@ -180,10 +181,13 @@ def _render_segments(
     *,
     res_label: str,
     progress_callback: ProgressCallback = None,
-) -> list[Path]:
+) -> tuple[list[Path], list[list[float]]]:
     """Build segment filter graphs and encode segments in parallel.
 
-    Returns list of segment .mp4 file paths.
+    Returns ``(segment_files, seg_item_durations)`` where ``seg_item_durations[i]``
+    is the per-content-item rendered duration (seconds) the renderer produced for
+    segment *i*, in items order (title cards excluded). This is the ground truth
+    the cue sheet reads — never re-derived from ``display_duration``.
     """
     t_start = time.monotonic()
     logger.info("Phase 1: Rendering %d segments...", len(edl.segments))
@@ -224,7 +228,12 @@ def _render_segments(
         script_path.write_text(graph.script, encoding="utf-8")
 
         enc = ctx.get_encoder()
-        cmd = ["ffmpeg", "-y", *ctx.hwaccel_args]
+        cmd = ["ffmpeg", "-y"]
+        # libplacebo HDR tone-map needs a Vulkan filter device (only when this
+        # segment actually has an HDR clip — photo/SDR segments skip it).
+        if graph.uses_vulkan:
+            cmd += ["-init_hw_device", "vulkan=vk", "-filter_hw_device", "vk"]
+        cmd += [*ctx.hwaccel_args]
         for inp in graph.inputs:
             cmd += [str(x) for x in inp]
         cmd += ["-filter_complex_script", str(script_path)]
@@ -278,7 +287,8 @@ def _render_segments(
     t_phase1 = time.monotonic() - t_start
     logger.info("Phase 1: %.0fs (%d segments)", t_phase1, len(segment_files))
 
-    return segment_files
+    seg_item_durations = [g.item_durations for g in segment_graphs]
+    return segment_files, seg_item_durations
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +298,7 @@ def _render_segments(
 
 def _concat_and_mix(
     segment_files: list[Path],
+    seg_item_durations: list[list[float]],
     edl: EDL,
     ctx: RenderContext,
     cfg: Config,
@@ -383,9 +394,11 @@ def _concat_and_mix(
     seg_durations = [ctx.probe_duration(f) or 0.0 for f in segment_files]
     write_chapters(edl, seg_durations, chapters_path)
 
-    # Cue sheet: per-item final-timeline → source map (debugging / QA / re-edits)
+    # Cue sheet: per-item final-timeline → source map (debugging / QA / re-edits).
+    # Reads the renderer's exported per-item durations (ground truth), not
+    # display_duration — keeps every item's window frame-accurate.
     cue_sheet_path = output_dir / f"cuesheet_v{version}_{res_label}.json"
-    write_cue_sheet(edl, seg_durations, cue_sheet_path)
+    write_cue_sheet(edl, seg_durations, seg_item_durations, cue_sheet_path)
 
     # Clean up transient intermediates
     for seg_file in segment_files:

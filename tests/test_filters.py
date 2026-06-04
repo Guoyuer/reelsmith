@@ -31,6 +31,34 @@ class TestHdrToSdr:
         # HLG (DJI) must tone-map too — one chain handles both via zscale.
         assert "tonemap" in hdr_to_sdr_filter("arib-std-b67")
 
+    def test_highlight_desaturation_enabled(self):
+        # zscale fallback: desat>0 tames neon-saturated HLG highlights (the
+        # "fake" look); desat=0 left bright outdoor footage over-vivid.
+        for trc in ("smpte2084", "arib-std-b67"):
+            assert "desat=2" in hdr_to_sdr_filter(trc)
+            assert "desat=0" not in hdr_to_sdr_filter(trc)
+
+    def test_libplacebo_path_when_vulkan(self):
+        # Preferred color-correct path: libplacebo (HLG OOTF + perceptual
+        # gamut), not zscale, when a Vulkan device is available.
+        for trc in ("smpte2084", "arib-std-b67"):
+            vf = hdr_to_sdr_filter(trc, use_libplacebo=True)
+            assert "libplacebo" in vf
+            assert "tonemapping=bt.2390" in vf
+            assert "format=yuv420p" in vf
+            assert "zscale" not in vf and "tonemap=tonemap" not in vf
+
+    def test_libplacebo_skipped_for_sdr(self):
+        # SDR passes through untouched even when libplacebo is available.
+        assert hdr_to_sdr_filter("bt709", use_libplacebo=True) == ""
+        assert hdr_to_sdr_filter("", use_libplacebo=True) == ""
+
+    def test_default_is_zscale_cpu_fallback(self):
+        # Default (no Vulkan) must stay pure-CPU zscale — never hard-depend
+        # on libplacebo.
+        assert "libplacebo" not in hdr_to_sdr_filter("arib-std-b67")
+        assert "zscale" in hdr_to_sdr_filter("arib-std-b67")
+
     def test_sdr_returns_empty(self):
         # SDR clips must pass through untouched (no tone-map).
         assert hdr_to_sdr_filter("bt709") == ""
