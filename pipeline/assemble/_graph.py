@@ -37,6 +37,7 @@ from ._filters import (
     color_grade,
     drawtext_filter,
     hdr_to_sdr_filter,
+    is_hdr_transfer,
     is_portrait,
     ken_burns_filter,
 )
@@ -53,6 +54,33 @@ _EFFECT_DIRECTIONS = {
 }
 
 
+def item_render_seconds(item: EditItem, fps: int) -> float:
+    """Duration this item occupies in the final video — the renderer's own value.
+
+    The single source of truth for per-item timeline length, mirroring exactly
+    what the render filters produce:
+
+    - photo: floored to whole frames — ``int(display_duration * fps) / fps``
+      (see ``_photo_filter``'s ``frames``).
+    - video: its trim window over playback speed —
+      ``(end_time - start_time) / playback_speed`` (see ``_video_filter``'s
+      ``output_dur``); falls back to ``display_duration / speed`` when untrimmed.
+
+    Deliberately NOT ``item.display_duration``: ``beat_snap_edl`` rewrites that
+    field, but the video renderer ignores it (it trims to start/end), so using
+    display_duration to place items makes the cue sheet drift. ``build_segment_graph``
+    exports these values so downstream consumers read rendered truth, never
+    re-derive it.
+    """
+    if item.media_type == "photo":
+        return int(item.display_duration * fps) / fps
+    if item.start_time is not None and item.end_time is not None:
+        trim_dur = item.end_time - item.start_time
+    else:
+        trim_dur = item.display_duration
+    return trim_dur / item.playback_speed
+
+
 @dataclass
 class SegmentGraph:
     """One segment's FFmpeg inputs + filter graph."""
@@ -63,6 +91,13 @@ class SegmentGraph:
     item_map: list[tuple[int, str, int]] = dataclasses.field(default_factory=list)
     # Temp files created by HEIC decode — caller must clean up
     temp_files: list[Path] = dataclasses.field(default_factory=list)
+    # True if any item tone-maps via libplacebo — caller must add the Vulkan
+    # device (-init_hw_device vulkan) to this segment's FFmpeg command.
+    uses_vulkan: bool = False
+    # Per-content-item rendered duration in the final video (seconds), in
+    # segment.items order. Exported truth for the cue sheet — see
+    # item_render_seconds. Excludes title cards (those are not content items).
+    item_durations: list[float] = dataclasses.field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -99,15 +134,24 @@ def build_segment_graph(
 
     # --- Content items ---
     temp_files: list[Path] = []
+    item_durations: list[float] = []
+    uses_vulkan = False
     for item_idx, item in enumerate(segment.items):
         fade_in, fade_out = fade_params[item_idx]
         source = Path(item.source_file)
         idx = len(inputs)
         filter_line = len(filters)
+        # Single source of truth for this item's final-video length — drives
+        # both its silence/audio length here and the exported cue-sheet timing.
+        render_dur = item_render_seconds(item, fps)
+        item_durations.append(render_dur)
+
+        if item.media_type != "photo" and ctx.vulkan_tonemap:
+            uses_vulkan = uses_vulkan or is_hdr_transfer(
+                ctx.probe_color_transfer(source)
+            )
 
         if item.media_type == "photo":
-            frames = int(item.display_duration * fps)
-            exact_dur = frames / fps
             decoded, was_temp = decode_heic_for_filter(source)
             if was_temp:
                 temp_files.append(decoded)
@@ -115,14 +159,15 @@ def build_segment_graph(
             filters.append(
                 _photo_filter(idx, item, segment, ctx, fade_in, fade_out, language)
             )
-            filters.append(f"{_silence(exact_dur)} [a{idx}]")
+            filters.append(f"{_silence(render_dur)} [a{idx}]")
         else:
             inputs.append(["-i", str(source)])
             filters.append(
                 _video_filter(idx, item, segment, ctx, fade_in, fade_out, language)
             )
 
-            # Audio: preserve speech or generate silence
+            # Audio: preserve speech (atrim+atempo) or generate silence. Both
+            # resolve to render_dur of final-video length.
             trim_start = item.start_time or 0.0
             trim_dur = (
                 item.end_time - item.start_time
@@ -138,7 +183,7 @@ def build_segment_graph(
                 ]
                 filters.append(",".join(p for p in parts if p))
             else:
-                filters.append(f"{_silence(trim_dur / speed)} [a{idx}]")
+                filters.append(f"{_silence(render_dur)} [a{idx}]")
 
         v_a_pairs.append((f"[v{idx}]", f"[a{idx}]"))
         item_map.append((idx, source.name, filter_line))
@@ -159,6 +204,8 @@ def build_segment_graph(
         script=";\n".join(filters),
         item_map=item_map,
         temp_files=temp_files,
+        uses_vulkan=uses_vulkan,
+        item_durations=item_durations,
     )
 
 
@@ -359,8 +406,12 @@ def _video_filter(
 
     # HDR→SDR tone-map for BT.2020 PQ/HLG sources (phones, DJI drones). Runs
     # first on the 10-bit HDR frames; empty for SDR clips. Without it the output
-    # is too bright and oversaturated. Trailing comma only when present.
-    tonemap = hdr_to_sdr_filter(ctx.probe_color_transfer(Path(item.source_file)))
+    # is too bright and oversaturated. libplacebo (color-correct) when a Vulkan
+    # device is available, else zscale (CPU). Trailing comma only when present.
+    tonemap = hdr_to_sdr_filter(
+        ctx.probe_color_transfer(Path(item.source_file)),
+        use_libplacebo=ctx.vulkan_tonemap,
+    )
     tonemap_vf = f"{tonemap}," if tonemap else ""
 
     # Blurred background composite for non-matching aspect ratios (portrait AND

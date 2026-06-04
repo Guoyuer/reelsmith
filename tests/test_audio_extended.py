@@ -260,14 +260,17 @@ class TestWriteChapters:
                 ),
             ],
             intro_duration=3.0,
+            outro_duration=3.0,
         )
         out = tmp_path / "chapters.txt"
-        write_chapters(edl, [30.0, 45.0, 25.0], out)
+        # File durations: seg0 = intro 3 + items 30 = 33; last = items 25 + outro
+        # 3 = 28; the cards are stripped so chapters mark item-region starts.
+        write_chapters(edl, [33.0, 45.0, 28.0], out)
         text = out.read_text()
         lines = text.strip().split("\n")
         assert len(lines) == 3
         assert lines[0] == "0:03 Opening"  # intro offset = 3s
-        assert lines[1] == "0:33 Middle"  # 3 + 30 = 33s
+        assert lines[1] == "0:33 Middle"  # 3 + 30 items = 33s
         assert lines[2] == "1:18 Closing"  # 33 + 45 = 78s
 
     def test_no_intro(self, tmp_path):
@@ -423,25 +426,35 @@ def _cue_edl() -> EDL:
     )
 
 
+# Per-item rendered durations the renderer would export for ``_cue_edl`` (the
+# single source of truth the cue sheet reads — NOT display_duration):
+#   seg0: IMG_001 photo 4s, VID_002 trim 2-7 @1.0x = 5s, IMG_003 photo 3s
+#   seg1: VID_004 trim 0-3 @0.5x = 6s, IMG_005 photo 4s
+_CUE_ITEM_DURS = [[4.0, 5.0, 3.0], [6.0, 4.0]]
+
+
 class TestWriteCueSheet:
+    # Probed durations are of the rendered segment FILES, which embed the
+    # title cards: the intro (3s) is in seg0's file, the outro (2s) in the last
+    # segment's file. So seg0 items (12s) → file 15s; seg1 items (10s) → file
+    # 12s. _segment_boundaries strips the cards back out.
     def test_basic_structure(self, tmp_path):
         edl = _cue_edl()
         out = tmp_path / "cuesheet.json"
-        # seg0 items sum to 12s, seg1 to 10s — pass probed durations that match.
-        write_cue_sheet(edl, [12.0, 10.0], out)
+        write_cue_sheet(edl, [15.0, 12.0], _CUE_ITEM_DURS, out)
         data = json.loads(out.read_text())
 
         assert data["title"] == "Atlanta Trip"
         assert data["intro_duration"] == 3.0
         assert data["outro_duration"] == 2.0
-        # 3 intro + 12 + 10 + 2 outro = 27s
+        # 3 intro + 12 items + 10 items + 2 outro = 27s (== sum of file durations)
         assert data["total_duration"] == 27.0
         assert len(data["items"]) == 5
 
     def test_first_item_starts_after_intro(self, tmp_path):
         edl = _cue_edl()
         out = tmp_path / "cuesheet.json"
-        write_cue_sheet(edl, [12.0, 10.0], out)
+        write_cue_sheet(edl, [15.0, 12.0], _CUE_ITEM_DURS, out)
         items = json.loads(out.read_text())["items"]
         # First real item starts at intro_duration (3s), not 0.
         assert items[0]["record_in"] == 3.0
@@ -451,22 +464,37 @@ class TestWriteCueSheet:
         """Each item's record_out is the next item's record_in (no gaps/overlaps)."""
         edl = _cue_edl()
         out = tmp_path / "cuesheet.json"
-        write_cue_sheet(edl, [12.0, 10.0], out)
+        write_cue_sheet(edl, [15.0, 12.0], _CUE_ITEM_DURS, out)
         items = json.loads(out.read_text())["items"]
         for prev, nxt in zip(items, items[1:]):
             assert prev["record_out"] == nxt["record_in"]
-        # Last item ends at intro + seg0 + seg1 = 3 + 12 + 10 = 25s.
+        # Last item ends at intro + seg0 items + seg1 items = 3 + 12 + 10 = 25s
+        # (the outro card follows, not counted as an item).
         assert items[-1]["record_out"] == 25.0
+
+    def test_no_intro_outro_double_count(self, tmp_path):
+        """Regression: cards baked into the first/last segment files must not be
+        double-counted. total must equal the sum of file durations, not
+        sum + intro + outro."""
+        edl = _cue_edl()  # intro=3, outro=2
+        out = tmp_path / "cuesheet.json"
+        write_cue_sheet(edl, [15.0, 12.0], _CUE_ITEM_DURS, out)  # file durations
+        data = json.loads(out.read_text())
+        # Real video = 15 + 12 = 27. NOT 3 + 15 + 12 + 2 = 32 (the old bug).
+        assert data["total_duration"] == 27.0
+        # seg1 (last) items start right after seg0's file ends (15s), NOT 15+3.
+        seg1_first = next(i for i in data["items"] if i["segment_index"] == 1)
+        assert seg1_first["record_in"] == 15.0
 
     def test_segment_boundary_anchored_to_probed_duration(self, tmp_path):
         """Last item of a segment absorbs drift so boundaries match chapters."""
         edl = _cue_edl()
         out = tmp_path / "cuesheet.json"
-        # seg0 probed 13s (items sum 12) — last item must stretch to the boundary.
-        write_cue_sheet(edl, [13.0, 10.0], out)
+        # seg0 file 16s = intro 3 + items region 13 (items sum 12 → last stretches).
+        write_cue_sheet(edl, [16.0, 12.0], _CUE_ITEM_DURS, out)
         items = json.loads(out.read_text())["items"]
         seg0 = [it for it in items if it["segment_index"] == 0]
-        # seg0 starts at 3s, probed 13s → ends at 16s.
+        # seg0 items start at 3s, region 13s → end at 16s.
         assert seg0[-1]["record_out"] == 16.0
         # seg1 first item starts exactly at the boundary.
         seg1 = [it for it in items if it["segment_index"] == 1]
@@ -476,7 +504,7 @@ class TestWriteCueSheet:
         """The whole point: map a final-video second back to its source clip."""
         edl = _cue_edl()
         out = tmp_path / "cuesheet.json"
-        write_cue_sheet(edl, [12.0, 10.0], out)
+        write_cue_sheet(edl, [15.0, 12.0], _CUE_ITEM_DURS, out)
         items = json.loads(out.read_text())["items"]
 
         def source_at(t):
@@ -494,7 +522,7 @@ class TestWriteCueSheet:
     def test_item_fields_recorded(self, tmp_path):
         edl = _cue_edl()
         out = tmp_path / "cuesheet.json"
-        write_cue_sheet(edl, [12.0, 10.0], out)
+        write_cue_sheet(edl, [15.0, 12.0], _CUE_ITEM_DURS, out)
         items = json.loads(out.read_text())["items"]
         vid = items[1]  # VID_002.mp4
         assert vid["media_type"] == "video"
@@ -507,10 +535,11 @@ class TestWriteCueSheet:
         assert photo["keep_audio"] is False
 
     def test_missing_durations_fall_back_to_display_sum(self, tmp_path):
-        """If probed durations are short, fall back to summing display_duration."""
+        """With neither probed segment durations nor renderer item durations,
+        fall back to summing display_duration for both boundaries and items."""
         edl = _cue_edl()
         out = tmp_path / "cuesheet.json"
-        write_cue_sheet(edl, [], out)  # no probed durations
+        write_cue_sheet(edl, [], [], out)  # no probed/renderer durations
         data = json.loads(out.read_text())
         assert len(data["items"]) == 5
         # Falls back to display sums: 3 + 12 + 10 + 2 = 27s.
@@ -523,10 +552,10 @@ class TestWriteCueSheet:
         record_in must line up with that segment's chapter offset.
         """
         edl = _cue_edl()
-        seg_durations = [13.0, 9.0]  # drift vs display sums on purpose
+        seg_durations = [16.0, 11.0]  # file durations (cards + drift) on purpose
         cue = tmp_path / "cuesheet.json"
         chap = tmp_path / "chapters.txt"
-        write_cue_sheet(edl, seg_durations, cue)
+        write_cue_sheet(edl, seg_durations, _CUE_ITEM_DURS, cue)
         write_chapters(edl, seg_durations, chap)
 
         items = json.loads(cue.read_text())["items"]

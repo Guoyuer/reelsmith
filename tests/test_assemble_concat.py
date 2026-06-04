@@ -50,7 +50,7 @@ class TestConcatAndMixNoMusic:
             patch.object(ctx, "probe_duration", return_value=60.0),
         ):
             _concat_and_mix(
-                [seg0], edl, ctx, cfg, output, version=1, res_label="1080p30"
+                [seg0], [], edl, ctx, cfg, output, version=1, res_label="1080p30"
             )
 
     def test_concat_failure_raises(self, tmp_path):
@@ -72,7 +72,7 @@ class TestConcatAndMixNoMusic:
         ):
             with pytest.raises(RuntimeError, match="Concat failed"):
                 _concat_and_mix(
-                    [seg0], edl, ctx, cfg, output, version=1, res_label="1080p30"
+                    [seg0], [], edl, ctx, cfg, output, version=1, res_label="1080p30"
                 )
 
 
@@ -128,7 +128,7 @@ class TestConcatAndMixWithMusic:
             patch.object(ctx, "probe_duration", return_value=60.0),
         ):
             _concat_and_mix(
-                [seg0], edl, ctx, cfg, output, version=1, res_label="1080p30"
+                [seg0], [], edl, ctx, cfg, output, version=1, res_label="1080p30"
             )
 
         # Two ffmpeg calls with -filter_complex: measure + apply
@@ -191,7 +191,7 @@ class TestConcatAndMixWithMusic:
             patch.object(ctx, "probe_duration", side_effect=_probe),
         ):
             _concat_and_mix(
-                [seg0], edl, ctx, cfg, output, version=1, res_label="1080p30"
+                [seg0], [], edl, ctx, cfg, output, version=1, res_label="1080p30"
             )
 
         mix_cmds = [c for c in calls if "-filter_complex" in c]
@@ -242,7 +242,7 @@ class TestConcatAndMixWithMusic:
         ):
             with pytest.raises(RuntimeError, match="Music mix failed"):
                 _concat_and_mix(
-                    [seg0], edl, ctx, cfg, output, version=1, res_label="1080p30"
+                    [seg0], [], edl, ctx, cfg, output, version=1, res_label="1080p30"
                 )
 
 
@@ -297,7 +297,7 @@ class TestLoudnormFallback:
             patch.object(ctx, "probe_duration", return_value=60.0),
         ):
             _concat_and_mix(
-                [seg0], edl, ctx, cfg, output, version=1, res_label="1080p30"
+                [seg0], [], edl, ctx, cfg, output, version=1, res_label="1080p30"
             )
 
         # Apply pass should use single-pass loudnorm (no measured_ params)

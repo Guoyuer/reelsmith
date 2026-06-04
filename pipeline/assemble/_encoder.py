@@ -164,6 +164,52 @@ def detect_hw_encoder(
     return ["-c:v", "libx264", "-preset", "fast", "-b:v", h264_br]
 
 
+def _detect_vulkan_tonemap() -> bool:
+    """True if libplacebo + a usable Vulkan device are available for tone-mapping.
+
+    libplacebo is the color-correct HDR→SDR path (proper HLG OOTF + perceptual
+    gamut mapping), unlike the zscale fallback. It needs *any* Vulkan device —
+    hardware (NVIDIA/AMD/Intel) or a software ICD (Mesa lavapipe / SwiftShader),
+    which runs the same shaders on CPU (identical color, just slower). So this
+    probe is device-agnostic: if it returns False, callers fall back to zscale.
+
+    The probe actually tone-maps a tiny synthetic HLG frame through libplacebo —
+    cheaper than parsing capabilities, and it catches the Vulkan-init / shader /
+    BAR-memory failures that only surface at run time.
+    """
+    try:
+        result = run_subprocess(
+            [
+                "ffmpeg",
+                "-y",
+                "-init_hw_device",
+                "vulkan",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=gray:s=64x64:d=0.1,format=yuv420p10le,"
+                "setparams=color_trc=arib-std-b67:color_primaries=bt2020:colorspace=bt2020nc",
+                "-vf",
+                "libplacebo=tonemapping=bt.2390:colorspace=bt709:"
+                "color_primaries=bt709:color_trc=bt709:range=tv:format=yuv420p",
+                "-frames:v",
+                "1",
+                "-f",
+                "null",
+                "-",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            logger.info("HDR tone-map: libplacebo (Vulkan, color-correct)")
+            return True
+    except (OSError, subprocess.SubprocessError):
+        pass
+    logger.info("HDR tone-map: zscale (CPU fallback; no Vulkan/libplacebo)")
+    return False
+
+
 def _detect_hwaccel() -> list[str] | None:
     """Detect hardware-accelerated decoder: CUDA (NVIDIA) or VideoToolbox (macOS)."""
     candidates = (
@@ -216,6 +262,7 @@ class RenderContext:
     codec: str = "auto"
     _encoder_cache: dict[tuple, list[str]] = field(default_factory=dict)
     _hwaccel: list[str] | None = field(default=None, repr=False)
+    vulkan_tonemap: bool = field(default=False)
 
     def __post_init__(self) -> None:
         if self.w <= 0 or self.h <= 0:
@@ -225,6 +272,7 @@ class RenderContext:
         if self.fps <= 0 or self.fps > 120:
             raise ValueError(f"Invalid fps: {self.fps}")
         self._hwaccel = _detect_hwaccel()
+        self.vulkan_tonemap = _detect_vulkan_tonemap()
 
     _dim_cache: dict[str, tuple[int, int]] = field(default_factory=dict)
     _dur_cache: dict[str, float] = field(default_factory=dict)

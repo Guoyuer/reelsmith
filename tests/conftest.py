@@ -18,7 +18,10 @@ def _patch_hwaccel():
     """Prevent RenderContext from shelling out to ffmpeg during tests."""
     from unittest.mock import patch
 
-    with patch("pipeline.assemble._encoder._detect_hwaccel", return_value=None):
+    with (
+        patch("pipeline.assemble._encoder._detect_hwaccel", return_value=None),
+        patch("pipeline.assemble._encoder._detect_vulkan_tonemap", return_value=False),
+    ):
         yield
 
 

@@ -22,27 +22,36 @@ def is_hdr_transfer(color_transfer: str) -> bool:
     return color_transfer.strip().lower() in _HDR_TRANSFERS
 
 
-def hdr_to_sdr_filter(color_transfer: str) -> str:
+def hdr_to_sdr_filter(color_transfer: str, *, use_libplacebo: bool = False) -> str:
     """Build an HDR→SDR tone-map chain, or '' for SDR input.
 
     Source clips are often BT.2020 10-bit HDR (phones in PQ/``smpte2084``,
     DJI drones in HLG/``arib-std-b67``). Squeezing those into 8-bit BT.709
     SDR without conversion makes the output too bright (HDR luminance not
-    mapped down) and oversaturated (BT.2020 gamut shown as BT.709). zscale
-    reads the input transfer from stream metadata, so one chain handles both
-    PQ and HLG: linearize → convert primaries to BT.709 → Hable tone-map →
-    re-encode as BT.709 SDR.
+    mapped down) and oversaturated/colour-cast (BT.2020 gamut shown as BT.709).
 
-    ``desat=2`` applies highlight desaturation during tone-mapping. Without it
-    (``desat=0``), bright HLG outdoor footage (DJI skies, foliage) maps to
-    neon-saturated SDR — the "fake"/over-vivid look. ``desat=2`` pulls
-    over-bright colors toward white as they clip, which reads as natural
-    without flattening the image. (libplacebo would handle HLG's OOTF more
-    correctly, but it OOMs the GPU at 4K under the parallel render and is not
-    deployable here.)
+    Two paths, chosen by *use_libplacebo* (set from
+    ``RenderContext.vulkan_tonemap``):
+
+    - **libplacebo** (preferred, color-correct): applies HLG's OOTF and
+      perceptual gamut mapping, so colour balance is accurate and content-
+      adaptive — no warm cast, no neon highlights. Requires a Vulkan device
+      (hardware, or a software ICD like Mesa lavapipe). It auto-uploads the
+      software frame, tone-maps on the GPU, and outputs yuv420p back to the
+      software graph — needs ``-init_hw_device vulkan`` on the FFmpeg command
+      (added in _assemble when ``RenderContext.vulkan_tonemap`` is set).
+    - **zscale** (CPU fallback, always available): linearize → BT.709 primaries
+      → Hable tone-map → BT.709 SDR. ``desat=2`` tames neon highlights, but a
+      fixed desat can't fully correct the per-scene colour cast the way
+      libplacebo does — it's the best portable approximation.
     """
     if not is_hdr_transfer(color_transfer):
         return ""
+    if use_libplacebo:
+        return (
+            "libplacebo=tonemapping=bt.2390:colorspace=bt709:"
+            "color_primaries=bt709:color_trc=bt709:range=tv:format=yuv420p"
+        )
     return (
         "zscale=transfer=linear:npl=100,format=gbrpf32le,"
         "zscale=primaries=bt709,"
