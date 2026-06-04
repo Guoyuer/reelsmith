@@ -233,6 +233,60 @@ def _build_item_text(idx: int, entry: AnalysisEntry) -> tuple[str, Path | None]:
     return " ".join(parts), photo_path
 
 
+def _probe_dimensions(path: Path) -> tuple[int, int]:
+    """Return (width, height) of a video's first stream, or (0, 0) on failure."""
+    result = run_subprocess(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=p=0",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    try:
+        w, h = result.stdout.strip().split("\n")[0].split(",")
+        return int(w), int(h)
+    except (ValueError, IndexError):
+        logger.debug("ffprobe gave no dimensions for %s: %r", path, result.stdout)
+        return 0, 0
+
+
+def _normalize_filter(valid_entries: list[tuple[int, float, Path]]) -> str | None:
+    """Build a scale+pad prefix that unifies all previews to one canvas.
+
+    Previews can mix resolutions/orientations (e.g. 480x270 landscape and
+    480x854 portrait). Feeding mixed sizes through the concat demuxer into a
+    ``drawtext`` chain forces mid-stream filter-graph reconfiguration, which the
+    chain mishandles — silently dropping ~half the frames (collapsing the
+    mega-preview timeline so it no longer matches the offset table) or crashing.
+    Normalizing every frame to a fixed canvas before ``drawtext`` keeps the
+    graph constant. Target = max width/height (rounded even) so nothing upscales.
+
+    Returns the filter string, or ``None`` if dimensions can't be determined.
+    """
+    dims = [_probe_dimensions(p) for _, _, p in valid_entries]
+    dims = [(w, h) for w, h in dims if w > 0 and h > 0]
+    if not dims:
+        return None
+    target_w = max(w for w, _ in dims)
+    target_h = max(h for _, h in dims)
+    # libx264/yuv420p requires even dimensions.
+    target_w += target_w % 2
+    target_h += target_h % 2
+    return (
+        f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,"
+        f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+    )
+
+
 def _build_offset_table(
     video_entries: list[tuple[int, float, Path]],
 ) -> tuple[list[tuple[int, float, float]], list[tuple[int, float, Path]]]:
@@ -278,22 +332,37 @@ def _concat_previews(
                 f.write(f"file '{safe}'\n")
                 f.write(f"duration {duration}\n")
 
+        # Explicit fontfile is required: some ffmpeg builds (e.g. 8.1 gyan.dev)
+        # ship without a default fontconfig, so a fontfile-less drawtext hits
+        # undefined behavior — silently dropping ~half the frames (exit 0) or
+        # crashing. Reuse the assemble-stage font resolver (labels are ASCII).
+        from ..assemble._filters import find_font
+
+        font = find_font("en")
+        font_arg = f":fontfile='{font}'" if font else ""
+
         drawtext_parts = []
         for item_num, duration, seg_offset in offset_table:
             label = f"\\\\\\#{item_num}"
             end = seg_offset + duration
             drawtext_parts.append(
-                f"drawtext=text='{label}'"
+                f"drawtext=text='{label}'{font_arg}"
                 f":fontsize=36:fontcolor=yellow"
                 f":box=1:boxcolor=black@0.8:boxborderw=8:x=10:y=8"
                 f":enable='between(t,{seg_offset:.1f},{end:.1f})'"
             )
-        vf = ",".join(drawtext_parts) if drawtext_parts else "null"
+
+        # Unify mixed-resolution previews onto one canvas BEFORE drawtext, else
+        # the concat demuxer's mid-stream size changes force filter-graph
+        # reconfiguration that drops frames (collapsing the timeline) or crashes.
+        normalize = _normalize_filter(valid_entries)
+        filter_parts = ([normalize] if normalize else []) + drawtext_parts
+        vf = ",".join(filter_parts) if filter_parts else "null"
 
         logger.info(
             "Building mega-preview (%d videos, %.0fs)...", len(video_entries), offset
         )
-        run_subprocess(
+        result = run_subprocess(
             [
                 "ffmpeg",
                 "-y",
@@ -323,6 +392,14 @@ def _concat_previews(
             text=True,
             timeout=600,
         )
+        # run_subprocess never raises on a non-zero exit, and ffmpeg can corrupt
+        # the mega-preview while still exiting 0. Surface both so failures are not
+        # masked until the downstream duration heuristic.
+        if result.returncode != 0:
+            tail = "\n".join((result.stderr or "").strip().splitlines()[-5:])
+            raise RuntimeError(
+                f"Mega-preview ffmpeg failed (exit {result.returncode}):\n{tail}"
+            )
 
     size_mb = output_path.stat().st_size / 1024 / 1024 if output_path.exists() else 0
     logger.info("  Mega-preview: %.1fMB", size_mb)
