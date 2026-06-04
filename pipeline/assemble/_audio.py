@@ -8,12 +8,26 @@ import logging
 import math
 import struct as _struct
 import wave
+from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 
 from .. import constants as C
 from ..edl import EDL
+from ..utils.media import run_subprocess
 
 logger = logging.getLogger("reelsmith.assemble.audio")
+
+
+@dataclass(frozen=True)
+class CueSheetRenderInfo:
+    """Render-level metadata embedded into cue sheets for traceability."""
+
+    output_fps: float | None = None
+    output_file: str | None = None
+    output_width: int | None = None
+    output_height: int | None = None
+    edl_version: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -259,11 +273,94 @@ def write_chapters(edl: EDL, segment_durations: list[float], out_path: Path) -> 
     logger.info("YouTube chapters: %s (%d chapters)", out_path.name, len(lines))
 
 
+def _round_time(value: float | None) -> float | None:
+    return round(value, 3) if value is not None else None
+
+
+def _frame_at_time(value: float | None, fps: float | None) -> int | None:
+    if value is None or fps is None or fps <= 0:
+        return None
+    return int(round(value * fps))
+
+
+def _parse_rate(rate: str | None) -> float | None:
+    if not rate or rate == "0/0":
+        return None
+    try:
+        return float(Fraction(rate))
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def _source_media_metadata(path: str) -> dict:
+    src = Path(path)
+    meta: dict[str, object] = {
+        "exists": src.exists(),
+        "size_bytes": None,
+        "mtime_ns": None,
+        "fps": None,
+        "fps_raw": None,
+        "time_base": None,
+        "duration": None,
+        "nb_frames": None,
+        "width": None,
+        "height": None,
+    }
+    if not src.exists():
+        return meta
+
+    stat = src.stat()
+    meta["size_bytes"] = stat.st_size
+    meta["mtime_ns"] = stat.st_mtime_ns
+
+    result = run_subprocess(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=avg_frame_rate,r_frame_rate,time_base,duration,nb_frames,width,height",
+            "-of",
+            "json",
+            str(src),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    try:
+        stream = json.loads(result.stdout)["streams"][0]
+    except (json.JSONDecodeError, KeyError, IndexError):
+        return meta
+
+    fps_raw = stream.get("avg_frame_rate") or stream.get("r_frame_rate")
+    fps = _parse_rate(fps_raw)
+    meta["fps"] = round(fps, 6) if fps is not None else None
+    meta["fps_raw"] = fps_raw
+    meta["time_base"] = stream.get("time_base")
+    try:
+        meta["duration"] = round(float(stream["duration"]), 6)
+    except (KeyError, TypeError, ValueError):
+        pass
+    try:
+        meta["nb_frames"] = int(stream["nb_frames"])
+    except (KeyError, TypeError, ValueError):
+        pass
+    for key in ("width", "height"):
+        try:
+            meta[key] = int(stream[key])
+        except (KeyError, TypeError, ValueError):
+            pass
+    return meta
+
+
 def write_cue_sheet(
     edl: EDL,
     segment_durations: list[float],
     segment_item_durations: list[list[float]],
     out_path: Path,
+    render_info: CueSheetRenderInfo | None = None,
 ) -> None:
     """Write a per-item timeline manifest mapping final-video seconds → source files.
 
@@ -285,10 +382,16 @@ def write_cue_sheet(
     beat_snap_edl rewrites and the video renderer ignores. Using it keeps
     per-item boundaries frame-accurate instead of drifting by the beat-snap
     delta.
+
+    render_info: optional render metadata. When output_fps is provided, the cue
+    sheet also records half-open final-frame ranges. Existing seconds fields
+    remain the primary human-readable timeline.
     """
     boundaries = _segment_boundaries(edl, segment_durations)
     items: list[dict] = []
     global_idx = 0
+    output_fps = render_info.output_fps if render_info else None
+    source_meta_cache: dict[str, dict] = {}
 
     for seg_idx, seg in enumerate(edl.segments):
         seg_start = boundaries[seg_idx]
@@ -308,6 +411,23 @@ def write_cue_sheet(
         for i, item in enumerate(seg.items):
             dur = durs[i] if i < len(durs) else item.display_duration
             record_out = seg_end if i == last else local + dur
+            record_duration = record_out - local
+            if item.source_file not in source_meta_cache:
+                source_meta_cache[item.source_file] = _source_media_metadata(
+                    item.source_file
+                )
+            source_meta = source_meta_cache[item.source_file]
+            source_fps = source_meta.get("fps")
+            source_fps_float = (
+                float(source_fps) if isinstance(source_fps, (int, float)) else None
+            )
+            source_time_in = None
+            source_time_out = None
+            if item.media_type == "video":
+                source_time_in = item.start_time or 0.0
+                source_time_out = source_time_in + (
+                    record_duration * item.playback_speed
+                )
             items.append(
                 {
                     "index": global_idx,
@@ -315,10 +435,21 @@ def write_cue_sheet(
                     "segment_name": seg.name,
                     "record_in": round(local, 3),
                     "record_out": round(record_out, 3),
+                    "record_duration": round(record_duration, 3),
+                    "record_frame_in": _frame_at_time(local, output_fps),
+                    "record_frame_out": _frame_at_time(record_out, output_fps),
                     "source_file": item.source_file,
                     "media_type": item.media_type,
                     "trim_start": item.start_time,
                     "trim_end": item.end_time,
+                    "source_time_in": _round_time(source_time_in),
+                    "source_time_out": _round_time(source_time_out),
+                    "source_fps": source_fps,
+                    "source_frame_in": _frame_at_time(source_time_in, source_fps_float),
+                    "source_frame_out": _frame_at_time(
+                        source_time_out, source_fps_float
+                    ),
+                    "source_metadata": source_meta,
                     "playback_speed": item.playback_speed,
                     "keep_audio": item.keep_audio,
                     "render_duration": round(dur, 3),
@@ -331,10 +462,18 @@ def write_cue_sheet(
             global_idx += 1
 
     data = {
+        "schema_version": 2,
         "title": edl.title,
         "intro_duration": edl.intro_duration,
         "outro_duration": edl.outro_duration,
         "total_duration": round(boundaries[-1] + edl.outro_duration, 3),
+        "render": {
+            "output_file": render_info.output_file if render_info else None,
+            "output_fps": output_fps,
+            "output_width": render_info.output_width if render_info else None,
+            "output_height": render_info.output_height if render_info else None,
+            "edl_version": render_info.edl_version if render_info else None,
+        },
         "items": items,
     }
     out_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
