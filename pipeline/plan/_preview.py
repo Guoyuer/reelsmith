@@ -22,6 +22,17 @@ from ._prompts import _secs_to_timestamp
 
 logger = logging.getLogger("reelsmith.plan")
 
+_INLINE_IMAGE_LIMIT_BYTES = 75 * 1024 * 1024
+_VIDEO_PREVIEW_INSTRUCTIONS = (
+    "--- VIDEO PREVIEW ---\n"
+    "All video clips are concatenated below. Each clip has its item number "
+    "(e.g. #30) burned into the top-left corner. Use the preview=MM:SS-MM:SS "
+    "range in each video's metadata to locate it in the preview.\n"
+    "When selecting a video clip, set preview_start and preview_end to the "
+    "exact MM:SS timestamps in THIS preview video where the moment you want "
+    "begins and ends."
+)
+
 
 # ---------------------------------------------------------------------------
 # Burst photo dedup (HSV histogram similarity)
@@ -516,111 +527,120 @@ def _build_mega_preview(
     return offset_table, mega_path
 
 
-def _build_visual_content_blocks(
-    analysis_by_path: dict[str, AnalysisEntry],
-    cfg: Config,
-    *,
-    force: bool = False,
-) -> tuple[list, list[tuple[int, float, float]], int, int]:
-    """Build flat multimodal content: text metadata + photos + mega video preview.
-
-    Items are sent as a flat numbered list.
-    Gemini sees all photos/videos and decides the narrative structure.
-
-    Returns (blocks, offset_table, n_photos, n_videos).
-    """
-    blocks: list = []
-    preview_dir = cfg.previews_dir
-
-    # --- Phase 1: collect items ---
-    text_block, photo_entries, video_entries, n_photos, n_videos = _collect_items(
-        analysis_by_path, cfg, preview_dir
-    )
-    blocks.append(text_block)
-
-    # --- Phase 2: add photo thumbnails inline ---
-    for entry in photo_entries:
-        photo = Path(entry["local_path"])
-        thumb = resolve_thumbnail_path(entry, cfg.thumbnails_dir)
-        if not thumb.exists():
-            raise FileNotFoundError(
-                f"Thumbnail missing for {photo.name} — run prepare first"
-            )
-        blocks.append(
-            {
-                "type": "image_bytes",
-                "mime_type": "image/jpeg",
-                "data": thumb.read_bytes(),
-            }
+def _photo_content_block(entry: AnalysisEntry, thumbnails_dir: Path) -> dict:
+    photo = Path(entry["local_path"])
+    thumb = resolve_thumbnail_path(entry, thumbnails_dir)
+    if not thumb.exists():
+        raise FileNotFoundError(
+            f"Thumbnail missing for {photo.name} — run prepare first"
         )
+    return {
+        "type": "image_bytes",
+        "mime_type": "image/jpeg",
+        "data": thumb.read_bytes(),
+    }
+
+
+def _add_photo_blocks(
+    blocks: list,
+    photo_entries: list[AnalysisEntry],
+    thumbnails_dir: Path,
+) -> None:
+    for entry in photo_entries:
+        blocks.append(_photo_content_block(entry, thumbnails_dir))
 
     photo_bytes = sum(
-        len(b.get("data", b""))
-        for b in blocks
-        if isinstance(b, dict) and b.get("type") == "image_bytes"
+        len(block.get("data", b""))
+        for block in blocks
+        if isinstance(block, dict) and block.get("type") == "image_bytes"
     )
     logger.info(
         "Photo thumbnails: %d files, %.1fMB",
-        n_photos,
+        len(photo_entries),
         photo_bytes / 1024 / 1024,
     )
 
-    # --- Phase 3: build mega-preview and inject timestamps ---
-    offset_table, mega_path = _build_mega_preview(
-        video_entries, preview_dir, force=force
+
+def _preview_ranges(
+    offset_table: list[tuple[int, float, float]],
+) -> dict[int, str]:
+    return {
+        item_num: f"{_secs_to_timestamp(offset)}-{_secs_to_timestamp(offset + dur)}"
+        for item_num, dur, offset in offset_table
+    }
+
+
+def _annotate_text_block(text_block: str, ranges: dict[int, str]) -> str:
+    updated_lines = []
+    for line in text_block.split("\n"):
+        match = re.match(r"#(\d+):", line)
+        if match:
+            item_num = int(match.group(1))
+            if item_num in ranges:
+                line = f"{line} preview={ranges[item_num]}"
+        updated_lines.append(line)
+    return "\n".join(updated_lines)
+
+
+def _add_video_preview_blocks(
+    blocks: list,
+    text_block: str,
+    offset_table: list[tuple[int, float, float]],
+    mega_path: Path | None,
+) -> None:
+    if not offset_table or not mega_path:
+        return
+
+    blocks[0] = _annotate_text_block(text_block, _preview_ranges(offset_table))
+    blocks.append(_VIDEO_PREVIEW_INSTRUCTIONS)
+    blocks.append(
+        {
+            "type": "video_bytes",
+            "mime_type": "video/mp4",
+            "data": mega_path.read_bytes(),
+        }
     )
 
-    if offset_table and mega_path:
-        # Inject preview timestamps into text block
-        preview_ranges: dict[int, str] = {}
-        for item_num, dur, offset in offset_table:
-            start_ts = _secs_to_timestamp(offset)
-            end_ts = _secs_to_timestamp(offset + dur)
-            preview_ranges[item_num] = f"{start_ts}-{end_ts}"
 
-        # Update text block with preview ranges
-        updated_lines = []
-        for line in text_block.split("\n"):
-            m = re.match(r"#(\d+):", line)
-            if m:
-                num = int(m.group(1))
-                if num in preview_ranges:
-                    line = line + f" preview={preview_ranges[num]}"
-            updated_lines.append(line)
-
-        # Replace text block and add video intro
-        blocks[0] = "\n".join(updated_lines)
-        blocks.append(
-            "--- VIDEO PREVIEW ---\n"
-            "All video clips are concatenated below. Each clip has its item number "
-            "(e.g. #30) burned into the top-left corner. Use the preview=MM:SS-MM:SS "
-            "range in each video's metadata to locate it in the preview.\n"
-            "When selecting a video clip, set preview_start and preview_end to the "
-            "exact MM:SS timestamps in THIS preview video where the moment you want "
-            "begins and ends."
-        )
-        blocks.append(
-            {
-                "type": "video_bytes",
-                "mime_type": "video/mp4",
-                "data": mega_path.read_bytes(),
-            }
-        )
-
-    # --- Phase 4: validate ---
-    n_images = sum(
+def _count_image_blocks(blocks: list) -> int:
+    return sum(
         1
         for block in blocks
         if isinstance(block, dict) and block.get("type") == "image_bytes"
     )
 
-    if n_images == 0:
-        raise RuntimeError("No photos generated — check source files")
 
-    text_item_nums = set()
+def _text_item_numbers(blocks: list) -> set[int]:
+    item_nums: set[int] = set()
     for block in blocks:
         if isinstance(block, str):
-            text_item_nums.update(int(m) for m in re.findall(r"#(\d+):", block))
+            item_nums.update(int(match) for match in re.findall(r"#(\d+):", block))
+    return item_nums
+
+
+def _count_file_references(blocks: list) -> int:
+    file_pattern = re.compile(r"file=(\S+)")
+    return sum(
+        len(file_pattern.findall(block)) for block in blocks if isinstance(block, str)
+    )
+
+
+def _inline_image_bytes(blocks: list) -> int:
+    return sum(
+        len(block.get("data", b""))
+        for block in blocks
+        if isinstance(block, dict) and block.get("type") == "image_bytes"
+    )
+
+
+def _validate_visual_blocks(
+    blocks: list,
+    video_entries: list[tuple[int, float, Path]],
+) -> None:
+    if _count_image_blocks(blocks) == 0:
+        raise RuntimeError("No photos generated — check source files")
+
+    text_item_nums = _text_item_numbers(blocks)
     if len(text_item_nums) == 0:
         raise RuntimeError("No items (#XX) found in text metadata")
 
@@ -634,23 +654,42 @@ def _build_visual_content_blocks(
             f"{sorted(missing_in_text)[:10]}. Numbering out of sync."
         )
 
-    file_pattern = re.compile(r"file=(\S+)")
-    n_files = 0
-    for block in blocks:
-        if isinstance(block, str):
-            n_files += len(file_pattern.findall(block))
-    if n_files == 0 and len(text_item_nums) > 0:
+    if _count_file_references(blocks) == 0 and text_item_nums:
         raise RuntimeError("No file= references found in text metadata")
 
-    inline_bytes = sum(
-        len(block.get("data", b""))
-        for block in blocks
-        if isinstance(block, dict) and block.get("type") == "image_bytes"
-    )
-    if inline_bytes > 75 * 1024 * 1024:
+    inline_bytes = _inline_image_bytes(blocks)
+    if inline_bytes > _INLINE_IMAGE_LIMIT_BYTES:
         raise RuntimeError(
             f"Inline image payload {inline_bytes / 1024 / 1024:.0f}MB exceeds ~75MB limit "
             f"(100MB base64). Reduce photo count or thumbnail size."
         )
+
+
+def _build_visual_content_blocks(
+    analysis_by_path: dict[str, AnalysisEntry],
+    cfg: Config,
+    *,
+    force: bool = False,
+) -> tuple[list, list[tuple[int, float, float]], int, int]:
+    """Build flat multimodal content: text metadata + photos + mega video preview.
+
+    Items are sent as a flat numbered list.
+    Gemini sees all photos/videos and decides the narrative structure.
+
+    Returns (blocks, offset_table, n_photos, n_videos).
+    """
+    preview_dir = cfg.previews_dir
+
+    text_block, photo_entries, video_entries, n_photos, n_videos = _collect_items(
+        analysis_by_path, cfg, preview_dir
+    )
+    blocks: list = [text_block]
+    _add_photo_blocks(blocks, photo_entries, cfg.thumbnails_dir)
+
+    offset_table, mega_path = _build_mega_preview(
+        video_entries, preview_dir, force=force
+    )
+    _add_video_preview_blocks(blocks, text_block, offset_table, mega_path)
+    _validate_visual_blocks(blocks, video_entries)
 
     return blocks, offset_table, n_photos, n_videos

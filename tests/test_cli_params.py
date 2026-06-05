@@ -6,7 +6,12 @@ from unittest.mock import patch
 
 import pytest
 
-from pipeline.cli import _PLANNING_PRESETS, _RESOLUTION_PRESETS, _resolve_planning, cli
+from pipeline.cli import cli
+from pipeline.cli._commands import (
+    _PLANNING_PRESETS,
+    _RESOLUTION_PRESETS,
+    _resolve_planning,
+)
 from tests.cli_helpers import (
     FULL_RUN_CONFIG,
     capture_pipeline_run,
@@ -65,7 +70,6 @@ class TestRunCommandWiring:
         assert c["assemble"].fps == 30
         assert c["assemble"].bitrate == 1.5
         assert c["assemble"].codec == "h264"
-        assert c["cli_defaults"] == set()
 
     def test_plan_only_yaml(self, runner, tmp_path):
         cfg = write_run_config(
@@ -162,15 +166,9 @@ pipeline:
         assert result.exit_code != 0
         assert "source" in result.output
 
-    def test_old_commands_are_not_registered(self, runner):
-        result = runner.invoke(cli, ["full", "--help"])
 
-        assert result.exit_code != 0
-        assert "No such command" in result.output
-
-
-class TestRunPrepareNoAnalysisPath:
-    """Verify _run_prepare doesn't use removed Config.analysis_path."""
+class TestRunPrepareUsesCachedAnalysis:
+    """Verify cached prepare loads existing analysis data without recomputing."""
 
     def test_cached_prepare_uses_load_analysis(self, tmp_path):
         import json
@@ -203,7 +201,7 @@ class TestRunPrepareNoAnalysisPath:
             )
         )
 
-        from pipeline.cli import _PipelineDisplay
+        from pipeline.cli._display import _PipelineDisplay
         from pipeline.cli._runner import _run_prepare
 
         pc = MagicMock()

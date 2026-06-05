@@ -144,42 +144,32 @@ def _display_postprocess_report(report: PostprocessReport) -> None:
     console.print(t)
 
 
-def _plan_visual(
-    cfg: Config,
-    analysis_by_path: dict[str, AnalysisEntry],
+def _format_user_instructions(instruct: str) -> str:
+    if not instruct:
+        return ""
+    return (
+        "\n**User instructions** (follow these; if they conflict with hard "
+        "constraints above, the user's instructions win):\n"
+        f"{instruct}\n"
+    )
+
+
+def _build_visual_prompt(
     pc: PlanConfig,
     *,
-    progress_callback: ProgressCallback = None,
-) -> EDL:
-    """Single-pass Gemini planning with chain-of-thought.
-
-    Gemini sees individual photo thumbnails (400px) + video clips,
-    designs narrative arc + selects items + self-reviews in one call.
-    """
-    content_blocks, preview_offset_table, n_photos, n_videos = (
-        _build_visual_content_blocks(analysis_by_path, cfg, force=pc.force)
-    )
-    n_candidates = n_photos + n_videos
-
-    # Summary
+    n_candidates: int,
+    n_videos: int,
+    n_photos: int,
+) -> str:
     trip_summary = f"{n_candidates} candidates ({n_videos} videos, {n_photos} photos)."
-
     n_items = round(pc.target_duration / 5.5)
     vid_ratio = _video_ratio(pc.trip_type)
     trip_label = f"{pc.trip_type} trip" if pc.trip_type != "general" else "trip"
     guidance_text = _trip_guidance(pc.trip_type)
+    photo_cap = pc.target_duration * 0.3
+    instruct_block = _format_user_instructions(pc.instruct)
 
-    if progress_callback:
-        progress_callback(0, 0, f"{n_photos} photos, {n_videos} videos → Gemini")
-
-    instruct_block = (
-        f"\n**User instructions** (follow these; if they conflict with hard "
-        f"constraints above, the user's instructions win):\n{pc.instruct}\n"
-        if pc.instruct
-        else ""
-    )
-
-    intro_text = f"""\
+    return f"""\
 Create a {pc.style} {trip_label} vlog EDL from the photos and videos shown below.
 
 {trip_summary}
@@ -194,7 +184,7 @@ items of similar quality, pick the one that better supports this focus.
 - DURATION: Sum of ALL display_duration MUST equal {pc.target_duration}s (±5%). This is the #1 requirement.
 - Select ~{n_items} items to fill {pc.target_duration}s. Duration is content-driven — let each moment decide its length.
 - Video ratio: at least {vid_ratio}% videos for this {trip_label}.
-- Photo time cap: total photo duration ≤ {pc.target_duration * 0.3:.0f}s (30% of target). Photos are punctuation, not filler.
+- Photo time cap: total photo duration ≤ {photo_cap:.0f}s (30% of target). Photos are punctuation, not filler.
 - Location diversity: max 3 items per location, spread across all places visited.
 {instruct_block}
 **Think step-by-step:**
@@ -242,7 +232,7 @@ items of similar quality, pick the one that better supports this focus.
    □ P1 Duration: total display_duration ≈ {pc.target_duration}s (±5%)?
    □ P2 Video ratio: videos ≥ {vid_ratio}% of items?
    □ P3 Location diversity: max 3 items per location? Spread across full trip?
-   □ P4 Photo cap: total photo duration ≤ {pc.target_duration * 0.3:.0f}s (30%)?
+   □ P4 Photo cap: total photo duration ≤ {photo_cap:.0f}s (30%)?
    □ P5 keep_audio=true on every video where you heard clear speech or laughter?
    □ P6 No duplicate source_file? No more than 2 portrait videos?
    □ P7 Text overlays ≤ 5 total?
@@ -252,7 +242,83 @@ Output ONE JSON EDL.
 
 All candidates:"""
 
-    visual_parts: list = [intro_text] + content_blocks
+
+def _debug_gemini_response(edl_content: str) -> None:
+    logger.debug("Gemini response: %d chars", len(edl_content))
+    for line in edl_content.split("\n"):
+        logger.debug("  | %s", line)
+
+
+def _ensure_target_fill(edl: EDL, target_duration: int) -> None:
+    actual_dur = edl.estimated_duration()
+    if actual_dur < target_duration * 0.5:
+        raise RuntimeError(
+            f"EDL is {actual_dur:.0f}s, target is {target_duration}s — "
+            f"less than 50% filled. Check Gemini output and post-processing logs."
+        )
+    if actual_dur < target_duration:
+        logger.warning(
+            "EDL is %.0fs, target is %ds — underfilled", actual_dur, target_duration
+        )
+
+
+def _log_selection_coverage(
+    edl: EDL,
+    analysis_by_path: dict[str, AnalysisEntry],
+    n_candidates: int,
+) -> None:
+    selected_paths = {item.source_file for item in edl.all_items()}
+    n_selected = len(selected_paths)
+    logger.info(
+        "Selection: %d / %d candidates used (%.0f%%)",
+        n_selected,
+        n_candidates,
+        n_selected / n_candidates * 100 if n_candidates else 0,
+    )
+
+    loc_total: dict[str, int] = {}
+    loc_selected: dict[str, int] = {}
+    for analysis in analysis_by_path.values():
+        loc = analysis.get("district") or analysis.get("country") or "unknown"
+        loc_total[loc] = loc_total.get(loc, 0) + 1
+        if analysis["local_path"] in selected_paths:
+            loc_selected[loc] = loc_selected.get(loc, 0) + 1
+
+    for loc in sorted(loc_total, key=lambda x: loc_total[x], reverse=True)[:10]:
+        logger.info(
+            "  %s: %d/%d selected", loc, loc_selected.get(loc, 0), loc_total[loc]
+        )
+
+
+def _plan_visual(
+    cfg: Config,
+    analysis_by_path: dict[str, AnalysisEntry],
+    pc: PlanConfig,
+    *,
+    progress_callback: ProgressCallback = None,
+) -> EDL:
+    """Single-pass Gemini planning with chain-of-thought.
+
+    Gemini sees individual photo thumbnails (400px) + video clips,
+    designs narrative arc + selects items + self-reviews in one call.
+    """
+    content_blocks, preview_offset_table, n_photos, n_videos = (
+        _build_visual_content_blocks(analysis_by_path, cfg, force=pc.force)
+    )
+    n_candidates = n_photos + n_videos
+
+    if progress_callback:
+        progress_callback(0, 0, f"{n_photos} photos, {n_videos} videos → Gemini")
+
+    visual_parts: list = [
+        _build_visual_prompt(
+            pc,
+            n_candidates=n_candidates,
+            n_videos=n_videos,
+            n_photos=n_photos,
+        ),
+        *content_blocks,
+    ]
 
     system_prompt = _visual_system_prompt(pc.trip_type, language=pc.language)
 
@@ -264,12 +330,8 @@ All candidates:"""
         thinking_level=pc.thinking_level,
         progress_callback=progress_callback,
     )
+    _debug_gemini_response(edl_content)
 
-    logger.debug("Gemini response: %d chars", len(edl_content))
-    for line in edl_content.split("\n"):
-        logger.debug("  | %s", line)
-
-    # --- Post-processing pipeline ---
     if progress_callback:
         progress_callback(0, 0, "post-processing...")
     edl = _postprocess_visual_edl(
@@ -279,39 +341,8 @@ All candidates:"""
         cfg,
     )
 
-    actual_dur = edl.estimated_duration()
-    if actual_dur < pc.target_duration * 0.5:
-        raise RuntimeError(
-            f"EDL is {actual_dur:.0f}s, target is {pc.target_duration}s — "
-            f"less than 50% filled. Check Gemini output and post-processing logs."
-        )
-    if actual_dur < pc.target_duration:
-        logger.warning(
-            "EDL is %.0fs, target is %ds — underfilled", actual_dur, pc.target_duration
-        )
-
-    # Selection coverage: how many of the total candidates were selected
-    selected_paths = {item.source_file for item in edl.all_items()}
-    n_selected = len(selected_paths)
-    logger.info(
-        "Selection: %d / %d candidates used (%.0f%%)",
-        n_selected,
-        n_candidates,
-        n_selected / n_candidates * 100 if n_candidates else 0,
-    )
-    # Coverage by location
-    loc_total: dict[str, int] = {}
-    loc_selected: dict[str, int] = {}
-    for a in analysis_by_path.values():
-        loc = a.get("district") or a.get("country") or "unknown"
-        loc_total[loc] = loc_total.get(loc, 0) + 1
-        if a["local_path"] in selected_paths:
-            loc_selected[loc] = loc_selected.get(loc, 0) + 1
-    for loc in sorted(loc_total, key=lambda x: loc_total[x], reverse=True)[:10]:
-        sel = loc_selected.get(loc, 0)
-        tot = loc_total[loc]
-        logger.info("  %s: %d/%d selected", loc, sel, tot)
-
+    _ensure_target_fill(edl, pc.target_duration)
+    _log_selection_coverage(edl, analysis_by_path, n_candidates)
     log_edl_summary(edl, pc.target_duration)
 
     return edl

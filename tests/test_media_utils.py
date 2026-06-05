@@ -7,31 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from pipeline.utils.media import probe_duration, run_subprocess, strip_markdown_fences
+from pipeline.utils.media import probe_duration, run_subprocess
 from tests.helpers import subprocess_result
-
-# ---------------------------------------------------------------------------
-# strip_markdown_fences
-# ---------------------------------------------------------------------------
-
-
-class TestStripMarkdownFences:
-    @pytest.mark.parametrize(
-        "input_text, expected_substring, no_fences",
-        [
-            ('```json\n{"key": "value"}\n```', '{"key": "value"}', True),
-            ('{"key": "value"}', '{"key": "value"}', True),
-            ('  {"key": "value"}  ', '{"key": "value"}', True),
-        ],
-    )
-    def test_strips_fences_and_whitespace(
-        self, input_text, expected_substring, no_fences
-    ):
-        result = strip_markdown_fences(input_text)
-        assert expected_substring in result
-        if no_fences:
-            assert not result.startswith("```")
-
 
 # ---------------------------------------------------------------------------
 # run_subprocess

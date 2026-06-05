@@ -106,7 +106,7 @@ reelsmith run trip
 | `reelsmith new NAME PATH` | Create `workspace/runs/NAME/run.yaml` |
 | `reelsmith run NAME` | Run the stages declared in `workspace/runs/NAME/run.yaml` |
 | `reelsmith edit NAME` | Open the run YAML in your editor |
-| `reelsmith config NAME` | Show saved run config |
+| `reelsmith config NAME` | Print `workspace/runs/NAME/run.yaml` |
 | `reelsmith workspace` | Disk usage and cleanup |
 
 ### YAML Fields
