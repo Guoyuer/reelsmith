@@ -91,6 +91,77 @@ _GROUP_SCHEMA: dict[str, dict[str, dict[str, Any]]] = {
 }
 
 
+def _expected_type_name(expected: type | tuple[type, ...]) -> str:
+    if isinstance(expected, type):
+        return expected.__name__
+    return " or ".join(t.__name__ for t in expected)
+
+
+def _validate_field_value(
+    errors: list[str],
+    *,
+    group_name: str,
+    field_name: str,
+    value: Any,
+    rules: dict[str, Any],
+) -> None:
+    expected = rules["type"]
+    if not isinstance(value, expected):
+        errors.append(
+            f"'{group_name}.{field_name}' must be {_expected_type_name(expected)}, got {type(value).__name__}"
+        )
+        return
+
+    if "choices" in rules and value not in rules["choices"]:
+        errors.append(
+            f"'{group_name}.{field_name}' must be one of {list(rules['choices'])}, got '{value}'"
+        )
+
+    if field_name == "stages":
+        allowed = {"prepare", "plan", "generate_music", "assemble"}
+        bad = [str(stage) for stage in value if stage not in allowed]
+        if bad:
+            errors.append(
+                f"'{group_name}.{field_name}' contains unknown stages: {', '.join(bad)}"
+            )
+
+
+def _validate_group(
+    errors: list[str],
+    *,
+    group_name: str,
+    group: Any,
+    schema: dict[str, dict[str, Any]],
+) -> None:
+    if not isinstance(group, dict):
+        errors.append(f"'{group_name}' must be an object, got {type(group).__name__}")
+        return
+
+    unknown_keys = set(group.keys()) - set(schema.keys())
+    if unknown_keys:
+        errors.append(
+            f"'{group_name}': unknown keys: {', '.join(sorted(unknown_keys))}"
+        )
+
+    for field_name, rules in schema.items():
+        value = group.get(field_name)
+
+        if value is None:
+            if rules.get("nullable"):
+                continue
+            if rules.get("required"):
+                errors.append(f"'{group_name}.{field_name}' is required")
+            continue
+
+        _validate_field_value(
+            errors,
+            group_name=group_name,
+            field_name=field_name,
+            value=value,
+            rules=rules,
+        )
+
+
 def _validate_config(data: dict[str, Any], cfg_file: str) -> None:
     """Validate grouped config structure. Raises click.UsageError on problems."""
     if not isinstance(data, dict):
@@ -100,7 +171,6 @@ def _validate_config(data: dict[str, Any], cfg_file: str) -> None:
 
     errors: list[str] = []
 
-    # Check for unknown top-level keys
     unknown_groups = set(data.keys()) - _VALID_GROUPS
     if unknown_groups:
         errors.append(f"unknown top-level keys: {', '.join(sorted(unknown_groups))}")
@@ -110,55 +180,7 @@ def _validate_config(data: dict[str, Any], cfg_file: str) -> None:
         if group is None:
             continue
 
-        if not isinstance(group, dict):
-            errors.append(
-                f"'{group_name}' must be an object, got {type(group).__name__}"
-            )
-            continue
-
-        # Unknown keys within group
-        unknown_keys = set(group.keys()) - set(schema.keys())
-        if unknown_keys:
-            errors.append(
-                f"'{group_name}': unknown keys: {', '.join(sorted(unknown_keys))}"
-            )
-
-        # Per-field validation
-        for field_name, rules in schema.items():
-            value = group.get(field_name)
-
-            if value is None:
-                if rules.get("nullable"):
-                    continue
-                if rules.get("required"):
-                    errors.append(f"'{group_name}.{field_name}' is required")
-                continue
-
-            # Type check
-            expected = rules["type"]
-            if not isinstance(value, expected):
-                expected_name = (
-                    expected.__name__
-                    if isinstance(expected, type)
-                    else " or ".join(t.__name__ for t in expected)
-                )
-                errors.append(
-                    f"'{group_name}.{field_name}' must be {expected_name}, got {type(value).__name__}"
-                )
-                continue
-
-            # Choices check
-            if "choices" in rules and value not in rules["choices"]:
-                errors.append(
-                    f"'{group_name}.{field_name}' must be one of {list(rules['choices'])}, got '{value}'"
-                )
-            if field_name == "stages":
-                allowed = {"prepare", "plan", "generate_music", "assemble"}
-                bad = [str(stage) for stage in value if stage not in allowed]
-                if bad:
-                    errors.append(
-                        f"'{group_name}.{field_name}' contains unknown stages: {', '.join(bad)}"
-                    )
+        _validate_group(errors, group_name=group_name, group=group, schema=schema)
 
     if errors:
         bullet_list = "\n  - ".join(errors)

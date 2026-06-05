@@ -128,29 +128,47 @@ Examples of past bugs caused by local-only thinking:
 
 ## Pipeline execution
 
-Run pipeline via `reelsmith` CLI. Stages execute directly in a single Python process — no external services needed. Each stage caches its output; re-running `full` is fast.
+Run pipeline via `reelsmith` CLI. Stages execute directly in a single Python process — no external services needed. Each stage caches its output; re-running configured stages is fast.
 
 ```bash
-# Full pipeline from local folder
-reelsmith full -n singapore -p ./photos -r 4k60 --duration 180 --lang cn
+# Create a trip workspace and editable YAML config
+reelsmith new singapore ./photos
 
-# Prepare only (scan + media processing)
-reelsmith prepare -n singapore -p ./photos
+# Run the stages declared in workspace/runs/singapore/run.yaml
+reelsmith run singapore
 
-# Re-plan only (no render)
-reelsmith plan -n singapore --duration 180 --lang cn
+# Edit the run config
+reelsmith edit singapore
 
-# Render at 1080p30 (output: reelsmith_v1_1080p30.mp4)
-reelsmith assemble -n singapore -r 1080p30
+# Inspect current config and latest saved snapshot
+reelsmith config singapore
 
-# Render at 4K60 (output: reelsmith_v1_2160p60.mp4, reuses 1080p clips won't conflict)
-reelsmith assemble -n singapore -r 4k60
+# Workspace disk usage and cleanup
+reelsmith workspace
+```
 
-# AV1 encoding (~30% smaller files, needs RTX 40+)
-reelsmith assemble -n singapore -r 4k60 --codec av1
+Stage selection and render settings live in YAML:
 
-# Custom resolution
-reelsmith assemble -n singapore -r 2560x1440x60
+```yaml
+pipeline:
+  stages: [prepare, plan, generate_music, assemble]
+  force: false
+
+source:
+  path: ./photos
+
+plan:
+  duration: 180
+  model: fast
+  lang: cn
+  trip_type: general
+  style: upbeat
+  music: auto
+
+assemble:
+  resolution: 4k60
+  bitrate: 1.0
+  codec: auto
 ```
 
 Logs go to terminal AND `workspace/runs/{name}/run_{timestamp}.log`.
