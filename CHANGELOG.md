@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Changed
+
+- Simplified the CLI around YAML-first runs: `reelsmith new NAME PATH`,
+  `reelsmith run NAME`, `reelsmith edit NAME`, and `reelsmith config NAME`.
+- Stage selection and render settings now live in `workspace/runs/NAME/run.yaml`
+  under `pipeline`, `source`, `plan`, and `assemble` sections.
+
+### Removed
+
+- Removed the old stage subcommands (`full`, `prepare`, `plan`, `assemble`,
+  `init`) and the `--use-cfg-file` compatibility flow.
+
 ## [1.0.0] — 2026-03-28
 
 First public release. Major simplification pass for open-sourcing: removed NAS/Synology
