@@ -9,7 +9,6 @@ import pytest
 from pipeline.cli import cli
 from tests.cli_helpers import (
     CURRENT_COMMANDS,
-    REMOVED_COMMANDS,
     read_yaml,
     write_run_config,
 )
@@ -26,8 +25,6 @@ class TestTopLevelHelp:
 
         for cmd in CURRENT_COMMANDS:
             assert cmd in result.output
-        for old_cmd in REMOVED_COMMANDS:
-            assert old_cmd not in result.output
 
 
 class TestInvalidInputs:
@@ -103,13 +100,6 @@ plan:
             result = runner.invoke(cli, ["run", "test", "-c", cfg])
 
         assert result.exit_code != 0
-
-    @pytest.mark.parametrize("old_cmd", REMOVED_COMMANDS)
-    def test_old_commands_removed(self, runner, old_cmd):
-        result = runner.invoke(cli, [old_cmd, "--help"])
-
-        assert result.exit_code != 0
-        assert "No such command" in result.output
 
 
 class TestSubcommandHelp:

@@ -29,10 +29,10 @@ reelsmith/
 │   │   ├── _render.py         #   render_photo, render_video, render_title_card
 │   │   └── _audio.py          #   BPM detection, beat sync, music ducking, chapters
 │   ├── cli/                   # CLI package (Click-based)
-│   │   ├── _commands.py       #   CLI group + command definitions (full/prepare/plan/assemble/workspace)
+│   │   ├── _commands.py       #   YAML-first CLI commands (new/run/edit/config/workspace)
 │   │   ├── _runner.py         #   Pipeline stage orchestration + PipelineContext
 │   │   ├── _display.py        #   Rich UI (progress bars, stage status icons)
-│   │   ├── _config_io.py      #   Run config save/load (YAML persistence)
+│   │   ├── _config_io.py      #   Run config loading + validation
 │   │   └── _workspace.py      #   Workspace list/clean commands
 │   ├── utils/                 # Shared utilities
 │   │   ├── image.py           #   gen_thumbnail() (Pillow)
@@ -140,7 +140,7 @@ reelsmith run singapore
 # Edit the run config
 reelsmith edit singapore
 
-# Inspect current config and latest saved snapshot
+# Inspect current run.yaml
 reelsmith config singapore
 
 # Workspace disk usage and cleanup
@@ -247,7 +247,7 @@ If the prompt doesn't tell Gemini to listen carefully and trim around speech, no
 - Per-video with `keep_audio=true`: `atrim=start:duration` + `atempo` (if speed≠1.0) + `asetpts` → preserves original audio from trim window.
 - Per-video with `keep_audio=false`: video trimmed + speed-adjusted. Audio = `aevalsrc=0` (silence).
 - All items concat'd with `concat=n=N:v=1:a=1` (audio locked to video).
-- Encoded as AAC 192k + AV1/HEVC/H.264 (auto-detected or `--codec` flag). Output: per-segment `.mp4` files.
+- Encoded as AAC 192k + AV1/HEVC/H.264 (auto-detected or `assemble.codec`). Output: per-segment `.mp4` files.
 
 **Phase 2: Concat + music mix** (`_assemble.py`)
 - Concat demuxer concatenation (no re-encode: `-c:v copy -c:a copy`)
@@ -312,13 +312,13 @@ Prompts are externalized to `pipeline/prompts/` (editable without code changes):
 - `lang_instructions.json` — language directives (en/cn/both)
 
 Fault tolerance: fuzzy path matching for hallucinated file paths, trim point clamping,
-deduplication, duration check with optional follow-up Gemini call to fill gaps.
+deduplication, and duration checks.
 
 | Input | What Gemini does |
 |-------|-----------------|
-| Individual photos (400px thumbnails, inline) + 1 concatenated video preview (480p 1fps with audio, #XX labels, Files API) + per-item metadata | Design narrative arc → select items → assign music_mood/keep_audio/playback_speed/transitions/color_temp → self-review |
+| Individual photos (400px thumbnails, inline) + 1 concatenated video preview (480p 1fps with audio, #XX labels, Files API) + per-item metadata | Design narrative arc → select items → assign music_mood/keep_audio/playback_speed/transitions → self-review |
 
-Model: `--model` is required. Presets: `fast` (gemini-3.1-flash-lite-preview), `balanced` (gemini-3-flash-preview), `quality` (gemini-3.1-pro-preview). Custom: `model:thinking` (e.g. `gemini-2.5-flash:medium`). Default: `gemini-3-flash-preview`.
+Model is configured in YAML. Presets: `fast` (gemini-3.1-flash-lite), `balanced` (gemini-3.5-flash), `quality` (gemini-3.1-pro-preview). Custom: `model:thinking` (e.g. `gemini-2.5-flash:medium`).
 
 Every API call is logged with: model, input token count, output tokens, wall time, response preview.
 
@@ -335,7 +335,6 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - **Pacing** — display_duration per item, effect choices
 - **Transitions** — transition type field stored in EDL but renderer uses opacity fades only; **transition_duration** is the actual creative lever (controls fade length)
 - **Montage mode** — segment `mode: "montage"` for quick-cut energy bursts
-- **Color temperature** — per-segment `color_temp` (warm/cool/neutral)
 
 ## What's still hard-coded
 
@@ -343,8 +342,8 @@ Every API call is logged with: model, input token count, output tokens, wall tim
 - **Ken Burns effects** — cosine-eased crop + lanczos scale per EDL effect field (photos only; videos use a separate render path). Photos decoded once via `loop` filter (not `-loop 1` which re-decodes per frame).
 - **Thumbnail/keyframe generation** — Pillow resize, FFmpeg extraction
 - **Hardware acceleration** — Auto-detected: CUDA (NVIDIA) or VideoToolbox (macOS) for decode; NVENC/VideoToolbox for encode. Falls back to CPU when unavailable.
-- **Codec** — `--codec auto|av1|hevc|h264`. Auto prefers HEVC. AV1 (av1_nvenc, RTX 40+) saves ~30% over HEVC. Falls back through software encoders (libsvtav1, libx265, libx264).
-- **Bitrate** — H.264 base rates per resolution, scaled by codec (HEVC ×0.65, AV1 ×0.45) and `--quality` multiplier
+- **Codec** — `assemble.codec: auto|av1|hevc|h264`. Auto prefers HEVC. AV1 (av1_nvenc, RTX 40+) saves ~30% over HEVC. Falls back through software encoders (libsvtav1, libx265, libx264).
+- **Bitrate** — H.264 base rates per resolution, scaled by codec (HEVC ×0.65, AV1 ×0.45) and `assemble.bitrate` multiplier
 - **Audio ducking** — Dynamic via `sidechaincompress`: music auto-ducks when speech detected, recovers when speech stops. Default music volume 0.40, ducked to ~15% during speech. Tight trims = less music suppression.
 - **Loudness normalization** — Two-pass `loudnorm` (pass 1 measures I/LRA/TP/thresh, pass 2 applies with `linear=true`). Falls back to single-pass if measurement fails.
 - **Color grading** — subtle contrast/saturation boost, temperature shift per segment
@@ -359,7 +358,7 @@ When working with FFmpeg commands, always verify the exact command works before 
 
 - Every Gemini API call logs: model, tokens in/out, timing, cost estimate, response preview
 - Every FFmpeg command logged at INFO level to the run log (`workspace/runs/{name}/run_*.log`)
-- Use `--force` on `prepare` or `full` to force re-generation (bypasses per-item cache, thumbnails, previews)
+- Set `pipeline.force: true` in YAML to force regeneration of cached prepare/plan artifacts.
 - YouTube chapter markers saved to `output/chapters_v{N}_{res_label}.txt`
 - Post-assemble validation: checks (file size, duration, streams, codec, resolution)
 - Live progress display with Rich (per-stage status: ○ pending, ⏳ running, ✅ done, ❌ failed)
@@ -374,17 +373,17 @@ When working with FFmpeg commands, always verify the exact command works before 
 - Prepare always recomputes metadata (EXIF + ffprobe are fast); thumbnails and previews are cached
 - FFmpeg subprocesses have a 10-minute timeout for segment renders, 1-minute for concat (prevents hanging on corrupt files)
 - Ken Burns uses cosine easing (ease-in/ease-out) via crop+lanczos; only applies to photos (videos use a separate render path). Photos use `loop` filter to decode once (~20x faster than `-loop 1` re-decode)
-- `--music auto` uses Gemini Lyria RealTime; `--music /path/to/file` uses custom audio; `--music none` disables music
-- `--lang en|cn|both` controls text language (title, overlays, chapters); cn/both auto-selects CJK font
+- `plan.music: auto` uses Gemini Lyria RealTime; `plan.music: /path/to/file` uses custom audio; `plan.music: none` disables music
+- `plan.lang: en|cn|both` controls text language (title, overlays, chapters); cn/both auto-selects CJK font
 - Segment rendering is parallel via `parallel.run_parallel()`: 3 workers for NVENC, 2 for VideoToolbox
-- Codec auto-detection chain: AV1 (if `--codec av1`) → HEVC (hevc_nvenc/hevc_videotoolbox) → H.264 (h264_nvenc) → libx264. `--codec auto` defaults to HEVC
+- Codec auto-detection chain: AV1 (if `assemble.codec: av1`) → HEVC (hevc_nvenc/hevc_videotoolbox) → H.264 (h264_nvenc) → libx264. `assemble.codec: auto` defaults to HEVC
 - ffprobe results cached per assemble run via RenderContext (dimensions + duration)
 - Text overlays baked into clips via drawtext filter with drop shadow (no separate encode pass)
 - Title card uses first EDL photo as blurred background (fallback: purple gradient)
-- CLI `prepare` = scan + prepare (thumbnails, EXIF, video probing); CLI `plan` = plan + generate_music (when `--music` is not `none`); CLI `assemble` = render. `full` = all stages
-- `--path PATH` is required for `prepare` and `full` commands
-- `--resolution` / `-r` is required for both `full` and `assemble` — no default. Presets: 4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30, or custom WxHxFPS
-- `--codec auto|av1|hevc|h264` — default `auto` (HEVC preferred). AV1 requires RTX 40-series+ or libsvtav1
+- CLI is YAML-first: `reelsmith new NAME PATH`, `reelsmith run NAME`, `reelsmith edit NAME`, `reelsmith config NAME`, `reelsmith workspace`.
+- `source.path` is required when `pipeline.stages` includes `prepare`.
+- `assemble.resolution` is required when `pipeline.stages` includes `assemble`. Presets: 4k60, 4k30, 2k60, 2k30, 1080p60, 1080p30, 720p30, or custom WxHxFPS.
+- `assemble.codec: auto|av1|hevc|h264` — default `auto` (HEVC preferred). AV1 requires RTX 40-series+ or libsvtav1
 - Clips cached per resolution (`seg00_item00_1080p30.mp4`); switching resolution doesn't re-render existing clips
 - Output files include resolution: `reelsmith_v1_1080p30.mp4` — different resolutions coexist
 - `workspace --clean safe|cache|media|all` — `safe` removes old outputs + intermediates only

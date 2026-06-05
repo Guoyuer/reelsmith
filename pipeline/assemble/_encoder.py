@@ -6,6 +6,7 @@ import json
 import logging
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -48,6 +49,107 @@ def _bitrate_for_codec(
 # Valid values for the ``codec`` parameter in :func:`detect_hw_encoder`.
 CODEC_CHOICES = ("auto", "av1", "hevc", "h264")
 
+_ENCODER_TEST_CMD = [
+    "ffmpeg",
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    "nullsrc=s=640x360:d=0.1:r=15",
+]
+
+_EncoderArgsFn = Callable[[str, str], list[str]]
+
+
+def _try_encoder(enc_name: str) -> bool:
+    try:
+        test = run_subprocess(
+            _ENCODER_TEST_CMD + ["-c:v", enc_name, "-f", "null", "-"],
+            capture_output=True,
+            text=True,
+        )
+        return test.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _nvenc_args(enc_name: str, bitrate: str) -> list[str]:
+    return [
+        "-c:v",
+        enc_name,
+        "-preset",
+        "p4",
+        "-rc",
+        "vbr",
+        "-b:v",
+        bitrate,
+        "-maxrate",
+        bitrate,
+    ]
+
+
+def _vt_args(enc_name: str, bitrate: str) -> list[str]:
+    return ["-c:v", enc_name, "-b:v", bitrate]
+
+
+def _sw_args(enc_name: str, bitrate: str) -> list[str]:
+    return ["-c:v", enc_name, "-preset", "fast", "-b:v", bitrate]
+
+
+def _hardware_candidates() -> dict[str, list[tuple[str, _EncoderArgsFn]]]:
+    hw_suffix, hw_args = (
+        ("videotoolbox", _vt_args)
+        if sys.platform == "darwin"
+        else ("nvenc", _nvenc_args)
+    )
+    return {
+        family: [(f"{family}_{hw_suffix}", hw_args)]
+        for family in ("av1", "hevc", "h264")
+    }
+
+
+def _software_fallbacks() -> dict[str, tuple[str, _EncoderArgsFn]]:
+    return {
+        "av1": ("libsvtav1", _sw_args),
+        "hevc": ("libx265", _sw_args),
+        "h264": ("libx264", _sw_args),
+    }
+
+
+def _codec_search_order(codec: str) -> list[str]:
+    if codec == "auto":
+        return ["hevc", "h264"]
+    return [codec]
+
+
+def _select_encoder_for_family(
+    family: str,
+    *,
+    width: int,
+    height: int,
+    fps: int,
+    bitrate: float,
+    hardware: dict[str, list[tuple[str, _EncoderArgsFn]]],
+    software: dict[str, tuple[str, _EncoderArgsFn]],
+    tried: list[str],
+) -> list[str] | None:
+    br = _bitrate_for_codec(family, width, height, fps, bitrate)
+
+    for enc_name, args_fn in hardware.get(family, []):
+        tried.append(enc_name)
+        if _try_encoder(enc_name):
+            logger.info("Encoder: %s @ %s", enc_name, br)
+            return args_fn(enc_name, br)
+
+    if family in software:
+        enc_name, args_fn = software[family]
+        tried.append(enc_name)
+        if _try_encoder(enc_name):
+            logger.info("Encoder: %s (software) @ %s", enc_name, br)
+            return args_fn(enc_name, br)
+
+    return None
+
 
 def detect_hw_encoder(
     width: int = 3840,
@@ -67,80 +169,23 @@ def detect_hw_encoder(
     if codec not in CODEC_CHOICES:
         raise ValueError(f"Invalid codec {codec!r}, expected one of {CODEC_CHOICES}")
 
-    _test_cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", "nullsrc=s=640x360:d=0.1:r=15"]
-
-    def _try_encoder(enc_name: str) -> bool:
-        try:
-            test = run_subprocess(
-                _test_cmd + ["-c:v", enc_name, "-f", "null", "-"],
-                capture_output=True,
-                text=True,
-            )
-            return test.returncode == 0
-        except (OSError, subprocess.SubprocessError):
-            return False
-
-    def _nvenc_args(enc_name: str, bitrate: str) -> list[str]:
-        return [
-            "-c:v",
-            enc_name,
-            "-preset",
-            "p4",
-            "-rc",
-            "vbr",
-            "-b:v",
-            bitrate,
-            "-maxrate",
-            bitrate,
-        ]
-
-    def _vt_args(enc_name: str, bitrate: str) -> list[str]:
-        return ["-c:v", enc_name, "-b:v", bitrate]
-
-    def _sw_args(enc_name: str, bitrate: str) -> list[str]:
-        return ["-c:v", enc_name, "-preset", "fast", "-b:v", bitrate]
-
-    # --- Build candidate list based on codec preference and platform ---
-    # Hardware encoders share a name pattern: f"{family}_{suffix}".
-    hw_suffix, hw_args = (
-        ("videotoolbox", _vt_args)
-        if sys.platform == "darwin"
-        else ("nvenc", _nvenc_args)
-    )
-    candidates = {
-        family: [(f"{family}_{hw_suffix}", hw_args)]
-        for family in ("av1", "hevc", "h264")
-    }
-
-    # Software fallbacks (cross-platform)
-    sw_fallbacks = {
-        "av1": ("libsvtav1", _sw_args),
-        "hevc": ("libx265", _sw_args),
-        "h264": ("libx264", _sw_args),
-    }
-
-    if codec == "auto":
-        # Try HEVC first (best size/speed balance), then H.264
-        search_order = ["hevc", "h264"]
-    else:
-        search_order = [codec]
-
+    hardware = _hardware_candidates()
+    software = _software_fallbacks()
     tried: list[str] = []
-    for family in search_order:
-        br = _bitrate_for_codec(family, width, height, fps, bitrate)
-        # Try hardware encoders
-        for enc_name, args_fn in candidates.get(family, []):
-            tried.append(enc_name)
-            if _try_encoder(enc_name):
-                logger.info("Encoder: %s @ %s", enc_name, br)
-                return args_fn(enc_name, br)
-        # Try software fallback
-        if family in sw_fallbacks:
-            enc_name, args_fn = sw_fallbacks[family]
-            tried.append(enc_name)
-            if _try_encoder(enc_name):
-                logger.info("Encoder: %s (software) @ %s", enc_name, br)
-                return args_fn(enc_name, br)
+
+    for family in _codec_search_order(codec):
+        selected = _select_encoder_for_family(
+            family,
+            width=width,
+            height=height,
+            fps=fps,
+            bitrate=bitrate,
+            hardware=hardware,
+            software=software,
+            tried=tried,
+        )
+        if selected is not None:
+            return selected
 
     # Ultimate fallback: libx264
     h264_br = _bitrate_for_codec("h264", width, height, fps, bitrate)

@@ -202,8 +202,6 @@ def _run_pipeline(
     prepare=None,
     plan=None,
     assemble=None,
-    cli_params: dict | None = None,
-    cli_defaults: set[str] | None = None,
 ):
     """Execute pipeline stages directly in this process."""
     global _interrupted
@@ -219,18 +217,12 @@ def _run_pipeline(
     cfg = Config.load(ws_path)
     cfg.ensure_dirs()
 
-    # Persist run config early so killed / failed runs remain reproducible.
-    if cli_params:
-        from ._config_io import save_run_config
-
-        save_run_config(cfg.workspace, cli_params, defaults=cli_defaults)
-
     # Create display first (starts live panel), then logging (uses its console)
     headline = _build_headline_from_args(active, plan)
     display = _PipelineDisplay(run_name, headline, active)
     logger = _setup_logging(run_name, display)
 
-    # Log CLI parameters for reproducibility (file-only, config box handles terminal)
+    # Log resolved run settings for reproducibility.
     logger.debug("Run: %s | stages: %s", run_name, ", ".join(active))
     if plan:
         logger.debug(

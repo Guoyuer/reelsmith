@@ -12,7 +12,6 @@ from click.testing import CliRunner
 from pipeline.cli import cli
 
 CURRENT_COMMANDS = ("run", "new", "edit", "workspace", "config")
-REMOVED_COMMANDS = ("full", "prepare", "plan", "assemble", "init")
 
 FULL_RUN_CONFIG = """\
 pipeline:
@@ -88,8 +87,6 @@ def capture_pipeline_run(
         prepare=None,
         plan=None,
         assemble=None,
-        cli_params=None,
-        cli_defaults=None,
     ):
         captured.update(
             {
@@ -99,8 +96,6 @@ def capture_pipeline_run(
                 "prepare": prepare,
                 "plan": plan,
                 "assemble": assemble,
-                "cli_params": cli_params,
-                "cli_defaults": cli_defaults,
             }
         )
 

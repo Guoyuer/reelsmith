@@ -11,11 +11,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
   `reelsmith run NAME`, `reelsmith edit NAME`, and `reelsmith config NAME`.
 - Stage selection and render settings now live in `workspace/runs/NAME/run.yaml`
   under `pipeline`, `source`, `plan`, and `assemble` sections.
+- `reelsmith config NAME` now prints only the current `run.yaml`; per-run config
+  snapshots are no longer part of the UX.
+- Split large encoder, planner prompt, and visual-preview builder paths into
+  smaller helpers without changing behavior.
 
 ### Removed
 
 - Removed the old stage subcommands (`full`, `prepare`, `plan`, `assemble`,
   `init`) and the `--use-cfg-file` compatibility flow.
+- Removed automatic `run_config_*.yaml` snapshot generation and the package-level
+  CLI re-exports that existed only for tests.
+- Removed the unused markdown-fence stripping helper from media utilities.
 
 ## [1.0.0] — 2026-03-28
 

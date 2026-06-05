@@ -108,6 +108,10 @@ def _intermediate_files(output_dir: Path) -> list[Path]:
     return [path for pattern in patterns for path in output_dir.glob(pattern)]
 
 
+def _legacy_config_files(run_dir: Path) -> list[Path]:
+    return sorted(run_dir.glob("run_config_*.yaml"))
+
+
 def _manifest_media_counts(runs_dir: Path) -> tuple[int, int]:
     """Return photo/video counts from the first available manifest."""
     if not runs_dir.exists():
@@ -153,6 +157,10 @@ def _run_detail(run_dir: Path) -> dict[str, Any]:
     intermediates = _intermediate_files(output_dir)
     info["intermediate_bytes"] = sum(f.stat().st_size for f in intermediates)
     info["intermediate_files"] = intermediates
+
+    legacy_configs = _legacy_config_files(run_dir)
+    info["legacy_config_bytes"] = sum(f.stat().st_size for f in legacy_configs)
+    info["legacy_config_files"] = legacy_configs
 
     render_dir = run_dir / "render"
     render_size, render_count = _dir_size(render_dir)
@@ -250,10 +258,14 @@ def _print_run_detail(run: dict[str, Any]) -> int:
         reclaim_parts.append(f"{_fmt_size(run['old_output_bytes'])} old outputs")
     if run["intermediate_bytes"]:
         reclaim_parts.append(f"{_fmt_size(run['intermediate_bytes'])} intermediates")
+    if run["legacy_config_bytes"]:
+        reclaim_parts.append(f"{_fmt_size(run['legacy_config_bytes'])} legacy configs")
     if not reclaim_parts:
         return 0
 
-    reclaimable = run["old_output_bytes"] + run["intermediate_bytes"]
+    reclaimable = (
+        run["old_output_bytes"] + run["intermediate_bytes"] + run["legacy_config_bytes"]
+    )
     click.echo(f"    Prune: {', '.join(reclaim_parts)}")
     return reclaimable
 
@@ -264,6 +276,7 @@ def _safe_clean_files(runs: list[dict[str, Any]]) -> list[Path]:
         if run["old_output_bytes"]:
             files += [output["path"] for output in run["outputs"][:-1]]
         files += run["intermediate_files"]
+        files += run["legacy_config_files"]
     return files
 
 
@@ -279,6 +292,7 @@ def _clean_safe(runs: list[dict[str, Any]], total_reclaimable: int, yes: bool) -
         if run["old_output_bytes"]:
             files += [output["path"] for output in run["outputs"][:-1]]
         files += run["intermediate_files"]
+        files += run["legacy_config_files"]
         if files:
             size = sum(path.stat().st_size for path in files)
             click.echo(f"  {run['name']}: {len(files)} files ({_fmt_size(size)})")

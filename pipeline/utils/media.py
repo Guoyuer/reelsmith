@@ -93,14 +93,3 @@ def probe_duration(path) -> float:
             "ffprobe returned unparseable output for %s: %r", path, result.stdout
         )
         return 0.0
-
-
-def strip_markdown_fences(text: str) -> str:
-    """Remove markdown code fences (```json ... ```) if present.
-
-    Returns the text unchanged when no fences are found.
-    """
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0]
-    return text

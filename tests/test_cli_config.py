@@ -1,4 +1,4 @@
-"""Tests for YAML run config save/load behavior."""
+"""Tests for YAML run config loading, validation, and CLI wiring."""
 
 from __future__ import annotations
 
@@ -9,104 +9,9 @@ import click
 import pytest
 import yaml
 
-from pipeline.cli import (
-    _RESOLUTION_PRESETS,
-    _format_resolution,
-    cli,
-    list_configs,
-    save_run_config,
-)
+from pipeline.cli import cli
+from pipeline.cli._config_io import load_run_config
 from tests.cli_helpers import capture_pipeline_run
-
-
-class TestSaveRunConfig:
-    def test_saves_yaml_to_workspace(self, tmp_path):
-        params = {
-            "stages": ["prepare", "plan", "assemble"],
-            "path": "/photos",
-            "duration": 180,
-            "model": "balanced",
-        }
-        dest = save_run_config(tmp_path, params)
-
-        assert dest.exists()
-        assert dest.name.startswith("run_config_")
-        assert list_configs(tmp_path)[-1] == dest
-        loaded = yaml.safe_load(dest.read_text())
-        assert loaded["pipeline"]["stages"] == ["prepare", "plan", "assemble"]
-        assert loaded["source"]["path"] == "/photos"
-        assert loaded["plan"]["duration"] == 180
-        assert loaded["plan"]["model"] == "balanced"
-
-    @pytest.mark.parametrize(
-        "params, assertion",
-        [
-            ({"path": None, "duration": 60}, lambda d: "source" not in d),
-            (
-                {
-                    "path": "/photos",
-                    "stages": ["prepare"],
-                    "force": True,
-                    "version": 2,
-                    "run_name": "test",
-                },
-                lambda d: (
-                    "run_name" not in d
-                    and d["pipeline"]["force"] is True
-                    and d["pipeline"]["version"] == 2
-                    and d["source"]["path"] == "/photos"
-                ),
-            ),
-            ({"path": "/photos"}, lambda d: "plan" not in d and "assemble" not in d),
-        ],
-        ids=["omits_none", "pipeline_fields", "empty_groups_omitted"],
-    )
-    def test_field_filtering(self, tmp_path, params, assertion):
-        save_run_config(tmp_path, params)
-        loaded = yaml.safe_load(list_configs(tmp_path)[-1].read_text())
-        assert assertion(loaded)
-
-    def test_multiple_configs_newest_last(self, tmp_path):
-        save_run_config(tmp_path, {"path": "/photos", "duration": 60})
-        save_run_config(tmp_path, {"path": "/other", "duration": 180})
-
-        loaded = yaml.safe_load(list_configs(tmp_path)[-1].read_text())
-
-        assert loaded["source"]["path"] == "/other"
-        assert loaded["plan"]["duration"] == 180
-
-    def test_default_annotations(self, tmp_path):
-        params = {
-            "path": "/photos",
-            "duration": 300,
-            "model": "balanced",
-            "trip_type": "family",
-        }
-        dest = save_run_config(tmp_path, params, defaults={"trip_type"})
-        text = dest.read_text()
-
-        for line in text.splitlines():
-            if "trip_type:" in line:
-                assert "# default" in line
-            if "duration:" in line:
-                assert "# default" not in line
-
-    def test_path_with_backslash_no_yaml_doc_end(self, tmp_path):
-        params = {"path": r"C:\Users\guoyu\Projects\vlog\workspace\media"}
-        dest = save_run_config(tmp_path, params)
-
-        assert "..." not in dest.read_text()
-
-
-class TestResolutionFormat:
-    @pytest.mark.parametrize("name", list(_RESOLUTION_PRESETS.keys()))
-    def test_preset_round_trip(self, name):
-        w, h, fps = _RESOLUTION_PRESETS[name]
-        assert _format_resolution((w, h, fps)) == name
-
-    def test_custom_resolution(self):
-        assert _format_resolution((2560, 1440, 60)) == "2k60"
-        assert _format_resolution((2048, 1080, 24)) == "2048x1080x24"
 
 
 class TestRunLoadsConfig:
@@ -147,13 +52,6 @@ assemble:
         assert c["plan"].style == "cinematic"
         assert c["assemble"].w == 3840
         assert c["assemble"].bitrate == 1.5
-        assert c["cli_params"]["stages"] == [
-            "prepare",
-            "plan",
-            "generate_music",
-            "assemble",
-        ]
-        assert c["cli_defaults"] == set()
 
     def test_missing_file(self, runner):
         result = runner.invoke(cli, ["run", "test", "-c", "/nonexistent/config.yaml"])
@@ -163,8 +61,6 @@ assemble:
 
 class TestConfigValidation:
     def _write_and_load(self, tmp_path, data):
-        from pipeline.cli import load_run_config
-
         p = tmp_path / "cfg.yaml"
         p.write_text(yaml.dump(data))
         return load_run_config(str(p))
@@ -227,7 +123,6 @@ class TestConfigValidation:
     def test_invalid_yaml(self, tmp_path):
         p = tmp_path / "bad.yaml"
         p.write_text(": broken: yaml: [")
-        from pipeline.cli import load_run_config
 
         with pytest.raises(click.UsageError, match="invalid YAML"):
             load_run_config(str(p))
@@ -258,7 +153,7 @@ class TestConfigCommand:
     def test_prints_saved_config(self, runner, tmp_path):
         ws = tmp_path / "workspace" / "runs" / "myrun"
         ws.mkdir(parents=True)
-        (ws / "run_config_20260325_120000.yaml").write_text(
+        (ws / "run.yaml").write_text(
             "pipeline:\n  stages: [prepare]\n\nsource:\n  path: /photos\n"
         )
 
@@ -275,4 +170,4 @@ class TestConfigCommand:
         result = self._run_with_workspace(runner, ws, "norun")
 
         assert result.exit_code != 0
-        assert "No config files" in result.output
+        assert "No run.yaml" in result.output

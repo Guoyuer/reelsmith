@@ -8,10 +8,7 @@ from typing import Any
 
 import click
 
-from ._config_io import (
-    list_configs,
-    load_run_config,
-)
+from ._config_io import load_run_config
 from ._runner import _run_pipeline
 
 
@@ -68,10 +65,6 @@ def _resolve_planning(planning: str) -> tuple[str, str]:
     return planning, "HIGH"
 
 
-def _music_file_from_param(music: str) -> str | None:
-    return None if music == "none" else music
-
-
 def _parse_resolution(ctx, param, value: str | None) -> tuple[int, int, int] | None:
     """Parse resolution preset or WxHxFPS."""
     if value is None:
@@ -90,17 +83,6 @@ def _parse_resolution(ctx, param, value: str | None) -> tuple[int, int, int] | N
     raise click.BadParameter(
         f"Unknown resolution '{value}'. Use a preset ({presets}) or WxHxFPS (e.g. 1920x1080x30)"
     )
-
-
-_RESOLUTION_PRESETS_REVERSE = {v: k for k, v in _RESOLUTION_PRESETS.items()}
-
-
-def _format_resolution(resolution: tuple[int, int, int]) -> str:
-    """Convert (w, h, fps) back to a preset name or WxHxFPS string."""
-    if resolution in _RESOLUTION_PRESETS_REVERSE:
-        return _RESOLUTION_PRESETS_REVERSE[resolution]
-    w, h, fps = resolution
-    return f"{w}x{h}x{fps}"
 
 
 def _run_workspace(run_name: str) -> Path:
@@ -201,7 +183,9 @@ def _build_plan_config(data: dict[str, Any], stages: list[str]):
         language=plan.get("lang", "en"),
         model=model,
         thinking_level=thinking,
-        music_file=_music_file_from_param(plan.get("music", "auto")),
+        music_file=None
+        if plan.get("music", "auto") == "none"
+        else plan.get("music", "auto"),
         force=bool(pipeline.get("force", False)),
     )
 
@@ -230,16 +214,6 @@ def _source_dir(data: dict[str, Any], stages: list[str]) -> str | None:
     if "prepare" not in stages:
         return None
     return str((data.get("source") or {})["path"])
-
-
-def _flatten_run_config(data: dict[str, Any]) -> dict[str, Any]:
-    """Flatten grouped YAML to the format persisted by save_run_config."""
-    flat: dict[str, Any] = {}
-    for group in ("pipeline", "source", "plan", "assemble"):
-        value = data.get(group)
-        if isinstance(value, dict):
-            flat.update(value)
-    return flat
 
 
 def _validate_stage_requirements(data: dict[str, Any], stages: list[str]) -> None:
@@ -284,8 +258,6 @@ def _run_from_config(
         plan=plan,
         assemble=assemble,
         stages=stages,
-        cli_params=_flatten_run_config(data),
-        cli_defaults=set(),
     )
 
 
@@ -416,18 +388,10 @@ def edit(run_name: str) -> None:
 @cli.command("config")
 @click.argument("run_name")
 def show_config(run_name: str) -> None:
-    """Print current run.yaml and latest saved snapshot."""
+    """Print a trip's run.yaml."""
     workspace = _run_workspace(run_name)
     current = workspace / "run.yaml"
-    if current.exists():
-        click.echo(f"# {current}")
-        click.echo(current.read_text())
-    configs = list_configs(workspace)
-    if not configs:
-        if current.exists():
-            return
-        raise click.UsageError(f"No config files in {workspace}")
-    if len(configs) > 1:
-        click.echo(f"# {len(configs)} snapshots found")
-    click.echo(f"# latest snapshot: {configs[-1]}")
-    click.echo(configs[-1].read_text())
+    if not current.exists():
+        raise click.UsageError(f"No run.yaml in {workspace}")
+    click.echo(f"# {current}")
+    click.echo(current.read_text())

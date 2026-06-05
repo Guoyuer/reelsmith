@@ -124,6 +124,7 @@ class TestRunDetail:
         assert info["edl_versions"] == 0
         assert info["outputs"] == []
         assert info["old_output_bytes"] == 0
+        assert info["legacy_config_bytes"] == 0
 
     def test_with_edl(self, tmp_path: Path):
         run_dir = tmp_path / "run_with_edl"
@@ -200,6 +201,17 @@ class TestRunDetail:
         assert info["intermediate_bytes"] == 5000
         assert len(info["intermediate_files"]) == 2
 
+    def test_legacy_config_snapshots_are_reclaimable(self, tmp_path: Path):
+        run_dir = tmp_path / "run_legacy_config"
+        run_dir.mkdir()
+        (run_dir / "run.yaml").write_text("pipeline:\n  stages: [prepare]\n")
+        (run_dir / "run_config_20260604_120000.yaml").write_bytes(b"x" * 1000)
+
+        info = _run_detail(run_dir)
+
+        assert info["legacy_config_bytes"] == 1000
+        assert len(info["legacy_config_files"]) == 1
+
     def test_multiple_edl_versions(self, tmp_path: Path):
         run_dir = tmp_path / "run_multi_edl"
         run_dir.mkdir()
@@ -264,3 +276,20 @@ class TestWorkspaceCommand:
                 workspace, ["--clean", "safe", "-y"], standalone_mode=False
             )
             assert "Nothing to clean" in result.output
+
+    def test_clean_safe_removes_legacy_config_snapshots(self, runner, tmp_path: Path):
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            run_dir = Path("workspace/runs/test")
+            run_dir.mkdir(parents=True)
+            legacy = run_dir / "run_config_20260604_120000.yaml"
+            legacy.write_text("pipeline:\n  stages: [prepare]\n")
+
+            from pipeline.cli._workspace import workspace
+
+            result = runner.invoke(
+                workspace, ["--clean", "safe", "-y"], standalone_mode=False
+            )
+
+            assert result.exit_code == 0
+            assert "legacy configs" in result.output
+            assert not legacy.exists()
