@@ -164,7 +164,7 @@ class TestRenderContextEdgeCases:
 
 
 class TestCodecSelection:
-    """Tests for the --codec parameter in detect_hw_encoder."""
+    """Tests for codec selection in detect_hw_encoder."""
 
     @staticmethod
     def _make_side_effect(available_encoders: set[str]):

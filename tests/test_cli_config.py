@@ -1,13 +1,4 @@
-"""Tests for CLI run config save/load feature.
-
-Verifies that:
-- CLI parameters are auto-saved to run_config.yaml on every run
-- --use-cfg-file loads parameters from a YAML file
-- --use-cfg-file is mutually exclusive with other params (except -n, --force, -v)
-- reelsmith config -n {name} prints the saved config
-- Resolution round-trips correctly through save/load
-- Default annotations (# default) are present in saved YAML
-"""
+"""Tests for YAML run config save/load behavior."""
 
 from __future__ import annotations
 
@@ -32,19 +23,21 @@ def runner():
     return CliRunner()
 
 
-# ---------------------------------------------------------------------------
-# save_run_config / config_path_for unit tests
-# ---------------------------------------------------------------------------
-
-
 class TestSaveRunConfig:
     def test_saves_yaml_to_workspace(self, tmp_path):
-        params = {"path": "/photos", "duration": 180, "model": "balanced"}
+        params = {
+            "stages": ["prepare", "plan", "assemble"],
+            "path": "/photos",
+            "duration": 180,
+            "model": "balanced",
+        }
         dest = save_run_config(tmp_path, params)
+
         assert dest.exists()
         assert dest.name.startswith("run_config_")
         assert list_configs(tmp_path)[-1] == dest
         loaded = yaml.safe_load(dest.read_text())
+        assert loaded["pipeline"]["stages"] == ["prepare", "plan", "assemble"]
         assert loaded["source"]["path"] == "/photos"
         assert loaded["plan"]["duration"] == 180
         assert loaded["plan"]["model"] == "balanced"
@@ -54,25 +47,35 @@ class TestSaveRunConfig:
         [
             ({"path": None, "duration": 60}, lambda d: "source" not in d),
             (
-                {"path": "/photos", "force": True, "version": 2, "run_name": "test"},
+                {
+                    "path": "/photos",
+                    "stages": ["prepare"],
+                    "force": True,
+                    "version": 2,
+                    "run_name": "test",
+                },
                 lambda d: (
-                    all(k not in d for k in ("force", "version", "run_name"))
+                    "run_name" not in d
+                    and d["pipeline"]["force"] is True
+                    and d["pipeline"]["version"] == 2
                     and d["source"]["path"] == "/photos"
                 ),
             ),
             ({"path": "/photos"}, lambda d: "plan" not in d and "assemble" not in d),
         ],
-        ids=["omits_none", "omits_unsaved_fields", "empty_groups_omitted"],
+        ids=["omits_none", "pipeline_fields", "empty_groups_omitted"],
     )
     def test_field_filtering(self, tmp_path, params, assertion):
         save_run_config(tmp_path, params)
         loaded = yaml.safe_load(list_configs(tmp_path)[-1].read_text())
         assert assertion(loaded)
 
-    def test_overwrites_existing(self, tmp_path):
+    def test_multiple_configs_newest_last(self, tmp_path):
         save_run_config(tmp_path, {"path": "/photos", "duration": 60})
         save_run_config(tmp_path, {"path": "/other", "duration": 180})
+
         loaded = yaml.safe_load(list_configs(tmp_path)[-1].read_text())
+
         assert loaded["source"]["path"] == "/other"
         assert loaded["plan"]["duration"] == 180
 
@@ -85,28 +88,18 @@ class TestSaveRunConfig:
         }
         dest = save_run_config(tmp_path, params, defaults={"trip_type"})
         text = dest.read_text()
+
         for line in text.splitlines():
             if "trip_type:" in line:
                 assert "# default" in line
             if "duration:" in line:
                 assert "# default" not in line
 
-    def test_config_filename_has_timestamp(self, tmp_path):
-        dest = save_run_config(tmp_path, {"path": "/photos"})
-        assert dest.name.startswith("run_config_")
-        assert dest.name.endswith(".yaml")
-
     def test_path_with_backslash_no_yaml_doc_end(self, tmp_path):
-        """Windows paths should not produce YAML document-end markers (...)."""
         params = {"path": r"C:\Users\guoyu\Projects\vlog\workspace\media"}
         dest = save_run_config(tmp_path, params)
-        text = dest.read_text()
-        assert "..." not in text, f"YAML doc-end marker found in:\n{text}"
 
-
-# ---------------------------------------------------------------------------
-# Resolution round-trip tests
-# ---------------------------------------------------------------------------
+        assert "..." not in dest.read_text()
 
 
 class TestResolutionFormat:
@@ -120,99 +113,34 @@ class TestResolutionFormat:
         assert _format_resolution((2048, 1080, 24)) == "2048x1080x24"
 
 
-# ---------------------------------------------------------------------------
-# CLI → _run_pipeline wiring: cli_params saved
-# ---------------------------------------------------------------------------
-
-
-def _capture_cli_params(runner, cli_args):
-    """Run CLI and capture cli_params/cli_defaults from _run_pipeline."""
+def _capture_run(runner, cfg_file):
     captured = {}
 
     def mock_pipeline(
         run_name, *, stages, cli_params=None, cli_defaults=None, **kwargs
     ):
+        captured["run_name"] = run_name
+        captured["stages"] = stages
         captured["cli_params"] = cli_params
         captured["cli_defaults"] = cli_defaults
         captured.update(kwargs)
 
     with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
-        result = runner.invoke(cli, cli_args, catch_exceptions=False)
-    assert result.exit_code == 0, f"CLI failed: {result.output}"
+        result = runner.invoke(
+            cli, ["run", "test", "-c", cfg_file], catch_exceptions=False
+        )
+    assert result.exit_code == 0, result.output
     return captured
 
 
-_FULL_BASE = [
-    "full",
-    "-n",
-    "test-run",
-    "-p",
-    ".",
-    "--duration",
-    "60",
-    "--model",
-    "balanced",
-    "-r",
-    "1080p30",
-]
-
-
-class TestFullSavesConfig:
-    def test_cli_params_passed(self, runner):
-        c = _capture_cli_params(runner, _FULL_BASE)
-        params = c["cli_params"]
-        assert params["path"] == "."
-        assert params["duration"] == 60
-        assert params["model"] == "balanced"
-        assert params["resolution"] == "1080p30"
-
-    def test_cli_defaults_tracked(self, runner):
-        c = _capture_cli_params(runner, _FULL_BASE)
-        defaults = c["cli_defaults"]
-        # Explicitly passed → not defaults
-        for key in ("path", "duration", "model"):
-            assert key not in defaults
-        # Not passed → defaults
-        for key in ("trip_type", "style", "music"):
-            assert key in defaults
-
-    def test_cli_params_bitrate(self, runner):
-        c = _capture_cli_params(runner, _FULL_BASE + ["--bitrate", "2.0"])
-        assert c["cli_params"]["bitrate"] == 2.0
-        assert "bitrate" not in c["cli_defaults"]
-
-    def test_cli_params_custom_resolution(self, runner):
-        c = _capture_cli_params(runner, _FULL_BASE + ["-r", "2560x1440x60"])
-        assert c["cli_params"]["resolution"] == "2k60"
-
-
-class TestPlanSavesConfig:
-    def test_cli_params_passed(self, runner):
-        c = _capture_cli_params(
-            runner,
-            ["plan", "-n", "test", "--duration", "120", "--model", "fast"],
-        )
-        assert c["cli_params"]["duration"] == 120
-        assert c["cli_params"]["model"] == "fast"
-        assert "trip_type" in c["cli_defaults"]
-
-
-class TestAssembleSavesConfig:
-    def test_cli_params_passed(self, runner):
-        c = _capture_cli_params(runner, ["assemble", "-n", "test", "-r", "4k60"])
-        assert c["cli_params"]["resolution"] == "4k60"
-        assert "bitrate" in c["cli_defaults"]
-
-
-# ---------------------------------------------------------------------------
-# --use-cfg-file tests
-# ---------------------------------------------------------------------------
-
-
-class TestUseCfgFile:
+class TestRunLoadsConfig:
     @pytest.fixture
     def cfg_file(self, tmp_path):
         text = """\
+pipeline:
+  stages: [prepare, plan, generate_music, assemble]
+  force: true
+
 source:
   path: .
 
@@ -234,70 +162,27 @@ assemble:
         p.write_text(text)
         return str(p)
 
-    @pytest.mark.parametrize(
-        "command, check_fn",
-        [
-            (
-                ["full", "-n", "test", "--use-cfg-file"],
-                lambda c: (
-                    c["plan"].target_duration == 180
-                    and c["plan"].language == "cn"
-                    and c["plan"].trip_type == "solo"
-                    and c["assemble"].w == 3840
-                    and c["assemble"].fps == 60
-                ),
-            ),
-            (
-                ["plan", "-n", "test", "--use-cfg-file"],
-                lambda c: (
-                    c["plan"].target_duration == 180 and c["plan"].style == "cinematic"
-                ),
-            ),
-            (
-                ["assemble", "-n", "test", "--use-cfg-file"],
-                lambda c: c["assemble"].w == 3840 and c["assemble"].bitrate == 1.5,
-            ),
-        ],
-        ids=["full", "plan", "assemble"],
-    )
-    def test_loads_from_cfg(self, runner, cfg_file, command, check_fn):
-        c = _capture_cli_params(runner, command + [cfg_file])
-        assert check_fn(c)
+    def test_run_loads_full_config(self, runner, cfg_file):
+        c = _capture_run(runner, cfg_file)
 
-    def test_rejects_extra_params(self, runner, cfg_file):
-        with patch("pipeline.cli._commands._run_pipeline"):
-            result = runner.invoke(
-                cli,
-                ["plan", "-n", "test", "--use-cfg-file", cfg_file, "--duration", "60"],
-            )
-        assert result.exit_code != 0
-        assert "cannot be combined" in result.output
-
-    def test_allows_force(self, runner, cfg_file):
-        c = _capture_cli_params(
-            runner,
-            ["plan", "-n", "test", "--use-cfg-file", cfg_file, "--force"],
-        )
-        assert c["plan"].force is True
-
-    def test_allows_version(self, runner, cfg_file):
-        c = _capture_cli_params(
-            runner,
-            ["assemble", "-n", "test", "--use-cfg-file", cfg_file, "-v", "2"],
-        )
-        assert c["assemble"].version == 2
+        assert c["stages"] == ["prepare", "plan", "generate_music", "assemble"]
+        assert c["prepare"].force is True
+        assert c["plan"].target_duration == 180
+        assert c["plan"].style == "cinematic"
+        assert c["assemble"].w == 3840
+        assert c["assemble"].bitrate == 1.5
+        assert c["cli_params"]["stages"] == [
+            "prepare",
+            "plan",
+            "generate_music",
+            "assemble",
+        ]
+        assert c["cli_defaults"] == set()
 
     def test_missing_file(self, runner):
-        result = runner.invoke(
-            cli,
-            ["plan", "-n", "test", "--use-cfg-file", "/nonexistent/config.yaml"],
-        )
+        result = runner.invoke(cli, ["run", "test", "-c", "/nonexistent/config.yaml"])
+
         assert result.exit_code != 0
-
-
-# ---------------------------------------------------------------------------
-# Config validation tests
-# ---------------------------------------------------------------------------
 
 
 class TestConfigValidation:
@@ -310,10 +195,12 @@ class TestConfigValidation:
 
     def test_valid_config_passes(self, tmp_path):
         data = {
+            "pipeline": {"stages": ["prepare", "plan", "assemble"]},
             "source": {"path": "/photos"},
             "plan": {"duration": 300, "model": "balanced"},
             "assemble": {"resolution": "4k60"},
         }
+
         assert self._write_and_load(tmp_path, data) == data
 
     @pytest.mark.parametrize(
@@ -336,6 +223,14 @@ class TestConfigValidation:
                 {"source": {"path": "/photos", "type": "local"}},
                 "'source'.*unknown keys.*type",
             ),
+            (
+                {"pipeline": {"stages": ["prepare", "review"]}},
+                "unknown stages: review",
+            ),
+            (
+                {"pipeline": {"stages": "prepare"}},
+                "'pipeline.stages' must be list",
+            ),
             ({"plan": "not_a_dict"}, "'plan' must be an object"),
         ],
         ids=[
@@ -344,6 +239,8 @@ class TestConfigValidation:
             "missing_required",
             "wrong_type",
             "unknown_in_source",
+            "unknown_stage",
+            "stages_not_list",
             "group_not_object",
         ],
     )
@@ -374,29 +271,22 @@ class TestConfigValidation:
         assert "plan.lang" in msg
 
 
-# ---------------------------------------------------------------------------
-# reelsmith config command tests
-# ---------------------------------------------------------------------------
-
-
 class TestConfigCommand:
     def test_prints_saved_config(self, runner, tmp_path):
         ws = tmp_path / "workspace" / "runs" / "myrun"
         ws.mkdir(parents=True)
         (ws / "run_config_20260325_120000.yaml").write_text(
-            "source:\n  path: /photos\n\nplan:\n  duration: 120\n"
+            "pipeline:\n  stages: [prepare]\n\nsource:\n  path: /photos\n"
         )
 
         with patch("pipeline.config.Config.run_workspace", return_value=str(ws)):
             with patch("pipeline.config.Config.load") as mock_load:
                 mock_load.return_value.workspace = ws
-                result = runner.invoke(
-                    cli, ["config", "-n", "myrun"], catch_exceptions=False
-                )
+                result = runner.invoke(cli, ["config", "myrun"], catch_exceptions=False)
 
         assert result.exit_code == 0
         assert "path: /photos" in result.output
-        assert "duration: 120" in result.output
+        assert "stages: [prepare]" in result.output
 
     def test_missing_config_errors(self, runner, tmp_path):
         ws = tmp_path / "workspace" / "runs" / "norun"
@@ -405,7 +295,7 @@ class TestConfigCommand:
         with patch("pipeline.config.Config.run_workspace", return_value=str(ws)):
             with patch("pipeline.config.Config.load") as mock_load:
                 mock_load.return_value.workspace = ws
-                result = runner.invoke(cli, ["config", "-n", "norun"])
+                result = runner.invoke(cli, ["config", "norun"])
 
         assert result.exit_code != 0
         assert "No config files" in result.output

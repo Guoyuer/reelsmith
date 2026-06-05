@@ -1,212 +1,51 @@
-"""Click CLI group, options, presets, parsers, and command definitions."""
+"""Click CLI group and YAML-first run commands."""
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
+from typing import Any
 
 import click
 
-from ..assemble._encoder import CODEC_CHOICES
 from ._config_io import (
-    _ASSEMBLE_FIELDS,
-    _PLAN_FIELDS,
-    _SOURCE_FIELDS,
-    LANG_CHOICES,
-    STYLE_CHOICES,
-    TRIP_TYPE_CHOICES,
     list_configs,
     load_run_config,
 )
 from ._runner import _run_pipeline
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-class _RequiredPrefixOption(click.Option):
-    """Show [required] at the start of help text instead of the end.
-
-    ``cfg_optional=True`` marks an option that is required on the command line
-    but may instead come from ``--use-cfg-file``: left non-required at the Click
-    level, enforced in ``_check_required``, still shown as ``[required]``.
-    """
-
-    def __init__(self, *args, cfg_optional: bool = False, **kwargs):
-        self.cfg_optional = cfg_optional
-        if cfg_optional:
-            kwargs["required"] = False
-        super().__init__(*args, **kwargs)
-
-    def get_help_record(self, ctx):
-        record = super().get_help_record(ctx)
-        if record and (self.required or self.cfg_optional):
-            name, help_text = record
-            help_text = help_text.removesuffix("  [required]")
-            help_text = f"[required] {help_text}"
-            return name, help_text
-        return record
-
-
-# ---------------------------------------------------------------------------
-# CLI group
-# ---------------------------------------------------------------------------
-
 
 class _CliGroup(click.Group):
-    """Custom group that hints at missing subcommand on unknown options."""
+    """Custom group with a concise hint for top-level option mistakes."""
 
     def parse_args(self, ctx, args):
         try:
             return super().parse_args(ctx, args)
         except click.UsageError as e:
             if "No such option" in str(e) or "no such option" in str(e):
-                hint = "Did you forget a command? Try: reelsmith full, prepare, plan, assemble, workspace"
-                raise click.UsageError(f"{e}\n\nHint: {hint}") from None
+                raise click.UsageError(
+                    f"{e}\n\nHint: run a trip with: reelsmith run NAME"
+                ) from None
             raise
 
 
 @click.group(cls=_CliGroup)
 def cli() -> None:
-    """Automated highlight reel pipeline: prepare \u2192 plan \u2192 generate_music \u2192 assemble.
+    """Automated highlight reel pipeline driven by YAML config files.
 
     \b
     Examples:
-      reelsmith full -n trip -p ./photos -r 4k60 --duration 300 --model balanced
-      reelsmith plan -n trip --duration 300 --model quality --force
-      reelsmith assemble -n trip -r 1080p30
+      reelsmith new atlanta "D:\\Atlanta Trip"
+      reelsmith run atlanta
+      reelsmith edit atlanta
     """
 
-
-# ---------------------------------------------------------------------------
-# Shared Click options
-# ---------------------------------------------------------------------------
-
-_name_option = click.option(
-    "-n",
-    "--name",
-    "run_name",
-    required=True,
-    cls=_RequiredPrefixOption,
-    help="Run name (subdirectory under workspace/runs/)",
-)
-
-_force_option = click.option(
-    "--force",
-    is_flag=True,
-    help="Re-generate all cached data (thumbnails, video previews, EDL)",
-)
-
-# ---------------------------------------------------------------------------
-# Planning presets & resolver
-# ---------------------------------------------------------------------------
 
 _PLANNING_PRESETS = {
     "fast": ("gemini-3.1-flash-lite", "LOW"),
     "balanced": ("gemini-3.5-flash", "HIGH"),
     "quality": ("gemini-3.1-pro-preview", "HIGH"),
 }
-
-_plan_options = [
-    click.option(
-        "--duration",
-        cfg_optional=True,
-        cls=_RequiredPrefixOption,
-        type=int,
-        help="Target duration in seconds (60=1min, 180=3min, 300=5min)",
-    ),
-    click.option(
-        "--trip-type",
-        default="general",
-        type=click.Choice(TRIP_TYPE_CHOICES),
-        help="Narrative style (recommended to set). family=close-ups+laughter, solo=landscapes+wonder, food=dishes+markets, adventure=action+nature, architecture=buildings+compositions, general=balanced mix.",
-    ),
-    click.option(
-        "--style",
-        default="upbeat",
-        type=click.Choice(STYLE_CHOICES),
-        help="Pacing and mood: upbeat=lively, cinematic=dramatic, reflective=calm, energetic=fast-cut",
-    ),
-    click.option(
-        "--focus",
-        default="",
-        help="Creative focus guiding Gemini's selection (e.g. 'family reunion joy; parents exploring Singapore')",
-    ),
-    click.option(
-        "--instruct",
-        default="",
-        help="Free-form instructions for Gemini (e.g. 'no text overlays; prefer slow-motion shots')",
-    ),
-    click.option(
-        "--lang",
-        default="en",
-        type=click.Choice(LANG_CHOICES),
-        help="Text language: en=English, cn=Chinese, both=bilingual (title cards, text overlays, chapters)",
-    ),
-    click.option(
-        "--model",
-        cfg_optional=True,
-        cls=_RequiredPrefixOption,
-        help="Presets: fast / balanced / quality, or model:thinking.\n\n"
-        "\b\n"
-        "  fast      3.1-flash-lite  LOW   lowest cost\n"
-        "  balanced  3.5-flash       HIGH  stable default\n"
-        "  quality   3.1-pro         HIGH  highest quality\n"
-        "  custom    gemini-2.5-flash:medium",
-    ),
-    click.option(
-        "--music",
-        default="auto",
-        help="Music source: auto=AI-generated per segment (default), /path/to/file=custom track, none=no music",
-    ),
-]
-
-
-def _resolve_planning(planning: str) -> tuple[str, str]:
-    """Resolve planning preset or model:thinking into (model, thinking_level).
-
-    Accepts: 'fast', 'balanced', 'quality', 'gemini-2.5-flash', 'gemini-2.5-flash:low'
-    """
-    if planning in _PLANNING_PRESETS:
-        return _PLANNING_PRESETS[planning]
-    if ":" in planning:
-        model, thinking = planning.rsplit(":", 1)
-        return model, thinking.upper()
-    return planning, "HIGH"
-
-
-def _music_file_from_param(music: str) -> str | None:
-    return None if music == "none" else music
-
-
-def _stages_with_music(stages: list[str], music: str) -> list[str]:
-    result = list(stages)
-    if music != "none":
-        result.append("generate_music")
-    return result
-
-
-def _build_plan_config(p: dict, *, force: bool):
-    from pipeline.plan import PlanConfig
-
-    resolved_model, resolved_thinking = _resolve_planning(p["model"])
-    return PlanConfig(
-        style=p["style"],
-        target_duration=p["duration"],
-        focus=p["focus"],
-        instruct=p["instruct"],
-        trip_type=p["trip_type"],
-        language=p["lang"],
-        model=resolved_model,
-        thinking_level=resolved_thinking,
-        music_file=_music_file_from_param(p["music"]),
-        force=force,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Resolution presets & parser
-# ---------------------------------------------------------------------------
 
 _RESOLUTION_PRESETS = {
     "4k60": (3840, 2160, 60),
@@ -219,14 +58,27 @@ _RESOLUTION_PRESETS = {
 }
 
 
+def _resolve_planning(planning: str) -> tuple[str, str]:
+    """Resolve planning preset or model:thinking into (model, thinking_level)."""
+    if planning in _PLANNING_PRESETS:
+        return _PLANNING_PRESETS[planning]
+    if ":" in planning:
+        model, thinking = planning.rsplit(":", 1)
+        return model, thinking.upper()
+    return planning, "HIGH"
+
+
+def _music_file_from_param(music: str) -> str | None:
+    return None if music == "none" else music
+
+
 def _parse_resolution(ctx, param, value: str | None) -> tuple[int, int, int] | None:
-    """Parse resolution preset (e.g. '4k60', '1080p30') or WxHxFPS (e.g. '1920x1080x30')."""
+    """Parse resolution preset or WxHxFPS."""
     if value is None:
         return None
     key = value.lower().replace(" ", "")
     if key in _RESOLUTION_PRESETS:
         return _RESOLUTION_PRESETS[key]
-    # Try WxHxFPS format
     parts = key.split("x")
     if len(parts) == 3:
         try:
@@ -240,104 +92,6 @@ def _parse_resolution(ctx, param, value: str | None) -> tuple[int, int, int] | N
     )
 
 
-_assemble_options = [
-    click.option(
-        "--resolution",
-        "-r",
-        cfg_optional=True,
-        cls=_RequiredPrefixOption,
-        callback=_parse_resolution,
-        expose_value=True,
-        is_eager=False,
-        help="Preset or WxHxFPS.\n\n"
-        "\b\n"
-        "  4k60     3840x2160  60fps\n"
-        "  4k30     3840x2160  30fps\n"
-        "  2k60     2560x1440  60fps\n"
-        "  2k30     2560x1440  30fps\n"
-        "  1080p60  1920x1080  60fps\n"
-        "  1080p30  1920x1080  30fps\n"
-        "  720p30   1280x720   30fps\n"
-        "  custom   1920x1080x30",
-    ),
-    click.option(
-        "--bitrate",
-        default=1.0,
-        type=float,
-        help="Bitrate quality multiplier (default: 1.0).\n\n"
-        "\b\n"
-        "  0.5  low     ~21 Mbps at 4K60\n"
-        "  1.0  default ~43 Mbps at 4K60\n"
-        "  1.5  high    ~65 Mbps at 4K60\n"
-        "  2.0  max     ~87 Mbps at 4K60",
-    ),
-    click.option(
-        "--codec",
-        default="auto",
-        type=click.Choice(list(CODEC_CHOICES)),
-        help="Video codec.\n\n"
-        "\b\n"
-        "  auto  best available (HEVC preferred)\n"
-        "  av1   AV1 (~30%% smaller than HEVC, needs RTX 40+)\n"
-        "  hevc  HEVC/H.265 (default on GPU)\n"
-        "  h264  H.264 (widest compatibility)",
-    ),
-]
-
-
-def _apply_options(options):
-    """Decorator to apply a list of click.option decorators."""
-
-    def wrapper(fn):
-        for opt in reversed(options):
-            fn = opt(fn)
-        return fn
-
-    return wrapper
-
-
-# ---------------------------------------------------------------------------
-# --use-cfg-file flag & helpers
-# ---------------------------------------------------------------------------
-
-_use_cfg_option = click.option(
-    "--use-cfg-file",
-    default=None,
-    type=click.Path(dir_okay=False),
-    help="Load parameters from a YAML config file (mutually exclusive with other options except -n, --force, -v). "
-    "Looks in workspace/runs/{name}/ if not found at the given path. "
-    "Tip: a config is auto-saved on every run.",
-)
-
-# Meta params: never part of a saved config and always allowed alongside
-# --use-cfg-file (run name, the flag itself, force, EDL version).
-_META_PARAMS = frozenset({"run_name", "use_cfg_file", "force", "version"})
-
-
-def _check_required(ctx: click.Context) -> None:
-    """Enforce cfg_optional options when --use-cfg-file is absent."""
-    for param in ctx.command.params:
-        if param.name is None or not getattr(param, "cfg_optional", False):
-            continue
-        if ctx.params.get(param.name) is None:
-            raise click.MissingParameter(ctx=ctx, param=param)
-
-
-def _validate_use_cfg(ctx: click.Context) -> None:
-    """Raise UsageError if --use-cfg-file is combined with explicitly-set params."""
-    for param in ctx.command.params:
-        if param.name in _META_PARAMS:
-            continue
-        if param.name is None:
-            continue
-        source = ctx.get_parameter_source(param.name)
-        if source == click.core.ParameterSource.COMMANDLINE:
-            raise click.UsageError(
-                f"--use-cfg-file cannot be combined with --{param.name.replace('_', '-')}. "
-                "Edit the run_config.json file instead."
-            )
-
-
 _RESOLUTION_PRESETS_REVERSE = {v: k for k, v in _RESOLUTION_PRESETS.items()}
 
 
@@ -349,271 +103,331 @@ def _format_resolution(resolution: tuple[int, int, int]) -> str:
     return f"{w}x{h}x{fps}"
 
 
-def _collect_defaults(ctx: click.Context) -> set[str]:
-    """Param names whose values came from CLI defaults, not user input."""
-    default = click.core.ParameterSource.DEFAULT
-    return {
-        p.name
-        for p in ctx.command.params
-        if p.name and ctx.get_parameter_source(p.name) == default
-    }
+def _run_workspace(run_name: str) -> Path:
+    from pipeline.config import Config
+
+    return Path(Config.run_workspace(run_name=run_name))
 
 
-def _resolve_params(ctx: click.Context) -> tuple[dict, dict, set[str]]:
-    """Resolve params from --use-cfg-file (cfg wins) or the CLI (explicit/default).
+def _default_cfg_path(run_name: str) -> Path:
+    return _run_workspace(run_name) / "run.yaml"
 
-    Returns *(params, cli_params, defaults)*.
-    """
-    p = dict(ctx.params)
-    use_cfg_file = p.get("use_cfg_file")
 
-    if use_cfg_file:
-        _validate_use_cfg(ctx)
-        cfg_path = _find_cfg_path(use_cfg_file, p.get("run_name", ""))
-        saved = load_run_config(str(cfg_path))
-
-        cmd_params = {pr.name for pr in ctx.command.params if pr.name}
-        loaded, skipped = _apply_cfg_sections(p, saved, cmd_params)
-
-        click.echo(
-            f"Config: {cfg_path.name} — loaded [{', '.join(loaded)}]"
-            + (f", skipped [{', '.join(skipped)}]" if skipped else "")
+def _find_cfg_path(cfg_file: str | None, run_name: str) -> Path:
+    """Resolve a config path, also checking workspace/runs/{name}/."""
+    if not cfg_file:
+        cfg_path = _default_cfg_path(run_name)
+        if cfg_path.exists():
+            return cfg_path
+        raise click.BadParameter(
+            f"Default config not found: {cfg_path}. Create it with: reelsmith new {run_name} PATH",
+            param_hint="'--config'",
         )
-    else:
-        _check_required(ctx)
-
-    cli_params = {
-        k: _format_resolution(v) if k == "resolution" and isinstance(v, tuple) else v
-        for k, v in p.items()
-        if k not in _META_PARAMS
-    }
-    defaults = set() if use_cfg_file else _collect_defaults(ctx)
-    return p, cli_params, defaults
-
-
-def _find_cfg_path(use_cfg_file: str, run_name: str) -> Path:
-    """Resolve --use-cfg-file to an existing path."""
-    cfg_path = Path(use_cfg_file)
+    cfg_path = Path(cfg_file)
     if cfg_path.exists():
         return cfg_path
-    run_dir = Path("workspace/runs") / run_name / use_cfg_file
+    run_dir = Path("workspace/runs") / run_name / cfg_file
     if run_dir.exists():
         return run_dir
     raise click.BadParameter(
-        f"File not found: '{use_cfg_file}' (also checked {run_dir})",
-        param_hint="'--use-cfg-file'",
+        f"File not found: '{cfg_file}' (also checked {run_dir})",
+        param_hint="'--config'",
     )
 
 
-def _apply_cfg_sections(
-    p: dict, saved: dict, cmd_params: set[str]
-) -> tuple[list[str], list[str]]:
-    """Apply only the config sections whose fields the command accepts."""
-    _SECTION_FIELDS = {
-        "source": _SOURCE_FIELDS,
-        "plan": _PLAN_FIELDS,
-        "assemble": _ASSEMBLE_FIELDS,
-    }
-    loaded: list[str] = []
-    skipped: list[str] = []
-
-    for section, fields in _SECTION_FIELDS.items():
-        if section not in saved:
-            continue
-        if not (fields & cmd_params):
-            skipped.append(section)
-            continue
-        cfg = dict(saved[section])
-        if "resolution" in cfg:
-            cfg["resolution"] = _parse_resolution(None, None, cfg["resolution"])
-        p.update(cfg)
-        loaded.append(section)
-
-    return loaded, skipped
+def _stage_list(data: dict[str, Any]) -> list[str]:
+    stages = data.get("pipeline", {}).get("stages")
+    if not stages:
+        raise click.UsageError("Config must set pipeline.stages")
+    return list(stages)
 
 
-# ---------------------------------------------------------------------------
-# Shared source option (--path for local folder)
-# ---------------------------------------------------------------------------
-
-_source_options = [
-    click.option(
-        "--path",
-        "-p",
-        cfg_optional=True,
-        cls=_RequiredPrefixOption,
-        type=click.Path(exists=True),
-        help="Local folder path containing photos/videos",
-    ),
-]
+_ALLOWED_STAGES = {"prepare", "plan", "generate_music", "assemble"}
 
 
-# ---------------------------------------------------------------------------
-# prepare: scan + media processing
-# ---------------------------------------------------------------------------
+def _parse_stages(value: str | None) -> list[str] | None:
+    if value is None:
+        return None
+    stages = [stage.strip() for stage in value.split(",") if stage.strip()]
+    if not stages:
+        raise click.BadParameter("stages cannot be empty", param_hint="'--stages'")
+    bad = [stage for stage in stages if stage not in _ALLOWED_STAGES]
+    if bad:
+        raise click.BadParameter(
+            f"Unknown stages: {', '.join(bad)}", param_hint="'--stages'"
+        )
+    return stages
 
 
-@cli.command()
-@click.pass_context
-@_name_option
-@_use_cfg_option
-@_apply_options(_source_options)
-@_force_option
-def prepare(ctx, run_name, use_cfg_file, path, force):
-    """Scan media folder and generate thumbnails + video previews (cached, use --force to regenerate)."""
+def _apply_pipeline_overrides(
+    data: dict[str, Any],
+    *,
+    stages_override: str | None = None,
+    version_override: int | None = None,
+) -> dict[str, Any]:
+    result = copy.deepcopy(data)
+    pipeline = result.setdefault("pipeline", {})
+    stages = _parse_stages(stages_override)
+    if stages is not None:
+        pipeline["stages"] = stages
+    if version_override is not None:
+        pipeline["version"] = version_override
+    return result
+
+
+def _build_prepare_config(data: dict[str, Any], stages: list[str]):
+    if "prepare" not in stages:
+        return None
     from pipeline.prepare import PrepareConfig
 
-    p, cli_params, defaults = _resolve_params(ctx)
-    _run_pipeline(
-        run_name,
-        source_dir=p["path"],
-        prepare=PrepareConfig(force=force),
-        stages=["prepare"],
-        cli_params=cli_params,
-        cli_defaults=defaults,
+    force = bool(data.get("pipeline", {}).get("force", False))
+    return PrepareConfig(force=force)
+
+
+def _build_plan_config(data: dict[str, Any], stages: list[str]):
+    if "plan" not in stages:
+        return None
+    from pipeline.plan import PlanConfig
+
+    plan = data.get("plan") or {}
+    pipeline = data.get("pipeline") or {}
+    model, thinking = _resolve_planning(plan["model"])
+    return PlanConfig(
+        style=plan.get("style", "upbeat"),
+        target_duration=plan["duration"],
+        focus=plan.get("focus", ""),
+        instruct=plan.get("instruct", ""),
+        trip_type=plan.get("trip_type", "general"),
+        language=plan.get("lang", "en"),
+        model=model,
+        thinking_level=thinking,
+        music_file=_music_file_from_param(plan.get("music", "auto")),
+        force=bool(pipeline.get("force", False)),
     )
 
 
-# ---------------------------------------------------------------------------
-# full: end-to-end pipeline
-# ---------------------------------------------------------------------------
-
-
-@cli.command()
-@click.pass_context
-@_name_option
-@_use_cfg_option
-@_apply_options(_source_options)
-@_force_option
-@_apply_options(_plan_options)
-@_apply_options(_assemble_options)
-def full(
-    ctx,
-    run_name,
-    use_cfg_file,
-    path,
-    force,
-    duration,
-    trip_type,
-    style,
-    focus,
-    instruct,
-    lang,
-    model,
-    music,
-    resolution,
-    bitrate,
-    codec,
-):
-    """Run the full pipeline end-to-end."""
+def _build_assemble_config(data: dict[str, Any], stages: list[str]):
+    if "assemble" not in stages:
+        return None
     from pipeline.assemble import AssembleConfig
-    from pipeline.prepare import PrepareConfig
 
-    p, cli_params, defaults = _resolve_params(ctx)
-    w, h, fps = p["resolution"]
-    stages = _stages_with_music(["prepare", "plan"], p["music"])
-    stages.append("assemble")
+    assemble = data.get("assemble") or {}
+    pipeline = data.get("pipeline") or {}
+    resolution = _parse_resolution(None, None, assemble["resolution"])
+    assert resolution is not None
+    w, h, fps = resolution
+    return AssembleConfig(
+        w=w,
+        h=h,
+        fps=fps,
+        bitrate=float(assemble.get("bitrate", 1.0)),
+        codec=assemble.get("codec", "auto"),
+        version=pipeline.get("version"),
+    )
 
+
+def _source_dir(data: dict[str, Any], stages: list[str]) -> str | None:
+    if "prepare" not in stages:
+        return None
+    return str((data.get("source") or {})["path"])
+
+
+def _flatten_run_config(data: dict[str, Any]) -> dict[str, Any]:
+    """Flatten grouped YAML to the format persisted by save_run_config."""
+    flat: dict[str, Any] = {}
+    for group in ("pipeline", "source", "plan", "assemble"):
+        value = data.get(group)
+        if isinstance(value, dict):
+            flat.update(value)
+    return flat
+
+
+def _validate_stage_requirements(data: dict[str, Any], stages: list[str]) -> None:
+    missing: list[str] = []
+    if "prepare" in stages and "source" not in data:
+        missing.append("source")
+    if "plan" in stages and "plan" not in data:
+        missing.append("plan")
+    if "assemble" in stages and "assemble" not in data:
+        missing.append("assemble")
+    if missing:
+        raise click.UsageError(
+            "Config is missing sections required by pipeline.stages: "
+            + ", ".join(missing)
+        )
+
+
+def _run_from_config(
+    *,
+    run_name: str,
+    cfg_path: Path,
+    stages_override: str | None = None,
+    version_override: int | None = None,
+) -> None:
+    data = _apply_pipeline_overrides(
+        load_run_config(str(cfg_path)),
+        stages_override=stages_override,
+        version_override=version_override,
+    )
+    stages = _stage_list(data)
+    _validate_stage_requirements(data, stages)
+    prepare = _build_prepare_config(data, stages)
+    plan = _build_plan_config(data, stages)
+    assemble = _build_assemble_config(data, stages)
+    source_dir = _source_dir(data, stages)
+
+    click.echo(f"Config: {cfg_path} - stages [{', '.join(stages)}]")
     _run_pipeline(
         run_name,
-        source_dir=p["path"],
-        prepare=PrepareConfig(force=force),
-        plan=_build_plan_config(p, force=force),
-        assemble=AssembleConfig(
-            w=w, h=h, fps=fps, bitrate=p["bitrate"], codec=p["codec"]
-        ),
+        source_dir=source_dir,
+        prepare=prepare,
+        plan=plan,
+        assemble=assemble,
         stages=stages,
-        cli_params=cli_params,
-        cli_defaults=defaults,
+        cli_params=_flatten_run_config(data),
+        cli_defaults=set(),
     )
 
 
-@cli.command()
-@click.pass_context
-@_name_option
-@_use_cfg_option
-@_apply_options(_plan_options)
-@_force_option
-def plan(
-    ctx,
-    run_name,
-    use_cfg_file,
-    duration,
-    trip_type,
-    style,
-    focus,
-    instruct,
-    lang,
-    model,
-    music,
-    force,
-):
-    """Call Gemini to generate a new EDL (increments version). Requires prepare to have run first."""
-    p, cli_params, defaults = _resolve_params(ctx)
-
-    _run_pipeline(
-        run_name,
-        plan=_build_plan_config(p, force=force),
-        stages=_stages_with_music(["plan"], p["music"]),
-        cli_params=cli_params,
-        cli_defaults=defaults,
-    )
-
-
-@cli.command()
-@click.pass_context
-@_name_option
-@_use_cfg_option
+@cli.command("run")
+@click.argument("run_name")
 @click.option(
-    "-v",
-    "--version",
-    default=None,
-    type=int,
-    help="EDL version to render (default: latest)",
+    "-c",
+    "--config",
+    "cfg_file",
+    type=click.Path(dir_okay=False),
+    help="YAML config file. Defaults to workspace/runs/NAME/run.yaml.",
 )
-@_apply_options(_assemble_options)
-def assemble(ctx, run_name, use_cfg_file, version, resolution, bitrate, codec):
-    """Render video from EDL. Uses latest version unless -v specified."""
-    from pipeline.assemble import AssembleConfig
-
-    p, cli_params, defaults = _resolve_params(ctx)
-    w, h, fps = p["resolution"]
-
-    _run_pipeline(
-        run_name,
-        assemble=AssembleConfig(
-            w=w, h=h, fps=fps, bitrate=p["bitrate"], codec=p["codec"], version=version
-        ),
-        stages=["assemble"],
-        cli_params=cli_params,
-        cli_defaults=defaults,
+@click.option(
+    "--stages",
+    help="Temporarily override pipeline.stages, e.g. plan,generate_music,assemble.",
+)
+@click.option(
+    "--version",
+    type=int,
+    help="Temporarily override pipeline.version for assemble-only rerenders.",
+)
+def run(
+    run_name: str,
+    cfg_file: str | None,
+    stages: str | None,
+    version: int | None,
+) -> None:
+    """Run a trip from its YAML config."""
+    cfg_path = _find_cfg_path(cfg_file, run_name)
+    _run_from_config(
+        run_name=run_name,
+        cfg_path=cfg_path,
+        stages_override=stages,
+        version_override=version,
     )
 
 
-# ---------------------------------------------------------------------------
-# config: inspect saved run_config.json
-# ---------------------------------------------------------------------------
+def _yaml_scalar(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _default_config(
+    *,
+    path: str,
+    duration: int,
+    model: str,
+    resolution: str,
+) -> str:
+    return f"""\
+pipeline:
+  stages: [prepare, plan, generate_music, assemble]
+  force: false
+
+source:
+  path: {_yaml_scalar(path)}
+
+plan:
+  duration: {duration}
+  model: {_yaml_scalar(model)}
+  lang: cn
+  trip_type: general
+  style: upbeat
+  focus: ''
+  instruct: ''
+  music: auto
+
+assemble:
+  resolution: {_yaml_scalar(resolution)}
+  bitrate: 1.0
+  codec: auto
+"""
+
+
+@cli.command("new")
+@click.argument("run_name")
+@click.argument("path", type=click.Path(exists=True, file_okay=False))
+@click.option("--force", is_flag=True, help="Overwrite an existing config file.")
+@click.option(
+    "--duration",
+    default=180,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help="Initial target seconds.",
+)
+@click.option(
+    "--model", default="fast", show_default=True, help="Initial plan model preset."
+)
+@click.option(
+    "--resolution",
+    default="1080p30",
+    show_default=True,
+    help="Initial render resolution.",
+)
+def new(
+    run_name: str,
+    path: str,
+    force: bool,
+    duration: int,
+    model: str,
+    resolution: str,
+) -> None:
+    """Create a trip workspace with run.yaml."""
+    _parse_resolution(None, None, resolution)
+    workspace = _run_workspace(run_name)
+    workspace.mkdir(parents=True, exist_ok=True)
+    dest = workspace / "run.yaml"
+    if dest.exists() and not force:
+        raise click.UsageError(f"{dest} already exists; pass --force to overwrite")
+    config = _default_config(
+        path=path,
+        duration=duration,
+        model=model,
+        resolution=resolution,
+    )
+    dest.write_text(config, encoding="utf-8")
+    click.echo(f"Created {dest}")
+    click.echo(f"Next: reelsmith run {run_name}")
+
+
+@cli.command("edit")
+@click.argument("run_name")
+def edit(run_name: str) -> None:
+    """Open a trip's run.yaml in the default editor."""
+    cfg_path = _find_cfg_path(None, run_name)
+    click.edit(filename=str(cfg_path.resolve()))
 
 
 @cli.command("config")
-@_name_option
-def show_config(run_name):
-    """Print saved run_config.yaml for a run."""
-    from pipeline.config import Config
-
-    ws = Config.run_workspace(run_name=run_name)
-    cfg = Config.load(ws)
-    configs = list_configs(cfg.workspace)
+@click.argument("run_name")
+def show_config(run_name: str) -> None:
+    """Print current run.yaml and latest saved snapshot."""
+    workspace = _run_workspace(run_name)
+    current = workspace / "run.yaml"
+    if current.exists():
+        click.echo(f"# {current}")
+        click.echo(current.read_text())
+    configs = list_configs(workspace)
     if not configs:
-        raise click.UsageError(
-            f"No config files in {cfg.workspace}.\n"
-            "Run the pipeline with full parameters first."
-        )
-    # Print latest config, list all available
+        if current.exists():
+            return
+        raise click.UsageError(f"No config files in {workspace}")
     if len(configs) > 1:
-        click.echo(f"# {len(configs)} configs found (showing latest):")
-        for c in configs:
-            marker = " ← latest" if c == configs[-1] else ""
-            click.echo(f"#   {c.name}{marker}")
-    click.echo(f"# {configs[-1]}")
+        click.echo(f"# {len(configs)} snapshots found")
+    click.echo(f"# latest snapshot: {configs[-1]}")
     click.echo(configs[-1].read_text())
