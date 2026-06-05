@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from PIL import Image
 
+from tests.helpers import make_jpeg
+
 
 class TestGenerateThumbnail:
     def test_creates_thumbnail(self, tmp_path):
         from pipeline.utils.image import generate_thumbnail
 
         src = tmp_path / "photo.jpg"
-        Image.new("RGB", (4000, 3000), "blue").save(src, "JPEG")
+        make_jpeg(src, size=(4000, 3000), color="blue")
 
         thumb_dir = tmp_path / "thumbs"
         thumb_dir.mkdir()
@@ -27,7 +29,7 @@ class TestGenerateThumbnail:
         from pipeline.utils.image import generate_thumbnail
 
         src = tmp_path / "photo.jpg"
-        Image.new("RGB", (100, 100), "red").save(src, "JPEG")
+        make_jpeg(src)
 
         thumb_dir = tmp_path / "thumbs"
         thumb_dir.mkdir()
@@ -48,10 +50,8 @@ class TestGenerateThumbnail:
 
         src_a = tmp_path / "a" / "photo.jpg"
         src_b = tmp_path / "b" / "photo.jpg"
-        src_a.parent.mkdir()
-        src_b.parent.mkdir()
-        Image.new("RGB", (100, 100), "red").save(src_a, "JPEG")
-        Image.new("RGB", (100, 100), "blue").save(src_b, "JPEG")
+        make_jpeg(src_a)
+        make_jpeg(src_b, color="blue")
 
         thumb_dir = tmp_path / "thumbs"
         result_a = generate_thumbnail(src_a, thumb_dir, size=400)
@@ -67,7 +67,7 @@ class TestGenerateThumbnail:
         # Create a fake HEIC (just test the path logic — actual conversion tested elsewhere)
         src = tmp_path / "photo.heic"
         # Write a valid JPEG with .heic extension (PIL can't create real HEIC)
-        Image.new("RGB", (100, 100), "green").save(src, "JPEG")
+        make_jpeg(src, color="green")
 
         thumb_dir = tmp_path / "thumbs"
         thumb_dir.mkdir()

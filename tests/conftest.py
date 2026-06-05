@@ -5,12 +5,19 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from pipeline.config import Config
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
+
+
+@pytest.fixture
+def runner() -> CliRunner:
+    """Click runner shared by CLI tests."""
+    return CliRunner()
 
 
 @pytest.fixture

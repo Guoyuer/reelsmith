@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -13,19 +12,7 @@ from pipeline.prepare._scan import (
     _parse_date_from_filename,
     fetch_local,
 )
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _create_fake_image(path: Path) -> None:
-    path.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
-
-
-def _create_fake_video(path: Path) -> None:
-    path.write_bytes(b"\x00\x00\x00\x1c\x66\x74\x79\x70" + b"\x00" * 100)
-
+from tests.helpers import make_fake_jpeg, make_fake_video
 
 # ---------------------------------------------------------------------------
 # Test: _parse_date_from_filename
@@ -97,14 +84,14 @@ class TestExtractDateFallback:
     def test_photo_falls_through_to_filename(self, tmp_path):
         """When PIL EXIF fails, photos fall back to filename date parsing."""
         photo = tmp_path / "IMG_20250613_120415.jpg"
-        _create_fake_image(photo)
+        make_fake_jpeg(photo)
         assert _extract_date(photo) == datetime(
             2025, 6, 13, 12, 4, 15, tzinfo=timezone.utc
         )
 
     def test_video_falls_through_to_filename(self, tmp_path):
         video = tmp_path / "VID_20250613_120415.mp4"
-        _create_fake_video(video)
+        make_fake_video(video)
         with patch(
             "pipeline.utils.media.run_subprocess", side_effect=Exception("no ffprobe")
         ):
@@ -114,19 +101,20 @@ class TestExtractDateFallback:
 
     def test_video_ffprobe_success_parses_date(self, tmp_path):
         """Successful ffprobe should parse ISO datetime from creation_time."""
-        from unittest.mock import MagicMock
+        from tests.helpers import subprocess_result
 
         video = tmp_path / "clip.mp4"
-        _create_fake_video(video)
-        mock_result = MagicMock()
-        mock_result.stdout = "2025-06-13T12:04:15.000000Z\n"
-        with patch("pipeline.utils.media.run_subprocess", return_value=mock_result):
+        make_fake_video(video)
+        with patch(
+            "pipeline.utils.media.run_subprocess",
+            return_value=subprocess_result(stdout="2025-06-13T12:04:15.000000Z\n"),
+        ):
             dt = _extract_date(video)
         assert dt == datetime(2025, 6, 13, 12, 4, 15, tzinfo=timezone.utc)
 
     def test_no_date_anywhere_returns_none(self, tmp_path):
         photo = tmp_path / "random_photo.jpg"
-        _create_fake_image(photo)
+        make_fake_jpeg(photo)
         assert _extract_date(photo) is None
 
 
@@ -139,7 +127,7 @@ class TestFileFiltering:
     def test_unsupported_extensions_skipped(self, mock_config, source_dir):
         (source_dir / "notes.txt").write_text("hello")
         (source_dir / "data.json").write_text("{}")
-        _create_fake_image(source_dir / "photo.jpg")
+        make_fake_jpeg(source_dir / "photo.jpg")
 
         with patch("pipeline.prepare._scan._extract_date", return_value=None):
             result = fetch_local(mock_config, str(source_dir))
@@ -159,7 +147,7 @@ class TestReverseGeocode:
             pytest.skip("reverse_geocode not installed")
 
     def test_no_gps_no_location(self, mock_config, source_dir):
-        _create_fake_image(source_dir / "no_gps.jpg")
+        make_fake_jpeg(source_dir / "no_gps.jpg")
         with patch("pipeline.prepare._scan._extract_date", return_value=None):
             with patch(
                 "pipeline.prepare._scan._extract_gps", return_value=(None, None)

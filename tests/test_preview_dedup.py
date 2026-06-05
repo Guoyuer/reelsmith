@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from PIL import Image
 
 from pipeline.plan._preview import (
     _build_item_text,
@@ -16,6 +15,7 @@ from pipeline.plan._preview import (
     _histogram_similarity,
     _photo_histogram,
 )
+from tests.helpers import make_jpeg
 
 # ---------------------------------------------------------------------------
 # _photo_histogram
@@ -26,7 +26,7 @@ class TestPhotoHistogram:
     def test_returns_list(self, tmp_path):
         img = tmp_path / "thumb.jpg"
         # Save as RGB; _photo_histogram converts to HSV internally
-        Image.new("RGB", (100, 100), (200, 100, 50)).save(img, "JPEG")
+        make_jpeg(img, color=(200, 100, 50))
         hist = _photo_histogram(img)
         assert hist is not None
         assert isinstance(hist, list)

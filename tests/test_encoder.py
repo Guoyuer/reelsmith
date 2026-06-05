@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -14,6 +14,7 @@ from pipeline.assemble._encoder import (
     RenderSettings,
     target_bitrate,
 )
+from tests.helpers import subprocess_result
 
 
 class TestRenderContext:
@@ -30,9 +31,12 @@ class TestRenderContext:
 
     def test_probe_dimensions_caches(self):
         probe = MediaProbe()
-        fake = MagicMock()
-        fake.stdout = json.dumps({"streams": [{"width": 1920, "height": 1080}]})
-        with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
+        with patch(
+            "pipeline.assemble._encoder.run_subprocess",
+            return_value=subprocess_result(
+                stdout=json.dumps({"streams": [{"width": 1920, "height": 1080}]})
+            ),
+        ):
             dims = probe.probe_dimensions(Path("/fake/video.mp4"))
         assert dims == (1920, 1080)
         # Second call should use cache, not subprocess
@@ -44,9 +48,10 @@ class TestRenderContext:
 
     def test_probe_duration_caches(self):
         probe = MediaProbe()
-        fake = MagicMock()
-        fake.stdout = "123.45\n"
-        with patch("pipeline.utils.media.run_subprocess", return_value=fake):
+        with patch(
+            "pipeline.utils.media.run_subprocess",
+            return_value=subprocess_result(stdout="123.45\n"),
+        ):
             dur = probe.probe_duration(Path("/fake/video.mp4"))
         assert dur == 123.45
         # Second call should use cache
@@ -70,9 +75,7 @@ class TestRenderContext:
     )
     def test_handles_bad_output(self, patch_target, method, stdout, expected):
         probe = MediaProbe()
-        fake = MagicMock()
-        fake.stdout = stdout
-        with patch(patch_target, return_value=fake):
+        with patch(patch_target, return_value=subprocess_result(stdout=stdout)):
             assert getattr(probe, method)(Path("/bad")) == expected
 
 

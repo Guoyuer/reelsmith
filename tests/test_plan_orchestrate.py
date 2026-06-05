@@ -7,22 +7,19 @@ from unittest.mock import patch
 
 import pytest
 
-from pipeline.config import Config
 from pipeline.plan import PlanConfig
+from tests.helpers import make_fake_jpeg, run_config, write_json
 
 
 def _setup_workspace(tmp_path, n_photos=2):
     """Create a minimal workspace with preprocessed data and photos."""
-    cfg = Config(workspace=tmp_path / "runs" / "test")
-    cfg.ensure_dirs()
+    cfg = run_config(tmp_path)
     cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
     photo_paths = []
     for i in range(1, n_photos + 1):
-        photo = cfg.media_dir / f"photo_{i}.jpg"
-        photo.write_bytes(b"\xff\xd8" + b"\x00" * 100)
-        thumb = cfg.thumbnails_dir / f"photo_{i}_thumb.jpg"
-        thumb.write_bytes(b"\xff\xd8" + b"\x00" * 50)
+        photo = make_fake_jpeg(cfg.media_dir / f"photo_{i}.jpg")
+        make_fake_jpeg(cfg.thumbnails_dir / f"photo_{i}_thumb.jpg")
         photo_paths.append(str(photo))
 
     manifest = [
@@ -32,7 +29,7 @@ def _setup_workspace(tmp_path, n_photos=2):
         }
         for i in range(1, n_photos + 1)
     ]
-    cfg.manifest_path.write_text(json.dumps(manifest))
+    write_json(cfg.manifest_path, manifest)
 
     # Write analysis.json (normally produced by prepare stage)
     analysis = [
@@ -44,7 +41,7 @@ def _setup_workspace(tmp_path, n_photos=2):
         }
         for i in range(1, n_photos + 1)
     ]
-    cfg.analysis_path.write_text(json.dumps(analysis))
+    write_json(cfg.analysis_path, analysis)
 
     return cfg, photo_paths
 

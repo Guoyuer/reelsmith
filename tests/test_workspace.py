@@ -6,8 +6,6 @@ import json
 import time
 from pathlib import Path
 
-from click.testing import CliRunner
-
 from pipeline.cli._workspace import (
     _age_str,
     _dir_size,
@@ -237,16 +235,14 @@ class TestRunDetail:
 
 
 class TestWorkspaceCommand:
-    def test_no_workspace_dir(self, tmp_path: Path):
-        runner = CliRunner()
+    def test_no_workspace_dir(self, runner, tmp_path: Path):
         with runner.isolated_filesystem(temp_dir=tmp_path):
             from pipeline.cli._workspace import workspace
 
             result = runner.invoke(workspace, [], standalone_mode=False)
             assert "No workspace directory found" in result.output
 
-    def test_empty_workspace(self, tmp_path: Path):
-        runner = CliRunner()
+    def test_empty_workspace(self, runner, tmp_path: Path):
         with runner.isolated_filesystem(temp_dir=tmp_path):
             Path("workspace").mkdir()
             from pipeline.cli._workspace import workspace
@@ -254,8 +250,7 @@ class TestWorkspaceCommand:
             result = runner.invoke(workspace, [], standalone_mode=False)
             assert "Workspace" in result.output
 
-    def test_clean_safe_nothing(self, tmp_path: Path):
-        runner = CliRunner()
+    def test_clean_safe_nothing(self, runner, tmp_path: Path):
         with runner.isolated_filesystem(temp_dir=tmp_path):
             ws = Path("workspace")
             ws.mkdir()

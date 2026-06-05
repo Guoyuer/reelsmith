@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pipeline.utils.image import generate_thumbnail
+from tests.helpers import make_jpeg
 
 
 class TestGenerateThumbnailEdgeCases:
@@ -17,10 +18,8 @@ class TestGenerateThumbnailEdgeCases:
 
     def test_creates_output_dir(self, tmp_path):
         """Output dir created if it doesn't exist."""
-        from PIL import Image
-
         src = tmp_path / "photo.jpg"
-        Image.new("RGB", (100, 100), "red").save(src, "JPEG")
+        make_jpeg(src)
         thumb_dir = tmp_path / "new_thumbs"
         result = generate_thumbnail(src, thumb_dir)
         assert thumb_dir.exists()

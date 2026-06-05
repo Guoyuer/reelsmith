@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -13,18 +13,14 @@ from pipeline.assemble._assemble import (
     _validate_output,
 )
 from pipeline.assemble._encoder import RenderContext, RenderSettings
-from pipeline.config import Config
 from pipeline.edl import MusicTrack
 from tests.conftest import minimal_edl as _minimal_edl
+from tests.helpers import run_config, subprocess_result
 
 
 def _mock_run_ok(cmd, **kw):
     """Mock run_subprocess returning success."""
-    m = MagicMock()
-    m.returncode = 0
-    m.stderr = ""
-    m.stdout = "hevc,video,60.0\naac,audio,60.0\n"
-    return m
+    return subprocess_result(stdout="hevc,video,60.0\naac,audio,60.0\n")
 
 
 # ---------------------------------------------------------------------------
@@ -34,8 +30,7 @@ def _mock_run_ok(cmd, **kw):
 
 class TestRenderSegments:
     def test_segment_encode_cmd_forces_bt709_metadata(self, tmp_path):
-        cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
-        cfg.ensure_dirs()
+        cfg = run_config(tmp_path, root="ws/runs")
         src = tmp_path / "clip.mp4"
         src.write_bytes(b"\x00" * 500)
         edl = _minimal_edl(
@@ -63,7 +58,7 @@ class TestRenderSegments:
 
         def _track(cmd, **kw):
             calls.append(cmd)
-            return MagicMock(returncode=0, stderr="", stdout="")
+            return subprocess_result()
 
         with (
             patch("pipeline.assemble._assemble.run_subprocess", side_effect=_track),
@@ -89,8 +84,7 @@ class TestRenderSegments:
 class TestConcatAndMixNoMusic:
     def test_concat_creates_output(self, tmp_path):
         """Without music, concat copies directly to output_path."""
-        cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
-        cfg.ensure_dirs()
+        cfg = run_config(tmp_path, root="ws/runs")
         ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
         edl = _minimal_edl()
         output = cfg.output_dir / "out.mp4"
@@ -110,8 +104,7 @@ class TestConcatAndMixNoMusic:
 
     def test_concat_failure_raises(self, tmp_path):
         """Non-zero ffmpeg concat raises RuntimeError."""
-        cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
-        cfg.ensure_dirs()
+        cfg = run_config(tmp_path, root="ws/runs")
         ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
         edl = _minimal_edl()
         output = cfg.output_dir / "out.mp4"
@@ -119,10 +112,11 @@ class TestConcatAndMixNoMusic:
         seg0 = cfg.output_dir / "_seg_0_1080p30.mp4"
         seg0.write_bytes(b"\x00" * 500)
 
-        fail = MagicMock(returncode=1, stderr="concat error", stdout="")
-
         with (
-            patch("pipeline.assemble._assemble.run_subprocess", return_value=fail),
+            patch(
+                "pipeline.assemble._assemble.run_subprocess",
+                return_value=subprocess_result(returncode=1, stderr="concat error"),
+            ),
             patch.object(ctx.probe, "probe_duration", return_value=60.0),
         ):
             with pytest.raises(RuntimeError, match="Concat failed"):
@@ -139,8 +133,7 @@ class TestConcatAndMixNoMusic:
 class TestConcatAndMixWithMusic:
     def test_music_mix_filter_chain(self, tmp_path):
         """With music, verify sidechaincompress + loudnorm in filter chain."""
-        cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
-        cfg.ensure_dirs()
+        cfg = run_config(tmp_path, root="ws/runs")
         ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
 
         music_file = tmp_path / "music.mp3"
@@ -167,14 +160,13 @@ class TestConcatAndMixWithMusic:
             calls.append(cmd)
             # Measure pass: return loudnorm JSON in stderr
             if "-f" in cmd and "null" in cmd:
-                return MagicMock(returncode=0, stderr=_loudnorm_json, stdout="")
-            m = MagicMock(returncode=0, stderr="", stdout="")
+                return subprocess_result(stderr=_loudnorm_json)
             # Make nomix and output exist after their respective commands
             if any(str(nomix) in str(c) for c in cmd):
                 nomix.write_bytes(b"\x00" * 2000)
             if any(str(output) in str(c) for c in cmd):
                 output.write_bytes(b"\x00" * 2000)
-            return m
+            return subprocess_result()
 
         with (
             patch(
@@ -204,8 +196,7 @@ class TestConcatAndMixWithMusic:
 
     def test_music_loop_when_short(self, tmp_path):
         """When music shorter than video, aloop filter is added."""
-        cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
-        cfg.ensure_dirs()
+        cfg = run_config(tmp_path, root="ws/runs")
         ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
 
         music_file = tmp_path / "short_music.mp3"
@@ -227,13 +218,12 @@ class TestConcatAndMixWithMusic:
         def _track(cmd, **kw):
             calls.append(cmd)
             if "-f" in cmd and "null" in cmd:
-                return MagicMock(returncode=0, stderr=_loudnorm_json, stdout="")
-            m = MagicMock(returncode=0, stderr="", stdout="")
+                return subprocess_result(stderr=_loudnorm_json)
             if any(str(nomix) in str(c) for c in cmd):
                 nomix.write_bytes(b"\x00" * 2000)
             if any(str(output) in str(c) for c in cmd):
                 output.write_bytes(b"\x00" * 2000)
-            return m
+            return subprocess_result()
 
         # Music duration 20s < total 60s → should loop
         def _probe(path):
@@ -256,8 +246,7 @@ class TestConcatAndMixWithMusic:
 
     def test_mix_failure_raises(self, tmp_path):
         """Music mix failure raises RuntimeError."""
-        cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
-        cfg.ensure_dirs()
+        cfg = run_config(tmp_path, root="ws/runs")
         ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
 
         music_file = tmp_path / "music.mp3"
@@ -278,18 +267,16 @@ class TestConcatAndMixWithMusic:
 
         def _mock(cmd, **kw):
             call_count[0] += 1
-            m = MagicMock(returncode=0, stderr="", stdout="")
             if call_count[0] == 1:
                 # Concat succeeds
                 nomix.write_bytes(b"\x00" * 2000)
+                return subprocess_result()
             elif "-f" in cmd and "null" in cmd:
                 # Measure pass
-                m.stderr = _loudnorm_json
+                return subprocess_result(stderr=_loudnorm_json)
             else:
                 # Mix fails — output not created
-                m.returncode = 1
-                m.stderr = "mix error"
-            return m
+                return subprocess_result(returncode=1, stderr="mix error")
 
         with (
             patch("pipeline.assemble._assemble.run_subprocess", side_effect=_mock),
@@ -320,8 +307,7 @@ class TestLoudnormFallback:
     """When measurement fails, single-pass loudnorm is used as fallback."""
 
     def test_fallback_on_bad_measurement(self, tmp_path):
-        cfg = Config(workspace=tmp_path / "ws" / "runs" / "test")
-        cfg.ensure_dirs()
+        cfg = run_config(tmp_path, root="ws/runs")
         ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
 
         music_file = tmp_path / "music.mp3"
@@ -339,13 +325,12 @@ class TestLoudnormFallback:
             calls.append(cmd)
             if "-f" in cmd and "null" in cmd:
                 # Measurement returns garbage
-                return MagicMock(returncode=0, stderr="no json here", stdout="")
-            m = MagicMock(returncode=0, stderr="", stdout="")
+                return subprocess_result(stderr="no json here")
             if any(str(nomix) in str(c) for c in cmd):
                 nomix.write_bytes(b"\x00" * 2000)
             if any(str(output) in str(c) for c in cmd):
                 output.write_bytes(b"\x00" * 2000)
-            return m
+            return subprocess_result()
 
         with (
             patch("pipeline.assemble._assemble.run_subprocess", side_effect=_mock),
@@ -369,8 +354,10 @@ class TestValidateOutputEdgeCases:
         out = tmp_path / "out.mp4"
         out.write_bytes(b"\x00" * 2048)
         edl = _minimal_edl()
-        mock = MagicMock(returncode=0, stdout="hevc,video,60.0\naac,audio,60.0\n")
-        with patch("pipeline.assemble._assemble.run_subprocess", return_value=mock):
+        with patch(
+            "pipeline.assemble._assemble.run_subprocess",
+            return_value=subprocess_result(stdout="hevc,video,60.0\naac,audio,60.0\n"),
+        ):
             issues = _validate_output(
                 out, edl, has_speech=False, resolution=(1920, 1080), ctx=None
             )
@@ -387,10 +374,7 @@ class TestValidateOutputEdgeCases:
         edl = _minimal_edl(music=MusicTrack(file=str(music_file)))
 
         def _mock_run(cmd, **kw):
-            m = MagicMock()
-            m.returncode = 0
-            m.stdout = "hevc,video,60.0\n"  # no audio stream
-            return m
+            return subprocess_result(stdout="hevc,video,60.0\n")  # no audio stream
 
         ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
         with (

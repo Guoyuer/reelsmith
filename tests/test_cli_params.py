@@ -5,9 +5,14 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from click.testing import CliRunner
 
 from pipeline.cli import _PLANNING_PRESETS, _RESOLUTION_PRESETS, _resolve_planning, cli
+from tests.cli_helpers import (
+    FULL_RUN_CONFIG,
+    capture_pipeline_run,
+    write_default_run_config,
+    write_run_config,
+)
 
 
 class TestResolvePlanning:
@@ -24,14 +29,11 @@ class TestResolvePlanning:
         ],
     )
     def test_resolve_planning(self, input_str, expected_model, expected_thinking):
-        model, thinking = _resolve_planning(input_str)
-        assert model == expected_model
-        assert thinking == expected_thinking
+        assert _resolve_planning(input_str) == (expected_model, expected_thinking)
 
     @pytest.mark.parametrize("name", list(_PLANNING_PRESETS.keys()))
     def test_all_presets_resolve(self, name):
-        model, thinking = _PLANNING_PRESETS[name]
-        assert _resolve_planning(name) == (model, thinking)
+        assert _resolve_planning(name) == _PLANNING_PRESETS[name]
 
 
 class TestResolutionPresets:
@@ -43,77 +45,9 @@ class TestResolutionPresets:
         assert fps > 0
 
 
-@pytest.fixture
-def runner():
-    return CliRunner()
-
-
-def _write_config(tmp_path, text: str) -> str:
-    cfg = tmp_path / "run.yaml"
-    cfg.write_text(text, encoding="utf-8")
-    return str(cfg)
-
-
-def _capture_pipeline_call(runner, cfg_file: str | None, run_name: str = "test-run"):
-    captured = {}
-
-    def mock_pipeline(
-        run_name,
-        *,
-        stages,
-        source_dir=None,
-        prepare=None,
-        plan=None,
-        assemble=None,
-        cli_params=None,
-        cli_defaults=None,
-    ):
-        captured["run_name"] = run_name
-        captured["stages"] = stages
-        captured["source_dir"] = source_dir
-        captured["prepare"] = prepare
-        captured["plan"] = plan
-        captured["assemble"] = assemble
-        captured["cli_params"] = cli_params
-        captured["cli_defaults"] = cli_defaults
-
-    with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
-        args = ["run", run_name]
-        if cfg_file is not None:
-            args.extend(["-c", cfg_file])
-        result = runner.invoke(cli, args, catch_exceptions=False)
-    assert result.exit_code == 0, result.output
-    return captured
-
-
-FULL_CONFIG = """\
-pipeline:
-  stages: [prepare, plan, generate_music, assemble]
-  force: true
-
-source:
-  path: .
-
-plan:
-  duration: 180
-  model: fast
-  lang: cn
-  trip_type: solo
-  style: cinematic
-  focus: temples
-  instruct: no snakes
-  music: auto
-
-assemble:
-  resolution: 1080p30
-  bitrate: 1.5
-  codec: h264
-"""
-
-
 class TestRunCommandWiring:
     def test_full_yaml_builds_all_configs(self, runner, tmp_path):
-        c = _capture_pipeline_call(runner, _write_config(tmp_path, FULL_CONFIG))
+        c = capture_pipeline_run(runner, write_run_config(tmp_path))
 
         assert c["run_name"] == "test-run"
         assert c["stages"] == ["prepare", "plan", "generate_music", "assemble"]
@@ -134,7 +68,7 @@ class TestRunCommandWiring:
         assert c["cli_defaults"] == set()
 
     def test_plan_only_yaml(self, runner, tmp_path):
-        cfg = _write_config(
+        cfg = write_run_config(
             tmp_path,
             """\
 pipeline:
@@ -146,7 +80,7 @@ plan:
 """,
         )
 
-        c = _capture_pipeline_call(runner, cfg)
+        c = capture_pipeline_run(runner, cfg)
 
         assert c["stages"] == ["plan"]
         assert c["source_dir"] is None
@@ -156,7 +90,7 @@ plan:
         assert c["plan"].thinking_level == "MEDIUM"
 
     def test_assemble_only_yaml_with_version(self, runner, tmp_path):
-        cfg = _write_config(
+        cfg = write_run_config(
             tmp_path,
             """\
 pipeline:
@@ -169,7 +103,7 @@ assemble:
 """,
         )
 
-        c = _capture_pipeline_call(runner, cfg)
+        c = capture_pipeline_run(runner, cfg)
 
         assert c["stages"] == ["assemble"]
         assert c["assemble"].w == 2560
@@ -179,12 +113,10 @@ assemble:
         assert c["assemble"].version == 3
 
     def test_default_config_path(self, runner, tmp_path, monkeypatch):
-        run_dir = tmp_path / "workspace" / "runs" / "trip"
-        run_dir.mkdir(parents=True)
-        (run_dir / "run.yaml").write_text(FULL_CONFIG, encoding="utf-8")
+        write_default_run_config(tmp_path, run_name="trip")
         monkeypatch.chdir(tmp_path)
 
-        c = _capture_pipeline_call(runner, None, run_name="trip")
+        c = capture_pipeline_run(runner, None, run_name="trip")
 
         assert c["run_name"] == "trip"
 
@@ -195,7 +127,7 @@ assemble:
             captured["stages"] = stages
             captured["assemble"] = assemble
 
-        cfg = _write_config(tmp_path, FULL_CONFIG)
+        cfg = write_run_config(tmp_path, FULL_RUN_CONFIG)
         with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
             result = runner.invoke(
                 cli,
@@ -217,7 +149,7 @@ assemble:
         assert captured["assemble"].version == 2
 
     def test_missing_required_stage_section_fails(self, runner, tmp_path):
-        cfg = _write_config(
+        cfg = write_run_config(
             tmp_path,
             """\
 pipeline:

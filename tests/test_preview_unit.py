@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from PIL import Image
 
-from pipeline.config import Config
 from pipeline.plan._preview import _build_visual_content_blocks, _concat_previews
+from tests.helpers import make_jpeg, run_config, subprocess_result
 
 
 class TestConcatPreviews:
@@ -29,7 +28,7 @@ class TestConcatPreviews:
         # probe_duration called per clip (3x) then for mega output (1x)
         probe_returns = clip_durs + [total]
         with patch("pipeline.plan._preview.run_subprocess") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0)
+            mock_run.return_value = subprocess_result()
             with patch(
                 "pipeline.plan._preview.probe_duration", side_effect=probe_returns
             ):
@@ -47,7 +46,7 @@ class TestConcatPreviews:
         out = tmp_path / "mega.mp4"
 
         with patch("pipeline.plan._preview.run_subprocess") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0)
+            mock_run.return_value = subprocess_result()
             out.write_bytes(b"\x00" * 100)
             # probe per clip returns 10.0, probe mega returns 1.0 (<50%)
             with patch(
@@ -74,7 +73,7 @@ class TestConcatPreviews:
         def fake_run(cmd, *args, **kwargs):
             if cmd and cmd[0] == "ffmpeg":
                 captured["cmd"] = cmd
-            return MagicMock(returncode=0, stdout="", stderr="")
+            return subprocess_result()
 
         with patch("pipeline.plan._preview.run_subprocess", side_effect=fake_run):
             with patch(
@@ -98,8 +97,8 @@ class TestConcatPreviews:
 
         def fake_run(cmd, *args, **kwargs):
             if cmd and cmd[0] == "ffmpeg":
-                return MagicMock(returncode=139, stdout="", stderr="boom")
-            return MagicMock(returncode=0, stdout="", stderr="")
+                return subprocess_result(returncode=139, stderr="boom")
+            return subprocess_result()
 
         with patch("pipeline.plan._preview.run_subprocess", side_effect=fake_run):
             with patch("pipeline.plan._preview.probe_duration", side_effect=[10.0]):
@@ -111,15 +110,12 @@ class TestBuildVisualContentBlocks:
     """Test the full content block builder."""
 
     def test_builds_blocks_with_photos(self, tmp_path):
-        cfg = Config(workspace=tmp_path / "runs" / "test")
-        cfg.ensure_dirs()
+        cfg = run_config(tmp_path)
         cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
         # Create photo + thumbnail
-        photo = cfg.media_dir / "photo.jpg"
-        Image.new("RGB", (100, 100), "red").save(photo, "JPEG")
-        thumb = cfg.thumbnails_dir / "photo_thumb.jpg"
-        Image.new("RGB", (50, 50), "red").save(thumb, "JPEG")
+        photo = make_jpeg(cfg.media_dir / "photo.jpg")
+        thumb = make_jpeg(cfg.thumbnails_dir / "photo_thumb.jpg", size=(50, 50))
 
         analysis = {
             str(photo): {
@@ -141,12 +137,10 @@ class TestBuildVisualContentBlocks:
         assert "#01" in texts[0]
 
     def test_missing_thumbnail_raises(self, tmp_path):
-        cfg = Config(workspace=tmp_path / "runs" / "test")
-        cfg.ensure_dirs()
+        cfg = run_config(tmp_path)
         cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
-        photo = cfg.media_dir / "photo.jpg"
-        Image.new("RGB", (100, 100), "red").save(photo, "JPEG")
+        photo = make_jpeg(cfg.media_dir / "photo.jpg")
         # Don't create thumbnail
 
         analysis = {
@@ -160,22 +154,18 @@ class TestBuildVisualContentBlocks:
             _build_visual_content_blocks(analysis, cfg)
 
     def test_empty_chapter_skipped(self, tmp_path):
-        cfg = Config(workspace=tmp_path / "runs" / "test")
-        cfg.ensure_dirs()
+        cfg = run_config(tmp_path)
 
         with pytest.raises(RuntimeError, match="No photos"):
             _build_visual_content_blocks({}, cfg)
 
     def test_video_entries_collected(self, tmp_path):
-        cfg = Config(workspace=tmp_path / "runs" / "test")
-        cfg.ensure_dirs()
+        cfg = run_config(tmp_path)
         cfg.media_dir.mkdir(parents=True, exist_ok=True)
 
         # Create photo + thumb + video preview
-        photo = cfg.media_dir / "photo.jpg"
-        Image.new("RGB", (100, 100), "red").save(photo, "JPEG")
-        thumb = cfg.thumbnails_dir / "photo_thumb.jpg"
-        Image.new("RGB", (50, 50), "red").save(thumb, "JPEG")
+        photo = make_jpeg(cfg.media_dir / "photo.jpg")
+        thumb = make_jpeg(cfg.thumbnails_dir / "photo_thumb.jpg", size=(50, 50))
 
         # Create video file + preview
         from pipeline._types import cache_id

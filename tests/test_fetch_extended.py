@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from pipeline.prepare._scan import _extract_gps, fetch_local
-
-
-def _create_image(path: Path):
-    path.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
+from tests.helpers import make_fake_jpeg
 
 
 class TestExtractGps:
@@ -22,14 +18,14 @@ class TestExtractGps:
 
     def test_no_exif_returns_none(self, tmp_path):
         photo = tmp_path / "photo.jpg"
-        _create_image(photo)
+        make_fake_jpeg(photo)
         lat, lon = _extract_gps(photo)
         assert lat is None and lon is None
 
     def test_with_gps_data(self, tmp_path):
         """Mock PIL to return GPS EXIF data."""
         photo = tmp_path / "photo.jpg"
-        _create_image(photo)
+        make_fake_jpeg(photo)
         mock_img = MagicMock()
         # GPS tag 34853 with lat/lon data
         mock_img.getexif.return_value = {
@@ -54,12 +50,12 @@ class TestFetchLocalManifest:
             yield
 
     def test_manifest_written(self, mock_config, source_dir):
-        _create_image(source_dir / "photo.jpg")
+        make_fake_jpeg(source_dir / "photo.jpg")
         fetch_local(mock_config, str(source_dir))
         assert mock_config.manifest_path.exists()
 
     def test_manifest_fields(self, mock_config, source_dir):
-        _create_image(source_dir / "photo.jpg")
+        make_fake_jpeg(source_dir / "photo.jpg")
         import json
 
         result = fetch_local(mock_config, str(source_dir))
@@ -76,8 +72,8 @@ class TestFetchLocalManifest:
             fetch_local(mock_config, "/nonexistent/path")
 
     def test_progress_callback(self, mock_config, source_dir):
-        _create_image(source_dir / "a.jpg")
-        _create_image(source_dir / "b.jpg")
+        make_fake_jpeg(source_dir / "a.jpg")
+        make_fake_jpeg(source_dir / "b.jpg")
         calls = []
         fetch_local(
             mock_config,
@@ -90,8 +86,8 @@ class TestFetchLocalManifest:
     def test_recursive_scan(self, mock_config, source_dir):
         sub = source_dir / "subdir"
         sub.mkdir()
-        _create_image(source_dir / "a.jpg")
-        _create_image(sub / "b.jpg")
+        make_fake_jpeg(source_dir / "a.jpg")
+        make_fake_jpeg(sub / "b.jpg")
         result = fetch_local(mock_config, str(source_dir))
         assert len(result) == 2
 

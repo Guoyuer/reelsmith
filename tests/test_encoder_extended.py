@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from pipeline.assemble._encoder import (
     EncoderSelector,
@@ -11,6 +11,7 @@ from pipeline.assemble._encoder import (
     RenderSettings,
     detect_hw_encoder,
 )
+from tests.helpers import subprocess_result
 
 
 class TestDetectHwEncoder:
@@ -32,19 +33,14 @@ class TestDetectHwEncoder:
 
         def _side_effect(cmd, **kw):
             cmd_str = " ".join(str(c) for c in cmd)
-            m = MagicMock(stderr="")
             # HW encoder probes should fail
             if any(hw in cmd_str for hw in ("nvenc", "videotoolbox", "vulkan")):
-                m.returncode = 1
-                m.stdout = ""
+                return subprocess_result(returncode=1)
             # SW encoder probes: only libx264 succeeds
             elif "libsvtav1" in cmd_str or "libx265" in cmd_str:
-                m.returncode = 1
-                m.stdout = ""
+                return subprocess_result(returncode=1)
             else:
-                m.returncode = 0
-                m.stdout = ""
-            return m
+                return subprocess_result()
 
         with (
             patch(
@@ -59,15 +55,10 @@ class TestDetectHwEncoder:
         """When hevc_nvenc available, prefer it over h264_nvenc."""
 
         def _side_effect(cmd, **kw):
-            m = MagicMock(returncode=0, stderr="")
             cmd_str = " ".join(str(c) for c in cmd)
             if "-encoders" in cmd_str:
-                m.stdout = "hevc_nvenc\nh264_nvenc\n"
-            elif "hevc_nvenc" in cmd_str:
-                m.returncode = 0  # hevc works
-            else:
-                m.stdout = ""
-            return m
+                return subprocess_result(stdout="hevc_nvenc\nh264_nvenc\n")
+            return subprocess_result()
 
         with patch(
             "pipeline.assemble._encoder.run_subprocess", side_effect=_side_effect
@@ -80,13 +71,10 @@ class TestDetectHwEncoder:
         """HEVC bitrate should be 65% of H264 bitrate."""
 
         def _side_effect(cmd, **kw):
-            m = MagicMock(returncode=0, stderr="")
             cmd_str = " ".join(str(c) for c in cmd)
             if "-encoders" in cmd_str:
-                m.stdout = "hevc_nvenc\n"
-            else:
-                m.returncode = 0
-            return m
+                return subprocess_result(stdout="hevc_nvenc\n")
+            return subprocess_result()
 
         with patch(
             "pipeline.assemble._encoder.run_subprocess", side_effect=_side_effect
@@ -105,19 +93,20 @@ class TestRenderContextEdgeCases:
         import json
 
         probe = MediaProbe()
-        fake = MagicMock()
-        fake.stdout = json.dumps(
-            {
-                "streams": [
-                    {
-                        "width": 1920,
-                        "height": 1080,
-                        "side_data_list": [{"rotation": 180}],
-                    }
-                ]
-            }
+        result = subprocess_result(
+            stdout=json.dumps(
+                {
+                    "streams": [
+                        {
+                            "width": 1920,
+                            "height": 1080,
+                            "side_data_list": [{"rotation": 180}],
+                        }
+                    ]
+                }
+            )
         )
-        with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
+        with patch("pipeline.assemble._encoder.run_subprocess", return_value=result):
             w, h = probe.probe_dimensions(Path("/fake.mp4"))
         assert (w, h) == (1920, 1080)
 
@@ -126,19 +115,20 @@ class TestRenderContextEdgeCases:
         import json
 
         probe = MediaProbe()
-        fake = MagicMock()
-        fake.stdout = json.dumps(
-            {
-                "streams": [
-                    {
-                        "width": 1920,
-                        "height": 1080,
-                        "side_data_list": [{"rotation": -270}],
-                    }
-                ]
-            }
+        result = subprocess_result(
+            stdout=json.dumps(
+                {
+                    "streams": [
+                        {
+                            "width": 1920,
+                            "height": 1080,
+                            "side_data_list": [{"rotation": -270}],
+                        }
+                    ]
+                }
+            )
         )
-        with patch("pipeline.assemble._encoder.run_subprocess", return_value=fake):
+        with patch("pipeline.assemble._encoder.run_subprocess", return_value=result):
             w, h = probe.probe_dimensions(Path("/fake.mp4"))
         assert (w, h) == (1080, 1920)
 
@@ -172,13 +162,10 @@ class TestCodecSelection:
 
         def _side_effect(cmd, **kw):
             cmd_str = " ".join(str(c) for c in cmd)
-            m = MagicMock(stderr="", stdout="")
             for enc in available_encoders:
                 if enc in cmd_str:
-                    m.returncode = 0
-                    return m
-            m.returncode = 1
-            return m
+                    return subprocess_result()
+            return subprocess_result(returncode=1)
 
         return _side_effect
 
