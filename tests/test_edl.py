@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from pipeline.edl import EDL, EditItem, Segment
+from tests.helpers import run_config
 
 # -----------------------------------------------------------------------
 # Pure model tests
@@ -149,11 +150,9 @@ class TestJsonRoundtrip:
 
 class TestEDLPersistence:
     def test_save_and_load(self, tmp_path):
-        from pipeline.config import Config
         from pipeline.edl import load_latest_edl, save_edl
 
-        cfg = Config(workspace=tmp_path / "runs" / "test")
-        cfg.ensure_dirs()
+        cfg = run_config(tmp_path)
         edl = EDL(
             title="Test",
             target_duration=30,
@@ -176,21 +175,17 @@ class TestEDLPersistence:
         assert loaded.title == "Test"
 
     def test_find_latest_version(self, tmp_path):
-        from pipeline.config import Config
         from pipeline.edl import find_latest_version
 
-        cfg = Config(workspace=tmp_path / "runs" / "test")
-        cfg.ensure_dirs()
+        cfg = run_config(tmp_path)
         (cfg.workspace / "edl_v1.json").write_text("{}")
         (cfg.workspace / "edl_v5.json").write_text("{}")
         (cfg.workspace / "edl_v3.json").write_text("{}")
         assert find_latest_version(cfg) == 5
 
     def test_no_edl_raises(self, tmp_path):
-        from pipeline.config import Config
         from pipeline.edl import load_latest_edl
 
-        cfg = Config(workspace=tmp_path / "runs" / "test")
-        cfg.ensure_dirs()
+        cfg = run_config(tmp_path)
         with pytest.raises(FileNotFoundError):
             load_latest_edl(cfg)

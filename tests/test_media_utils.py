@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from pipeline.utils.media import probe_duration, run_subprocess, strip_markdown_fences
+from tests.helpers import subprocess_result
 
 # ---------------------------------------------------------------------------
 # strip_markdown_fences
@@ -73,7 +74,6 @@ class TestProbeDuration:
         ],
     )
     def test_probe_duration(self, stdout, expected):
-        fake = MagicMock()
-        fake.stdout = stdout
+        fake = subprocess_result(stdout=stdout)
         with patch("pipeline.utils.media.run_subprocess", return_value=fake):
             assert probe_duration(Path("/fake.mp4")) == expected

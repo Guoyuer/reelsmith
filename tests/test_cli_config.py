@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 import click
 import pytest
 import yaml
-from click.testing import CliRunner
 
 from pipeline.cli import (
     _RESOLUTION_PRESETS,
@@ -16,11 +16,7 @@ from pipeline.cli import (
     list_configs,
     save_run_config,
 )
-
-
-@pytest.fixture
-def runner():
-    return CliRunner()
+from tests.cli_helpers import capture_pipeline_run
 
 
 class TestSaveRunConfig:
@@ -113,26 +109,6 @@ class TestResolutionFormat:
         assert _format_resolution((2048, 1080, 24)) == "2048x1080x24"
 
 
-def _capture_run(runner, cfg_file):
-    captured = {}
-
-    def mock_pipeline(
-        run_name, *, stages, cli_params=None, cli_defaults=None, **kwargs
-    ):
-        captured["run_name"] = run_name
-        captured["stages"] = stages
-        captured["cli_params"] = cli_params
-        captured["cli_defaults"] = cli_defaults
-        captured.update(kwargs)
-
-    with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
-        result = runner.invoke(
-            cli, ["run", "test", "-c", cfg_file], catch_exceptions=False
-        )
-    assert result.exit_code == 0, result.output
-    return captured
-
-
 class TestRunLoadsConfig:
     @pytest.fixture
     def cfg_file(self, tmp_path):
@@ -163,7 +139,7 @@ assemble:
         return str(p)
 
     def test_run_loads_full_config(self, runner, cfg_file):
-        c = _capture_run(runner, cfg_file)
+        c = capture_pipeline_run(runner, cfg_file, run_name="test")
 
         assert c["stages"] == ["prepare", "plan", "generate_music", "assemble"]
         assert c["prepare"].force is True
@@ -272,6 +248,13 @@ class TestConfigValidation:
 
 
 class TestConfigCommand:
+    def _run_with_workspace(self, runner, ws: Path, run_name: str):
+        with (
+            patch("pipeline.config.Config.run_workspace", return_value=str(ws)),
+            patch("pipeline.config.Config.load", return_value=Mock(workspace=ws)),
+        ):
+            return runner.invoke(cli, ["config", run_name], catch_exceptions=False)
+
     def test_prints_saved_config(self, runner, tmp_path):
         ws = tmp_path / "workspace" / "runs" / "myrun"
         ws.mkdir(parents=True)
@@ -279,10 +262,7 @@ class TestConfigCommand:
             "pipeline:\n  stages: [prepare]\n\nsource:\n  path: /photos\n"
         )
 
-        with patch("pipeline.config.Config.run_workspace", return_value=str(ws)):
-            with patch("pipeline.config.Config.load") as mock_load:
-                mock_load.return_value.workspace = ws
-                result = runner.invoke(cli, ["config", "myrun"], catch_exceptions=False)
+        result = self._run_with_workspace(runner, ws, "myrun")
 
         assert result.exit_code == 0
         assert "path: /photos" in result.output
@@ -292,10 +272,7 @@ class TestConfigCommand:
         ws = tmp_path / "workspace" / "runs" / "norun"
         ws.mkdir(parents=True)
 
-        with patch("pipeline.config.Config.run_workspace", return_value=str(ws)):
-            with patch("pipeline.config.Config.load") as mock_load:
-                mock_load.return_value.workspace = ws
-                result = runner.invoke(cli, ["config", "norun"])
+        result = self._run_with_workspace(runner, ws, "norun")
 
         assert result.exit_code != 0
         assert "No config files" in result.output

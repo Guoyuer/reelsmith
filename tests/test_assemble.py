@@ -10,6 +10,7 @@ from pipeline.assemble._assemble import AssembleConfig, _validate_output
 from pipeline.assemble._encoder import RenderContext, RenderSettings
 from pipeline.assemble._filters import is_portrait as _is_portrait
 from pipeline.edl import EDL, EditItem, MusicTrack, Segment
+from tests.helpers import make_fake_jpeg, run_config, subprocess_result
 
 # -----------------------------------------------------------------------
 # Pure function tests (no FFmpeg needed)
@@ -20,11 +21,9 @@ class TestAssembleConfigToEdlLoading:
     """Test that assemble() loads the correct EDL version."""
 
     def test_loads_specified_version(self, tmp_path):
-        from pipeline.config import Config
         from pipeline.edl import EDL as EDLModel
 
-        cfg = Config(workspace=tmp_path / "runs" / "test")
-        cfg.ensure_dirs()
+        cfg = run_config(tmp_path)
         edl = EDL(
             title="V1",
             target_duration=60,
@@ -45,7 +44,7 @@ class TestAssembleConfigToEdlLoading:
             ],
         )
         cfg.edl_path(1).write_text(edl.model_dump_json(indent=2))
-        (tmp_path / "photo.jpg").write_bytes(b"\xff\xd8" + b"\x00" * 100)
+        make_fake_jpeg(tmp_path / "photo.jpg")
 
         _ = AssembleConfig(w=320, h=180, fps=15, version=1)
         edl_loaded = EDLModel.model_validate_json(cfg.edl_path(1).read_text())
@@ -80,13 +79,12 @@ class TestProbeDimensions:
         """Should parse JSON ffprobe output into (width, height)."""
         import json
 
-        fake_result = MagicMock()
-        fake_result.stdout = json.dumps({"streams": [{"width": 3840, "height": 2160}]})
-        fake_result.returncode = 0
-
         ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
         with patch(
-            "pipeline.assemble._encoder.run_subprocess", return_value=fake_result
+            "pipeline.assemble._encoder.run_subprocess",
+            return_value=subprocess_result(
+                stdout=json.dumps({"streams": [{"width": 3840, "height": 2160}]})
+            ),
         ):
             w, h = ctx.probe.probe_dimensions(Path("/fake/video.mp4"))
         assert (w, h) == (3840, 2160)
@@ -95,23 +93,22 @@ class TestProbeDimensions:
         """Should swap width/height when rotation is 90 or 270."""
         import json
 
-        fake_result = MagicMock()
-        fake_result.stdout = json.dumps(
-            {
-                "streams": [
-                    {
-                        "width": 3840,
-                        "height": 2160,
-                        "side_data_list": [{"rotation": -90}],
-                    }
-                ]
-            }
-        )
-        fake_result.returncode = 0
-
         ctx = RenderContext.without_capabilities(RenderSettings(1920, 1080, 30))
         with patch(
-            "pipeline.assemble._encoder.run_subprocess", return_value=fake_result
+            "pipeline.assemble._encoder.run_subprocess",
+            return_value=subprocess_result(
+                stdout=json.dumps(
+                    {
+                        "streams": [
+                            {
+                                "width": 3840,
+                                "height": 2160,
+                                "side_data_list": [{"rotation": -90}],
+                            }
+                        ]
+                    }
+                )
+            ),
         ):
             w, h = ctx.probe.probe_dimensions(Path("/fake/rotated.mp4"))
         assert (w, h) == (2160, 3840)

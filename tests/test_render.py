@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from pipeline.assemble._encoder import RenderContext, RenderSettings
 from pipeline.assemble._render import render_title_card
+from tests.helpers import make_fake_jpeg, subprocess_result
 
 
 @pytest.fixture
@@ -29,9 +30,8 @@ class TestRenderTitleCard:
     def test_gradient_background_cmd(self, ctx, tmp_path):
         """Without background_photo, uses gradient filter."""
         out = tmp_path / "title.mp4"
-        mock_result = MagicMock(returncode=0, stderr="")
         with patch(
-            "pipeline.assemble._render.run_subprocess", return_value=mock_result
+            "pipeline.assemble._render.run_subprocess", return_value=subprocess_result()
         ) as m:
             render_title_card("My Trip", "June 2025", out, ctx=ctx)
             cmd = m.call_args[0][0]
@@ -44,12 +44,10 @@ class TestRenderTitleCard:
 
     def test_photo_background_cmd(self, ctx, tmp_path):
         """With background_photo, uses blurred photo as background."""
-        bg = tmp_path / "photo.jpg"
-        bg.write_bytes(b"\xff\xd8" + b"\x00" * 100)
+        bg = make_fake_jpeg(tmp_path / "photo.jpg")
         out = tmp_path / "title.mp4"
-        mock_result = MagicMock(returncode=0, stderr="")
         with patch(
-            "pipeline.assemble._render.run_subprocess", return_value=mock_result
+            "pipeline.assemble._render.run_subprocess", return_value=subprocess_result()
         ) as m:
             render_title_card("Trip", "", out, ctx=ctx, background_photo=str(bg))
             cmd = m.call_args[0][0]
@@ -62,9 +60,8 @@ class TestRenderTitleCard:
     def test_nonexistent_photo_uses_gradient(self, ctx, tmp_path):
         """If background_photo doesn't exist, falls back to gradient."""
         out = tmp_path / "title.mp4"
-        mock_result = MagicMock(returncode=0, stderr="")
         with patch(
-            "pipeline.assemble._render.run_subprocess", return_value=mock_result
+            "pipeline.assemble._render.run_subprocess", return_value=subprocess_result()
         ) as m:
             render_title_card(
                 "Trip", "", out, ctx=ctx, background_photo="/no/photo.jpg"
@@ -75,9 +72,8 @@ class TestRenderTitleCard:
     def test_subtitle_included(self, ctx, tmp_path):
         """Subtitle text appears in filter when provided."""
         out = tmp_path / "title.mp4"
-        mock_result = MagicMock(returncode=0, stderr="")
         with patch(
-            "pipeline.assemble._render.run_subprocess", return_value=mock_result
+            "pipeline.assemble._render.run_subprocess", return_value=subprocess_result()
         ) as m:
             render_title_card("Trip", "June 13-16", out, ctx=ctx)
             cmd_str = " ".join(str(c) for c in m.call_args[0][0])
@@ -86,18 +82,17 @@ class TestRenderTitleCard:
     def test_no_subtitle(self, ctx, tmp_path):
         """Empty subtitle doesn't crash."""
         out = tmp_path / "title.mp4"
-        mock_result = MagicMock(returncode=0, stderr="")
         with patch(
-            "pipeline.assemble._render.run_subprocess", return_value=mock_result
+            "pipeline.assemble._render.run_subprocess", return_value=subprocess_result()
         ):
             render_title_card("Trip", "", out, ctx=ctx)  # should not raise
 
     def test_failure_raises(self, ctx, tmp_path):
         """Non-zero return code raises RuntimeError."""
         out = tmp_path / "title.mp4"
-        mock_result = MagicMock(returncode=1, stderr="encode error")
         with patch(
-            "pipeline.assemble._render.run_subprocess", return_value=mock_result
+            "pipeline.assemble._render.run_subprocess",
+            return_value=subprocess_result(returncode=1, stderr="encode error"),
         ):
             with pytest.raises(RuntimeError, match="Title card render failed"):
                 render_title_card("Trip", "", out, ctx=ctx)
@@ -105,9 +100,8 @@ class TestRenderTitleCard:
     def test_long_title_shrinks_font(self, ctx, tmp_path):
         """Titles > 25 chars should get reduced font size."""
         out = tmp_path / "title.mp4"
-        mock_result = MagicMock(returncode=0, stderr="")
         with patch(
-            "pipeline.assemble._render.run_subprocess", return_value=mock_result
+            "pipeline.assemble._render.run_subprocess", return_value=subprocess_result()
         ) as m:
             long_title = "A" * 40
             render_title_card(long_title, "", out, ctx=ctx)
@@ -119,9 +113,8 @@ class TestRenderTitleCard:
         """4K context produces different font sizes than 1080p."""
         ctx_4k = RenderContext.without_capabilities(RenderSettings(3840, 2160, 60))
         out = tmp_path / "title.mp4"
-        mock_result = MagicMock(returncode=0, stderr="")
         with patch(
-            "pipeline.assemble._render.run_subprocess", return_value=mock_result
+            "pipeline.assemble._render.run_subprocess", return_value=subprocess_result()
         ) as m:
             render_title_card("Trip", "", out, ctx=ctx_4k)
             cmd_str = " ".join(str(c) for c in m.call_args[0][0])

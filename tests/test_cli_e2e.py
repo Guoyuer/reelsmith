@@ -5,20 +5,14 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from click.testing import CliRunner
 
 from pipeline.cli import cli
-
-
-@pytest.fixture
-def runner():
-    return CliRunner()
-
-
-def _write_config(tmp_path, text: str) -> str:
-    cfg = tmp_path / "run.yaml"
-    cfg.write_text(text, encoding="utf-8")
-    return str(cfg)
+from tests.cli_helpers import (
+    CURRENT_COMMANDS,
+    REMOVED_COMMANDS,
+    read_yaml,
+    write_run_config,
+)
 
 
 class TestTopLevelHelp:
@@ -30,15 +24,15 @@ class TestTopLevelHelp:
     def test_help_lists_current_commands_only(self, runner):
         result = runner.invoke(cli, ["--help"])
 
-        for cmd in ("run", "new", "edit", "workspace", "config"):
+        for cmd in CURRENT_COMMANDS:
             assert cmd in result.output
-        for old_cmd in ("full", "prepare", "plan", "assemble", "init"):
+        for old_cmd in REMOVED_COMMANDS:
             assert old_cmd not in result.output
 
 
 class TestInvalidInputs:
     def test_invalid_resolution_format(self, runner, tmp_path):
-        cfg = _write_config(
+        cfg = write_run_config(
             tmp_path,
             """\
 pipeline:
@@ -55,7 +49,7 @@ assemble:
         assert "Unknown resolution" in result.output
 
     def test_invalid_trip_type(self, runner, tmp_path):
-        cfg = _write_config(
+        cfg = write_run_config(
             tmp_path,
             """\
 pipeline:
@@ -74,7 +68,7 @@ plan:
         assert "plan.trip_type" in result.output
 
     def test_invalid_lang(self, runner, tmp_path):
-        cfg = _write_config(
+        cfg = write_run_config(
             tmp_path,
             """\
 pipeline:
@@ -93,7 +87,7 @@ plan:
         assert "plan.lang" in result.output
 
     def test_negative_duration(self, runner, tmp_path):
-        cfg = _write_config(
+        cfg = write_run_config(
             tmp_path,
             """\
 pipeline:
@@ -110,7 +104,7 @@ plan:
 
         assert result.exit_code != 0
 
-    @pytest.mark.parametrize("old_cmd", ["full", "prepare", "plan", "assemble", "init"])
+    @pytest.mark.parametrize("old_cmd", REMOVED_COMMANDS)
     def test_old_commands_removed(self, runner, old_cmd):
         result = runner.invoke(cli, [old_cmd, "--help"])
 
@@ -119,7 +113,7 @@ plan:
 
 
 class TestSubcommandHelp:
-    @pytest.mark.parametrize("cmd", ["run", "new", "edit", "workspace", "config"])
+    @pytest.mark.parametrize("cmd", CURRENT_COMMANDS)
     def test_help_exits_zero(self, runner, cmd):
         result = runner.invoke(cli, [cmd, "--help"])
 
@@ -137,13 +131,16 @@ class TestNewCommand:
 
         assert result.exit_code == 0
         out = tmp_path / "workspace" / "runs" / "trip" / "run.yaml"
-        text = out.read_text(encoding="utf-8")
-        assert "pipeline:" in text
-        assert "stages:" in text
-        assert "source:" in text
-        assert str(media) in text
-        assert "plan:" in text
-        assert "assemble:" in text
+        config = read_yaml(out)
+        assert config["pipeline"]["stages"] == [
+            "prepare",
+            "plan",
+            "generate_music",
+            "assemble",
+        ]
+        assert config["source"]["path"] == str(media)
+        assert config["plan"]["model"] == "fast"
+        assert config["assemble"]["resolution"] == "1080p30"
         assert "Next: reelsmith run trip" in result.output
 
     def test_new_refuses_overwrite_without_force(self, runner, tmp_path, monkeypatch):

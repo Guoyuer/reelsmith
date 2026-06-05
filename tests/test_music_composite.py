@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from pipeline.music._orchestrate import _DEFAULT_CROSSFADE, _build_composite_music
+from tests.helpers import subprocess_result
 
 
 class TestBuildCompositeMusic:
@@ -34,7 +35,6 @@ class TestBuildCompositeMusic:
 
         def _mock_run(cmd, **kw):
             calls.append(cmd)
-            m = MagicMock(returncode=0, stderr="")
             # Create trimmed files for first N calls (trim phase)
             for c in cmd:
                 if str(c).endswith(".wav") and "_seg_music_" in str(c):
@@ -42,7 +42,7 @@ class TestBuildCompositeMusic:
             # Create output for compose phase — check last arg is the output path
             if Path(cmd[-1]) == out:
                 out.write_bytes(b"RIFF" + b"\x00" * 200)
-            return m
+            return subprocess_result()
 
         with patch("pipeline.utils.media.run_subprocess", side_effect=_mock_run):
             result = _build_composite_music(
@@ -69,17 +69,15 @@ class TestBuildCompositeMusic:
 
         def _mock_run(cmd, **kw):
             call_count[0] += 1
-            m = MagicMock(stderr="")
             if call_count[0] == 1:
                 # First trim fails
-                m.returncode = 1
+                return subprocess_result(returncode=1)
             else:
                 # Second trim succeeds
-                m.returncode = 0
                 for c in cmd:
                     if str(c).endswith(".wav") and "_seg_music_" in str(c):
                         Path(c).write_bytes(b"RIFF" + b"\x00" * 50)
-            return m
+                return subprocess_result()
 
         with patch("pipeline.utils.media.run_subprocess", side_effect=_mock_run):
             result = _build_composite_music(
@@ -97,8 +95,10 @@ class TestBuildCompositeMusic:
         t2.write_bytes(b"RIFF" + b"\x00" * 100)
         out = tmp_path / "composite.wav"
 
-        mock = MagicMock(returncode=1, stderr="trim error")
-        with patch("pipeline.utils.media.run_subprocess", return_value=mock):
+        with patch(
+            "pipeline.utils.media.run_subprocess",
+            return_value=subprocess_result(returncode=1, stderr="trim error"),
+        ):
             result = _build_composite_music(
                 [(10.0, t1), (10.0, t2)], out, crossfade=_DEFAULT_CROSSFADE
             )
@@ -118,18 +118,15 @@ class TestBuildCompositeMusic:
 
         def _mock_run(cmd, **kw):
             call_count[0] += 1
-            m = MagicMock(stderr="")
             if call_count[0] <= 2:
                 # Trim calls succeed
-                m.returncode = 0
                 for c in cmd:
                     if str(c).endswith(".wav") and "_seg_music_" in str(c):
                         Path(c).write_bytes(b"RIFF" + b"\x00" * 50)
+                return subprocess_result()
             else:
                 # Compose call fails
-                m.returncode = 1
-                m.stderr = "compose error"
-            return m
+                return subprocess_result(returncode=1, stderr="compose error")
 
         with patch("pipeline.utils.media.run_subprocess", side_effect=_mock_run):
             result = _build_composite_music(
@@ -154,14 +151,13 @@ class TestBuildCompositeMusic:
 
         def _mock_run(cmd, **kw):
             calls.append(cmd)
-            m = MagicMock(returncode=0, stderr="")
             for c in cmd:
                 sc = str(c)
                 if sc.endswith(".wav") and "_seg_music_" in sc:
                     Path(sc).write_bytes(b"RIFF" + b"\x00" * 50)
             if Path(cmd[-1]) == out:
                 out.write_bytes(b"RIFF" + b"\x00" * 200)
-            return m
+            return subprocess_result()
 
         with patch("pipeline.utils.media.run_subprocess", side_effect=_mock_run):
             result = _build_composite_music(tracks, out, crossfade=_DEFAULT_CROSSFADE)
