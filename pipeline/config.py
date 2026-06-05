@@ -1,13 +1,8 @@
 """Pipeline configuration — workspace paths, shared directories, environment loading.
 
-Configuration resolution priority (highest wins):
-
-1. CLI explicit arguments (e.g. ``--duration 300``)
-2. ``--use-cfg-file`` values (run_config_*.yaml)
-3. CLI defaults (Click ``default=`` values)
-4. Hardcoded defaults (``./workspace``)
-
-See also ``_commands.py:_resolve_params()`` for CLI-level resolution.
+The CLI is YAML-first: ``reelsmith run NAME`` loads stage parameters from
+``workspace/runs/NAME/run.yaml``, while this module owns shared workspace paths
+and environment loading.
 """
 
 from __future__ import annotations

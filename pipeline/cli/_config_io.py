@@ -2,6 +2,10 @@
 
 Config is stored in grouped format with ``# default`` comments::
 
+    pipeline:
+      stages: [prepare, plan, generate_music, assemble]
+      force: false
+
     source:
       path: /photos
 
@@ -37,6 +41,7 @@ STYLE_CHOICES = ("upbeat", "cinematic", "reflective", "energetic")
 LANG_CHOICES = ("en", "cn", "both")
 
 # Which flat CLI params belong to which config group.
+_PIPELINE_FIELDS = {"stages", "force", "version"}
 _SOURCE_FIELDS = {"path"}
 _PLAN_FIELDS = {
     "duration",
@@ -57,9 +62,14 @@ _CONFIG_PREFIX = "run_config_"
 # Config schema for validation
 # ---------------------------------------------------------------------------
 
-_VALID_GROUPS = {"source", "plan", "assemble"}
+_VALID_GROUPS = {"pipeline", "source", "plan", "assemble"}
 
 _GROUP_SCHEMA: dict[str, dict[str, dict[str, Any]]] = {
+    "pipeline": {
+        "stages": {"type": list, "required": True},
+        "force": {"type": bool},
+        "version": {"type": int, "nullable": True},
+    },
     "source": {
         "path": {"type": str, "required": True},
     },
@@ -118,6 +128,8 @@ def _validate_config(data: dict[str, Any], cfg_file: str) -> None:
             value = group.get(field_name)
 
             if value is None:
+                if rules.get("nullable"):
+                    continue
                 if rules.get("required"):
                     errors.append(f"'{group_name}.{field_name}' is required")
                 continue
@@ -140,6 +152,13 @@ def _validate_config(data: dict[str, Any], cfg_file: str) -> None:
                 errors.append(
                     f"'{group_name}.{field_name}' must be one of {list(rules['choices'])}, got '{value}'"
                 )
+            if field_name == "stages":
+                allowed = {"prepare", "plan", "generate_music", "assemble"}
+                bad = [str(stage) for stage in value if stage not in allowed]
+                if bad:
+                    errors.append(
+                        f"'{group_name}.{field_name}' contains unknown stages: {', '.join(bad)}"
+                    )
 
     if errors:
         bullet_list = "\n  - ".join(errors)
@@ -158,7 +177,7 @@ def _dump_yaml_with_comments(grouped: dict[str, Any], defaults: set[str]) -> str
     """
     lines: list[str] = []
 
-    for group_name in ("source", "plan", "assemble"):
+    for group_name in ("pipeline", "source", "plan", "assemble"):
         group = grouped.get(group_name)
         if not group:
             continue
@@ -207,6 +226,9 @@ def save_run_config(
         return {k: v for k, v in cli_params.items() if k in fields and v is not None}
 
     grouped: dict[str, Any] = {}
+    pipeline_cfg = _pick(_PIPELINE_FIELDS)
+    if pipeline_cfg:
+        grouped["pipeline"] = pipeline_cfg
     source_cfg = _pick(_SOURCE_FIELDS)
     if source_cfg:
         grouped["source"] = source_cfg
@@ -255,9 +277,8 @@ def save_run_config(
 def load_run_config(cfg_file: str) -> dict[str, Any]:
     """Read and validate a grouped config YAML (or JSON) file.
 
-    *cfg_file* is the path passed via ``--use-cfg-file``.
-    When called from CLI commands, Click's ``type=click.Path(exists=True)``
-    validates existence before this function runs.
+    *cfg_file* is the path passed via ``reelsmith run --config`` or the default
+    ``workspace/runs/NAME/run.yaml``.
 
     Raises ``click.UsageError`` on invalid YAML/JSON or schema violations.
     """

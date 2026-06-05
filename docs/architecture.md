@@ -191,7 +191,7 @@ flowchart TD
     style OUT fill:#2dba4e,color:#fff
 ```
 
-Skipped if `music_mode="none"` or `--music /path/to/track.mp3` (user-provided).
+Skipped if `music_mode="none"` or `plan.music` points at a user-provided track.
 
 ---
 
@@ -231,20 +231,20 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    AUTO["--codec auto<br/>(default)"] --> HEVC_HW{"hevc_nvenc<br/>or hevc_vtb?"}
+    AUTO["assemble.codec: auto<br/>(default)"] --> HEVC_HW{"hevc_nvenc<br/>or hevc_vtb?"}
     HEVC_HW -->|yes| USE_HW["Use hardware HEVC"]
     HEVC_HW -->|no| LIBX265["libx265 (CPU)"]
 
-    AV1["--codec av1"] --> AV1_HW{"av1_nvenc<br/>(RTX 40+)?"}
+    AV1["assemble.codec: av1"] --> AV1_HW{"av1_nvenc<br/>(RTX 40+)?"}
     AV1_HW -->|yes| USE_AV1["Use hardware AV1"]
     AV1_HW -->|no| SVT["libsvtav1 (CPU)"]
 
-    H264["--codec h264"] --> H264_HW{"h264_nvenc<br/>or h264_vtb?"}
+    H264["assemble.codec: h264"] --> H264_HW{"h264_nvenc<br/>or h264_vtb?"}
     H264_HW -->|yes| USE_264["Use hardware H.264"]
     H264_HW -->|no| LIBX264["libx264 (CPU)"]
 ```
 
-**Bitrate calculation:** `base_rate[resolution] × codec_ratio × fps_multiplier × --quality`
+**Bitrate calculation:** `base_rate[resolution] x codec_ratio x fps_multiplier x assemble.bitrate`
 
 | Resolution | H.264 base | HEVC (×0.65) | AV1 (×0.45) |
 |------------|-----------|-------------|-------------|
@@ -420,9 +420,12 @@ flowchart LR
 
 **Re-run behavior:**
 
-| Command | Reuses | Regenerates |
-|---------|--------|-------------|
-| `reelsmith full` | cached thumbnails + previews | manifest, analysis, EDL, render, output |
-| `reelsmith plan` | all prepare artifacts | new EDL version |
-| `reelsmith assemble` | EDL + clips at same resolution | output |
-| `--force` | nothing | full regeneration |
+`reelsmith run NAME` executes the ordered stages declared in
+`workspace/runs/NAME/run.yaml`.
+
+| YAML stages | Reuses | Regenerates |
+|-------------|--------|-------------|
+| `[prepare, plan, generate_music, assemble]` | cached thumbnails + previews unless `pipeline.force: true` | manifest, analysis, EDL, render, output |
+| `[plan]` | all prepare artifacts | new EDL version |
+| `[assemble]` | EDL + clips at same resolution | output |
+| `pipeline.force: true` | nothing for affected prepare/plan work | full regeneration for affected stages |

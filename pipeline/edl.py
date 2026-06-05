@@ -159,9 +159,7 @@ class EDL(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
     title: str
-    target_duration: float = (
-        0  # desired total length; set by orchestrator from --duration
-    )
+    target_duration: float = 0  # desired total length; set from plan.duration
     segments: list[Segment]
     music: MusicTrack | None = None
     music_mode: MusicMode = MusicMode.NONE  # auto = generate in generate_music step

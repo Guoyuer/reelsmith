@@ -52,7 +52,7 @@ def load_analysis(cfg: Config) -> list[AnalysisEntry]:
     if not cfg.analysis_path.exists():
         raise FileNotFoundError(
             f"Analysis not found: {cfg.analysis_path}\n"
-            "Run the prepare stage first (e.g. reelsmith prepare -p ./photos)"
+            "Run the prepare stage first (pipeline.stages: [prepare])"
         )
     raw = json.loads(cfg.analysis_path.read_text())
 
@@ -108,7 +108,7 @@ def prepare(
     if not cfg.manifest_path.exists():
         raise FileNotFoundError(
             f"Manifest not found: {cfg.manifest_path}\n"
-            "Run the prepare stage first (e.g. reelsmith prepare -p ./photos)"
+            "Run the prepare stage first (pipeline.stages: [prepare])"
         )
     manifest = json.loads(cfg.manifest_path.read_text())
     if scan_cached:

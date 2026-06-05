@@ -219,8 +219,7 @@ def _run_pipeline(
     cfg = Config.load(ws_path)
     cfg.ensure_dirs()
 
-    # Persist CLI parameters early (before any stage runs) so that even
-    # killed / failed runs have their config saved for later --use-cfg-file.
+    # Persist run config early so killed / failed runs remain reproducible.
     if cli_params:
         from ._config_io import save_run_config
 

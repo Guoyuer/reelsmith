@@ -45,8 +45,8 @@ class PlanConfig:
     instruct: str = ""
     trip_type: str = "family"
     language: str = "en"
-    model: str = ""  # resolved by CLI from --model (required)
-    thinking_level: str = "HIGH"  # resolved by CLI from --model preset
+    model: str = ""  # resolved from plan.model (required)
+    thinking_level: str = "HIGH"  # resolved from model preset or model:thinking
     music_file: str | None = None
     force: bool = False
 

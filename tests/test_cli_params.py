@@ -1,8 +1,4 @@
-"""Tests for CLI parameter parsing and Config construction.
-
-Verifies that CLI arguments correctly wire through to Config dataclasses
-without actually running the pipeline (mocks _run_pipeline).
-"""
+"""Tests for YAML-first CLI run parsing and Config construction."""
 
 from __future__ import annotations
 
@@ -12,10 +8,6 @@ import pytest
 from click.testing import CliRunner
 
 from pipeline.cli import _PLANNING_PRESETS, _RESOLUTION_PRESETS, _resolve_planning, cli
-
-# ---------------------------------------------------------------------------
-# _resolve_planning unit tests
-# ---------------------------------------------------------------------------
 
 
 class TestResolvePlanning:
@@ -42,35 +34,13 @@ class TestResolvePlanning:
         assert _resolve_planning(name) == (model, thinking)
 
 
-# ---------------------------------------------------------------------------
-# Resolution preset tests
-# ---------------------------------------------------------------------------
-
-
 class TestResolutionPresets:
     @pytest.mark.parametrize("name", list(_RESOLUTION_PRESETS.keys()))
     def test_presets_are_valid(self, name):
-        """Width and height must be even, fps must be positive."""
         w, h, fps = _RESOLUTION_PRESETS[name]
-        assert w % 2 == 0, f"{name}: width {w} is odd"
-        assert h % 2 == 0, f"{name}: height {h} is odd"
-        assert fps > 0, f"{name}: fps {fps} <= 0"
-
-    @pytest.mark.parametrize(
-        "name, expected",
-        [
-            ("4k60", (3840, 2160, 60)),
-            ("1080p30", (1920, 1080, 30)),
-            ("720p30", (1280, 720, 30)),
-        ],
-    )
-    def test_specific_presets(self, name, expected):
-        assert _RESOLUTION_PRESETS[name] == expected
-
-
-# ---------------------------------------------------------------------------
-# Shared CLI test infrastructure
-# ---------------------------------------------------------------------------
+        assert w % 2 == 0
+        assert h % 2 == 0
+        assert fps > 0
 
 
 @pytest.fixture
@@ -78,8 +48,13 @@ def runner():
     return CliRunner()
 
 
-def _capture_pipeline_call(cli_args, runner):
-    """Run a CLI command capturing the _run_pipeline call kwargs."""
+def _write_config(tmp_path, text: str) -> str:
+    cfg = tmp_path / "run.yaml"
+    cfg.write_text(text, encoding="utf-8")
+    return str(cfg)
+
+
+def _capture_pipeline_call(runner, cfg_file: str | None, run_name: str = "test-run"):
     captured = {}
 
     def mock_pipeline(
@@ -103,219 +78,163 @@ def _capture_pipeline_call(cli_args, runner):
         captured["cli_defaults"] = cli_defaults
 
     with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
-        result = runner.invoke(cli, cli_args, catch_exceptions=False)
-    assert result.exit_code == 0, f"CLI failed: {result.output}"
+        args = ["run", run_name]
+        if cfg_file is not None:
+            args.extend(["-c", cfg_file])
+        result = runner.invoke(cli, args, catch_exceptions=False)
+    assert result.exit_code == 0, result.output
     return captured
 
 
-_FULL_BASE_ARGS = [
-    "full",
-    "-n",
-    "test-run",
-    "-p",
-    ".",
-    "--duration",
-    "60",
-    "--model",
-    "balanced",
-    "-r",
-    "1080p30",
-]
+FULL_CONFIG = """\
+pipeline:
+  stages: [prepare, plan, generate_music, assemble]
+  force: true
+
+source:
+  path: .
+
+plan:
+  duration: 180
+  model: fast
+  lang: cn
+  trip_type: solo
+  style: cinematic
+  focus: temples
+  instruct: no snakes
+  music: auto
+
+assemble:
+  resolution: 1080p30
+  bitrate: 1.5
+  codec: h264
+"""
 
 
-# ---------------------------------------------------------------------------
-# CLI → Config wiring tests
-# ---------------------------------------------------------------------------
+class TestRunCommandWiring:
+    def test_full_yaml_builds_all_configs(self, runner, tmp_path):
+        c = _capture_pipeline_call(runner, _write_config(tmp_path, FULL_CONFIG))
 
-
-class TestFullCommandWiring:
-    """Verify 'full' command correctly constructs all Config objects."""
-
-    def _run_full(self, runner, extra_args=None):
-        args = list(_FULL_BASE_ARGS)
-        if extra_args:
-            args.extend(extra_args)
-        return _capture_pipeline_call(args, runner)
-
-    @pytest.mark.parametrize(
-        "model_flag, expected_model, expected_thinking",
-        [
-            (None, "gemini-3.5-flash", "HIGH"),  # default: balanced
-            ("quality", "gemini-3.1-pro-preview", "HIGH"),
-            ("fast", "gemini-3.1-flash-lite", "LOW"),
-            ("gemini-2.5-flash:medium", "gemini-2.5-flash", "MEDIUM"),
-        ],
-        ids=["balanced_default", "quality", "fast", "custom_model"],
-    )
-    def test_plan_config_model(
-        self, runner, model_flag, expected_model, expected_thinking
-    ):
-        extra = ["--model", model_flag] if model_flag else []
-        c = self._run_full(runner, extra)
-        assert c["plan"].model == expected_model
-        assert c["plan"].thinking_level == expected_thinking
-
-    def test_plan_config_fields(self, runner):
-        c = self._run_full(
-            runner,
-            [
-                "--trip-type",
-                "solo",
-                "--style",
-                "cinematic",
-                "--focus",
-                "temples",
-                "--lang",
-                "cn",
-                "--duration",
-                "180",
-            ],
-        )
+        assert c["run_name"] == "test-run"
+        assert c["stages"] == ["prepare", "plan", "generate_music", "assemble"]
+        assert c["source_dir"] == "."
+        assert c["prepare"].force is True
+        assert c["plan"].target_duration == 180
+        assert c["plan"].model == "gemini-3.1-flash-lite"
+        assert c["plan"].thinking_level == "LOW"
+        assert c["plan"].language == "cn"
         assert c["plan"].trip_type == "solo"
         assert c["plan"].style == "cinematic"
         assert c["plan"].focus == "temples"
-        assert c["plan"].language == "cn"
-        assert c["plan"].target_duration == 180
-
-    @pytest.mark.parametrize(
-        "res_flag, expected_w, expected_h, expected_fps",
-        [
-            ("4k60", 3840, 2160, 60),
-            ("2560x1440x60", 2560, 1440, 60),
-        ],
-        ids=["preset", "custom"],
-    )
-    def test_assemble_config_resolution(
-        self, runner, res_flag, expected_w, expected_h, expected_fps
-    ):
-        c = self._run_full(runner, ["-r", res_flag])
-        assert c["assemble"].w == expected_w
-        assert c["assemble"].h == expected_h
-        assert c["assemble"].fps == expected_fps
-
-    @pytest.mark.parametrize(
-        "extra_args, field, expected",
-        [
-            (["--bitrate", "2.0"], "bitrate", 2.0),
-            ([], "bitrate", 1.0),
-        ],
-        ids=["explicit_bitrate", "default_bitrate"],
-    )
-    def test_assemble_config_bitrate(self, runner, extra_args, field, expected):
-        c = self._run_full(runner, extra_args)
-        assert getattr(c["assemble"], field) == expected
-
-    @pytest.mark.parametrize(
-        "extra_args, expected",
-        [
-            (["--force"], True),
-            ([], False),
-        ],
-    )
-    def test_prepare_config_force(self, runner, extra_args, expected):
-        c = self._run_full(runner, extra_args)
-        assert c["prepare"].force is expected
-
-    def test_stages_with_music(self, runner):
-        c = self._run_full(runner)
-        assert "generate_music" in c["stages"]
-
-    def test_stages_without_music(self, runner):
-        c = self._run_full(runner, ["--music", "none"])
-        assert "generate_music" not in c["stages"]
-
-    def test_all_stages_present(self, runner):
-        c = self._run_full(runner)
-        assert c["stages"] == ["prepare", "plan", "generate_music", "assemble"]
-
-
-class TestPlanCommandWiring:
-    def test_plan_basic(self, runner):
-        c = _capture_pipeline_call(
-            ["plan", "-n", "test", "--duration", "120", "--model", "fast"],
-            runner,
-        )
-        assert c["plan"].model == "gemini-3.1-flash-lite"
-        assert c["plan"].thinking_level == "LOW"
-        assert "plan" in c["stages"]
-
-    def test_plan_requires_model(self, runner):
-        result = runner.invoke(cli, ["plan", "-n", "test", "--duration", "60"])
-        assert result.exit_code != 0
-        assert "model" in result.output.lower()
-
-
-class TestAssembleCommandWiring:
-    def test_assemble_basic(self, runner):
-        c = _capture_pipeline_call(
-            ["assemble", "-n", "test", "-r", "720p30"],
-            runner,
-        )
-        assert c["assemble"].w == 1280
-        assert c["assemble"].h == 720
+        assert c["assemble"].w == 1920
+        assert c["assemble"].h == 1080
         assert c["assemble"].fps == 30
-        assert c["assemble"].bitrate == 1.0
-
-    def test_assemble_with_bitrate(self, runner):
-        c = _capture_pipeline_call(
-            ["assemble", "-n", "test", "-r", "4k60", "--bitrate", "1.5"],
-            runner,
-        )
         assert c["assemble"].bitrate == 1.5
+        assert c["assemble"].codec == "h264"
+        assert c["cli_defaults"] == set()
 
+    def test_plan_only_yaml(self, runner, tmp_path):
+        cfg = _write_config(
+            tmp_path,
+            """\
+pipeline:
+  stages: [plan]
 
-# ---------------------------------------------------------------------------
-# Required parameter tests (missing args should fail)
-# ---------------------------------------------------------------------------
+plan:
+  duration: 60
+  model: gemini-2.5-flash:medium
+""",
+        )
 
+        c = _capture_pipeline_call(runner, cfg)
 
-class TestRequiredParams:
-    @pytest.mark.parametrize(
-        "omit_flags",
-        [
-            (["-n", "t"]),
-            (["-p", "."]),
-            (["--duration", "60"]),
-            (["--model", "fast"]),
-            (["-r", "720p30"]),
-        ],
-        ids=["name", "path", "duration", "model", "resolution"],
-    )
-    def test_full_missing_required_param(self, runner, omit_flags):
-        all_args = [
-            "full",
-            "-n",
-            "t",
-            "-p",
-            ".",
-            "--duration",
-            "60",
-            "--model",
-            "fast",
-            "-r",
-            "720p30",
-        ]
-        args = [a for a in all_args if a not in omit_flags]
-        result = runner.invoke(cli, args)
-        assert result.exit_code != 0
+        assert c["stages"] == ["plan"]
+        assert c["source_dir"] is None
+        assert c["prepare"] is None
+        assert c["assemble"] is None
+        assert c["plan"].model == "gemini-2.5-flash"
+        assert c["plan"].thinking_level == "MEDIUM"
 
-    def test_full_missing_path(self, runner):
-        with patch("pipeline.cli._commands._run_pipeline"):
+    def test_assemble_only_yaml_with_version(self, runner, tmp_path):
+        cfg = _write_config(
+            tmp_path,
+            """\
+pipeline:
+  stages: [assemble]
+  version: 3
+
+assemble:
+  resolution: 2560x1440x60
+  bitrate: 2
+""",
+        )
+
+        c = _capture_pipeline_call(runner, cfg)
+
+        assert c["stages"] == ["assemble"]
+        assert c["assemble"].w == 2560
+        assert c["assemble"].h == 1440
+        assert c["assemble"].fps == 60
+        assert c["assemble"].bitrate == 2.0
+        assert c["assemble"].version == 3
+
+    def test_default_config_path(self, runner, tmp_path, monkeypatch):
+        run_dir = tmp_path / "workspace" / "runs" / "trip"
+        run_dir.mkdir(parents=True)
+        (run_dir / "run.yaml").write_text(FULL_CONFIG, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+
+        c = _capture_pipeline_call(runner, None, run_name="trip")
+
+        assert c["run_name"] == "trip"
+
+    def test_stage_override(self, runner, tmp_path):
+        captured = {}
+
+        def mock_pipeline(run_name, *, stages, assemble=None, **kwargs):
+            captured["stages"] = stages
+            captured["assemble"] = assemble
+
+        cfg = _write_config(tmp_path, FULL_CONFIG)
+        with patch("pipeline.cli._commands._run_pipeline", side_effect=mock_pipeline):
             result = runner.invoke(
                 cli,
                 [
-                    "full",
-                    "-n",
-                    "t",
-                    "--duration",
-                    "60",
-                    "--model",
-                    "fast",
-                    "-r",
-                    "720p30",
+                    "run",
+                    "trip",
+                    "-c",
+                    cfg,
+                    "--stages",
+                    "assemble",
+                    "--version",
+                    "2",
                 ],
+                catch_exceptions=False,
             )
+
+        assert result.exit_code == 0
+        assert captured["stages"] == ["assemble"]
+        assert captured["assemble"].version == 2
+
+    def test_missing_required_stage_section_fails(self, runner, tmp_path):
+        cfg = _write_config(
+            tmp_path,
+            """\
+pipeline:
+  stages: [prepare]
+""",
+        )
+
+        result = runner.invoke(cli, ["run", "test", "-c", cfg])
+
         assert result.exit_code != 0
+        assert "source" in result.output
+
+    def test_old_commands_are_not_registered(self, runner):
+        result = runner.invoke(cli, ["full", "--help"])
+
+        assert result.exit_code != 0
+        assert "No such command" in result.output
 
 
 class TestRunPrepareNoAnalysisPath:
@@ -361,4 +280,4 @@ class TestRunPrepareNoAnalysisPath:
         pc.display = MagicMock(spec=_PipelineDisplay)
         pc.logger = MagicMock()
 
-        _run_prepare(pc)  # should not raise AttributeError
+        _run_prepare(pc)
