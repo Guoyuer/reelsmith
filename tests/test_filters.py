@@ -46,17 +46,12 @@ class TestHdrToSdr:
             assert "format=yuv420p" in vf
             assert "zscale" not in vf and "tonemap=tonemap" not in vf
 
-    def test_libplacebo_uses_bt2446a_for_hlg(self):
-        # HLG/DJI material is scene-referred and usually lacks reliable peak
-        # metadata, so use the conservative HDR-to-SDR broadcast mapping.
-        vf = hdr_to_sdr_filter("arib-std-b67", use_libplacebo=True)
-        assert "tonemapping=bt.2446a" in vf
-
-    def test_libplacebo_uses_bt2390_for_pq(self):
-        # PQ/HDR10 is display-referred, where BT.2390 remains the preferred
-        # default.
-        vf = hdr_to_sdr_filter("smpte2084", use_libplacebo=True)
-        assert "tonemapping=bt.2390" in vf
+    def test_libplacebo_uses_bt2446a_for_consumer_hdr(self):
+        # Natural SDR delivery uses the conservative BT.2446A mapping for mixed
+        # consumer HDR, including phone PQ clips with bright outdoor highlights.
+        for trc in ("arib-std-b67", "smpte2084"):
+            vf = hdr_to_sdr_filter(trc, use_libplacebo=True)
+            assert "tonemapping=bt.2446a" in vf
 
     def test_libplacebo_skipped_for_sdr(self):
         # SDR passes through untouched even when libplacebo is available.

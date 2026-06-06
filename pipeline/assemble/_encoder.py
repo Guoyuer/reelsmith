@@ -221,7 +221,7 @@ def _detect_vulkan_tonemap() -> bool:
                 "color=c=gray:s=64x64:d=0.1,format=yuv420p10le,"
                 "setparams=color_trc=arib-std-b67:color_primaries=bt2020:colorspace=bt2020nc",
                 "-vf",
-                "libplacebo=tonemapping=bt.2390:colorspace=bt709:"
+                "libplacebo=tonemapping=bt.2446a:colorspace=bt709:"
                 "color_primaries=bt709:color_trc=bt709:range=tv:format=yuv420p",
                 "-frames:v",
                 "1",
