@@ -9,7 +9,6 @@ from .. import constants as C
 # HDR transfer characteristics that require tone-mapping to SDR. PQ (HDR10) and
 # HLG cover essentially all consumer HDR capture (phones = PQ, DJI = HLG).
 _HDR_TRANSFERS = {"smpte2084", "arib-std-b67"}
-_HLG_TRANSFERS = {"arib-std-b67"}
 
 
 def is_hdr_transfer(color_transfer: str) -> bool:
@@ -27,10 +26,11 @@ def hdr_to_sdr_filter(color_transfer: str, *, use_libplacebo: bool = False) -> s
 
     Two paths, chosen by *use_libplacebo* from detected render capabilities:
 
-    - **libplacebo** (preferred, color-correct): applies HLG/PQ-aware tone
-      mapping and perceptual gamut mapping, so colour balance is accurate and
-      content-adaptive — no warm cast, no neon highlights. HLG uses BT.2446
-      Method A for conservative SDR delivery; PQ/HDR10 uses BT.2390. Requires a
+    - **libplacebo** (preferred, color-correct): applies HDR-aware tone mapping
+      and perceptual gamut mapping, so colour balance is accurate and
+      content-adaptive. Consumer PQ and HLG both use BT.2446 Method A for a
+      conservative SDR delivery look; this is more natural in bright outdoor
+      highlights than the technical PQ BT.2390 reference path. Requires a
       Vulkan device (hardware, or a software ICD like Mesa lavapipe). It
       auto-uploads the software frame, tone-maps on the GPU, and outputs
       yuv420p back to the software graph — needs ``-init_hw_device vulkan`` on
@@ -44,12 +44,8 @@ def hdr_to_sdr_filter(color_transfer: str, *, use_libplacebo: bool = False) -> s
     if not is_hdr_transfer(trc):
         return ""
     if use_libplacebo:
-        # HLG is scene-referred and commonly lacks MaxCLL/MaxFALL; BT.2446
-        # Method A is the conservative HDR-to-SDR broadcast mapping. PQ/HDR10
-        # keeps BT.2390, which handles display-referred HDR10 material well.
-        tonemapping = "bt.2446a" if trc in _HLG_TRANSFERS else "bt.2390"
         return (
-            f"libplacebo=tonemapping={tonemapping}:colorspace=bt709:"
+            "libplacebo=tonemapping=bt.2446a:colorspace=bt709:"
             "color_primaries=bt709:color_trc=bt709:range=tv:format=yuv420p"
         )
     return (
