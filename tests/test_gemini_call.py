@@ -170,6 +170,32 @@ class TestGeminiCall:
         assert schema["type"] == "OBJECT"
         assert "segments" in schema["properties"]
 
+    def test_reports_structured_api_cost(self, gemini_env):
+        mod, _, _ = gemini_env("ok", input_tokens=1000, output_tokens=200)
+        progress = MagicMock()
+
+        mod._gemini_call(
+            system="s",
+            user_parts=["h"],
+            model="gemini-3-flash-preview",
+            progress_callback=progress,
+        )
+
+        cost_events = [
+            call.args[2]
+            for call in progress.call_args_list
+            if call.args[2].startswith("api_cost:")
+        ]
+        assert len(cost_events) == 1
+        payload = json.loads(cost_events[0].removeprefix("api_cost:"))
+        assert payload == {
+            "cost": pytest.approx(0.0011),
+            "prompt_tokens": 1000,
+            "content_tokens": 200,
+            "thinking_tokens": 0,
+            "cached_tokens": 0,
+        }
+
 
 class TestEdlResponseSchema:
     """Tests for _edl_response_schema — structured output schema validation."""

@@ -6,6 +6,7 @@ logging, and token counting.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import tempfile
@@ -655,16 +656,20 @@ def _gemini_call(
 
     # Report cost via callback metadata
     if progress_callback:
-        thinking_suffix = (
-            f", {api_stats.thinking_tokens:,} thinking"
-            if api_stats.thinking_tokens
-            else ""
-        )
         progress_callback(
             0,
             0,
-            f"~${api_stats.cost_est:.2f} ({api_stats.prompt_tokens:,} prompt, "
-            f"{api_stats.content_tokens:,} content{thinking_suffix})",
+            "api_cost:"
+            + json.dumps(
+                {
+                    "cost": api_stats.cost_est,
+                    "prompt_tokens": api_stats.prompt_tokens,
+                    "content_tokens": api_stats.content_tokens,
+                    "thinking_tokens": api_stats.thinking_tokens,
+                    "cached_tokens": api_stats.cached_tokens,
+                },
+                separators=(",", ":"),
+            ),
         )
 
     return content

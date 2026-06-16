@@ -269,6 +269,8 @@ def _run_pipeline(
                 _STAGE_RUNNERS[stage](pc)
 
         total = round(time.monotonic() - t_start, 1)
+        if display.api_cost > 0:
+            logger.info("Run API cost estimate: %s", display.api_cost_detail())
         logger.info("Pipeline success in %.0fs", total)
 
     except SystemExit:
@@ -277,6 +279,8 @@ def _run_pipeline(
         total = round(time.monotonic() - t_start, 1)
         if current_stage:
             display.fail(current_stage, str(e)[:80])
+        if display.api_cost > 0:
+            logger.info("Partial run API cost estimate: %s", display.api_cost_detail())
         logger.error("Pipeline failed in %.0fs: %s", total, e, exc_info=True)
         sys.exit(1)
     finally:
