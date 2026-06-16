@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import time
@@ -45,6 +46,10 @@ class _PipelineDisplay:
         self._stage_t_start: dict[str, float] = {}  # stage → start time
         self.output_file: str = ""  # set by assemble stage
         self.api_cost: float = 0.0  # accumulated Gemini API cost
+        self.api_prompt_tokens: int = 0
+        self.api_content_tokens: int = 0
+        self.api_thinking_tokens: int = 0
+        self.api_cached_tokens: int = 0
         # stage → (state, detail, progress_current, progress_total, duration)
         self._stage_data: dict[str, dict[str, Any]] = {}
         self._current_stage: str | None = None
@@ -318,7 +323,7 @@ class _PipelineDisplay:
         table.add_section()
         footer_detail = []
         if self.api_cost > 0:
-            footer_detail.append(f"API ~${self.api_cost:.2f}")
+            footer_detail.append(self.api_cost_detail())
         if self.output_file:
             from pathlib import Path
 
@@ -341,6 +346,34 @@ class _PipelineDisplay:
             con.bell()
         except Exception:
             pass
+
+    def record_api_cost(
+        self,
+        *,
+        cost: float,
+        prompt_tokens: int = 0,
+        content_tokens: int = 0,
+        thinking_tokens: int = 0,
+        cached_tokens: int = 0,
+    ) -> None:
+        self.api_cost += cost
+        self.api_prompt_tokens += prompt_tokens
+        self.api_content_tokens += content_tokens
+        self.api_thinking_tokens += thinking_tokens
+        self.api_cached_tokens += cached_tokens
+
+    def api_cost_detail(self) -> str:
+        token_parts = []
+        if self.api_prompt_tokens:
+            token_parts.append(f"{self.api_prompt_tokens:,} prompt")
+        if self.api_content_tokens:
+            token_parts.append(f"{self.api_content_tokens:,} content")
+        if self.api_thinking_tokens:
+            token_parts.append(f"{self.api_thinking_tokens:,} thinking")
+        if self.api_cached_tokens:
+            token_parts.append(f"{self.api_cached_tokens:,} cached")
+        suffix = f" ({', '.join(token_parts)})" if token_parts else ""
+        return f"API {_format_api_cost(self.api_cost)}{suffix}"
 
     def _refresh(self) -> None:
         if self._live:
@@ -410,11 +443,16 @@ def _progress_cb(
 
     def cb(current: int, total: int, name: str) -> None:
         if total == 0:
+            if name.startswith("api_cost:"):
+                detail = _record_structured_api_cost(display, name)
+                if detail:
+                    display.update(stage, detail)
+                return
             # Accumulate API cost if reported
             if name.startswith("~$"):
                 try:
                     cost = float(name.split("$")[1].split(" ")[0])
-                    display.api_cost += cost
+                    display.record_api_cost(cost=cost)
                 except (ValueError, IndexError):
                     pass
             # Status text only (no progress bar)
@@ -447,6 +485,32 @@ def _progress_cb(
             )
 
     return cb
+
+
+def _record_structured_api_cost(display: _PipelineDisplay, event: str) -> str:
+    """Accumulate a structured API cost progress event and return display text."""
+    try:
+        payload = json.loads(event.removeprefix("api_cost:"))
+        display.record_api_cost(
+            cost=float(payload.get("cost", 0) or 0),
+            prompt_tokens=int(payload.get("prompt_tokens", 0) or 0),
+            content_tokens=int(payload.get("content_tokens", 0) or 0),
+            thinking_tokens=int(payload.get("thinking_tokens", 0) or 0),
+            cached_tokens=int(payload.get("cached_tokens", 0) or 0),
+        )
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return ""
+    return display.api_cost_detail()
+
+
+def _format_api_cost(cost: float) -> str:
+    if cost >= 1:
+        return f"${cost:.2f}"
+    if cost >= 0.01:
+        return f"${cost:.3f}"
+    if cost >= 0.001:
+        return f"${cost:.4f}"
+    return f"${cost:.6f}"
 
 
 def _build_headline_from_args(stages: list[str], plan=None) -> str:

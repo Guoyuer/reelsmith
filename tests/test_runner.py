@@ -9,6 +9,7 @@ import pytest
 
 from pipeline.cli._display import (
     _build_headline_from_args,
+    _format_api_cost,
     _PipelineDisplay,
     _progress_cb,
 )
@@ -71,6 +72,10 @@ class TestProgressCb:
         }
         d._live = None
         d.api_cost = 0.0
+        d.api_prompt_tokens = 0
+        d.api_content_tokens = 0
+        d.api_thinking_tokens = 0
+        d.api_cached_tokens = 0
         d.output_file = ""
         return d
 
@@ -96,12 +101,55 @@ class TestProgressCb:
         cb(0, 0, "~$0.15 (1000 prompt, 500 content)")
         assert display.api_cost == pytest.approx(0.15)
 
+    def test_structured_api_cost_accumulated(self):
+        logger = logging.getLogger("test_cb_structured_cost")
+        display = self._make_display()
+        cb = _progress_cb(logger, display, "plan", 0)
+        cb(
+            0,
+            0,
+            (
+                'api_cost:{"cost":0.00123,"prompt_tokens":1000,'
+                '"content_tokens":200,"thinking_tokens":50,"cached_tokens":25}'
+            ),
+        )
+        assert display.api_cost == pytest.approx(0.00123)
+        assert display.api_prompt_tokens == 1000
+        assert display.api_content_tokens == 200
+        assert display.api_thinking_tokens == 50
+        assert display.api_cached_tokens == 25
+        assert display._stage_data["plan"]["label"] == (
+            "API $0.0012 (1,000 prompt, 200 content, 50 thinking, 25 cached)"
+        )
+
     def test_api_cost_malformed_ignored(self):
         logger = logging.getLogger("test_cb_cost_bad")
         display = self._make_display()
         cb = _progress_cb(logger, display, "plan", 0)
         cb(0, 0, "~$not_a_number")
         assert display.api_cost == 0.0
+
+    def test_structured_api_cost_malformed_ignored(self):
+        logger = logging.getLogger("test_cb_structured_cost_bad")
+        display = self._make_display()
+        cb = _progress_cb(logger, display, "plan", 0)
+        cb(0, 0, "api_cost:not-json")
+        assert display.api_cost == 0.0
+        assert display._stage_data["plan"]["label"] == ""
+
+
+class TestApiCostFormatting:
+    @pytest.mark.parametrize(
+        ("cost", "expected"),
+        [
+            (2.345, "$2.35"),
+            (0.1234, "$0.123"),
+            (0.00123, "$0.0012"),
+            (0.0001234, "$0.000123"),
+        ],
+    )
+    def test_format_api_cost(self, cost, expected):
+        assert _format_api_cost(cost) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +167,10 @@ class TestPipelineDisplayStates:
         d._stage_t_start = {}
         d.output_file = ""
         d.api_cost = 0.0
+        d.api_prompt_tokens = 0
+        d.api_content_tokens = 0
+        d.api_thinking_tokens = 0
+        d.api_cached_tokens = 0
         d._stage_data = {}
         d._current_stage = None
         d._live = None
@@ -192,6 +244,18 @@ class TestPipelineDisplayStates:
         d.done("prepare", "100 items", 0.1)  # < 0.5 → cached
         assert "(cached)" in d._stage_data["prepare"]["detail"]
 
+    def test_api_cost_detail_includes_tokens(self):
+        d = self._make_display(["plan"])
+        d.record_api_cost(
+            cost=0.01234,
+            prompt_tokens=1000,
+            content_tokens=200,
+            thinking_tokens=50,
+        )
+        assert d.api_cost_detail() == (
+            "API $0.012 (1,000 prompt, 200 content, 50 thinking)"
+        )
+
 
 # ---------------------------------------------------------------------------
 # _run_pipeline integration (mocked stages)
@@ -226,6 +290,7 @@ class TestRunPipeline:
                 "prepare": {"state": "pending"},
                 "plan": {"state": "pending"},
             }
+            mock_display.api_cost = 0.0
             MockDisplay.return_value = mock_display
             mock_log.return_value = logging.getLogger("test_pipeline")
 
@@ -234,3 +299,36 @@ class TestRunPipeline:
             _run_pipeline("test_run", stages=["prepare", "plan"])
 
         assert order == ["prepare", "plan"]
+
+    def test_logs_run_api_cost(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("WORKSPACE", str(tmp_path / "workspace"))
+        logger = MagicMock()
+
+        def _mock_plan(pc):
+            pc.display.record_api_cost(
+                cost=0.00123, prompt_tokens=100, content_tokens=5
+            )
+
+        with (
+            patch("pipeline.cli._runner._STAGE_RUNNERS", {"plan": _mock_plan}),
+            patch("pipeline.cli._runner._PipelineDisplay") as MockDisplay,
+            patch("pipeline.cli._runner._setup_logging", return_value=logger),
+        ):
+            display = _PipelineDisplay.__new__(_PipelineDisplay)
+            display.api_cost = 0.0
+            display.api_prompt_tokens = 0
+            display.api_content_tokens = 0
+            display.api_thinking_tokens = 0
+            display.api_cached_tokens = 0
+            display._live = None
+            display.stop = MagicMock()
+            display.print_summary = MagicMock()
+            MockDisplay.return_value = display
+
+            from pipeline.cli._runner import _run_pipeline
+
+            _run_pipeline("test_run", stages=["plan"])
+
+        logger.info.assert_any_call(
+            "Run API cost estimate: %s", "API $0.0012 (100 prompt, 5 content)"
+        )
